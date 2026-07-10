@@ -152,7 +152,12 @@ fn lex(s: &str) -> Result<Vec<Tok>, String> {
 struct P {
     t: Vec<Tok>,
     i: usize,
+    /// Same guard as `geo::Parser::depth` — bounds recursive-descent nesting
+    /// so adversarial input parse-errors instead of stack-overflowing.
+    depth: u32,
 }
+
+const MAX_PARSE_DEPTH: u32 = 200;
 
 impl P {
     fn peek(&self) -> Option<&Tok> {
@@ -211,11 +216,21 @@ impl P {
         }
     }
     fn unary(&mut self) -> Result<MExpr, String> {
-        if self.peek() == Some(&Tok::Op('-')) {
-            self.i += 1;
-            return Ok(MExpr::Neg(Box::new(self.unary()?)));
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(format!(
+                "expression nested too deeply (max depth {MAX_PARSE_DEPTH})"
+            ));
         }
-        self.atom()
+        let result = if self.peek() == Some(&Tok::Op('-')) {
+            self.i += 1;
+            self.unary().map(|e| MExpr::Neg(Box::new(e)))
+        } else {
+            self.atom()
+        };
+        self.depth -= 1;
+        result
     }
     fn atom(&mut self) -> Result<MExpr, String> {
         match self.next() {
@@ -295,6 +310,7 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
     let mut lp = P {
         t: toks[..eq].to_vec(),
         i: 0,
+        depth: 0,
     };
     let lhs = lp.expr()?;
     if lp.i != lp.t.len() {
@@ -303,6 +319,7 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
     let mut rp = P {
         t: toks[eq + 1..].to_vec(),
         i: 0,
+        depth: 0,
     };
     let rhs = rp.expr()?;
     if rp.i != rp.t.len() {

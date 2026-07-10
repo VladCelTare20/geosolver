@@ -419,9 +419,20 @@ enum Stmt {
 // Parser
 // ---------------------------------------------------------------------------
 
+/// Real `.geo` programs never nest expressions more than a handful of levels
+/// deep (see `corpus/imo_ag_30.txt`); 200 leaves generous headroom while
+/// staying far below what could exhaust a thread's stack.
+const MAX_PARSE_DEPTH: u32 = 200;
+
 struct Parser {
     toks: Vec<Tok>,
     pos: usize,
+    /// Current recursive-descent nesting depth, shared across the
+    /// metric-expression grammar (`parse_munary`) and the construction-call
+    /// grammar (`parse_expr`). Bounded by `MAX_PARSE_DEPTH` so adversarial
+    /// input gets a parse error instead of a stack overflow (which would
+    /// abort the whole process — uncatchable, unlike an ordinary panic).
+    depth: u32,
 }
 
 impl Parser {
@@ -524,18 +535,27 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, String> {
-        match self.next() {
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(format!(
+                "expression nested too deeply (max depth {MAX_PARSE_DEPTH})"
+            ));
+        }
+        let result = match self.next() {
             Some(Tok::Ident(name)) => {
                 if self.peek() == Some(&Tok::LParen) {
                     self.next();
-                    let args = self.parse_expr_list_until_rparen()?;
-                    Ok(Expr::Call(name, args))
+                    self.parse_expr_list_until_rparen()
+                        .map(|args| Expr::Call(name, args))
                 } else {
                     Ok(Expr::Ident(name))
                 }
             }
             other => Err(format!("expected expression, found {other:?}")),
-        }
+        };
+        self.depth -= 1;
+        result
     }
 
     fn parse_expr_list_until_rparen(&mut self) -> Result<Vec<Expr>, String> {
@@ -638,11 +658,21 @@ impl Parser {
         }
     }
     fn parse_munary(&mut self) -> Result<MExpr, String> {
-        if self.peek() == Some(&Tok::Minus) {
-            self.next();
-            return Ok(MExpr::Neg(Box::new(self.parse_munary()?)));
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(format!(
+                "expression nested too deeply (max depth {MAX_PARSE_DEPTH})"
+            ));
         }
-        self.parse_matom()
+        let result = if self.peek() == Some(&Tok::Minus) {
+            self.next();
+            self.parse_munary().map(|e| MExpr::Neg(Box::new(e)))
+        } else {
+            self.parse_matom()
+        };
+        self.depth -= 1;
+        result
     }
     fn parse_matom(&mut self) -> Result<MExpr, String> {
         match self.next() {
@@ -2894,13 +2924,46 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
     margin
 }
 
+/// IMO/JGEX corpus problems (`corpus/imo_ag_30.txt`, `corpus/jgex_ag_231.txt`)
+/// use roughly 5-15 points; 100 leaves an order of magnitude of headroom for
+/// legitimately complex constructions while keeping `Ddar::new`'s O(n^2)
+/// allocation, `deduction_closure`'s O(n^3) search, and `compile`'s up-to-400
+/// re-sampling attempts all bounded well short of a memory/CPU exhaustion DoS
+/// from a crafted `.geo` program (see `Ddar::new_with_slack`, `engine.rs:194`).
+const MAX_POINTS: usize = 100;
+
+/// Total point count declared across a parsed program — shared by every
+/// public entry point (`compile`, `build_instances`, `build_algebraic`) so
+/// the guard below applies uniformly.
+fn point_count(stmts: &[Stmt]) -> usize {
+    stmts
+        .iter()
+        .map(|s| match s {
+            Stmt::Bind { names, .. } => names.len(),
+            Stmt::Constrain { .. } => 1,
+            _ => 0,
+        })
+        .sum()
+}
+
+fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
+    let n = point_count(stmts);
+    if n > MAX_POINTS {
+        return Err(format!(
+            "too many points ({n}); this engine supports at most {MAX_POINTS} in one problem"
+        ));
+    }
+    Ok(())
+}
+
 pub fn compile(src: &str) -> Result<Compiled, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty program".to_string());
     }
+    check_point_count(&stmts)?;
 
     // Suppress panic output during the validation solve.
     let prev_hook = std::panic::take_hook();
@@ -3006,11 +3069,12 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
 /// re-sampled instances is a genuine identity.
 pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
+    check_point_count(&stmts)?;
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|info| {
         if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
@@ -3075,11 +3139,12 @@ pub struct AlgFigure {
 /// that DDAR can process without a numeric panic is found).
 pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
+    check_point_count(&stmts)?;
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|info| {
         if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
@@ -3243,6 +3308,82 @@ mod tests {
         assert!((pa - 2.0 * pb).abs() < 1e-6, "PA={pa}, PB={pb}");
         // And it is recorded as a hypothesis for the metric provers.
         assert_eq!(fig.metric_hyps.len(), 1);
+    }
+
+    /// A long chain of unary `-` (or deeply nested parens) must be rejected
+    /// with a clean parse error, not accepted — accepting it means nothing
+    /// bounds how deep this recursive-descent parser can go, and a much
+    /// longer chain (still well under the 16,384-char request body cap) would
+    /// stack-overflow the whole process instead of just this one request.
+    #[test]
+    fn deeply_nested_unary_minus_is_rejected_not_accepted() {
+        let mut src = String::from("prove dist(A, B) = ");
+        src.push_str(&"-".repeat(500));
+        src.push('5');
+        let result: Result<Compiled, String> = compile(&src);
+        assert!(
+            result.is_err(),
+            "500 levels of unary-minus nesting should be rejected by a depth cap"
+        );
+        if let Err(msg) = result {
+            assert!(
+                msg.contains("nested too deeply"),
+                "expected a nesting-depth error, got: {msg}"
+            );
+        }
+    }
+
+    /// Same guard, exercised through nested construction calls instead of
+    /// unary minus — `parse_expr` is a separate recursive grammar from the
+    /// metric-expression parser and needs its own depth cap.
+    #[test]
+    fn deeply_nested_construction_calls_are_rejected_not_accepted() {
+        let mut src = String::from("A = free\nB = ");
+        for _ in 0..500 {
+            src.push_str("reflect(");
+        }
+        src.push('A');
+        for _ in 0..500 {
+            src.push(')');
+        }
+        src.push_str("\nprove coll(A, A, B)");
+        let result: Result<Compiled, String> = compile(&src);
+        assert!(
+            result.is_err(),
+            "500 levels of construction-call nesting should be rejected by a depth cap"
+        );
+        if let Err(msg) = result {
+            assert!(msg.contains("nested too deeply"));
+        }
+    }
+
+    /// A program declaring far more points than any real geometry problem
+    /// needs must be rejected quickly, not accepted — accepting it means
+    /// `Ddar::new`'s O(n^2) allocation and `deduction_closure`'s O(n^3) search
+    /// scale with an attacker-chosen `n`, up to ~2,000 points fit in the
+    /// 16,384-char request body cap alone.
+    #[test]
+    fn too_many_points_is_rejected_quickly_not_accepted() {
+        let mut src = String::new();
+        for i in 0..500 {
+            src.push_str(&format!("p{i} = free\n"));
+        }
+        src.push_str("prove coll(p0, p0, p0)");
+        let start = std::time::Instant::now();
+        let result = compile(&src);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "rejection must happen before the expensive instance-search loop, \
+             not after — it took {:?}",
+            start.elapsed()
+        );
+        assert!(result.is_err(), "500 points should be rejected");
+        if let Err(msg) = result {
+            assert!(
+                msg.contains("too many points"),
+                "expected 'too many points' error, got: {msg}"
+            );
+        }
     }
 
     #[test]

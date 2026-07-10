@@ -249,7 +249,14 @@ async fn api_register(
     match outcome {
         Ok(Ok((username, sid))) => auth_ok(&username, &sid, secure),
         Ok(Err(RegisterErr::Taken)) => err(StatusCode::CONFLICT, i18n::t(lang, "auth.user_taken")),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail")),
+        Ok(Err(RegisterErr::Internal)) => {
+            eprintln!("register failed: internal error hashing/creating the account");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail"))
+        }
+        Err(e) => {
+            eprintln!("register panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail"))
+        }
     }
 }
 
@@ -281,7 +288,10 @@ async fn api_login(
     match outcome {
         Ok(Some((username, sid))) => auth_ok(&username, &sid, secure),
         Ok(None) => err(StatusCode::UNAUTHORIZED, i18n::t(lang, "auth.bad_creds")),
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.login_fail")),
+        Err(e) => {
+            eprintln!("login panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.login_fail"))
+        }
     }
 }
 
@@ -431,8 +441,14 @@ async fn api_solve(
             save_history(&state, user.id, &sol, history_title.as_deref()).await;
             Json(sol).into_response()
         }
-        Ok(Err(e)) => err(StatusCode::BAD_REQUEST, e), // compile/parse errors describe the user's input
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "solve.failed")),
+        Ok(Err(e)) => {
+            eprintln!("solve error: {e}"); // detail to the operator's log, not the client
+            err(StatusCode::BAD_REQUEST, e) // compile/parse errors describe the user's input
+        }
+        Err(e) => {
+            eprintln!("solve panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "solve.failed"))
+        }
     }
 }
 
@@ -490,7 +506,14 @@ async fn api_history(State(state): State<Shared>, headers: HeaderMap) -> Respons
     .await;
     match res {
         Ok(Ok(rows)) => Json(rows.into_iter().map(HistoryItem::from).collect::<Vec<_>>()).into_response(),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail")),
+        Ok(Err(())) => {
+            eprintln!("history load failed: db error");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"))
+        }
+        Err(e) => {
+            eprintln!("history load panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"))
+        }
     }
 }
 
@@ -513,7 +536,14 @@ async fn api_history_delete(
     match res {
         Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Ok(false)) => err(StatusCode::NOT_FOUND, i18n::t(i18n::lang_from_headers(&headers), "history.none")),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail")),
+        Ok(Err(())) => {
+            eprintln!("history delete failed: db error");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"))
+        }
+        Err(e) => {
+            eprintln!("history delete panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"))
+        }
     }
 }
 
@@ -562,7 +592,10 @@ async fn api_translate(
     let held = match (req.image_base64, req.text) {
         (Some(b64), _) => match decode_image(&b64, req.filename.as_deref()) {
             Ok(tmp) => Held::Image(tmp),
-            Err(_) => return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.bad_image")),
+            Err(e) => {
+                eprintln!("translate: bad image upload: {e}");
+                return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.bad_image"));
+            }
         },
         (None, Some(t)) if !t.trim().is_empty() => Held::Text(t),
         _ => return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.need_input")),
@@ -589,7 +622,10 @@ async fn api_translate(
                 "translation failed — could not turn that into a geometry problem",
             )
         }
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "translate.failed")),
+        Err(e) => {
+            eprintln!("translate panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "translate.failed"))
+        }
     }
 }
 
@@ -663,10 +699,13 @@ async fn api_humanize(
                 i18n::t(lang, "humanize.failed"),
             )
         }
-        Err(_) => err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            i18n::t(lang, "humanize.failed"),
-        ),
+        Err(e) => {
+            eprintln!("humanize panicked: {e}");
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(lang, "humanize.failed"),
+            )
+        }
     }
 }
 
@@ -762,8 +801,14 @@ async fn api_export(
             .header(header::CACHE_CONTROL, "no-store")
             .body(Body::from(bytes))
             .unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))),
-        Ok(Err(e)) => err(StatusCode::BAD_REQUEST, format!("{e}")),
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed")),
+        Ok(Err(e)) => {
+            eprintln!("export error: {e}");
+            err(StatusCode::BAD_REQUEST, format!("{e}"))
+        }
+        Err(e) => {
+            eprintln!("export panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))
+        }
     }
 }
 
@@ -988,6 +1033,150 @@ mod tests {
         let (st, _, _) =
             call(&state, "GET", "/api/history", None, serde_json::Value::Null).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+
+    /// A `.geo` program with 500 levels of `reflect(...)` nesting in a
+    /// construction is well under the 16,384-char body limit (so it reaches
+    /// the parser), and its goal (`coll(...)`) is not a metric goal, so it
+    /// routes through `geo::compile` — where it must be rejected as a clean
+    /// 400 by the depth cap added in geo.rs — not hang, time out, or (in the
+    /// pre-fix world) risk a stack overflow.
+    #[tokio::test]
+    async fn deeply_nested_solve_input_is_rejected_cleanly() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "sam").await;
+        let mut input = String::from("A = free\nB = ");
+        for _ in 0..500 {
+            input.push_str("reflect(");
+        }
+        input.push('A');
+        for _ in 0..500 {
+            input.push(')');
+        }
+        input.push_str("\nprove coll(A, A, B)");
+        assert!(input.len() < 16384, "test input must stay under the body cap");
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
+    }
+
+    /// A metric goal (e.g. `dist(A,B) = <deeply nested>`) routes through
+    /// `euclidean_flow`, not `geo::compile` — so it hits Task 2's `metric.rs`
+    /// depth cap, not Task 1's `geo.rs` cap. That path's pre-existing design
+    /// folds every prover failure into a normal 200/`proved:false` response
+    /// (not a 400) — this test locks in that the cap still fires safely and
+    /// fast through that path, not that it produces a 400.
+    #[tokio::test]
+    async fn deeply_nested_metric_goal_is_rejected_safely_not_accepted_or_crashed() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "vic").await;
+        let mut input = String::from("prove dist(A, B) = ");
+        input.push_str(&"-".repeat(500));
+        input.push('5');
+        assert!(input.len() < 16384, "test input must stay under the body cap");
+        let start = std::time::Instant::now();
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "must reject fast, not hang"
+        );
+        assert_eq!(
+            st,
+            StatusCode::OK,
+            "the euclidean-flow path folds prover failures into 200/proved:false, not a 400 — got: {body:?}"
+        );
+        assert_eq!(body["proved"], false);
+        assert!(
+            body["note"].as_str().unwrap_or("").contains("nested too deeply"),
+            "expected the metric.rs cap's message in the note, got: {body:?}"
+        );
+    }
+
+    /// A `.geo` program declaring 500 points is well under the body limit,
+    /// but must be rejected quickly by the point-count cap added in geo.rs —
+    /// not accepted and left to blow up `Ddar::new`'s O(n^2) allocation.
+    #[tokio::test]
+    async fn too_many_points_solve_input_is_rejected_quickly() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "tara").await;
+        let mut input = String::new();
+        for i in 0..500 {
+            input.push_str(&format!("p{i} = free\n"));
+        }
+        input.push_str("prove coll(p0, p0, p0)");
+        assert!(input.len() < 16384, "test input must stay under the body cap");
+        let start = std::time::Instant::now();
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "rejection must be fast, not run the expensive instance-search loop first"
+        );
+        assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
+    }
+
+    /// Firing several adversarial and several valid solves concurrently must
+    /// not let one request's failure affect another's success — each request
+    /// gets its own `spawn_blocking` task and its own response.
+    #[tokio::test]
+    async fn concurrent_adversarial_and_valid_solves_do_not_interfere() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "uma").await;
+        let mut bad_input = String::from("A = free\nB = ");
+        for _ in 0..500 {
+            bad_input.push_str("reflect(");
+        }
+        bad_input.push('A');
+        for _ in 0..500 {
+            bad_input.push(')');
+        }
+        bad_input.push_str("\nprove coll(A, A, B)");
+
+        let mut tasks = Vec::new();
+        for i in 0..8 {
+            let state = state.clone();
+            let cookie = cookie.clone();
+            let input = if i % 2 == 0 {
+                bad_input.clone()
+            } else {
+                ISOSCELES_GEO.to_string()
+            };
+            let expect_ok = i % 2 != 0;
+            tasks.push(tokio::spawn(async move {
+                let (st, _, body) = call(
+                    &state,
+                    "POST",
+                    "/api/solve",
+                    Some(&cookie),
+                    serde_json::json!({"input": input}),
+                )
+                .await;
+                let expected = if expect_ok { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+                assert_eq!(st, expected, "request {i} got: {body:?}");
+            }));
+        }
+        for t in tasks {
+            t.await.expect("request task panicked");
+        }
     }
 
     #[tokio::test]
