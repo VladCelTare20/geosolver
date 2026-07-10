@@ -41,12 +41,34 @@ pub fn serve() -> anyhow::Result<()> {
                 continue;
             }
         };
-        if let Some(resp) = handle(&req) {
+        let id = req.get("id").cloned();
+        if let Some(resp) = catch_panics(id, || handle(&req)) {
             writeln!(stdout, "{}", serde_json::to_string(&resp)?)?;
             stdout.flush()?;
         }
     }
     Ok(())
+}
+
+/// Runs `f`, converting any panic into a JSON-RPC error response instead of
+/// letting it propagate — which would otherwise kill this entire per-session
+/// MCP process (unlike `ag-studio`'s web server, nothing here runs inside a
+/// `tokio::task::spawn_blocking`, so there is no panic-isolation boundary
+/// above this one). Mirrors the `catch_unwind(AssertUnwindSafe(...))`
+/// convention used throughout `engine.rs`/`aux_search.rs`.
+fn catch_panics(id: Option<Value>, f: impl FnOnce() -> Option<Value>) -> Option<Value> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(resp) => resp,
+        Err(_) => {
+            eprintln!("request handler panicked; returning an error instead of crashing");
+            id.map(|id| {
+                json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "error": { "code": -32000, "message": "internal error while handling this request" }
+                })
+            })
+        }
+    }
 }
 
 /// Dispatch one JSON-RPC message. Returns `None` for notifications (no `id`).
@@ -289,4 +311,32 @@ fn method_name(m: engine::Method) -> &'static str {
 
 fn text_result(text: &str, is_error: bool) -> Value {
     json!({ "content": [ { "type": "text", "text": text } ], "isError": is_error })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catch_panics_converts_a_panic_into_a_jsonrpc_error_response() {
+        let id = Some(json!(7));
+        let resp = catch_panics(id, || panic!("simulated engine panic"));
+        let resp = resp.expect("a panicking request with an id must still get a response");
+        assert_eq!(resp["error"]["code"], -32000);
+        assert_eq!(resp["id"], 7);
+    }
+
+    #[test]
+    fn catch_panics_passes_through_normal_results_unchanged() {
+        let resp = catch_panics(Some(json!(1)), || Some(json!({"ok": true})));
+        assert_eq!(resp, Some(json!({"ok": true})));
+    }
+
+    #[test]
+    fn catch_panics_returns_none_for_a_panicking_notification() {
+        // Notifications (no id) get no reply even when they panic — mirrors
+        // `handle`'s existing behavior of returning `None` for notifications.
+        let resp = catch_panics(None, || panic!("simulated panic on a notification"));
+        assert_eq!(resp, None);
+    }
 }
