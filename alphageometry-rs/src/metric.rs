@@ -152,7 +152,12 @@ fn lex(s: &str) -> Result<Vec<Tok>, String> {
 struct P {
     t: Vec<Tok>,
     i: usize,
+    /// Same guard as `geo::Parser::depth` — bounds recursive-descent nesting
+    /// so adversarial input parse-errors instead of stack-overflowing.
+    depth: u32,
 }
+
+const MAX_PARSE_DEPTH: u32 = 200;
 
 impl P {
     fn peek(&self) -> Option<&Tok> {
@@ -211,11 +216,21 @@ impl P {
         }
     }
     fn unary(&mut self) -> Result<MExpr, String> {
-        if self.peek() == Some(&Tok::Op('-')) {
-            self.i += 1;
-            return Ok(MExpr::Neg(Box::new(self.unary()?)));
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(format!(
+                "expression nested too deeply (max depth {MAX_PARSE_DEPTH})"
+            ));
         }
-        self.atom()
+        let result = if self.peek() == Some(&Tok::Op('-')) {
+            self.i += 1;
+            self.unary().map(|e| MExpr::Neg(Box::new(e)))
+        } else {
+            self.atom()
+        };
+        self.depth -= 1;
+        result
     }
     fn atom(&mut self) -> Result<MExpr, String> {
         match self.next() {
@@ -295,6 +310,7 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
     let mut lp = P {
         t: toks[..eq].to_vec(),
         i: 0,
+        depth: 0,
     };
     let lhs = lp.expr()?;
     if lp.i != lp.t.len() {
@@ -303,6 +319,7 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
     let mut rp = P {
         t: toks[eq + 1..].to_vec(),
         i: 0,
+        depth: 0,
     };
     let rhs = rp.expr()?;
     if rp.i != rp.t.len() {
@@ -508,5 +525,23 @@ mod tests {
         assert_eq!(pretty(144.0), "144");
         assert_eq!(pretty(27.0f64.sqrt()), "3√3");
         assert_eq!(pretty(0.5), "1/2");
+    }
+
+    /// Same class of bug as `geo.rs`'s parser (see that file's
+    /// `deeply_nested_unary_minus_is_rejected_not_accepted`): this is a
+    /// second, independent recursive-descent parser and needs its own cap.
+    #[test]
+    fn deeply_nested_unary_minus_is_rejected_not_accepted() {
+        let lhs = "dist(A, B)";
+        let mut rhs = String::new();
+        rhs.push_str(&"-".repeat(500));
+        rhs.push('5');
+        let src = format!("{lhs} = {rhs}");
+        let result = parse_equation(&src);
+        assert!(
+            result.is_err(),
+            "500 levels of unary-minus nesting should be rejected by a depth cap"
+        );
+        assert!(result.unwrap_err().contains("nested too deeply"));
     }
 }
