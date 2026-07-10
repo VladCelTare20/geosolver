@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["alphageometry-rs", "ag-studio"]
+
+# Cargo profiles must be declared at the workspace root once a crate becomes a
+# member (member-level profiles are ignored). These mirror the engine's original
+# release tuning. `panic = "unwind"` (the default) is kept so the auxiliary-point
+# search can catch panics from degenerate candidate constructions via
+# `catch_unwind`.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.bench]
+opt-level = 3
+lto = "thin"

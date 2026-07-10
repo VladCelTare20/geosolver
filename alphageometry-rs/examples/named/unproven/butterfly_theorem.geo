@@ -1,0 +1,11 @@
+# Butterfly theorem — through the midpoint M of a chord PQ draw two chords AB and CD; then AD and CB cut PQ at points equidistant from M (source: Coxeter & Greitzer, Geometry Revisited)
+O P = segment
+Q = on_circle(O, P)
+M = midpoint(P, Q)
+A = on_circle(O, P)
+B = meet(line(A, M), circle(O, P))
+C = on_circle(O, P)
+D = meet(line(C, M), circle(O, P))
+X = meet(line(A, D), line(P, Q))
+Y = meet(line(C, B), line(P, Q))
+prove cong(M, X, M, Y)

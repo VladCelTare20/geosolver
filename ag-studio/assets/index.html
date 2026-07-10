@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#16181b" media="(prefers-color-scheme: dark)" />
+<script>(function(){try{var l=localStorage.getItem('lang')||'en';document.documentElement.lang=l;
+document.documentElement.setAttribute('data-lang',l);if(l!=='en'){document.documentElement.style.visibility='hidden';
+setTimeout(function(){document.documentElement.style.visibility='';},1000);}}catch(e){}})();</script>
+<title>GeoSolver</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="%232456a6" stroke-width="2"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="%232456a6" stroke-width="2" stroke-linejoin="round"/></svg>' />
+<style>
+  :root {
+    --paper: #f7f7f5; --card: #ffffff; --well: #f2f2ef;
+    --ink: #1b1f24; --muted: #61686f; --line: #e3e4e1; --line-strong: #cfd1cd;
+    --accent: #2456a6; --accent-hover: #1c4589; --accent-ink: #ffffff;
+    --ok: #1e7b34; --err: #b3261e;
+    --warn-bg: #faf6e8; --warn-line: #e5d9a8; --warn-ink: #6b5c1e;
+    --err-bg: #faeeed; --err-line: #e8c4c0;
+    --serif: 'Charter','Bitstream Charter','Iowan Old Style',Georgia,'Times New Roman',serif;
+    --sans: system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --mono: ui-monospace,'Cascadia Mono',Consolas,'DejaVu Sans Mono',monospace;
+    --radius: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #16181b; --card: #1d2024; --well: #191c1f;
+      --ink: #e6e8ea; --muted: #9aa2aa; --line: #2b2f34; --line-strong: #3b4046;
+      --accent: #86abdd; --accent-hover: #9dbce6; --accent-ink: #10131a;
+      --ok: #63b077; --err: #e0796f;
+      --warn-bg: #26231a; --warn-line: #4d452a; --warn-ink: #d8c88a;
+      --err-bg: #2a1d1c; --err-line: #4f302d;
+    }
+  }
+  * { box-sizing: border-box; }
+  button, .seg button, label, summary, select { touch-action: manipulation; }
+  html, body { margin:0; padding:0; background:var(--paper); color:var(--ink); font-family:var(--sans);
+    -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent; overflow-x:hidden; }
+  body { min-height:100vh; font-size:15px; line-height:1.5; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .lang-seg { display:inline-flex; height:30px; align-self:center; background:var(--card);
+    border:1px solid var(--line-strong); border-radius:6px; overflow:hidden; }
+  .lang-seg button { border:none; background:transparent; color:var(--muted); font:inherit; font-size:12px;
+    font-weight:700; letter-spacing:.03em; padding:0 10px; cursor:pointer; }
+  .lang-seg button + button { border-left:1px solid var(--line-strong); }
+  .lang-seg button:hover { color:var(--accent); }
+  .lang-seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
+
+  header {
+    max-width: 1340px; margin: 0 auto; padding: 26px 28px 18px;
+    display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
+  }
+  .wordmark { display:flex; align-items:center; gap:11px; }
+  .wordmark svg { width:26px; height:26px; flex:none; align-self:center; color:var(--accent); }
+  .wordmark .name { font-family:var(--serif); font-size:21px; font-weight:600; letter-spacing:.01em; white-space:nowrap; }
+  header .tag { color:var(--muted); font-size:13.5px; }
+  header .spacer { flex:1; }
+  .pill { font-size:12px; padding:4px 11px; border-radius:999px; border:1px solid var(--line); color:var(--muted); white-space:nowrap; background:var(--card); }
+  .pill .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--line-strong); margin-right:6px; vertical-align:1px; }
+  .pill.on .dot { background:var(--ok); }
+  .pill.warn .dot { background:#c9a227; }
+  /* When the header wraps, the account box takes the right edge of its row
+     instead of dangling at the left. */
+  #user-box { margin-left:auto; }
+
+  main {
+    max-width: 1480px; margin: 0 auto; padding: 8px 28px 56px;
+    display:grid; grid-template-columns: minmax(330px, 390px) 1fr; gap: 20px; align-items:start;
+  }
+  @media (max-width: 940px){ main { grid-template-columns: 1fr; gap:16px; padding:4px 16px 44px; } header { padding:20px 16px 12px; } }
+  @media (max-width: 640px){
+    /* Two balanced rows: wordmark | lang toggle, then AI pill | account. */
+    header { padding: calc(16px + env(safe-area-inset-top)) 16px 10px;
+      display:grid; grid-template-columns:1fr auto; align-items:center; gap:12px 10px; }
+    header .tag, header .spacer { display:none; }
+    .lang-seg { justify-self:end; }
+    #ai-pill { grid-row:2; justify-self:start; }
+    #user-box { grid-row:2; grid-column:2; justify-self:end; }
+    main { padding: 2px 13px calc(36px + env(safe-area-inset-bottom)); gap:13px; }
+    .card .bd { padding:14px; }
+    /* 16px inputs stop iOS Safari from zooming in on focus */
+    textarea, input[type=text] { font-size:16px; }
+    textarea#input { min-height:150px; }
+    button.btn { min-height:46px; }
+    #solve { flex:1; }
+    .seg button { padding:9px 14px; }
+    .proof { max-height:60vh; }
+    footer { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+  }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+  .card .hd {
+    padding:11px 18px; border-bottom:1px solid var(--line);
+    font-family:var(--serif); font-variant-caps:all-small-caps; letter-spacing:.14em;
+    font-size:15px; color:var(--muted); display:flex; align-items:center; gap:10px;
+  }
+  .card .bd { padding:18px; }
+
+  .seg { display:inline-flex; background:var(--well); border:1px solid var(--line); border-radius:7px; padding:2px; gap:2px; }
+  .seg button { border:0; background:transparent; color:var(--muted); padding:7px 13px; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; font-family:var(--sans); }
+  .seg button.active { background:var(--card); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .between { justify-content:space-between; }
+  .mt10{margin-top:10px}.mt14{margin-top:14px}.mt18{margin-top:18px}
+
+  textarea, input[type=text] {
+    width:100%; background:var(--card); color:var(--ink); border:1px solid var(--line-strong);
+    border-radius:6px; padding:11px 12px; font-family:var(--mono); font-size:13.5px; line-height:1.55; resize:vertical;
+  }
+  textarea::placeholder { color:var(--muted); opacity:.8; }
+  textarea:focus, input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+  textarea#input { min-height:170px; }
+  label.lbl { font-size:13px; color:var(--muted); display:block; margin-bottom:6px; }
+
+  .drop {
+    border:1px dashed var(--line-strong); border-radius:6px; padding:13px; text-align:center; color:var(--muted);
+    font-size:13px; cursor:pointer; transition:border-color .15s, color .15s; background:var(--well);
+  }
+  .drop:hover, .drop.hover { border-color:var(--accent); color:var(--ink); }
+  .drop.has { border-style:solid; color:var(--ink); }
+  .thumb { max-height:120px; max-width:100%; border-radius:5px; margin-top:8px; border:1px solid var(--line); }
+
+  button.btn {
+    border:0; border-radius:6px; padding:10px 22px; font-size:14px; font-weight:600; cursor:pointer;
+    background:var(--accent); color:var(--accent-ink); transition:background .12s; font-family:var(--sans);
+  }
+  button.btn:hover { background:var(--accent-hover); }
+  button.btn:disabled { opacity:.55; cursor:not-allowed; }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line-strong); font-weight:500; }
+  button.ghost:hover { border-color:var(--accent); color:var(--accent); background:transparent; }
+
+  select {
+    background:var(--card); color:var(--ink); border:1px solid var(--line-strong); border-radius:6px; padding:7px 9px; font-size:13px; font-family:var(--sans);
+  }
+  .opt { display:flex; align-items:flex-start; gap:9px; cursor:pointer; font-size:13.5px; color:var(--ink); line-height:1.45; }
+  .opt input { width:15px; height:15px; margin-top:2px; flex:none; accent-color:var(--accent); }
+  .opt .hint { color:var(--muted); }
+
+  .status { display:flex; align-items:baseline; gap:10px; font-size:14px; flex-wrap:wrap; }
+  .verdict { font-family:var(--serif); font-size:19px; font-weight:600; }
+  .verdict.ok{ color:var(--ok); } .verdict.no{ color:var(--err); }
+  .meta { color:var(--muted); font-size:13px; }
+
+  /* --- zoomable / fullscreen figure viewer --- */
+  .figure { position:relative; background:var(--card); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .fig-vp { overflow:hidden; touch-action:pan-y; cursor:grab; -webkit-user-select:none; user-select:none; }
+  .fig-vp.zoomed { touch-action:none; }
+  .fig-vp.panning { cursor:grabbing; }
+  .fig-vp svg { width:100%; height:auto; display:block; transform-origin:0 0; pointer-events:none; }
+  .fig-tools { position:absolute; top:8px; right:8px; display:flex; gap:6px; z-index:5; }
+  .fig-btn {
+    width:36px; height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center;
+    border:1px solid var(--line-strong); border-radius:6px; background:var(--card); color:var(--ink);
+    font-size:17px; line-height:1; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.10); flex:none;
+  }
+  .fig-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .fig-btn svg { width:17px; height:17px; pointer-events:none; }
+  .fig-zoom { position:absolute; left:10px; top:12px; z-index:5; font-size:12px; color:var(--muted);
+    background:var(--card); border:1px solid var(--line); border-radius:999px; padding:3px 9px; opacity:0; transition:opacity .15s; pointer-events:none; }
+  .fig-zoom.show { opacity:1; }
+  .fig-hint { position:absolute; left:0; right:0; bottom:8px; text-align:center; z-index:4; pointer-events:none; }
+  .fig-hint span { font-size:11.5px; color:var(--muted); background:var(--card); border:1px solid var(--line); border-radius:999px; padding:3px 10px; }
+  .figure.fs { position:fixed; inset:0; z-index:1000; border-radius:0; border:0; margin:0; display:flex; flex-direction:column;
+    background:var(--paper); padding:0; }
+  .figure.fs .fig-vp { flex:1; min-height:0; touch-action:none; }
+  .figure.fs .fig-vp svg { width:100%; height:100%; }
+  .figure.fs .fig-tools { top:calc(10px + env(safe-area-inset-top)); right:calc(10px + env(safe-area-inset-right)); }
+  .figure.fs .fig-zoom { left:calc(12px + env(safe-area-inset-left)); top:calc(14px + env(safe-area-inset-top)); }
+  .empty { color:var(--muted); text-align:center; padding:56px 16px; font-size:14px; }
+
+
+  .legend { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; font-size:13.5px; align-items:baseline; }
+  .legend .k { font-family:var(--serif); font-variant-caps:all-small-caps; letter-spacing:.1em; color:var(--muted); font-size:14px; }
+  .legend .v { font-family:var(--mono); font-size:13px; line-height:1.7; word-break:break-word; }
+  .legend .v .sep { color:var(--muted); padding:0 7px; }
+
+  /* The proof reads like a solutions manual: flowing serif prose. */
+  .proof {
+    background:var(--well); border:1px solid var(--line); border-radius:6px; padding:16px 18px;
+    font-family:var(--serif); font-size:15.5px; line-height:1.72; color:var(--ink);
+    overflow:auto; max-height:560px; margin:0;
+  }
+  .proof p { margin:0 0 12px; }
+  .proof p:last-child { margin-bottom:0; }
+  .proof em { font-style:italic; }
+  .proof strong { font-weight:700; }
+  .proof .writing { display:flex; align-items:center; gap:9px; color:var(--muted);
+    font-family:var(--sans); font-size:14px; }
+  .proof .fallback-note { font-family:var(--sans); font-size:12.5px; color:var(--muted); margin:0 0 9px; }
+  .proof.raw { font-family:var(--mono); font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
+  .proof.err { color:var(--err); font-family:var(--sans); font-size:13.5px; }
+  pre.code {
+    background:var(--well); border:1px solid var(--line); border-radius:6px; padding:14px 16px;
+    font-family:var(--mono); font-size:13px; line-height:1.6; overflow:auto; white-space:pre-wrap; word-break:break-word; margin:0;
+  }
+  .prooflbl { font-family:var(--serif); font-style:italic; font-size:15px; color:var(--ink); display:block; margin-bottom:7px; }
+
+  .hist-item { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .hist-item:last-child { border-bottom:0; }
+  .hist-item:hover .hist-title { color:var(--accent); }
+  .hist-verdict { flex:none; width:8px; height:8px; border-radius:50%; }
+  .hist-verdict.ok { background:var(--ok); } .hist-verdict.no { background:var(--err); }
+  .hist-title { flex:1; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hist-time { flex:none; font-size:11.5px; color:var(--muted); }
+  .hist-del { flex:none; border:0; background:transparent; color:var(--muted); font-size:15px; line-height:1;
+    padding:4px 7px; border-radius:5px; cursor:pointer; }
+  .hist-del:hover { color:var(--err); background:var(--well); }
+
+  details { border:1px solid var(--line); border-radius:6px; background:var(--card); }
+  details summary { cursor:pointer; padding:10px 14px; font-size:13px; color:var(--muted); }
+  details summary:hover { color:var(--ink); }
+  details[open] summary { border-bottom:1px solid var(--line); }
+  details .dbd { padding:12px 14px; }
+  details pre.code { border:0; padding:0; background:transparent; }
+
+  .aux { border:1px solid var(--line); background:var(--well); border-radius:6px; padding:10px 14px; font-family:var(--mono); font-size:13px; line-height:1.7; }
+
+  .banner { border-radius:6px; padding:11px 14px; font-size:13.5px; margin-bottom:14px; }
+  .banner.err { background:var(--err-bg); border:1px solid var(--err-line); color:var(--err); }
+  .banner.warn { background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn-ink); }
+  .banner code { font-family:var(--mono); font-size:12.5px; }
+  .hidden { display:none !important; }
+
+  .spinner { width:15px; height:15px; border:2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color:currentColor; border-radius:50%; display:inline-block; animation:spin .7s linear infinite; vertical-align:-3px; margin-right:2px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
+
+  footer { max-width:1340px; margin:0 auto; color:var(--muted); font-size:12.5px; text-align:center; padding:22px 28px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wordmark">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+    <span class="name">GeoSolver</span>
+  </div>
+  <div class="tag" data-i18n="app.tag">type or photograph a geometry problem — get the labeled figure and a step-by-step proof</div>
+  <div class="spacer"></div>
+  <div class="lang-seg" role="group" aria-label="Language / Limbă">
+    <button type="button" data-lang-set="en" aria-pressed="true">EN</button>
+    <button type="button" data-lang-set="ro" aria-pressed="false">RO</button>
+  </div>
+  <div id="ai-pill" class="pill"><span class="dot"></span>checking…</div>
+  <div id="user-box" class="row hidden">
+    <span class="meta" id="username-label"></span>
+    <button class="ghost btn" id="logout-btn" style="padding:6px 12px" data-i18n="app.logout">Log out</button>
+  </div>
+</header>
+
+<main>
+  <!-- INPUT -->
+  <section class="card" aria-label="input">
+    <div class="hd" data-i18n="app.problem">Problem</div>
+    <div class="bd">
+      <div class="row between">
+        <div class="seg" id="mode" role="tablist">
+          <button data-mode="describe" class="active" data-i18n="app.mode_describe">Describe</button>
+          <button data-mode="geo" data-i18n="app.mode_geo">.geo code</button>
+        </div>
+        <div class="row">
+          <label class="lbl" style="margin:0" for="theme" data-i18n="app.figure">Figure</label>
+          <select id="theme">
+            <option value="light" selected data-i18n="app.theme_light">Light</option>
+            <option value="dark" data-i18n="app.theme_dark">Dark</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mt14" id="describe-help">
+        <label class="lbl" for="input" data-i18n="app.describe_label">Describe the problem in words, or upload a photo of it:</label>
+      </div>
+      <div class="mt10 hidden" id="geo-help">
+        <label class="lbl" for="input" data-i18n="app.geo_label">Write a .geo program:</label>
+      </div>
+
+      <textarea id="input" spellcheck="false" placeholder="e.g. In triangle ABC, H is the orthocenter. Prove the reflection of H over line BC lies on the circumcircle of ABC."></textarea>
+
+      <div class="mt10" id="upload-wrap">
+        <div class="drop" id="drop">
+          <div id="drop-text" data-i18n="app.drop_text">Drop a photo of the problem here, or click to choose</div>
+          <img id="thumb" class="thumb hidden" alt="uploaded problem" />
+        </div>
+        <input type="file" id="file" accept="image/*" class="hidden" />
+      </div>
+
+      <label class="opt mt14">
+        <input type="checkbox" id="best" />
+        <span><span data-i18n="app.best">Find the shortest proof</span> <span class="hint" data-i18n="app.best_hint">— compares every proof it can reach in up to 20 seconds</span></span>
+      </label>
+
+      <div class="row between mt14">
+        <button class="btn" id="solve" data-i18n="app.solve">Solve</button>
+        <button class="ghost btn" id="clear" style="padding:10px 14px" data-i18n="app.clear">Clear</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- OUTPUT -->
+  <section class="card" aria-label="result">
+    <div class="hd"><span data-i18n="app.solution">Solution</span> <span id="hd-method" class="pill" style="display:none"></span></div>
+    <div class="bd">
+      <div id="banner-slot"></div>
+
+      <div id="empty" class="empty" data-i18n="app.empty" data-i18n-html>Enter your problem and press <b>Solve</b>. The labeled figure and the step-by-step proof appear here.</div>
+
+      <div id="result" class="hidden">
+        <div class="status">
+          <span class="verdict" id="verdict"></span>
+          <span class="meta" id="meta"></span>
+        </div>
+
+        <div class="figure mt14" id="figure-frame">
+          <div class="fig-zoom" id="fig-zoom">100%</div>
+          <div class="fig-tools">
+            <button class="fig-btn" id="z-out" type="button" data-i18n-attr="title:app.zoom_out;aria-label:app.zoom_out" title="Zoom out" aria-label="Zoom out">−</button>
+            <button class="fig-btn" id="z-in" type="button" data-i18n-attr="title:app.zoom_in;aria-label:app.zoom_in" title="Zoom in" aria-label="Zoom in">+</button>
+            <button class="fig-btn" id="z-fit" type="button" data-i18n-attr="title:app.fit;aria-label:app.fit" title="Fit to view" aria-label="Fit to view">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
+            </button>
+            <button class="fig-btn" id="z-full" type="button" data-i18n-attr="title:app.fullscreen;aria-label:app.fullscreen" title="Fullscreen" aria-label="Toggle fullscreen">
+              <svg id="z-full-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+              <svg id="z-full-close" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="fig-vp" id="figure"></div>
+          <div class="fig-hint" id="fig-hint"><span data-i18n="app.fig_hint">scroll / pinch to zoom · drag to pan · double-tap to reset</span></div>
+        </div>
+
+        <div class="legend mt14" id="legend"></div>
+
+        <div class="row between mt14">
+          <div class="row">
+            <button class="ghost btn" id="dl-pdf" style="padding:8px 14px" data-i18n="app.save_pdf">Save PDF</button>
+            <button class="ghost btn" id="dl-png" style="padding:8px 14px" data-i18n="app.save_png">Save PNG</button>
+          </div>
+          <div class="meta" id="ptsinfo"></div>
+        </div>
+
+        <div class="mt14" id="aux-slot"></div>
+
+        <div class="mt18">
+          <span class="prooflbl" id="prooftitle">Proof.</span>
+          <div class="proof" id="proof"></div>
+        </div>
+
+        <div class="mt14" id="geo-slot"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="card mt18" aria-label="history" style="grid-column:1">
+    <div class="hd" data-i18n="app.history">History</div>
+    <div class="bd">
+      <div id="history-empty" class="empty" style="padding:20px 8px" data-i18n="app.loading">Loading…</div>
+      <div id="history-list" class="hidden"></div>
+    </div>
+  </section>
+</main>
+
+<footer data-i18n="app.footer">
+  GeoSolver · a from-scratch Rust implementation of the AlphaGeometry deduction engine
+</footer>
+
+<script src="/assets/i18n.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const t = (k, v) => (window.i18n ? window.i18n.t(k, v) : k);
+const curLang = () => (window.i18n ? window.i18n.current() : 'en');
+// Locale-aware number: Romanian uses a decimal comma.
+const fmtNum = (n, digits) => { let s = Number(n).toFixed(digits); return curLang() === 'ro' ? s.replace('.', ',') : s; };
+const state = { mode: 'describe', translateInstalled: false, translateReady: false, imageB64: null, imageName: null, solvedInput: null, solvedTitle: null, lastSol: null, lastGeo: null };
+let historyItems = []; // last-loaded /api/history rows, indexed by the .hist-item's data-index
+
+// ---------- init ----------
+async function init() {
+  // Default the figure theme to the page's own scheme; the select still lets
+  // the user pick either.
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    $('theme').value = 'dark';
+  try {
+    const s = await (await fetch('/api/status')).json();
+    state.translateInstalled = !!s.translate_installed;
+    state.translateReady = !!s.translate_logged_in;
+  } catch(e) { state.translateInstalled = false; state.translateReady = false; }
+  try {
+    const me = await (await fetch('/api/auth/me')).json();
+    if (me && me.username) {
+      $('username-label').textContent = me.username;
+      $('user-box').classList.remove('hidden');
+    }
+  } catch(e) {}
+  updatePill();
+  applyModeUI();
+  wire();
+  loadHistory();
+}
+
+function updatePill(){
+  const pill=$('ai-pill'); const dot='<span class="dot"></span>';
+  if (state.translateReady){ pill.className='pill on'; pill.innerHTML=dot+t('app.ai_on'); }
+  else if (state.translateInstalled){ pill.className='pill warn'; pill.innerHTML=dot+t('app.ai_signin'); }
+  else { pill.className='pill'; pill.innerHTML=dot+t('app.ai_off'); }
+}
+
+function setMode(m){ state.mode=m; document.querySelectorAll('#mode button').forEach(b=>b.classList.toggle('active', b.dataset.mode===m)); applyModeUI(); }
+function applyModeUI(){
+  const describe = state.mode==='describe';
+  $('describe-help').classList.toggle('hidden', !describe);
+  $('geo-help').classList.toggle('hidden', describe);
+  // image upload only useful once AI translation is ready (installed + signed in)
+  $('upload-wrap').classList.toggle('hidden', !(describe && state.translateReady));
+  $('input').placeholder = describe ? t('app.input_ph_describe') : t('app.input_ph_geo');
+  if (describe && !state.translateReady) {
+    banner('warn', state.translateInstalled ? t('app.warn_login') : t('app.warn_install'));
+  } else { clearBanner(); }
+}
+
+function wire(){
+  document.querySelectorAll('#mode button').forEach(b=> b.onclick=()=>setMode(b.dataset.mode));
+  $('solve').onclick = solve;
+  $('clear').onclick = () => { $('input').value=''; clearImage(); $('result').classList.add('hidden'); $('empty').classList.remove('hidden'); clearBanner(); };
+  $('dl-pdf').onclick = () => exportDoc('pdf');
+  $('dl-png').onclick = () => exportDoc('png');
+  // image upload
+  const drop=$('drop'), file=$('file');
+  drop.onclick=()=>file.click();
+  file.onchange=e=>{ if(e.target.files[0]) loadImage(e.target.files[0]); };
+  drop.ondragover=e=>{e.preventDefault();drop.classList.add('hover');};
+  drop.ondragleave=()=>drop.classList.remove('hover');
+  drop.ondrop=e=>{e.preventDefault();drop.classList.remove('hover'); if(e.dataTransfer.files[0]) loadImage(e.dataTransfer.files[0]);};
+  $('logout-btn').onclick = logout;
+  $('history-list').addEventListener('click', e => activateHistItem(e.target));
+  $('history-list').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (!e.target.closest('.hist-item')) return;
+    e.preventDefault();
+    activateHistItem(e.target);
+  });
+}
+
+function activateHistItem(target){
+  const del = target.closest('.hist-del');
+  if (del) { deleteHistory(del.dataset.id); return; }
+  const item = target.closest('.hist-item');
+  if (item) reopenHistory(historyItems[+item.dataset.index].input);
+}
+
+async function logout(){
+  try { await fetch('/api/auth/logout', { method:'POST' }); } catch(e){}
+  location.href = '/';
+}
+
+// ---------- history ----------
+async function loadHistory(){
+  let rows = [];
+  try { rows = await (await fetch('/api/history')).json(); if (!Array.isArray(rows)) rows = []; } catch(e) { rows = []; }
+  const list = $('history-list'), empty = $('history-empty');
+  if (!rows.length) { list.classList.add('hidden'); empty.textContent = t('app.no_solves'); empty.classList.remove('hidden'); historyItems = []; return; }
+  empty.classList.add('hidden'); list.classList.remove('hidden');
+  historyItems = rows;
+  renderHistoryList();
+}
+
+function renderHistoryList(){
+  const loc = curLang() === 'ro' ? 'ro-RO' : undefined;
+  $('history-list').innerHTML = historyItems.map((r, i) => {
+    const when = new Date(r.created_at*1000).toLocaleString(loc);
+    const label = r.title || (r.input||'').split('\n')[0].slice(0,44) || t('app.untitled');
+    return '<div class="hist-item" data-index="'+i+'" role="button" tabindex="0" aria-label="'+escapeHtml(t('app.reopen',{label}))+'">'
+      + '<span class="hist-verdict '+(r.proved?'ok':'no')+'" title="'+(r.proved?t('app.proven'):t('app.not_proven'))+'"></span>'
+      + '<span class="hist-title">'+escapeHtml(label)+'</span>'
+      + '<span class="hist-time">'+escapeHtml(when)+'</span>'
+      + '<button class="hist-del" type="button" data-id="'+r.id+'" aria-label="'+escapeHtml(t('app.delete'))+'" title="'+escapeHtml(t('app.delete'))+'">✕</button></div>';
+  }).join('');
+}
+
+async function deleteHistory(id){
+  try {
+    const res = await fetch('/api/history/'+encodeURIComponent(id), { method:'DELETE' });
+    if (!res.ok && res.status !== 404) { banner('err',t('app.del_fail')); return; }
+  } catch(e) { banner('err',t('app.del_fail')); return; }
+  loadHistory();
+}
+
+function reopenHistory(input){
+  setMode('geo');
+  $('input').value = input;
+  clearImage();
+  solve();
+}
+
+function loadImage(f){
+  const r=new FileReader();
+  r.onload=()=>{ state.imageB64=r.result; state.imageName=f.name;
+    $('thumb').src=r.result; $('thumb').classList.remove('hidden');
+    $('drop-text').textContent=t('app.drop_replace',{name:f.name}); $('drop').classList.add('has'); };
+  r.readAsDataURL(f);
+}
+function clearImage(){ state.imageB64=null; state.imageName=null; $('thumb').classList.add('hidden'); $('drop-text').textContent=t('app.drop_text'); $('drop').classList.remove('has'); if($('file')) $('file').value=''; }
+
+// ---------- banners ----------
+function banner(kind,msg){ $('banner-slot').innerHTML = `<div class="banner ${kind}" role="alert">${msg}</div>`; }
+function clearBanner(){ $('banner-slot').innerHTML=''; }
+
+// ---------- solve pipeline ----------
+async function solve(){
+  clearBanner();
+  const btn=$('solve'); const orig=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> '+t('app.working');
+  try {
+    let geo, title=null;
+    if (state.mode==='geo') {
+      geo = $('input').value.trim();
+      if(!geo){ banner('err',t('app.err_write_geo')); return; }
+    } else {
+      // Describe mode → translate (image or text) → geo
+      if (!state.translateReady){ applyModeUI(); return; }
+      const body = state.imageB64 ? { image_base64: state.imageB64, filename: state.imageName } : { text: $('input').value.trim() };
+      if (!state.imageB64 && !body.text){ banner('err',t('app.err_describe')); return; }
+      btn.innerHTML='<span class="spinner"></span> '+t('app.translating');
+      const tr = await postJSON('/api/translate', body);
+      if (tr.error){ banner('err',t('app.err_translation',{msg:escapeHtml(tr.error)})); return; }
+      geo = tr.geo; title = tr.title;
+      if (/cannot translate/i.test(geo)){ banner('err',t('app.err_cannot_translate')+'<br><code>'+escapeHtml(geo)+'</code>'); return; }
+    }
+    const best = $('best').checked;
+    btn.innerHTML='<span class="spinner"></span> '+(best?t('app.finding_shortest'):t('app.solving'));
+    const theme = $('theme').value;
+    const sol = await postJSON('/api/solve', { input: geo, theme, title, best, budget_secs: 20 });
+    if (sol.error){ banner('err',t('app.err_solve',{msg:escapeHtml(sol.error)})); return; }
+    state.solvedInput = geo; state.solvedTitle = title || null;
+    render(sol, geo, title);
+    loadHistory();
+  } catch(e){ banner('err',t('app.err_generic',{msg:escapeHtml(e.message)})); }
+  finally { btn.disabled=false; btn.innerHTML=orig; }
+}
+
+function render(sol, geo, title){
+  state.lastSol = sol; state.lastGeo = geo; state.lastTitle = title || null;
+  $('empty').classList.add('hidden');
+  $('result').classList.remove('hidden');
+  const ok = sol.proved;
+  $('verdict').className = 'verdict '+(ok?'ok':'no');
+  $('verdict').textContent = ok ? t('app.verdict_proven') : t('app.verdict_not');
+  $('meta').textContent = fmtNum(sol.elapsed_secs, 3)+' s';
+  const method = {ddar:t('app.method_ddar'), 'aux-search':t('app.method_aux'), euclidean:t('app.method_euclid')}[sol.method]||sol.method;
+  const hm=$('hd-method'); hm.style.display='inline-block'; hm.textContent=method; hm.className='pill';
+
+  viewer.setSvg(sol.svg);
+
+  // Given / Prove legend (the figure itself stays clean).
+  const leg = $('legend');
+  const cons = sol.constructions || [];
+  if (cons.length || sol.goal) {
+    let h = '';
+    if (cons.length) h += '<span class="k">'+escapeHtml(t('app.given'))+'</span><span class="v">'
+      + cons.map(escapeHtml).join('<span class="sep">·</span>') + '</span>';
+    if (sol.goal) h += '<span class="k">'+escapeHtml(t('app.prove'))+'</span><span class="v">' + escapeHtml(sol.goal) + '</span>';
+    leg.innerHTML = h; leg.classList.remove('hidden');
+  } else { leg.innerHTML=''; leg.classList.add('hidden'); }
+
+  $('prooftitle').textContent = ok ? t('app.proof') : t('app.search_result');
+  const parts = [t('app.n_points', {n: sol.low_level.split('@').length-1})];
+  if (sol.proof_steps!=null) parts.push(t('app.n_steps', {n: sol.proof_steps}));
+  if (sol.examined!=null && sol.examined>1) parts.push(t('app.n_examined', {n: sol.examined}));
+  $('ptsinfo').textContent = parts.join(' · ');
+
+  // warning if the statement looks false
+  if (sol.goal_holds_numerically===false) banner('warn', t('app.false_stmt'));
+
+  // aux constructions
+  if (sol.aux_constructions && sol.aux_constructions.length){
+    $('aux-slot').innerHTML = '<label class="lbl">'+escapeHtml(t('app.aux_label'))+'</label><div class="aux">'+
+      sol.aux_constructions.map(c=>'+ '+escapeHtml(c)).join('<br>')+'</div>';
+  } else $('aux-slot').innerHTML='';
+
+  // compiled geo (show what was solved, esp. after translation)
+  $('geo-slot').innerHTML = '<details'+(state.mode==='describe'?' open':'')+'><summary>'+escapeHtml(t('app.compiled_geo'))+(title?' — '+escapeHtml(title):'')+'</summary><div class="dbd"><pre class="code">'+escapeHtml(geo)+'</pre></div></details>';
+
+  // The clean, human-readable proof — written by Claude Opus in the active
+  // language. Falls back to the raw machine proof if the writer is unavailable.
+  humanizeProof(sol, geo);
+}
+
+// Rewrite the machine (DDAR) proof into a flowing human proof via Opus.
+let humanizeSeq = 0;
+async function humanizeProof(sol, geo){
+  const el = $('proof');
+  if (!sol.proved || !sol.proof){ renderRawProof(sol.proof || t('app.proof_omitted')); return; }
+  if (!state.translateReady){ renderRawProof(sol.proof, true); return; }
+  const seq = ++humanizeSeq;
+  el.className = 'proof';
+  el.innerHTML = '<div class="writing"><span class="spinner"></span>'+escapeHtml(t('app.writing_proof'))+'</div>';
+  const problem = [
+    (sol.constructions && sol.constructions.length ? 'Given: '+sol.constructions.join('; ') : ''),
+    (sol.goal ? 'Prove: '+sol.goal : ''),
+    '', geo
+  ].join('\n');
+  try {
+    const res = await postJSON('/api/humanize', { problem, proof: sol.proof, aux: sol.aux_constructions||[], lang: curLang() });
+    if (seq !== humanizeSeq) return; // a newer solve or language change superseded this
+    if (res && res.proof && !res.error) renderProofMarkdown(res.proof);
+    else renderRawProof(sol.proof, true);
+  } catch(e) { if (seq === humanizeSeq) renderRawProof(sol.proof, true); }
+}
+
+// Fall back to the raw machine proof (monospace), optionally with a note.
+function renderRawProof(text, fallback){
+  const el = $('proof'); el.className = 'proof raw';
+  el.innerHTML = fallback ? '<div class="fallback-note">'+escapeHtml(t('app.proof_fallback'))+'</div>' : '';
+  el.appendChild(document.createTextNode(text||''));
+}
+
+// Render a constrained Markdown subset — paragraphs, *italic*, **bold** — safely
+// (HTML is escaped first, so only our own tags reach the DOM).
+function renderProofMarkdown(md){
+  const el = $('proof'); el.className = 'proof';
+  el.innerHTML = (md||'').split(/\n{2,}/).map(par => {
+    let p = escapeHtml(par.trim());
+    p = p.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>'); // bold first (may wrap inner italics)
+    p = p.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+    p = p.replace(/\n/g, '<br>');
+    return p ? '<p>'+p+'</p>' : '';
+  }).join('');
+}
+
+
+async function exportDoc(fmt){
+  if(!state.solvedInput){ return; }
+  const btn = fmt==='pdf'?$('dl-pdf'):$('dl-png'); const orig=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>';
+  try{
+    const res = await fetch('/api/export', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ input: state.solvedInput, title: state.solvedTitle, format: fmt })});
+    if(!res.ok){ const j=await res.json().catch(()=>({error:res.statusText})); banner('err',t('app.err_export',{msg:escapeHtml(j.error||res.statusText)})); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='geosolver-proof.'+fmt; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  } catch(e){ banner('err',t('app.err_export',{msg:escapeHtml(e.message)})); }
+  finally { btn.disabled=false; btn.innerHTML=orig; }
+}
+
+async function postJSON(url, body){
+  const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  try { return await res.json(); } catch(e){ return { error: 'HTTP '+res.status }; }
+}
+function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ---------- zoom / pan / fullscreen figure viewer ----------
+// One shared viewer over the #figure viewport: CSS transform (translate+scale,
+// origin 0 0) on the injected SVG. Inline, a single touch finger still scrolls
+// the page until you zoom in (no scroll-trap); in fullscreen all gestures
+// belong to the figure.
+let viewerHintT = null;
+const viewer = (() => {
+  const frame = $('figure-frame'), vp = $('figure'), zoomLabel = $('fig-zoom'), hint = $('fig-hint');
+  let s = 1, tx = 0, ty = 0;
+  const MIN = 1, MAX = 12;
+  const svgEl = () => vp.querySelector('svg');
+
+  function apply() {
+    const el = svgEl();
+    if (el) el.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+    const zoomed = s > 1.001;
+    vp.classList.toggle('zoomed', zoomed || frame.classList.contains('fs'));
+    zoomLabel.textContent = Math.round(s * 100) + '%';
+    zoomLabel.classList.toggle('show', zoomed);
+  }
+  function clampPan() {
+    // Keep at least a third of the drawing inside the viewport.
+    const w = vp.clientWidth, h = vp.clientHeight;
+    tx = Math.min(w * 0.67, Math.max(w - w * s - w * 0.67, tx));
+    ty = Math.min(h * 0.67, Math.max(h - h * s - h * 0.67, ty));
+  }
+  function zoomAt(px, py, k) {
+    const ns = Math.min(MAX, Math.max(MIN, s * k));
+    k = ns / s;
+    tx = px - (px - tx) * k;
+    ty = py - (py - ty) * k;
+    s = ns;
+    if (s <= 1.001) { s = 1; tx = 0; ty = 0; }
+    clampPan();
+    apply();
+  }
+  function reset() { s = 1; tx = 0; ty = 0; apply(); }
+  function center() { return { x: vp.clientWidth / 2, y: vp.clientHeight / 2 }; }
+
+  // Wheel zoom (desktop) — the figure is a viewer, so plain scroll zooms it.
+  vp.addEventListener('wheel', e => {
+    if (!svgEl()) return;
+    e.preventDefault();
+    const r = vp.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0018));
+  }, { passive: false });
+
+  // Pointer events: 1 pointer = pan (mouse always; touch when zoomed or fullscreen),
+  // 2 pointers = pinch zoom.
+  const pts = new Map();
+  let pinch0 = null, pan0 = null, lastTap = 0, lastTapAt = null;
+  vp.addEventListener('pointerdown', e => {
+    if (!svgEl()) return;
+    // double-tap (touch) / rely on dblclick for mouse
+    if (e.pointerType === 'touch' && pts.size === 0) {
+      const now = Date.now();
+      const near = lastTapAt && Math.hypot(e.clientX - lastTapAt.x, e.clientY - lastTapAt.y) < 40;
+      if (now - lastTap < 320 && near) { toggleZoom(e); lastTap = 0; return; }
+      lastTap = now; lastTapAt = { x: e.clientX, y: e.clientY };
+    }
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { vp.setPointerCapture(e.pointerId); } catch (_) {}
+    if (pts.size === 2) {
+      lastTap = 0; // a pinch is not a tap
+      const [a, b] = [...pts.values()];
+      pinch0 = { d: Math.hypot(a.x - b.x, a.y - b.y), s, tx, ty,
+                 mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+      pan0 = null;
+    } else if (pts.size === 1 && s > 1.001) {
+      // Panning only means something once zoomed in.
+      pan0 = { x: e.clientX, y: e.clientY, tx, ty };
+      vp.classList.add('panning');
+    }
+  });
+  vp.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2 && pinch0) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const r = vp.getBoundingClientRect();
+      const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+      let ns = Math.min(MAX, Math.max(MIN, pinch0.s * (d / pinch0.d)));
+      const k = ns / pinch0.s;
+      tx = mx - ((pinch0.mx - r.left) - pinch0.tx) * k;
+      ty = my - ((pinch0.my - r.top) - pinch0.ty) * k;
+      s = ns;
+      if (s <= 1.001) { s = 1; tx = 0; ty = 0; }
+      clampPan(); apply();
+    } else if (pan0) {
+      tx = pan0.tx + (e.clientX - pan0.x);
+      ty = pan0.ty + (e.clientY - pan0.y);
+      clampPan(); apply();
+    }
+  });
+  const lift = e => {
+    pts.delete(e.pointerId);
+    if (pts.size < 2) pinch0 = null;
+    if (pts.size === 0) { pan0 = null; vp.classList.remove('panning'); }
+  };
+  vp.addEventListener('pointerup', lift);
+  vp.addEventListener('pointercancel', lift);
+
+  function toggleZoom(e) {
+    const r = vp.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    if (s > 1.001) reset(); else zoomAt(px, py, 2.5);
+  }
+  vp.addEventListener('dblclick', e => { if (svgEl()) { e.preventDefault(); toggleZoom(e); } });
+
+  // Toolbar
+  $('z-in').onclick = () => { const c = center(); zoomAt(c.x, c.y, 1.4); };
+  $('z-out').onclick = () => { const c = center(); zoomAt(c.x, c.y, 1 / 1.4); };
+  $('z-fit').onclick = reset;
+
+  // Fullscreen: a fixed overlay (works on iOS Safari, which has no element
+  // fullscreen API), body scroll locked, Escape or ✕ to leave.
+  function setFullscreen(on) {
+    frame.classList.toggle('fs', on);
+    document.documentElement.style.overflow = on ? 'hidden' : '';
+    $('z-full-open').classList.toggle('hidden', on);
+    $('z-full-close').classList.toggle('hidden', !on);
+    $('z-full').title = on ? t('app.exit_fullscreen') : t('app.fullscreen');
+    reset();
+  }
+  $('z-full').onclick = () => setFullscreen(!frame.classList.contains('fs'));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && frame.classList.contains('fs')) setFullscreen(false);
+  });
+
+  return {
+    setSvg(svg) {
+      vp.innerHTML = svg;
+      reset();
+      hint.style.display = '';
+      clearTimeout(viewerHintT);
+      viewerHintT = setTimeout(() => { hint.style.display = 'none'; }, 4200);
+    },
+    exitFullscreen() { if (frame.classList.contains('fs')) setFullscreen(false); },
+  };
+})();
+
+// Re-render everything the JS produced when the language changes.
+document.addEventListener('langchange', () => {
+  updatePill();
+  applyModeUI();
+  if (historyItems.length) renderHistoryList();
+  if (state.lastSol) render(state.lastSol, state.lastGeo, state.lastTitle); // re-writes the proof in the new language
+});
+
+init();
+</script>
+</body>
+</html>

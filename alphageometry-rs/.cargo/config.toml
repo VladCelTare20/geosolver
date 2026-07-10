@@ -1,0 +1,7 @@
+# Build for the host CPU: the DDAR oracle is f64-geometry-heavy and the exact
+# rationals use 128-bit intermediates, both of which benefit from the host's
+# full instruction set (AVX2/FMA/BMI2). This trades binary portability for
+# speed — appropriate for a locally-run prover. Remove this file to build a
+# portable binary.
+[build]
+rustflags = ["-C", "target-cpu=native"]

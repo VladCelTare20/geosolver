@@ -1,0 +1,10 @@
+# Nagel line — the incenter, the centroid, and the Nagel point are collinear (source: Nagel; Altshiller-Court, College Geometry)
+A B C = triangle
+I = incenter(A, B, C)
+G = centroid(A, B, C)
+Ia = excenter(A, B, C)
+Ib = excenter(B, C, A)
+Xa = foot(Ia, line(B, C))
+Xb = foot(Ib, line(C, A))
+Na = meet(line(A, Xa), line(B, Xb))
+prove coll(I, G, Na)

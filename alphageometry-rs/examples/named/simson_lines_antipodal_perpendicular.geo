@@ -1,0 +1,10 @@
+# Perpendicular Simson lines — the Simson lines of two diametrically opposite circumcircle points are perpendicular (source: Johnson, Advanced Euclidean Geometry)
+A B C = triangle
+O = circumcenter(A, B, C)
+P = on_circum(A, B, C)
+Q = reflect(P, O)
+X1 = foot(P, line(B, C))
+Y1 = foot(P, line(C, A))
+X2 = foot(Q, line(B, C))
+Y2 = foot(Q, line(C, A))
+prove perp(X1, Y1, X2, Y2)

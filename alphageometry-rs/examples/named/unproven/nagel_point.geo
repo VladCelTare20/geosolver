@@ -1,0 +1,10 @@
+# Nagel point — the cevians to the excircle contact points (extouch points) are concurrent (source: Nagel; Altshiller-Court, College Geometry)
+A B C = triangle
+Ia = excenter(A, B, C)
+Ib = excenter(B, C, A)
+Ic = excenter(C, A, B)
+Xa = foot(Ia, line(B, C))
+Xb = foot(Ib, line(C, A))
+Xc = foot(Ic, line(A, B))
+X = meet(line(A, Xa), line(B, Xb))
+prove coll(C, Xc, X)

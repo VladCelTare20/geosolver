@@ -1,0 +1,10 @@
+# Taylor circle — the feet of the perpendiculars dropped from each altitude foot onto the other two sides are concyclic (source: Taylor; Johnson, Advanced Euclidean Geometry)
+A B C = triangle
+Fa = foot(A, line(B, C))
+Fb = foot(B, line(C, A))
+Fc = foot(C, line(A, B))
+P1 = foot(Fa, line(A, B))
+P2 = foot(Fa, line(C, A))
+P3 = foot(Fb, line(B, C))
+P4 = foot(Fb, line(A, B))
+prove cyclic(P1, P2, P3, P4)

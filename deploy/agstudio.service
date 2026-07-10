@@ -1,0 +1,43 @@
+# Native (non-Docker) systemd unit. Install:
+#   ./deploy/build-linux.sh
+#   sudo install -Dm755 target/release/agstudio /opt/agstudio/agstudio
+#   sudo cp deploy/agstudio.service /etc/systemd/system/
+#   sudo cp deploy/.env.example /etc/agstudio.env   # then edit it
+#   sudo systemctl daemon-reload && sudo systemctl enable --now agstudio
+[Unit]
+Description=GeoSolver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/agstudio/agstudio serve
+EnvironmentFile=/etc/agstudio.env
+Restart=on-failure
+RestartSec=3
+
+# Run as a dedicated, unprivileged, dynamically-allocated user.
+DynamicUser=yes
+# Sandboxing / hardening.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Note: this hardened profile isolates the service from a user home, so photo/NL
+# translation (which needs the `claude` CLI + its credentials) is unavailable.
+# To enable it, relax ProtectHome and run as a fixed user signed into `claude`.
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,38 @@
+//! # alphageometry-rs
+//!
+//! A high-performance Rust reimplementation of the DDAR symbolic reasoning core
+//! of AlphaGeometry2.
+//!
+//! DDAR ("Deductive Database + Algebraic Reasoning") proves olympiad geometry
+//! facts by (a) using floating-point coordinates as an oracle for which facts
+//! hold, and (b) discharging them exactly with Gaussian elimination over three
+//! algebraic systems: directed angles (mod a half-turn), multiplicative
+//! distances (in log space), and additive segment lengths.
+//!
+//! The crate is organized bottom-up:
+//! * [`rational`] — exact rationals with a machine-word fast path.
+//! * [`numerics`] — floating-point Euclidean geometry (the oracle).
+//! * [`lincomb`] / [`elim_core`] — sparse linear algebra and Gaussian elimination.
+//! * [`elimination`] — the three geometric algebraic systems.
+//! * [`predicate`] — the AlphaGeometry predicate/problem language and parser.
+//! * [`engine`] — the DDAR deductive-closure loop.
+
+pub mod algebra;
+pub mod aux_search;
+pub mod elim_core;
+pub mod elimination;
+pub mod engine;
+pub mod geo;
+pub mod lincomb;
+pub mod metric;
+pub mod numerics;
+pub mod predicate;
+pub mod proof;
+pub mod rational;
+pub mod ratio;
+pub mod runner;
+pub mod svg;
+pub mod synthetic;
+
+pub use engine::Ddar;
+pub use predicate::{Predicate, Problem};

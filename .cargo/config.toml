@@ -1,0 +1,7 @@
+# Build for the host CPU across the whole workspace: the DDAR f64 geometry
+# oracle and the 128-bit exact-rational path benefit from the machine's full
+# instruction set (AVX2/FMA/BMI2). This is a locally-hosted prover, so
+# host-specific codegen is the right trade-off. Delete this file for a portable
+# binary.
+[build]
+rustflags = ["-C", "target-cpu=native"]

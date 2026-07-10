@@ -1,0 +1,39 @@
+[package]
+name = "alphageometry-rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "A high-performance Rust reimplementation of the AlphaGeometry2 DDAR symbolic geometry engine"
+license = "Apache-2.0"
+
+[lib]
+name = "ddar"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ddar"
+path = "src/bin/ddar.rs"
+
+[dependencies]
+num-bigint = "0.4"
+num-integer = "0.1"
+num-rational = "0.4"
+num-traits = "0.2"
+rustc-hash = "2.0"
+smallvec = { version = "1.13", features = ["union", "const_generics"] }
+rayon = "1.10"
+
+[dev-dependencies]
+proptest = "1.5"
+
+[features]
+default = []
+# When enabled, the O(n^3) closure searches run in parallel via rayon.
+parallel = []
+trace-rules = []
+
+# NOTE: Cargo profile settings (release/bench) now live in the workspace-root
+# Cargo.toml (../Cargo.toml) — profiles declared in a workspace *member* are
+# ignored by Cargo. `panic = "unwind"` (the default) is kept there so the
+# auxiliary-point search can catch panics from degenerate candidate
+# constructions via `catch_unwind`.

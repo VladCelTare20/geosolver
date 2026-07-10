@@ -1,0 +1,36 @@
+[package]
+name = "ag-studio"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "GeoSolver — local web app + MCP server + PDF/PNG rendering wrapping the alphageometry-rs DDAR engine"
+license = "Apache-2.0"
+
+[[bin]]
+name = "agstudio"
+path = "src/main.rs"
+
+[dependencies]
+# The DDAR engine, used in-process (its lib target is named `ddar`).
+ddar = { package = "alphageometry-rs", path = "../alphageometry-rs" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+resvg = "0.45.1"
+svg2pdf = "0.13.0"
+wait-timeout = "0.2.1"
+axum = "0.8.4"
+tokio = { version = "1.52.3", features = ["full"] }
+base64 = "0.22.1"
+tower = "0.5.3"
+tower-http = { version = "0.7.0", features = ["compression-gzip", "timeout"] }
+tempfile = "3.27.0"
+rusqlite = { version = "0.31", features = ["bundled"] }
+argon2 = "0.5"
+rand_core = { version = "0.6", features = ["getrandom"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+# `ServiceExt::oneshot` (behind the `util` feature) drives the router in tests
+# without binding a socket.
+tower = { version = "0.5.3", features = ["util"] }

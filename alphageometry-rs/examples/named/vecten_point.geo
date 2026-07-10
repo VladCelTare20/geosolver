@@ -1,0 +1,10 @@
+# Vecten point — the lines joining each vertex to the center of the square on the opposite side are concurrent (source: Vecten; cut-the-knot)
+A B C = triangle
+P1 Q1 = square(B, C)
+P2 Q2 = square(C, A)
+P3 Q3 = square(A, B)
+Oa = midpoint(B, P1)
+Ob = midpoint(C, P2)
+Oc = midpoint(A, P3)
+X = meet(line(A, Oa), line(B, Ob))
+prove coll(C, Oc, X)
