@@ -42,3 +42,6 @@ Thumbs.db
 # SQLite app database (local dev; never commit real user data)
 agstudio.db
 *.db
+
+# SDD scratch state (progress ledger, briefs, reports) - not project source
+.superpowers/
