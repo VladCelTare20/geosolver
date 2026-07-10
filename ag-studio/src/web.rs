@@ -1035,6 +1035,150 @@ mod tests {
         assert_eq!(st, StatusCode::UNAUTHORIZED);
     }
 
+    /// A `.geo` program with 500 levels of `reflect(...)` nesting in a
+    /// construction is well under the 16,384-char body limit (so it reaches
+    /// the parser), and its goal (`coll(...)`) is not a metric goal, so it
+    /// routes through `geo::compile` — where it must be rejected as a clean
+    /// 400 by the depth cap added in geo.rs — not hang, time out, or (in the
+    /// pre-fix world) risk a stack overflow.
+    #[tokio::test]
+    async fn deeply_nested_solve_input_is_rejected_cleanly() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "sam").await;
+        let mut input = String::from("A = free\nB = ");
+        for _ in 0..500 {
+            input.push_str("reflect(");
+        }
+        input.push('A');
+        for _ in 0..500 {
+            input.push(')');
+        }
+        input.push_str("\nprove coll(A, A, B)");
+        assert!(input.len() < 16384, "test input must stay under the body cap");
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
+    }
+
+    /// A metric goal (e.g. `dist(A,B) = <deeply nested>`) routes through
+    /// `euclidean_flow`, not `geo::compile` — so it hits Task 2's `metric.rs`
+    /// depth cap, not Task 1's `geo.rs` cap. That path's pre-existing design
+    /// folds every prover failure into a normal 200/`proved:false` response
+    /// (not a 400) — this test locks in that the cap still fires safely and
+    /// fast through that path, not that it produces a 400.
+    #[tokio::test]
+    async fn deeply_nested_metric_goal_is_rejected_safely_not_accepted_or_crashed() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "vic").await;
+        let mut input = String::from("prove dist(A, B) = ");
+        input.push_str(&"-".repeat(500));
+        input.push('5');
+        assert!(input.len() < 16384, "test input must stay under the body cap");
+        let start = std::time::Instant::now();
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "must reject fast, not hang"
+        );
+        assert_eq!(
+            st,
+            StatusCode::OK,
+            "the euclidean-flow path folds prover failures into 200/proved:false, not a 400 — got: {body:?}"
+        );
+        assert_eq!(body["proved"], false);
+        assert!(
+            body["note"].as_str().unwrap_or("").contains("nested too deeply"),
+            "expected the metric.rs cap's message in the note, got: {body:?}"
+        );
+    }
+
+    /// A `.geo` program declaring 500 points is well under the body limit,
+    /// but must be rejected quickly by the point-count cap added in geo.rs —
+    /// not accepted and left to blow up `Ddar::new`'s O(n^2) allocation.
+    #[tokio::test]
+    async fn too_many_points_solve_input_is_rejected_quickly() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "tara").await;
+        let mut input = String::new();
+        for i in 0..500 {
+            input.push_str(&format!("p{i} = free\n"));
+        }
+        input.push_str("prove coll(p0, p0, p0)");
+        assert!(input.len() < 16384, "test input must stay under the body cap");
+        let start = std::time::Instant::now();
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "rejection must be fast, not run the expensive instance-search loop first"
+        );
+        assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
+    }
+
+    /// Firing several adversarial and several valid solves concurrently must
+    /// not let one request's failure affect another's success — each request
+    /// gets its own `spawn_blocking` task and its own response.
+    #[tokio::test]
+    async fn concurrent_adversarial_and_valid_solves_do_not_interfere() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "uma").await;
+        let mut bad_input = String::from("A = free\nB = ");
+        for _ in 0..500 {
+            bad_input.push_str("reflect(");
+        }
+        bad_input.push('A');
+        for _ in 0..500 {
+            bad_input.push(')');
+        }
+        bad_input.push_str("\nprove coll(A, A, B)");
+
+        let mut tasks = Vec::new();
+        for i in 0..8 {
+            let state = state.clone();
+            let cookie = cookie.clone();
+            let input = if i % 2 == 0 {
+                bad_input.clone()
+            } else {
+                ISOSCELES_GEO.to_string()
+            };
+            let expect_ok = i % 2 != 0;
+            tasks.push(tokio::spawn(async move {
+                let (st, _, body) = call(
+                    &state,
+                    "POST",
+                    "/api/solve",
+                    Some(&cookie),
+                    serde_json::json!({"input": input}),
+                )
+                .await;
+                let expected = if expect_ok { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+                assert_eq!(st, expected, "request {i} got: {body:?}");
+            }));
+        }
+        for t in tasks {
+            t.await.expect("request task panicked");
+        }
+    }
+
     #[tokio::test]
     async fn solve_translate_export_require_session() {
         let (state, _dir) = test_state();
