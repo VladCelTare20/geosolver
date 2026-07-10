@@ -419,9 +419,20 @@ enum Stmt {
 // Parser
 // ---------------------------------------------------------------------------
 
+/// Real `.geo` programs never nest expressions more than a handful of levels
+/// deep (see `corpus/imo_ag_30.txt`); 200 leaves generous headroom while
+/// staying far below what could exhaust a thread's stack.
+const MAX_PARSE_DEPTH: u32 = 200;
+
 struct Parser {
     toks: Vec<Tok>,
     pos: usize,
+    /// Current recursive-descent nesting depth, shared across the
+    /// metric-expression grammar (`parse_munary`) and the construction-call
+    /// grammar (`parse_expr`). Bounded by `MAX_PARSE_DEPTH` so adversarial
+    /// input gets a parse error instead of a stack overflow (which would
+    /// abort the whole process — uncatchable, unlike an ordinary panic).
+    depth: u32,
 }
 
 impl Parser {
@@ -524,18 +535,27 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, String> {
-        match self.next() {
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(format!(
+                "expression nested too deeply (max depth {MAX_PARSE_DEPTH})"
+            ));
+        }
+        let result = match self.next() {
             Some(Tok::Ident(name)) => {
                 if self.peek() == Some(&Tok::LParen) {
                     self.next();
-                    let args = self.parse_expr_list_until_rparen()?;
-                    Ok(Expr::Call(name, args))
+                    self.parse_expr_list_until_rparen()
+                        .map(|args| Expr::Call(name, args))
                 } else {
                     Ok(Expr::Ident(name))
                 }
             }
             other => Err(format!("expected expression, found {other:?}")),
-        }
+        };
+        self.depth -= 1;
+        result
     }
 
     fn parse_expr_list_until_rparen(&mut self) -> Result<Vec<Expr>, String> {
@@ -638,11 +658,21 @@ impl Parser {
         }
     }
     fn parse_munary(&mut self) -> Result<MExpr, String> {
-        if self.peek() == Some(&Tok::Minus) {
-            self.next();
-            return Ok(MExpr::Neg(Box::new(self.parse_munary()?)));
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(format!(
+                "expression nested too deeply (max depth {MAX_PARSE_DEPTH})"
+            ));
         }
-        self.parse_matom()
+        let result = if self.peek() == Some(&Tok::Minus) {
+            self.next();
+            self.parse_munary().map(|e| MExpr::Neg(Box::new(e)))
+        } else {
+            self.parse_matom()
+        };
+        self.depth -= 1;
+        result
     }
     fn parse_matom(&mut self) -> Result<MExpr, String> {
         match self.next() {
@@ -2896,7 +2926,7 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
 
 pub fn compile(src: &str) -> Result<Compiled, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty program".to_string());
@@ -3006,7 +3036,7 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
 /// re-sampled instances is a genuine identity.
 pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
@@ -3075,7 +3105,7 @@ pub struct AlgFigure {
 /// that DDAR can process without a numeric panic is found).
 pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
@@ -3243,6 +3273,53 @@ mod tests {
         assert!((pa - 2.0 * pb).abs() < 1e-6, "PA={pa}, PB={pb}");
         // And it is recorded as a hypothesis for the metric provers.
         assert_eq!(fig.metric_hyps.len(), 1);
+    }
+
+    /// A long chain of unary `-` (or deeply nested parens) must be rejected
+    /// with a clean parse error, not accepted — accepting it means nothing
+    /// bounds how deep this recursive-descent parser can go, and a much
+    /// longer chain (still well under the 16,384-char request body cap) would
+    /// stack-overflow the whole process instead of just this one request.
+    #[test]
+    fn deeply_nested_unary_minus_is_rejected_not_accepted() {
+        let mut src = String::from("prove dist(A, B) = ");
+        src.push_str(&"-".repeat(500));
+        src.push('5');
+        let result: Result<Compiled, String> = compile(&src);
+        assert!(
+            result.is_err(),
+            "500 levels of unary-minus nesting should be rejected by a depth cap"
+        );
+        if let Err(msg) = result {
+            assert!(
+                msg.contains("nested too deeply"),
+                "expected a nesting-depth error, got: {msg}"
+            );
+        }
+    }
+
+    /// Same guard, exercised through nested construction calls instead of
+    /// unary minus — `parse_expr` is a separate recursive grammar from the
+    /// metric-expression parser and needs its own depth cap.
+    #[test]
+    fn deeply_nested_construction_calls_are_rejected_not_accepted() {
+        let mut src = String::from("A = free\nB = ");
+        for _ in 0..500 {
+            src.push_str("reflect(");
+        }
+        src.push('A');
+        for _ in 0..500 {
+            src.push(')');
+        }
+        src.push_str("\nprove coll(A, A, B)");
+        let result: Result<Compiled, String> = compile(&src);
+        assert!(
+            result.is_err(),
+            "500 levels of construction-call nesting should be rejected by a depth cap"
+        );
+        if let Err(msg) = result {
+            assert!(msg.contains("nested too deeply"));
+        }
     }
 
     #[test]
