@@ -509,4 +509,22 @@ mod tests {
         assert_eq!(pretty(27.0f64.sqrt()), "3√3");
         assert_eq!(pretty(0.5), "1/2");
     }
+
+    /// Same class of bug as `geo.rs`'s parser (see that file's
+    /// `deeply_nested_unary_minus_is_rejected_not_accepted`): this is a
+    /// second, independent recursive-descent parser and needs its own cap.
+    #[test]
+    fn deeply_nested_unary_minus_is_rejected_not_accepted() {
+        let lhs = "dist(A, B)";
+        let mut rhs = String::new();
+        rhs.push_str(&"-".repeat(500));
+        rhs.push('5');
+        let src = format!("{lhs} = {rhs}");
+        let result = parse_equation(&src);
+        assert!(
+            result.is_err(),
+            "500 levels of unary-minus nesting should be rejected by a depth cap"
+        );
+        assert!(result.unwrap_err().contains("nested too deeply"));
+    }
 }
