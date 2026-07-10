@@ -249,7 +249,14 @@ async fn api_register(
     match outcome {
         Ok(Ok((username, sid))) => auth_ok(&username, &sid, secure),
         Ok(Err(RegisterErr::Taken)) => err(StatusCode::CONFLICT, i18n::t(lang, "auth.user_taken")),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail")),
+        Ok(Err(RegisterErr::Internal)) => {
+            eprintln!("register failed: internal error hashing/creating the account");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail"))
+        }
+        Err(e) => {
+            eprintln!("register panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail"))
+        }
     }
 }
 
@@ -281,7 +288,10 @@ async fn api_login(
     match outcome {
         Ok(Some((username, sid))) => auth_ok(&username, &sid, secure),
         Ok(None) => err(StatusCode::UNAUTHORIZED, i18n::t(lang, "auth.bad_creds")),
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.login_fail")),
+        Err(e) => {
+            eprintln!("login panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.login_fail"))
+        }
     }
 }
 
@@ -431,8 +441,14 @@ async fn api_solve(
             save_history(&state, user.id, &sol, history_title.as_deref()).await;
             Json(sol).into_response()
         }
-        Ok(Err(e)) => err(StatusCode::BAD_REQUEST, e), // compile/parse errors describe the user's input
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "solve.failed")),
+        Ok(Err(e)) => {
+            eprintln!("solve error: {e}"); // detail to the operator's log, not the client
+            err(StatusCode::BAD_REQUEST, e) // compile/parse errors describe the user's input
+        }
+        Err(e) => {
+            eprintln!("solve panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "solve.failed"))
+        }
     }
 }
 
@@ -490,7 +506,14 @@ async fn api_history(State(state): State<Shared>, headers: HeaderMap) -> Respons
     .await;
     match res {
         Ok(Ok(rows)) => Json(rows.into_iter().map(HistoryItem::from).collect::<Vec<_>>()).into_response(),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail")),
+        Ok(Err(())) => {
+            eprintln!("history load failed: db error");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"))
+        }
+        Err(e) => {
+            eprintln!("history load panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"))
+        }
     }
 }
 
@@ -513,7 +536,14 @@ async fn api_history_delete(
     match res {
         Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Ok(false)) => err(StatusCode::NOT_FOUND, i18n::t(i18n::lang_from_headers(&headers), "history.none")),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail")),
+        Ok(Err(())) => {
+            eprintln!("history delete failed: db error");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"))
+        }
+        Err(e) => {
+            eprintln!("history delete panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"))
+        }
     }
 }
 
@@ -562,7 +592,10 @@ async fn api_translate(
     let held = match (req.image_base64, req.text) {
         (Some(b64), _) => match decode_image(&b64, req.filename.as_deref()) {
             Ok(tmp) => Held::Image(tmp),
-            Err(_) => return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.bad_image")),
+            Err(e) => {
+                eprintln!("translate: bad image upload: {e}");
+                return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.bad_image"));
+            }
         },
         (None, Some(t)) if !t.trim().is_empty() => Held::Text(t),
         _ => return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.need_input")),
@@ -589,7 +622,10 @@ async fn api_translate(
                 "translation failed — could not turn that into a geometry problem",
             )
         }
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "translate.failed")),
+        Err(e) => {
+            eprintln!("translate panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "translate.failed"))
+        }
     }
 }
 
@@ -663,10 +699,13 @@ async fn api_humanize(
                 i18n::t(lang, "humanize.failed"),
             )
         }
-        Err(_) => err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            i18n::t(lang, "humanize.failed"),
-        ),
+        Err(e) => {
+            eprintln!("humanize panicked: {e}");
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(lang, "humanize.failed"),
+            )
+        }
     }
 }
 
@@ -762,8 +801,14 @@ async fn api_export(
             .header(header::CACHE_CONTROL, "no-store")
             .body(Body::from(bytes))
             .unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))),
-        Ok(Err(e)) => err(StatusCode::BAD_REQUEST, format!("{e}")),
-        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed")),
+        Ok(Err(e)) => {
+            eprintln!("export error: {e}");
+            err(StatusCode::BAD_REQUEST, format!("{e}"))
+        }
+        Err(e) => {
+            eprintln!("export panicked: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))
+        }
     }
 }
 
