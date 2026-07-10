@@ -2924,6 +2924,38 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
     margin
 }
 
+/// IMO/JGEX corpus problems (`corpus/imo_ag_30.txt`, `corpus/jgex_ag_231.txt`)
+/// use roughly 5-15 points; 100 leaves an order of magnitude of headroom for
+/// legitimately complex constructions while keeping `Ddar::new`'s O(n^2)
+/// allocation, `deduction_closure`'s O(n^3) search, and `compile`'s up-to-400
+/// re-sampling attempts all bounded well short of a memory/CPU exhaustion DoS
+/// from a crafted `.geo` program (see `Ddar::new_with_slack`, `engine.rs:194`).
+const MAX_POINTS: usize = 100;
+
+/// Total point count declared across a parsed program — shared by every
+/// public entry point (`compile`, `build_instances`, `build_algebraic`) so
+/// the guard below applies uniformly.
+fn point_count(stmts: &[Stmt]) -> usize {
+    stmts
+        .iter()
+        .map(|s| match s {
+            Stmt::Bind { names, .. } => names.len(),
+            Stmt::Constrain { .. } => 1,
+            _ => 0,
+        })
+        .sum()
+}
+
+fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
+    let n = point_count(stmts);
+    if n > MAX_POINTS {
+        return Err(format!(
+            "too many points ({n}); this engine supports at most {MAX_POINTS} in one problem"
+        ));
+    }
+    Ok(())
+}
+
 pub fn compile(src: &str) -> Result<Compiled, String> {
     let toks = tokenize(src)?;
     let mut parser = Parser { toks, pos: 0, depth: 0 };
@@ -2931,6 +2963,7 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
     if stmts.is_empty() {
         return Err("empty program".to_string());
     }
+    check_point_count(&stmts)?;
 
     // Suppress panic output during the validation solve.
     let prev_hook = std::panic::take_hook();
@@ -3041,6 +3074,7 @@ pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, 
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
+    check_point_count(&stmts)?;
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|info| {
         if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
@@ -3110,6 +3144,7 @@ pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
+    check_point_count(&stmts)?;
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|info| {
         if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
@@ -3319,6 +3354,35 @@ mod tests {
         );
         if let Err(msg) = result {
             assert!(msg.contains("nested too deeply"));
+        }
+    }
+
+    /// A program declaring far more points than any real geometry problem
+    /// needs must be rejected quickly, not accepted — accepting it means
+    /// `Ddar::new`'s O(n^2) allocation and `deduction_closure`'s O(n^3) search
+    /// scale with an attacker-chosen `n`, up to ~2,000 points fit in the
+    /// 16,384-char request body cap alone.
+    #[test]
+    fn too_many_points_is_rejected_quickly_not_accepted() {
+        let mut src = String::new();
+        for i in 0..500 {
+            src.push_str(&format!("p{i} = free\n"));
+        }
+        src.push_str("prove coll(p0, p0, p0)");
+        let start = std::time::Instant::now();
+        let result = compile(&src);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "rejection must happen before the expensive instance-search loop, \
+             not after — it took {:?}",
+            start.elapsed()
+        );
+        assert!(result.is_err(), "500 points should be rejected");
+        if let Err(msg) = result {
+            assert!(
+                msg.contains("too many points"),
+                "expected 'too many points' error, got: {msg}"
+            );
         }
     }
 
