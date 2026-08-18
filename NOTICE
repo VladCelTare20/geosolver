@@ -1,0 +1,19 @@
+GeoSolver (formerly AlphaGeometry Studio)
+Copyright (c) 2026 Vlad Apfelbaum
+
+This product includes a Rust port of the DDAR (deductive database + algebraic
+reasoning) core of Google DeepMind's AlphaGeometry2, which is licensed under the
+Apache License, Version 2.0.
+
+    AlphaGeometry
+    Copyright (c) Google DeepMind
+    Licensed under the Apache License, Version 2.0
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Because this work is a derivative of Apache-2.0 licensed code, it is distributed
+under the same licence. See LICENSE for the full text.
+
+This is not an official Google or DeepMind product, and is not endorsed by or
+affiliated with either.
+
+Bundled fonts: DejaVu, under a public-domain-style licence.
