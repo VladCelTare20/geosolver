@@ -483,3 +483,38 @@ fn ptolemy_second_false_neighbours_are_never_proved() {
         "dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) - dist(A,D)*dist(B,C)",
     );
 }
+
+/// The DDAR closure with the law-of-sines rows switched on for this figure
+/// (independent of `GEO_TRIG`), and whether it proves the goal.
+fn ddar_trig_proves(src: &str, trig: bool) -> bool {
+    let c = compile(src).expect("a DDAR goal");
+    let mut d = ddar::Ddar::new(&c.problem.points);
+    for p in &c.problem.preds {
+        d.force_pred(p);
+    }
+    if trig {
+        d.enable_trig();
+    }
+    d.deduction_closure();
+    let (_, _, _, rejected) = d.trig_stats();
+    assert_eq!(rejected, 0, "a trig row failed the residual guard");
+    d.check_pred(c.problem.goal.as_ref().unwrap())
+}
+
+/// TRIG_PLAN P7 and §3 items 11–12 on the DDAR side: the known-sine rows need
+/// the tabulated angle, and the law of sines needs real triangles.
+#[test]
+fn ddar_trig_rows_prove_only_what_follows() {
+    let right30 = "A = free\nB = free\nC = point: angle(B,A,C) = 30, perp(C,A,C,B)\n\
+                   prove dist(B,C) = dist(A,B) / 2";
+    assert!(!ddar_trig_proves(right30, false), "plain DDAR was not expected to prove it");
+    assert!(ddar_trig_proves(right30, true));
+    for false_goal in [
+        "A = free\nB = free\nC = point: angle(B,A,C) = 30\nprove dist(B,C) = dist(A,B) / 2",
+        "A = free\nB = free\nC = point: angle(B,A,C) = 72, perp(C,A,C,B)\nprove dist(B,C) = dist(A,B) / 2",
+        "A = free\nB = free\nC = point: angle(B,A,C) = 30, perp(C,A,C,B)\nprove dist(A,C) = dist(A,B) / 2",
+        "A B C = triangle\nO = circumcenter(A, B, C)\nprove dist(B,C) = dist(O,A)",
+    ] {
+        assert!(!ddar_trig_proves(false_goal, true), "trig DDAR proved a false goal:\n{false_goal}");
+    }
+}

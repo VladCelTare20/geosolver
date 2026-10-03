@@ -47,6 +47,8 @@ struct FormalCircle {
     fact: Option<FactId>,
 }
 
+pub mod trig;
+
 type Triple = (PointId, PointId, PointId);
 
 /// Precomputed quantities for one oriented triangle, used by the
@@ -100,6 +102,8 @@ pub struct Ddar {
     /// Proof provenance log (facts + reasons). Row-level dependency tracking is
     /// only active when constructed via [`Ddar::new_tracked`].
     log: ProofLog,
+
+    trig: trig::TrigState,
 }
 
 impl Ddar {
@@ -275,6 +279,7 @@ impl Ddar {
             dist_mul_cache,
             dir_cache,
             log: ProofLog::new(),
+            trig: trig::TrigState::default(),
         }
     }
 
@@ -788,6 +793,15 @@ impl Ddar {
 
     /// Run the fixpoint loop until no new fact is derived.
     pub fn deduction_closure(&mut self) {
+        loop {
+            self.deduction_closure_round();
+            if !self.trig_activate_at_fixpoint() {
+                break;
+            }
+        }
+    }
+
+    fn deduction_closure_round(&mut self) {
         let mut changed = true;
         while changed {
             self.update_cache();
@@ -813,6 +827,7 @@ impl Ddar {
             changed |= self.search_intercept_theorem();
             changed |= self.search_similitude();
             changed |= self.search_radical_axis();
+            changed |= self.search_trig();
         }
     }
 

@@ -17,9 +17,26 @@ pub fn solve_problem(problem: &Problem) -> Result<bool, String> {
     }
     ddar.deduction_closure();
     match &problem.goal {
-        Some(goal) => Ok(ddar.check_pred(goal)),
+        Some(goal) => {
+            if ddar.check_pred(goal) {
+                return Ok(true);
+            }
+            Ok(trig_fallback(&mut ddar, goal) && ddar.check_pred(goal))
+        }
         None => Err("problem has no goal".to_string()),
     }
+}
+
+/// `--trig fallback`: a length goal left unproved at the trig-free fixpoint
+/// gets the law-of-sines rows and the same monotone closure continues.
+fn trig_fallback(ddar: &mut Ddar, goal: &crate::predicate::Predicate) -> bool {
+    use crate::engine::trig::{eligible_goal, mode, TrigMode};
+    if mode() != TrigMode::Fallback || !eligible_goal(&goal.name) {
+        return false;
+    }
+    ddar.enable_trig();
+    ddar.deduction_closure();
+    true
 }
 
 /// Solve with proof provenance; on success returns the rendered numbered proof.
@@ -33,6 +50,9 @@ pub fn solve_problem_with_proof(problem: &Problem) -> Result<Option<String>, Str
         .goal
         .as_ref()
         .ok_or_else(|| "problem has no goal".to_string())?;
+    if ddar.check_pred_deps(goal).is_none() {
+        trig_fallback(&mut ddar, goal);
+    }
     Ok(ddar.check_pred_deps(goal).map(|deps| {
         let text = ddar.render_pred(goal);
         ddar.proof_report(&deps, &text)

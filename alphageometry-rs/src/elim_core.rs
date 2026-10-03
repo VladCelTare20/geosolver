@@ -41,6 +41,10 @@ pub struct ElimCore {
     pub values: Vec<f64>,
     /// Whether each variable is an eliminable (LHS) unknown.
     pub is_lhs: Vec<bool>,
+    /// Pivot preference: lower ranks are eliminated first. Every variable
+    /// created by [`Self::new_var`] has rank 1, so with no ranked variables the
+    /// pivot choice is exactly the fewest-usages rule.
+    rank: Vec<u8>,
     /// pivot var -> its zeroed equation (with pivot coefficient `-1`).
     instantiated: FxHashMap<VarId, LinComb>,
     /// free var -> set of pivots whose equation mentions it.
@@ -59,9 +63,15 @@ impl ElimCore {
 
     /// Allocate a fresh variable, returning its id.
     pub fn new_var(&mut self, value: f64, is_lhs: bool) -> VarId {
+        self.new_var_ranked(value, is_lhs, 1)
+    }
+
+    /// [`Self::new_var`] with an explicit pivot rank (0 = eliminate first).
+    pub fn new_var_ranked(&mut self, value: f64, is_lhs: bool, rank: u8) -> VarId {
         let id = self.values.len() as VarId;
         self.values.push(value);
         self.is_lhs.push(is_lhs);
+        self.rank.push(rank);
         id
     }
 
@@ -147,7 +157,7 @@ impl ElimCore {
         // break by variable id (see module docs: this does not affect results).
         let pivot = *lhs_all
             .iter()
-            .min_by_key(|v| self.free_to_usage.get(v).map_or(0, |s| s.len()))
+            .min_by_key(|v| (self.rank[**v as usize], self.free_to_usage.get(v).map_or(0, |s| s.len())))
             .unwrap();
         let lhs: Vec<VarId> = lhs_all.into_iter().filter(|v| *v != pivot).collect();
 
