@@ -259,6 +259,9 @@ pub struct AppState {
     /// Last probe result. An async mutex, so concurrent misses wait for one
     /// probe instead of each spawning their own.
     pub translate_status: tokio::sync::Mutex<Option<(Instant, translate::Status)>>,
+    /// The same result for non-blocking readers, plus whether a background
+    /// refresh is already running.
+    status_snapshot: Mutex<(Option<(Instant, translate::Status)>, bool)>,
     /// Last time expired sessions were swept from the DB (see [`sweep_expired_sessions`]).
     session_sweep: Mutex<Option<Instant>>,
 }
@@ -292,6 +295,7 @@ impl AppState {
             config,
             translate_probe: probe,
             translate_status: tokio::sync::Mutex::new(None),
+            status_snapshot: Mutex::new((None, false)),
             session_sweep: Mutex::new(None),
         }))
     }
@@ -312,8 +316,33 @@ impl AppState {
         }
         let probe = self.translate_probe;
         let s = tokio::task::spawn_blocking(probe).await.unwrap_or(off);
-        *cached = Some((Instant::now(), s));
+        let now = Instant::now();
+        *cached = Some((now, s));
+        relock(&self.status_snapshot).0 = Some((now, s));
         s
+    }
+
+    /// The last probe result without waiting: `None` until the first probe
+    /// finishes. A missing or stale result starts one background refresh.
+    pub fn translate_status_now(self: &Arc<Self>) -> Option<translate::Status> {
+        if !self.config.enable_translate {
+            return Some(translate::Status { installed: false, logged_in: false });
+        }
+        let mut snap = relock(&self.status_snapshot);
+        let (current, stale) = match snap.0 {
+            Some((at, s)) => (Some(s), at.elapsed() >= TRANSLATE_STATUS_TTL),
+            None => (None, true),
+        };
+        if stale && !snap.1 {
+            snap.1 = true;
+            drop(snap);
+            let me = self.clone();
+            tokio::spawn(async move {
+                me.translate_status().await;
+                relock(&me.status_snapshot).1 = false;
+            });
+        }
+        current
     }
 }
 

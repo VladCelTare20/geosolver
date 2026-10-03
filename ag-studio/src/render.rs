@@ -8,7 +8,11 @@ use anyhow::{anyhow, Result};
 use resvg::tiny_skia;
 use resvg::usvg;
 
+use serde_json::Value;
+
 use crate::engine::Solution;
+use crate::i18n::{self, Lang};
+use crate::present;
 
 /// A font database built once (system fonts), reused for every render. usvg
 /// does per-glyph fallback, so the proof's math symbols (△ ∼ ∎ ⟂ ∥ √ …) are
@@ -119,68 +123,59 @@ pub fn svg_to_pdf(svg: &str) -> Result<Vec<u8>> {
 }
 
 // ---------------------------------------------------------------------------
-// Combined "report" page: figure + numbered proof, laid out as one SVG that can
-// be exported to PDF or PNG — the deliverable a human keeps.
+// Report page: verdict, figure, given/prove, and the machine-checked steps.
 // ---------------------------------------------------------------------------
 
 const PAGE_W: f32 = 820.0;
-const MARGIN: f32 = 40.0;
-// Fallback figure dimensions when the embedded SVG's own aren't parseable.
-const FIG_NATIVE_W: f32 = 1020.0;
-const FIG_NATIVE_H: f32 = 640.0;
-const PROOF_FONT: f32 = 14.0;
-const PROOF_LEADING: f32 = 20.0;
-const WRAP_COLS: usize = 92;
+const MARGIN: f32 = 48.0;
+const BODY_FS: f32 = 13.5;
+const LEADING: f32 = 20.0;
+const FIG_MAX_H: f32 = 520.0;
 
-struct Palette {
-    page_bg: &'static str,
+struct Tone {
     ink: &'static str,
-    subtle: &'static str,
-    accent: &'static str,
-    warn: &'static str,
-    bad: &'static str,
-    rule: &'static str,
+    bg: &'static str,
 }
 
-fn palette(light: bool) -> Palette {
-    if light {
-        Palette {
-            page_bg: "#ffffff",
-            ink: "#12161c",
-            subtle: "#5c6b7a",
-            accent: "#1a7f37",
-            warn: "#9a6700",
-            bad: "#b3261e",
-            rule: "#d7dee6",
-        }
-    } else {
-        Palette {
-            page_bg: "#0b0e13",
-            ink: "#e6edf3",
-            subtle: "#8b98a5",
-            accent: "#3fb950",
-            warn: "#d29922",
-            bad: "#e0796f",
-            rule: "#222a35",
-        }
+fn tone(status: &str, time_limited: bool) -> Tone {
+    match status {
+        "proved" => Tone { ink: "#17703a", bg: "#e8f4ec" },
+        "refuted" => Tone { ink: "#b42318", bg: "#fdecea" },
+        "holds-numerically" => Tone { ink: "#8a5a00", bg: "#fff4db" },
+        _ if time_limited => Tone { ink: "#4b525a", bg: "#eef0f2" },
+        _ => Tone { ink: "#4b525a", bg: "#eef0f2" },
     }
 }
 
-/// Map the few math glyphs the bundled monospace font lacks (`⟂`, `∥`) to
-/// equivalents it carries (`⊥`, `‖`), so the whole proof renders in one font
-/// instead of falling back to a proportional face mid-line.
-fn normalize_glyphs(s: &str) -> String {
-    s.replace('⟂', "⊥").replace('∥', "‖")
-}
-
-/// `s` cut to at most `max` characters, with an ellipsis when cut.
-fn clip(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
-    out
+/// A verdict glyph drawn as paths (no font dependency), 20×20 at (x, y).
+fn verdict_icon(status: &str, time_limited: bool, x: f32, y: f32, color: &str) -> String {
+    let c = format!(
+        "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"9\" fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\"/>",
+        x + 10.0,
+        y + 10.0
+    );
+    let path = match (status, time_limited) {
+        ("proved", _) => format!("M{:.1},{:.1} l3.2,3.4 l6,-7", x + 5.6, y + 10.4),
+        ("refuted", _) => format!(
+            "M{:.1},{:.1} l7,7 M{:.1},{:.1} l-7,7",
+            x + 6.5,
+            y + 6.5,
+            x + 13.5,
+            y + 6.5
+        ),
+        ("holds-numerically", _) => format!(
+            "M{:.1},{:.1} q2.5,-2.5 5,0 t5,0 M{:.1},{:.1} q2.5,-2.5 5,0 t5,0",
+            x + 5.0,
+            y + 8.5,
+            x + 5.0,
+            y + 13.0
+        ),
+        (_, true) => format!("M{:.1},{:.1} v5 l3.5,2.5", x + 10.0, y + 5.0),
+        _ => format!("M{:.1},{:.1} h9", x + 5.5, y + 10.0),
+    };
+    format!(
+        "{c}<path d=\"{path}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+    )
 }
 
 fn escape_xml(s: &str) -> String {
@@ -190,204 +185,343 @@ fn escape_xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Word-wrap a proof line to `WRAP_COLS` characters, indenting continuation
-/// lines so they sit under the step text.
-fn wrap_line(line: &str, cols: usize) -> Vec<String> {
-    if line.chars().count() <= cols {
-        return vec![line.to_string()];
-    }
-    let lead = &line[..line.len() - line.trim_start_matches(' ').len()];
-    let indent = format!("{lead}     "); // aligns under "001. "
-    let indent = indent.as_str();
-    let mut out: Vec<String> = Vec::new();
-    let mut cur = lead.to_string();
-    for word in line.trim_start_matches(' ').split(' ') {
-        let prospective = if cur.is_empty() {
-            word.chars().count()
-        } else {
-            cur.chars().count() + 1 + word.chars().count()
-        };
-        if !cur.trim().is_empty() && prospective > cols {
+/// Map the few math glyphs the bundled font lacks to equivalents it carries.
+fn normalize_glyphs(s: &str) -> String {
+    s.replace('\u{27c2}', "\u{22a5}").replace('\u{2225}', "\u{2016}")
+}
+
+/// Greedy word wrap to at most `cols` characters per line.
+fn wrap(text: &str, cols: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        let need = cur.chars().count() + usize::from(!cur.is_empty()) + word.chars().count();
+        if !cur.is_empty() && need > cols {
             out.push(std::mem::take(&mut cur));
-            cur.push_str(indent);
         }
-        if !cur.is_empty() && !cur.ends_with(' ') {
+        if !cur.is_empty() {
             cur.push(' ');
         }
         cur.push_str(word);
     }
-    if !cur.is_empty() {
+    if !cur.is_empty() || out.is_empty() {
         out.push(cur);
     }
     out
 }
 
-/// Build a standalone report page (figure + proof) as an SVG document.
-///
-/// `light` controls the *page* colours; the embedded figure keeps whatever
-/// theme it was rendered with (pass a light figure for a print-friendly PDF).
-pub fn report_svg(sol: &Solution, title: Option<&str>, light: bool) -> String {
-    let pal = palette(light);
+fn args_of(f: &Value) -> Vec<String> {
+    f["args"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
 
-    // Layout geometry. The figure canvas varies (its legend panel grows with
-    // the hypothesis count), so read its real dimensions — a fixed viewBox
-    // would crop tall figures.
-    let (fig_native_w, fig_native_h) =
-        svg_dimensions(&sol.svg).unwrap_or((FIG_NATIVE_W, FIG_NATIVE_H));
-    let fig_w = PAGE_W - 2.0 * MARGIN;
-    let fig_h = fig_w * (fig_native_h / fig_native_w);
-    let header_h = 84.0;
-    let fig_y = header_h;
-
-    // Assemble the proof body lines (status note, aux points, then the proof).
-    let mut body: Vec<String> = Vec::new();
-    if !sol.aux_constructions.is_empty() {
-        body.push("Auxiliary constructions:".to_string());
-        for c in &sol.aux_constructions {
-            body.push(format!("  + {c}"));
-        }
-        body.push(String::new());
+/// A typed fact (see `present::Fact`) as a sentence in `lang`.
+pub fn fact_text(f: &Value, lang: Lang) -> String {
+    let a = args_of(f);
+    let g = |i: usize| a.get(i).cloned().unwrap_or_default();
+    match f["kind"].as_str().unwrap_or("") {
+        "coll" => i18n::tf(lang, "fact.coll", &[("pts", a.join(", "))]),
+        "cyclic" => i18n::tf(lang, "fact.cyclic", &[("pts", a.join(", "))]),
+        "midp" => i18n::tf(lang, "fact.midp", &[("m", g(0)), ("seg", g(1))]),
+        "circle" => i18n::tf(lang, "fact.circle", &[("o", g(0)), ("tri", g(1))]),
+        "cong" | "length" | "eqangle" | "coincide" => format!("{} = {}", g(0), g(1)),
+        "perp" => format!("{} \u{27c2} {}", g(0), g(1)),
+        "para" => format!("{} \u{2225} {}", g(0), g(1)),
+        "eqratio" => format!("{} : {} = {} : {}", g(0), g(1), g(2), g(3)),
+        "aconst" => format!("{} = {}\u{b0}", g(0), g(1)),
+        "rconst" => format!("{} : {} = {}", g(0), g(1), g(2)),
+        "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", g(0), g(1)),
+        "contri" => format!("\u{25b3}{} \u{2245} \u{25b3}{}", g(0), g(1)),
+        "eqdist" => a.join(" = "),
+        "points" => a.join(", "),
+        _ => a.join(" "),
     }
-    match &sol.proof {
-        Some(p) => {
-            for raw in p.lines() {
-                let raw = normalize_glyphs(raw);
-                for w in wrap_line(&raw, WRAP_COLS) {
-                    body.push(w);
-                }
-            }
-        }
-        None => {
-            if !sol.proved {
-                let verdict = format!(
-                    "{}: {}.",
-                    sol.status.label(),
-                    sol.status.explain(sol.numeric_samples)
-                );
-                body.extend(wrap_line(&verdict, WRAP_COLS));
-                if let Some(evidence) = &sol.numeric_evidence {
-                    body.push(String::new());
-                    for raw in evidence.lines() {
-                        let raw = normalize_glyphs(raw);
-                        for w in wrap_line(&raw, WRAP_COLS) {
-                            body.push(w);
-                        }
-                    }
-                }
-            }
-        }
+}
+
+fn rule_text(step: &Value, lang: Lang) -> String {
+    match (step["rule"].as_str().unwrap_or("other"), step["rule_name"].as_str()) {
+        ("theorem", Some(name)) => name.to_string(),
+        (key, _) => i18n::t(lang, &format!("rule.{key}")).to_string(),
     }
+}
 
-    let proof_top = fig_y + fig_h + 34.0;
-    let proof_h = body.len() as f32 * PROOF_LEADING;
-    let page_h = proof_top + proof_h + MARGIN + 22.0;
+fn fmt_num(x: f64, lang: Lang, digits: usize) -> String {
+    let s = format!("{x:.digits$}");
+    if lang == Lang::Ro {
+        s.replace('.', ",")
+    } else {
+        s
+    }
+}
 
-    // Embed the figure SVG as a nested, scaled <svg> (strip its own root tag so
-    // the inner geometry inherits our coordinate box via viewBox).
-    let inner_fig = strip_svg_root(&sol.svg);
+fn fmt_secs(x: f64, lang: Lang) -> String {
+    if x < 0.001 {
+        "< 1 ms".to_string()
+    } else if x < 1.0 {
+        format!("{} ms", (x * 1000.0).round())
+    } else {
+        format!("{} s", fmt_num(x, lang, if x < 10.0 { 1 } else { 0 }))
+    }
+}
 
-    let status = sol.status.label();
-    let status_color = match sol.status {
-        crate::engine::Status::Proved => pal.accent,
-        crate::engine::Status::HoldsNumerically => pal.warn,
-        crate::engine::Status::Refuted | crate::engine::Status::NotProved => pal.bad,
+fn counter_text(c: &Value, lang: Lang) -> Option<String> {
+    let kind = c["kind"].as_str()?;
+    let labels: Vec<String> = c["labels"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let l = |i: usize| labels.get(i).cloned().unwrap_or_default();
+    let (lhs, rhs) = (c["lhs"].as_f64()?, c["rhs"].as_f64()?);
+    let digits = if kind == "values" || kind == "length" { 4 } else { 1 };
+    Some(i18n::tf(
+        lang,
+        &format!("counter.{kind}"),
+        &[
+            ("a", l(0)),
+            ("b", l(1)),
+            ("lhs", fmt_num(lhs, lang, digits)),
+            ("rhs", fmt_num(rhs, lang, digits)),
+        ],
+    ))
+}
+
+/// The export report for a solution as the web app returns it (engine fields
+/// plus `view` and `title`), on a light, print-friendly page.
+pub fn report_from_json(v: &Value, lang: Lang) -> String {
+    let status = v["status"].as_str().unwrap_or("not-proved");
+    let view = &v["view"];
+    let time_limited = view["note"]["key"].as_str() == Some("time_limit");
+    let t = tone(status, time_limited);
+    let verdict_key = if status != "proved" && time_limited {
+        "time_limit".to_string()
+    } else {
+        status.to_string()
     };
-    let default_title = if sol.proved { "GeoSolver proof" } else { "GeoSolver report" };
-    let title_text = escape_xml(title.unwrap_or(default_title));
-    let note = clip(&sol.note, 72usize.saturating_sub(status.chars().count()));
+    let headline = i18n::t(lang, &format!("report.verdict.{verdict_key}")).to_string();
+    let explain = i18n::tf(
+        lang,
+        &format!("report.explain.{verdict_key}"),
+        &[
+            ("n", v["numeric_samples"].as_u64().unwrap_or(0).to_string()),
+            ("secs", fmt_num(view["note"]["secs"].as_f64().unwrap_or(60.0), lang, 0)),
+        ],
+    );
+    let title = v["title"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| i18n::t(lang, "report.default_title").to_string());
+    let content_w = PAGE_W - 2.0 * MARGIN;
+    let cols = (content_w / (BODY_FS * 0.56)) as usize;
 
-    let mut s = String::new();
-    s.push_str(&format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" \
-         viewBox=\"0 0 {PAGE_W:.0} {page_h:.0}\" font-family=\"Helvetica, Arial, sans-serif\">\n"
-    ));
-    s.push_str(&format!(
-        "<rect width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" fill=\"{}\"/>\n",
-        pal.page_bg
-    ));
+    let mut body = String::new();
+    let mut y = MARGIN + 6.0;
+    let text = |s: &mut String, x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, content: &str| {
+        let _ = std::fmt::Write::write_fmt(
+            s,
+            format_args!(
+                "<text x=\"{x:.1}\" y=\"{y:.1}\" font-size=\"{size}\" font-weight=\"{weight}\" fill=\"{fill}\" font-family=\"{family}\" xml:space=\"preserve\">{}</text>\n",
+                escape_xml(&normalize_glyphs(content))
+            ),
+        );
+    };
+    const SANS: &str = "'DejaVu Sans', Helvetica, Arial, sans-serif";
+    const INK: &str = "#16191d";
+    const MUTED: &str = "#4b525a";
+    const RULE: &str = "#dadcd8";
 
-    // Header.
-    s.push_str(&format!(
-        "<text x=\"{MARGIN:.0}\" y=\"46\" font-size=\"26\" font-weight=\"700\" fill=\"{}\">{}</text>\n",
-        pal.ink, title_text
-    ));
-    s.push_str(&format!(
-        "<text x=\"{MARGIN:.0}\" y=\"70\" font-size=\"14\" fill=\"{}\">\
-         <tspan fill=\"{}\" font-weight=\"700\">{}</tspan> · {} · {:.3}s</text>\n",
-        pal.subtle,
-        status_color,
-        status,
-        escape_xml(&note),
-        sol.elapsed_secs
-    ));
+    for (i, line) in wrap(&title, 46).iter().enumerate() {
+        y += if i == 0 { 22.0 } else { 30.0 };
+        text(&mut body, MARGIN, y, 25.0, 700, INK, SANS, line);
+    }
+    y += 18.0;
+    let explain_lines = wrap(&explain, cols.saturating_sub(8));
+    let card_h = 46.0 + explain_lines.len() as f32 * 19.0;
+    let _ = std::fmt::Write::write_fmt(
+        &mut body,
+        format_args!(
+            "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{card_h:.1}\" rx=\"10\" fill=\"{}\" stroke=\"{}\" stroke-opacity=\"0.35\"/>\n",
+            t.bg, t.ink
+        ),
+    );
+    body.push_str(&verdict_icon(status, time_limited, MARGIN + 16.0, y + 13.0, t.ink));
+    text(&mut body, MARGIN + 46.0, y + 29.0, 17.0, 700, t.ink, SANS, &headline);
+    for (i, l) in explain_lines.iter().enumerate() {
+        text(&mut body, MARGIN + 46.0, y + 50.0 + i as f32 * 19.0, BODY_FS, 400, INK, SANS, l);
+    }
+    y += card_h + 22.0;
 
-    // Figure (nested, scaled to the content box; bordered card).
-    s.push_str(&format!(
-        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"none\" stroke=\"{}\" stroke-width=\"1\" rx=\"8\"/>\n",
-        MARGIN, fig_y, fig_w, fig_h, pal.rule
-    ));
-    s.push_str(&format!(
-        "<svg x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" viewBox=\"0 0 {:.0} {:.0}\" preserveAspectRatio=\"xMidYMid meet\">\n{}\n</svg>\n",
-        MARGIN, fig_y, fig_w, fig_h, fig_native_w, fig_native_h, inner_fig
-    ));
+    let mut meta: Vec<String> = vec![fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang)];
+    if let Some(n) = v["proof_steps"].as_u64() {
+        meta.push(i18n::tf(lang, "report.steps", &[("n", n.to_string())]));
+    }
+    text(&mut body, MARGIN, y, 12.0, 400, MUTED, SANS, &meta.join("  \u{b7}  "));
+    y += 16.0;
 
-    // Divider above the proof.
-    s.push_str(&format!(
-        "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" stroke-width=\"1\"/>\n",
-        MARGIN,
-        proof_top - 18.0,
-        PAGE_W - MARGIN,
-        proof_top - 18.0,
-        pal.rule
-    ));
-
-    // Proof body (monospace for aligned numbering; usvg falls back per glyph).
-    let mut y = proof_top;
-    for line in &body {
-        if !line.is_empty() {
-            s.push_str(&format!(
-                "<text x=\"{MARGIN:.0}\" y=\"{y:.1}\" font-size=\"{PROOF_FONT}\" \
-                 font-family=\"'DejaVu Sans Mono', Consolas, monospace\" fill=\"{}\" xml:space=\"preserve\">{}</text>\n",
-                pal.ink,
-                escape_xml(line)
-            ));
-        }
-        y += PROOF_LEADING;
+    let svg = v["svg"].as_str().unwrap_or("");
+    if let Some((fw, fh)) = svg_dimensions(svg).or_else(|| viewbox_size(svg)) {
+        let scale = (content_w / fw).min(FIG_MAX_H / fh);
+        let (w, h) = (fw * scale, fh * scale);
+        let x = MARGIN + (content_w - w) / 2.0;
+        let vb = viewbox_attr(svg).unwrap_or_else(|| format!("0 0 {fw} {fh}"));
+        let _ = std::fmt::Write::write_fmt(
+            &mut body,
+            format_args!(
+                "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{:.1}\" rx=\"10\" fill=\"#ffffff\" stroke=\"{RULE}\"/>\n<svg x=\"{x:.1}\" y=\"{:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"xMidYMid meet\" font-family=\"'DejaVu Serif', 'DejaVu Sans', serif\">\n{}\n</svg>\n",
+                h + 24.0,
+                y + 12.0,
+                strip_svg_root(svg)
+            ),
+        );
+        y += h + 24.0 + 28.0;
+    } else {
+        y += 12.0;
     }
 
-    // Footer.
-    s.push_str(&format!(
-        "<text x=\"{MARGIN:.0}\" y=\"{:.1}\" font-size=\"11\" fill=\"{}\">Generated by GeoSolver · {} points · low-level: {}</text>\n",
-        page_h - 18.0,
-        pal.subtle,
-        count_points(&sol.low_level),
-        // At 11px the footer fits ~110 chars on the 820px page; the fixed
-        // prefix uses ~60 of them.
-        escape_xml(&truncate(&sol.low_level, 48))
-    ));
+    let section = |body: &mut String, y: &mut f32, label: &str| {
+        *y += 8.0;
+        text(body, MARGIN, *y, 11.5, 700, MUTED, SANS, &label.to_uppercase());
+        let _ = std::fmt::Write::write_fmt(
+            body,
+            format_args!(
+                "<line x1=\"{MARGIN}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{RULE}\"/>\n",
+                *y + 7.0,
+                PAGE_W - MARGIN,
+                *y + 7.0
+            ),
+        );
+        *y += 26.0;
+    };
 
-    s.push_str("</svg>\n");
-    s
+    let given: Vec<String> = view["given"]
+        .as_array()
+        .map(|a| a.iter().map(|f| fact_text(f, lang)).collect())
+        .unwrap_or_default();
+    if !given.is_empty() {
+        section(&mut body, &mut y, i18n::t(lang, "report.given"));
+        for g in &given {
+            for (i, l) in wrap(g, cols - 4).iter().enumerate() {
+                text(&mut body, MARGIN + if i == 0 { 0.0 } else { 14.0 }, y, BODY_FS, 400, INK, SANS, &if i == 0 { format!("\u{2022} {l}") } else { l.clone() });
+                y += LEADING;
+            }
+        }
+        y += 6.0;
+    }
+    if !view["goal"].is_null() {
+        section(&mut body, &mut y, i18n::t(lang, "report.prove"));
+        for l in wrap(&fact_text(&view["goal"], lang), cols) {
+            text(&mut body, MARGIN, y, BODY_FS + 0.5, 700, INK, SANS, &l);
+            y += LEADING;
+        }
+        y += 6.0;
+    }
+    if let Some(c) = view.get("counterexample").filter(|c| !c.is_null()).and_then(|c| counter_text(c, lang)) {
+        section(&mut body, &mut y, i18n::t(lang, "report.counter"));
+        for l in wrap(&c, cols) {
+            text(&mut body, MARGIN, y, BODY_FS, 400, t.ink, SANS, &l);
+            y += LEADING;
+        }
+        y += 6.0;
+    }
+    if let Some(aux) = view["aux"].as_array().filter(|a| !a.is_empty()) {
+        section(&mut body, &mut y, i18n::t(lang, "report.aux"));
+        for a in aux {
+            let line = format!(
+                "{} = {}",
+                a["name"].as_str().unwrap_or(""),
+                a["text"].as_str().unwrap_or("")
+            );
+            for l in wrap(&line, cols) {
+                text(&mut body, MARGIN, y, BODY_FS, 400, "#b45309", SANS, &l);
+                y += LEADING;
+            }
+        }
+        y += 6.0;
+    }
+    let steps = view["proof"]["steps"].as_array().cloned().unwrap_or_default();
+    if status == "proved" && !steps.is_empty() {
+        section(&mut body, &mut y, i18n::t(lang, "report.proof"));
+        let gutter = 34.0;
+        let step_cols = ((content_w - gutter) / (BODY_FS * 0.56)) as usize;
+        for st in &steps {
+            let mut line = fact_text(&st["fact"], lang);
+            let rule = rule_text(st, lang);
+            let deps: Vec<String> = st["deps"]
+                .as_array()
+                .map(|d| d.iter().filter_map(|x| x.as_u64().map(|n| n.to_string())).collect())
+                .unwrap_or_default();
+            line.push_str(&format!("   \u{2014} {rule}"));
+            if !deps.is_empty() {
+                line.push_str(&format!(" [{}]", deps.join(", ")));
+            }
+            let n = st["n"].as_u64().unwrap_or(0);
+            text(&mut body, MARGIN, y, BODY_FS, 700, MUTED, SANS, &format!("{n}."));
+            for l in wrap(&line, step_cols) {
+                text(&mut body, MARGIN + gutter, y, BODY_FS, 400, INK, SANS, &l);
+                y += LEADING;
+            }
+        }
+        if let Some(c) = view["proof"].get("conclusion").filter(|c| !c.is_null()) {
+            y += 4.0;
+            for l in wrap(&format!("\u{220e}  {}", fact_text(c, lang)), cols) {
+                text(&mut body, MARGIN, y, BODY_FS, 700, INK, SANS, &l);
+                y += LEADING;
+            }
+        }
+    }
+    y += 18.0;
+    let _ = std::fmt::Write::write_fmt(
+        &mut body,
+        format_args!(
+            "<line x1=\"{MARGIN}\" y1=\"{y:.1}\" x2=\"{:.1}\" y2=\"{y:.1}\" stroke=\"{RULE}\"/>\n",
+            PAGE_W - MARGIN
+        ),
+    );
+    y += 22.0;
+    text(&mut body, MARGIN, y, 11.0, 400, MUTED, SANS, i18n::t(lang, "report.footer"));
+    let page_h = y + MARGIN - 12.0;
+
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" viewBox=\"0 0 {PAGE_W:.0} {page_h:.0}\" font-family=\"{SANS}\">\n<rect width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" fill=\"#ffffff\"/>\n{body}</svg>\n"
+    )
+}
+
+/// The report for a [`Solution`] (CLI and MCP exports), in English.
+pub fn report_svg(sol: &Solution, title: Option<&str>, _light: bool) -> String {
+    report_from_json(&present::solution_json(sol, title), Lang::En)
 }
 
 /// Read the `width`/`height` attributes off an SVG document's root tag.
 fn svg_dimensions(svg: &str) -> Option<(f32, f32)> {
-    let open = svg.find("<svg")?;
-    let end = svg[open..].find('>')? + open;
-    let tag = &svg[open..end];
-    let attr = |name: &str| -> Option<f32> {
-        let key = format!("{name}=\"");
-        let at = tag.find(&key)? + key.len();
-        let rest = &tag[at..];
-        let close = rest.find('"')?;
-        rest[..close].trim().parse().ok()
-    };
-    let (w, h) = (attr("width")?, attr("height")?);
+    let (w, h) = (root_attr(svg, "width")?, root_attr(svg, "height")?);
+    let (w, h): (f32, f32) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
     (w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite()).then_some((w, h))
 }
 
-/// Strip the outer `<svg ...>` … `</svg>` wrapper, returning just the inner
-/// markup (which we re-wrap in a nested, scaled <svg>).
+fn root_attr(svg: &str, name: &str) -> Option<String> {
+    let open = svg.find("<svg")?;
+    let end = svg[open..].find('>')? + open;
+    let tag = &svg[open..end];
+    let key = format!(" {name}=\"");
+    let at = tag.find(&key)? + key.len();
+    let rest = &tag[at..];
+    let close = rest.find('"')?;
+    Some(rest[..close].to_string())
+}
+
+fn viewbox_attr(svg: &str) -> Option<String> {
+    root_attr(svg, "viewBox")
+}
+
+fn viewbox_size(svg: &str) -> Option<(f32, f32)> {
+    let vb = viewbox_attr(svg)?;
+    let n: Vec<f32> = vb.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    (n.len() == 4 && n[2] > 0.0 && n[3] > 0.0).then(|| (n[2], n[3]))
+}
+
+/// Strip the outer `<svg ...>` … `</svg>` wrapper, returning the inner markup.
 fn strip_svg_root(svg: &str) -> String {
     let after_open = match svg.find("<svg") {
         Some(i) => match svg[i..].find('>') {
@@ -400,19 +534,6 @@ fn strip_svg_root(svg: &str) -> String {
     svg.get(after_open..before_close).unwrap_or("").trim().to_string()
 }
 
-fn count_points(low_level: &str) -> usize {
-    low_level.split('@').count().saturating_sub(1)
-}
-
-fn truncate(s: &str, n: usize) -> String {
-    let one_line = s.replace(['\n', '\r'], " ");
-    if one_line.chars().count() <= n {
-        one_line
-    } else {
-        let cut: String = one_line.chars().take(n).collect();
-        format!("{cut}…")
-    }
-}
 
 #[cfg(test)]
 mod tests {

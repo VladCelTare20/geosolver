@@ -43,6 +43,10 @@ pub struct HistoryEntry {
     /// The solve's verdict (`proved`, `holds-numerically`, `refuted`,
     /// `not-proved`); `None` for rows recorded before verdicts were stored.
     pub status: Option<String>,
+    /// The goal as the reader saw it (display names), for list titles.
+    pub goal: Option<String>,
+    /// Whether the full solution was stored, so reopening needs no re-solve.
+    pub has_solution: bool,
     pub created_at: i64,
 }
 
@@ -155,6 +159,17 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if !has_status {
         conn.execute_batch("ALTER TABLE history ADD COLUMN status TEXT;")?;
     }
+    for (col, ddl) in [
+        ("goal", "ALTER TABLE history ADD COLUMN goal TEXT;"),
+        ("solution", "ALTER TABLE history ADD COLUMN solution TEXT;"),
+    ] {
+        let has = conn
+            .prepare("SELECT 1 FROM pragma_table_info('history') WHERE name = ?1")?
+            .exists([col])?;
+        if !has {
+            conn.execute_batch(ddl)?;
+        }
+    }
     // Usernames are case-insensitive. A DB from before that rule may already
     // hold `Alice` and `alice`; the index then fails to build and `create_user`'s
     // own check still prevents any new collision.
@@ -235,6 +250,19 @@ pub fn sweep_expired_sessions(conn: &Connection) -> rusqlite::Result<usize> {
     conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", params![now()])
 }
 
+/// A solve to record: the verdict columns, plus optionally the display goal and
+/// the full solution JSON.
+pub struct NewHistory<'a> {
+    pub input: &'a str,
+    pub title: Option<&'a str>,
+    pub proved: bool,
+    pub method: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub goal: Option<&'a str>,
+    pub solution: Option<&'a str>,
+}
+
+#[cfg(test)]
 pub fn insert_history(
     conn: &Connection,
     user_id: i64,
@@ -244,10 +272,18 @@ pub fn insert_history(
     method: Option<&str>,
     status: Option<&str>,
 ) -> rusqlite::Result<i64> {
+    insert_history_full(
+        conn,
+        user_id,
+        &NewHistory { input, title, proved, method, status, goal: None, solution: None },
+    )
+}
+
+pub fn insert_history_full(conn: &Connection, user_id: i64, h: &NewHistory) -> rusqlite::Result<i64> {
     conn.execute(
-        "INSERT INTO history (user_id, input, title, proved, method, status, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![user_id, input, title, proved as i64, method, status, now()],
+        "INSERT INTO history (user_id, input, title, proved, method, status, goal, solution, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![user_id, h.input, h.title, h.proved as i64, h.method, h.status, h.goal, h.solution, now()],
     )?;
     let id = conn.last_insert_rowid();
     // Bound per-user growth: drop the oldest rows past the cap.
@@ -269,8 +305,8 @@ pub fn list_history(
     before: Option<i64>,
 ) -> rusqlite::Result<Vec<HistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, input, title, proved, method, created_at, status \
-         FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
+        "SELECT id, user_id, input, title, proved, method, created_at, status, goal, \
+         solution IS NOT NULL FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
     )?;
     let rows = stmt.query_map(params![user_id, before.unwrap_or(i64::MAX), limit], |r| {
         Ok(HistoryEntry {
@@ -282,9 +318,22 @@ pub fn list_history(
             method: r.get(5)?,
             created_at: r.get(6)?,
             status: r.get(7)?,
+            goal: r.get(8)?,
+            has_solution: r.get::<_, i64>(9)? != 0,
         })
     })?;
     rows.collect()
+}
+
+/// The stored solution JSON of one of the user's own rows: `None` if no such
+/// row, `Some(None)` if the row predates stored solutions.
+pub fn history_solution(conn: &Connection, user_id: i64, id: i64) -> rusqlite::Result<Option<Option<String>>> {
+    conn.query_row(
+        "SELECT solution FROM history WHERE id = ?1 AND user_id = ?2",
+        params![id, user_id],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .optional()
 }
 
 /// Delete one of the user's own history entries. Returns whether a row was

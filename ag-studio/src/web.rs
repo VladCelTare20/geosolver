@@ -28,13 +28,65 @@ const SOLVE_DEADLINE: Duration = Duration::from_secs(60);
 
 use crate::engine::{self, InputKind, SolveOptions};
 use crate::security::{self, AppState, Config, Shared};
-use crate::{auth, db, i18n, render, translate};
+use crate::{auth, db, i18n, present, render, translate};
 use ddar::svg::Theme;
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 const AUTH_HTML: &str = include_str!("../assets/auth.html");
 const LANDING_HTML: &str = include_str!("../assets/landing.html");
-const I18N_JS: &str = include_str!("../assets/i18n.js");
+
+/// Static files under `/assets/`: (name, content type, cache policy, bytes).
+const ASSETS: &[(&str, &str, &str, &[u8])] = &[
+    ("i18n.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/i18n.js")),
+    ("app.css", "text/css; charset=utf-8", "no-cache", include_bytes!("../assets/app.css")),
+    ("site.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/site.js")),
+    ("app.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/app.js")),
+    ("auth.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/auth.js")),
+    ("landing.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/landing.js")),
+    ("fonts/stix-two-text.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/stix-two-text.woff2")),
+    ("fonts/stix-two-text-italic.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/stix-two-text-italic.woff2")),
+    ("fonts/inter.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/inter.woff2")),
+];
+
+/// Recent solutions by id, so export and history reopen use exactly what the
+/// reader saw instead of solving again.
+const SOLUTION_TTL: Duration = Duration::from_secs(30 * 60);
+const SOLUTION_CACHE_MAX: usize = 128;
+/// Solutions larger than this are not stored in history (reopen re-solves).
+const MAX_STORED_SOLUTION_BYTES: usize = 512 * 1024;
+
+struct SolutionCache {
+    entries: Vec<(String, std::time::Instant, std::sync::Arc<serde_json::Value>)>,
+}
+
+fn solution_cache() -> &'static std::sync::Mutex<SolutionCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<SolutionCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(SolutionCache { entries: Vec::new() }))
+}
+
+fn cache_put(value: serde_json::Value) -> (String, std::sync::Arc<serde_json::Value>) {
+    let id = auth::new_session_id()[..32].to_string();
+    let mut value = value;
+    value["id"] = serde_json::Value::String(id.clone());
+    let arc = std::sync::Arc::new(value);
+    let mut c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    c.entries.retain(|(_, at, _)| at.elapsed() < SOLUTION_TTL);
+    if c.entries.len() >= SOLUTION_CACHE_MAX {
+        c.entries.remove(0);
+    }
+    c.entries.push((id.clone(), std::time::Instant::now(), arc.clone()));
+    (id, arc)
+}
+
+fn cache_get(id: &str) -> Option<std::sync::Arc<serde_json::Value>> {
+    let c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    c.entries
+        .iter()
+        .find(|(k, at, _)| k == id && at.elapsed() < SOLUTION_TTL)
+        .map(|(_, _, v)| v.clone())
+}
+
+
 /// Hard ceiling on a decoded upload, independent of the body limit.
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 /// Titles are display labels; anything longer is truncated before use/storage.
@@ -86,7 +138,8 @@ fn app_router(state: Shared) -> Router {
         .route("/", get(index))
         .route("/app", get(app_page))
         .route("/auth", get(auth_page))
-        .route("/assets/i18n.js", get(i18n_js))
+        .route("/assets/{file}", get(asset))
+        .route("/assets/fonts/{file}", get(font_asset))
         .route("/healthz", get(healthz))
         .route("/api/status", get(api_status))
         .route("/api/solve", post(api_solve))
@@ -94,7 +147,7 @@ fn app_router(state: Shared) -> Router {
         .route("/api/humanize", post(api_humanize))
         .route("/api/export", post(api_export))
         .route("/api/history", get(api_history))
-        .route("/api/history/{id}", axum::routing::delete(api_history_delete))
+        .route("/api/history/{id}", axum::routing::delete(api_history_delete).get(api_history_get))
         .route("/api/auth/register", post(api_register))
         .route("/api/auth/login", post(api_login))
         .route("/api/auth/logout", post(api_logout))
@@ -154,16 +207,26 @@ async fn app_page(State(state): State<Shared>, headers: HeaderMap) -> Response {
     }
 }
 
-/// The shared client-side i18n engine + string catalog (English/Romanian).
-async fn i18n_js() -> Response {
-    (
-        [(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/javascript; charset=utf-8"),
-        )],
-        I18N_JS,
-    )
-        .into_response()
+fn serve_asset(name: &str) -> Response {
+    match ASSETS.iter().find(|(n, ..)| *n == name) {
+        Some((_, ctype, cache, bytes)) => (
+            [
+                (header::CONTENT_TYPE, HeaderValue::from_static(ctype)),
+                (header::CACHE_CONTROL, HeaderValue::from_static(cache)),
+            ],
+            *bytes,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn asset(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
+    serve_asset(&file)
+}
+
+async fn font_asset(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
+    serve_asset(&format!("fonts/{file}"))
 }
 
 /// The login/register page (public — its own JS calls the `/api/auth/*` routes).
@@ -180,14 +243,51 @@ async fn healthz() -> &'static str {
 struct Status {
     translate_installed: bool,
     translate_logged_in: bool,
+    /// The first CLI probe has not finished; ask again shortly.
+    translate_checking: bool,
+    /// Whether *this caller* can use `/api/translate` right now.
+    can_translate: bool,
+    /// Why not: `disabled`, `not_installed`, `not_logged_in`, `sign_in`, `checking`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    translate_block: Option<&'static str>,
+    signed_in: bool,
+    guest: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    solve_deadline_secs: u64,
     version: &'static str,
 }
 
-async fn api_status(State(state): State<Shared>) -> Json<Status> {
-    let s = state.translate_status().await;
+/// Never waits on the `claude` probe: a stale or missing result is refreshed
+/// in the background and reported as `translate_checking`.
+async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Json<Status> {
+    let user = session_user(&state, &headers).await;
+    let probe = state.translate_status_now();
+    let checking = probe.is_none();
+    let s = probe.unwrap_or(translate::Status { installed: false, logged_in: false });
+    let block = if !state.config.enable_translate {
+        Some("disabled")
+    } else if checking {
+        Some("checking")
+    } else if !s.installed {
+        Some("not_installed")
+    } else if !s.logged_in {
+        Some("not_logged_in")
+    } else if user.is_none() {
+        Some("sign_in")
+    } else {
+        None
+    };
     Json(Status {
         translate_installed: s.installed,
         translate_logged_in: s.logged_in,
+        translate_checking: checking,
+        can_translate: block.is_none(),
+        translate_block: block,
+        signed_in: user.is_some(),
+        guest: user.is_none() && state.config.guest_allowed(),
+        username: user.map(|u| u.username),
+        solve_deadline_secs: SOLVE_DEADLINE.as_secs(),
         version: env!("CARGO_PKG_VERSION"),
     })
 }
@@ -443,6 +543,18 @@ fn err(code: StatusCode, msg: impl Into<String>) -> Response {
     (code, Json(serde_json::json!({ "error": msg.into() }))).into_response()
 }
 
+/// A compile/parse error: a localized sentence, where it is, and the engine's
+/// own words as `detail`.
+fn compile_err(lang: i18n::Lang, input: &str, raw: &str) -> Response {
+    let d = present::diagnose(input, raw);
+    let msg = i18n::compile_message(lang, &d);
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": raw })),
+    )
+        .into_response()
+}
+
 /// Reject empty or over-long programs early. (The `Response` error is axum's
 /// own large type — boxing it everywhere would only add noise.)
 #[allow(clippy::result_large_err)]
@@ -529,6 +641,8 @@ async fn api_solve(
         panel: false,
     };
     let input = req.input;
+    let input_for_errors = input.clone();
+    let lang = i18n::lang_from_headers(&headers);
     let best = req.best;
     // Reject non-finite budgets; clamp to a server-safe ceiling.
     let budget = Duration::from_secs_f64(
@@ -547,14 +661,22 @@ async fn api_solve(
     });
     match task.await {
         Ok(Ok(sol)) => {
+            let value = tokio::task::spawn_blocking({
+                let sol = sol.clone();
+                let t = history_title.clone();
+                move || present::solution_json(&sol, t.as_deref())
+            })
+            .await
+            .unwrap_or_default();
+            let (_, value) = cache_put(value);
             if let (Caller::User(user), true) = (&caller, req.record) {
-                save_history(&state, user.id, &sol, history_title.as_deref()).await;
+                save_history(&state, user.id, &sol, history_title.as_deref(), &value).await;
             }
-            Json(sol).into_response()
+            Json(value.as_ref().clone()).into_response()
         }
         Ok(Err(e)) => {
-            eprintln!("solve error: {e}"); // detail to the operator's log, not the client
-            err(StatusCode::BAD_REQUEST, e) // compile/parse errors describe the user's input
+            eprintln!("solve error: {e}");
+            compile_err(lang, &input_for_errors, &e)
         }
         Err(e) => {
             eprintln!("solve panicked: {e}");
@@ -585,23 +707,39 @@ fn method_str(m: engine::Method) -> &'static str {
 /// a storage error here must never fail the solve response itself. Inputs past
 /// the request cap are never stored (the request check bounds `sol.input`'s
 /// source, this bounds what the engine hands back).
-async fn save_history(state: &Shared, user_id: i64, sol: &engine::Solution, title: Option<&str>) {
+async fn save_history(
+    state: &Shared,
+    user_id: i64,
+    sol: &engine::Solution,
+    title: Option<&str>,
+    value: &serde_json::Value,
+) {
     if sol.input.len() > state.config.max_input_chars {
         return;
     }
     let db = state.db.clone();
     let (input, proved, method) = (sol.input.clone(), sol.proved, method_str(sol.method));
     let status = status_str(sol.status);
-    let title = title.map(str::to_string);
+    let title = title.map(str::to_string).or_else(|| value["title"].as_str().map(str::to_string));
+    let goal = value["view"].get("goal").filter(|g| !g.is_null()).map(|g| g.to_string());
+    let mut stored = value.clone();
+    if let Some(o) = stored.as_object_mut() {
+        o.remove("id");
+    }
+    let solution = Some(stored.to_string()).filter(|s| s.len() <= MAX_STORED_SOLUTION_BYTES);
     let _ = tokio::task::spawn_blocking(move || {
-        db::insert_history(
+        db::insert_history_full(
             &db::lock(&db),
             user_id,
-            &input,
-            title.as_deref(),
-            proved,
-            Some(method),
-            Some(status),
+            &db::NewHistory {
+                input: &input,
+                title: title.as_deref(),
+                proved,
+                method: Some(method),
+                status: Some(status),
+                goal: goal.as_deref(),
+                solution: solution.as_deref(),
+            },
         )
     })
     .await;
@@ -617,6 +755,9 @@ struct HistoryItem {
     proved: bool,
     method: Option<String>,
     status: Option<String>,
+    /// The goal as a typed fact (see `present::Fact`), when recorded.
+    goal: Option<serde_json::Value>,
+    has_solution: bool,
     created_at: i64,
 }
 
@@ -629,8 +770,38 @@ impl From<db::HistoryEntry> for HistoryItem {
             proved: h.proved,
             method: h.method,
             status: h.status,
+            goal: h.goal.and_then(|g| serde_json::from_str(&g).ok()),
+            has_solution: h.has_solution,
             created_at: h.created_at,
         }
+    }
+}
+
+/// One stored solution, exactly as it was shown, ready to export again.
+async fn api_history_get(
+    State(state): State<Shared>,
+    SessionUser(user): SessionUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let lang = i18n::lang_from_headers(&headers);
+    let db = state.db.clone();
+    let res = tokio::task::spawn_blocking(move || db::history_solution(&db::lock(&db), user.id, id)).await;
+    match res {
+        Ok(Ok(Some(Some(json)))) => match serde_json::from_str::<serde_json::Value>(&json) {
+            Ok(v) => {
+                let (_, v) = cache_put(v);
+                Json(v.as_ref().clone()).into_response()
+            }
+            Err(_) => err(StatusCode::GONE, i18n::t(lang, "history.no_solution")),
+        },
+        Ok(Ok(Some(None))) => (
+            StatusCode::GONE,
+            Json(serde_json::json!({ "error": i18n::t(lang, "history.no_solution"), "code": "no_solution" })),
+        )
+            .into_response(),
+        Ok(Ok(None)) => err(StatusCode::NOT_FOUND, i18n::t(lang, "history.none")),
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "history.load_fail")),
     }
 }
 
@@ -714,7 +885,7 @@ async fn api_translate(
     if !state.config.enable_translate || !translate::available() {
         return err(
             StatusCode::SERVICE_UNAVAILABLE,
-            "AI translation is not enabled on this server",
+            i18n::t(i18n::lang_from_headers(&headers), "translate.disabled"),
         );
     }
     if let Some(t) = &req.text {
@@ -763,7 +934,7 @@ async fn api_translate(
             eprintln!("translate error: {e}"); // detail to the operator's log, not the client
             err(
                 StatusCode::BAD_GATEWAY,
-                "translation failed — could not turn that into a geometry problem",
+                i18n::t(i18n::lang_from_headers(&headers), "translate.no_problem"),
             )
         }
         Err(e) => {
@@ -883,6 +1054,11 @@ fn decode_image(b64: &str, filename: Option<&str>) -> anyhow::Result<tempfile::N
 
 #[derive(Deserialize)]
 struct ExportReq {
+    /// A solution id from `/api/solve` or `/api/history/{id}`: export exactly
+    /// that result. Without one, `input` is solved afresh.
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     input: String,
     #[serde(default)]
     kind: String,
@@ -892,12 +1068,62 @@ struct ExportReq {
     format: String,
 }
 
+fn export_response(bytes: Vec<u8>, want_pdf: bool) -> Response {
+    let (ctype, disposition) = if want_pdf {
+        ("application/pdf", "attachment; filename=\"geosolver-proof.pdf\"")
+    } else {
+        ("image/png", "attachment; filename=\"geosolver-proof.png\"")
+    };
+    Response::builder()
+        .header(header::CONTENT_TYPE, ctype)
+        .header(header::CONTENT_DISPOSITION, disposition)
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
 async fn api_export(
     State(state): State<Shared>,
     _caller: Caller,
     headers: HeaderMap,
     ApiJson(req): ApiJson<ExportReq>,
 ) -> Response {
+    let lang = i18n::lang_from_headers(&headers);
+    let want_pdf = req.format.eq_ignore_ascii_case("pdf");
+    if let Some(id) = req.id.as_deref().filter(|s| !s.is_empty()) {
+        let Some(value) = cache_get(id) else {
+            return (
+                StatusCode::GONE,
+                Json(serde_json::json!({ "error": i18n::t(lang, "export.expired"), "code": "expired" })),
+            )
+                .into_response();
+        };
+        let permit = match heavy_permit(&state, &headers) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+        let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
+            let _permit = permit;
+            let report = render::report_from_json(&value, lang);
+            if want_pdf {
+                render::svg_to_pdf(&report)
+            } else {
+                render::svg_to_png(&report, 2.0)
+            }
+        })
+        .await;
+        return match res {
+            Ok(Ok(bytes)) => export_response(bytes, want_pdf),
+            Ok(Err(e)) => {
+                eprintln!("export error: {e}");
+                err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "export.failed"))
+            }
+            Err(e) => {
+                eprintln!("export panicked: {e}");
+                err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "export.failed"))
+            }
+        };
+    }
     if let Err(e) = check_input(&state, &headers, &req.input) {
         return e;
     }
@@ -915,41 +1141,28 @@ async fn api_export(
         panel: true,
     };
     let input = req.input;
-    let want_pdf = req.format.eq_ignore_ascii_case("pdf");
+    let input_for_errors = input.clone();
 
-    let res = tokio::task::spawn_blocking(
-        move || -> anyhow::Result<(Vec<u8>, &'static str, &'static str)> {
-            let _permit = permit;
-            let sol = engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
-                .map_err(|e| anyhow::anyhow!(e))?;
-            let report = render::report_svg(&sol, title.as_deref(), true);
-            if want_pdf {
-                Ok((
-                    render::svg_to_pdf(&report)?,
-                    "application/pdf",
-                    "attachment; filename=\"geosolver-proof.pdf\"",
-                ))
-            } else {
-                Ok((
-                    render::svg_to_png(&report, 2.0)?,
-                    "image/png",
-                    "attachment; filename=\"geosolver-proof.png\"",
-                ))
-            }
-        },
-    )
+    let res = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, (bool, String)> {
+        let _permit = permit;
+        let sol = engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE)).map_err(|e| (true, e))?;
+        let value = present::solution_json(&sol, title.as_deref());
+        let report = render::report_from_json(&value, lang);
+        if want_pdf {
+            render::svg_to_pdf(&report)
+        } else {
+            render::svg_to_png(&report, 2.0)
+        }
+        .map_err(|e| (false, e.to_string()))
+    })
     .await;
 
     match res {
-        Ok(Ok((bytes, content_type, disposition))) => Response::builder()
-            .header(header::CONTENT_TYPE, content_type)
-            .header(header::CONTENT_DISPOSITION, disposition)
-            .header(header::CACHE_CONTROL, "no-store")
-            .body(Body::from(bytes))
-            .unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))),
-        Ok(Err(e)) => {
+        Ok(Ok(bytes)) => export_response(bytes, want_pdf),
+        Ok(Err((true, e))) => compile_err(lang, &input_for_errors, &e),
+        Ok(Err((false, e))) => {
             eprintln!("export error: {e}");
-            err(StatusCode::BAD_REQUEST, format!("{e}"))
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "export.failed"))
         }
         Err(e) => {
             eprintln!("export panicked: {e}");
@@ -1709,9 +1922,21 @@ mod tests {
         assert!(t.elapsed() < Duration::from_millis(200), "healthz stalled {:?}", t.elapsed());
         let (st, _, body) = status.await.unwrap();
         assert_eq!(st, StatusCode::OK);
-        assert_eq!(body["translate_logged_in"], true);
+        assert!(t.elapsed() < Duration::from_millis(200), "/api/status waited on the probe");
+        assert_eq!(body["translate_checking"], true, "{body}");
+        assert_eq!(body["can_translate"], false);
+        let mut body = body;
+        for _ in 0..40 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            body = call(&state, "GET", "/api/status", None, serde_json::Value::Null).await.2;
+            if body["translate_checking"] == false {
+                break;
+            }
+        }
+        assert_eq!(body["translate_logged_in"], true, "{body}");
+        assert_eq!(body["translate_block"], "sign_in", "a visitor without a session cannot translate");
         call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
-        assert_eq!(SLOW_PROBES.load(std::sync::atomic::Ordering::SeqCst), 1, "second call must hit the cache");
+        assert_eq!(SLOW_PROBES.load(std::sync::atomic::Ordering::SeqCst), 1, "later calls must hit the cache");
     }
 
     #[tokio::test]
@@ -2066,5 +2291,122 @@ mod tests {
         assert_eq!(rows, 0);
         let (st, _, _) = send(&state, build("GET", "/api/history", &[("authorization", &auth)], None)).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+
+    const ORTHO_REFLECTION: &str =
+        "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))";
+
+    async fn call_raw(state: &Shared, req: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let resp = app_router(state.clone()).oneshot(req).await.unwrap();
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap().to_vec();
+        (status, headers, bytes)
+    }
+
+    #[tokio::test]
+    async fn solve_answers_with_a_readable_view_and_an_export_id() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "euler").await;
+        let (st, _, body) =
+            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        assert_eq!(st, StatusCode::OK, "{body}");
+        assert_eq!(body["status"], "proved");
+        assert!(body["proof"].as_str().unwrap().contains("_5"), "the engine's own proof is passed through");
+        for field in ["view", "svg", "title"] {
+            let shown = body[field].to_string();
+            assert!(!shown.contains("_5") && !shown.contains("_\u{2085}"), "internal name in {field}: {shown}");
+        }
+        assert!(body["view"]["proof"]["steps"].as_array().is_some_and(|s| !s.is_empty()));
+        assert!(body["svg"].as_str().unwrap().contains("data-p=\""));
+        let id = body["id"].as_str().expect("solution id").to_string();
+
+        let export = serde_json::json!({"id": id, "format": "png"}).to_string();
+        let req = build("POST", "/api/export", &[("cookie", &cookie)], Some(&export));
+        let (st, headers, bytes) = call_raw(&state, req).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(headers[header::CONTENT_TYPE], "image/png");
+        assert!(bytes.starts_with(b"\x89PNG"));
+
+        let gone = serde_json::json!({"id": "0123456789abcdef0123456789abcdef", "format": "pdf"}).to_string();
+        let req = build("POST", "/api/export", &[("cookie", &cookie)], Some(&gone));
+        let (st, _, bytes) = call_raw(&state, req).await;
+        assert_eq!(st, StatusCode::GONE);
+        let j: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(j["code"], "expired");
+    }
+
+    #[tokio::test]
+    async fn history_reopens_the_stored_solution_without_solving() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "gauss").await;
+        let (_, _, solved) =
+            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        let (st, _, rows) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::OK);
+        let row = &rows[0];
+        assert_eq!(row["has_solution"], true);
+        assert_eq!(row["goal"]["kind"], "cyclic");
+        let id = row["id"].as_i64().unwrap();
+        let (st, _, again) =
+            call(&state, "GET", &format!("/api/history/{id}"), Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(again["proof"], solved["proof"]);
+        assert_eq!(again["view"], solved["view"]);
+        assert_ne!(again["id"], solved["id"], "a fresh export id");
+        let other = register_cookie(&state, "riemann").await;
+        let (st, _, _) =
+            call(&state, "GET", &format!("/api/history/{id}"), Some(&other), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "another user's row is invisible");
+    }
+
+    #[tokio::test]
+    async fn compile_errors_are_located_and_localized() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "hilbert").await;
+        let bad = "A B C = triangle\nH = orthocenter(A B C)\nprove perp(A, H, B, C)";
+        let (st, _, body) =
+            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": bad})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "compile");
+        assert_eq!(body["diagnosis"]["line"], 2);
+        assert_eq!(body["diagnosis"]["col"], 19);
+        assert!(body["error"].as_str().unwrap().starts_with("Expected a comma"), "{body}");
+        assert!(body["detail"].as_str().unwrap().contains("found"));
+        let ro = format!("{cookie}; lang=ro");
+        let (_, _, body) = call(&state, "POST", "/api/solve", Some(&ro), serde_json::json!({"input": bad})).await;
+        assert!(body["error"].as_str().unwrap().starts_with("Lipsește"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn static_assets_are_served_with_their_types() {
+        let (state, _dir) = test_state();
+        for (path, ctype) in [
+            ("/assets/app.css", "text/css; charset=utf-8"),
+            ("/assets/app.js", "application/javascript; charset=utf-8"),
+            ("/assets/i18n.js", "application/javascript; charset=utf-8"),
+            ("/assets/fonts/stix-two-text.woff2", "font/woff2"),
+        ] {
+            let (st, headers, _) = call_raw(&state, build("GET", path, &[], None)).await;
+            assert_eq!(st, StatusCode::OK, "{path}");
+            assert_eq!(headers[header::CONTENT_TYPE], ctype, "{path}");
+        }
+        let (st, _, _) = call_raw(&state, build("GET", "/assets/../Cargo.toml", &[], None)).await;
+        assert_ne!(st, StatusCode::OK);
+        let (st, _, _) = call_raw(&state, build("GET", "/assets/nope.js", &[], None)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn guests_are_told_why_they_cannot_translate() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let (st, _, text) = send(&state, build("GET", "/api/status", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(body["guest"], true);
+        assert_eq!(body["signed_in"], false);
+        assert_eq!(body["can_translate"], false);
+        assert!(body["translate_block"].is_string(), "{body}");
     }
 }

@@ -11,8 +11,10 @@
 mod auth;
 mod db;
 mod engine;
+mod figure;
 mod i18n;
 mod mcp;
+mod present;
 mod render;
 mod security;
 mod translate;

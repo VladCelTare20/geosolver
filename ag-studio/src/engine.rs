@@ -182,6 +182,19 @@ pub struct Solution {
     /// (`solve_best` only; `None` for a plain solve).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub examined: Option<usize>,
+    /// The problem the figure was drawn from — search-augmented when the proof
+    /// needed auxiliary points — for the web app's presentation layer, which
+    /// draws its own interactive figure. Never serialized.
+    #[serde(skip)]
+    pub figure: Option<FigureSource>,
+}
+
+/// What a figure is drawn from: the (possibly augmented) problem, and the index
+/// of its first auxiliary point when the search added some.
+#[derive(Clone)]
+pub struct FigureSource {
+    pub problem: Problem,
+    pub aux_from: Option<usize>,
 }
 
 /// Solve one problem end to end. Never panics: the engine's degenerate-figure
@@ -417,6 +430,7 @@ fn best_deductive(
             note,
             proof_steps,
             examined: Some(examined),
+            figure: Some(FigureSource { problem: problem.clone(), aux_from: None }),
         }
     };
 
@@ -538,6 +552,7 @@ fn best_deductive(
                 if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                     sol.svg = aux_svg;
                 }
+                sol.figure = Some(FigureSource { problem: aug, aux_from: Some(problem.points.len()) });
             }
         }
         return Ok(sol);
@@ -619,6 +634,7 @@ fn best_deductive(
             if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                 sol.svg = aux_svg;
             }
+            sol.figure = Some(FigureSource { problem: aug, aux_from: Some(problem.points.len()) });
             Ok(sol)
         }
         None => Ok(build(
@@ -705,6 +721,7 @@ fn deductive_flow(
 ) -> Result<Solution, String> {
     let start = Instant::now();
     let mut svg = render_figure(&problem, opts, None)?;
+    let mut figure = FigureSource { problem: problem.clone(), aux_from: None };
     let (legend_cons, legend_goal) = ddar::svg::legend_lines(&problem);
     let limit_note = || {
         let secs = deadline.map_or(0.0, |d| d.duration_since(start).as_secs_f64());
@@ -774,6 +791,10 @@ fn deductive_flow(
                     {
                         svg = aux_svg;
                     }
+                    figure = FigureSource {
+                        problem: augmented.clone(),
+                        aux_from: Some(problem.points.len()),
+                    };
                     let proof = if opts.want_proof {
                         catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&augmented)))
                             .ok()
@@ -819,6 +840,7 @@ fn deductive_flow(
         note,
         proof_steps,
         examined: None,
+        figure: Some(figure),
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -832,13 +854,15 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
 
     // Figure + low-level form: compile the construction lines alone (the metric
     // goal is not a DDAR predicate, so it is dropped from the drawing).
-    let (svg, low_level, goal_holds, legend_cons) = match geo::compile(&cons) {
+    let (svg, low_level, goal_holds, legend_cons, figure) = match geo::compile(&cons) {
         Ok(c) => {
             let svg = render_figure(&c.problem, opts, None).unwrap_or_default();
             let (lc, _) = ddar::svg::legend_lines(&c.problem);
-            (svg, c.problem.to_ag_string(), c.goal_numerically_holds, lc)
+            let ll = c.problem.to_ag_string();
+            let fig = FigureSource { problem: c.problem, aux_from: None };
+            (svg, ll, c.goal_numerically_holds, lc, Some(fig))
         }
-        Err(_) => (String::new(), String::new(), None, Vec::new()),
+        Err(_) => (String::new(), String::new(), None, Vec::new(), None),
     };
 
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -900,6 +924,7 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
         note,
         proof_steps,
         examined: None,
+        figure,
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -1466,6 +1491,7 @@ mod tests {
             note: String::new(),
             proof_steps: None,
             examined: None,
+            figure: None,
         }
     }
 }
