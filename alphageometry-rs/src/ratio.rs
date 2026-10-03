@@ -174,6 +174,7 @@ struct Step {
     /// a second reason next to a lone headline.
     support: bool,
     lead: bool,
+    tag: Option<trig::Tag>,
 }
 
 struct Figure {
@@ -247,6 +248,7 @@ impl Figure {
             alts: Vec::new(),
             support: false,
             lead: false,
+            tag: None,
         });
         self.steps.len() - 1
     }
@@ -1155,24 +1157,34 @@ impl Figure {
                 .as_ref()
                 .is_some_and(|e| e.terms.keys().any(|k| matches!(k, LKey::Sin(..))))
         });
-        let number: BTreeMap<usize, usize> =
-            order.iter().enumerate().map(|(k, &i)| (i, k + 1)).collect();
+        let groups = self.display_groups(&order);
+        let number: BTreeMap<usize, usize> = groups
+            .iter()
+            .enumerate()
+            .flat_map(|(k, (members, _))| members.iter().map(move |&i| (i, k + 1)))
+            .collect();
 
         let mut out = String::new();
         out.push_str("EUCLIDEAN PROOF (ratios)\n");
         out.push_str(&format!("  Goal:  {goal_text}\n\n"));
-        for (k, &i) in order.iter().enumerate() {
-            let cites: Vec<String> = self.steps[i]
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|k| k.to_string()))
-                .collect();
+        for (k, (members, text)) in groups.iter().enumerate() {
+            let mut cites: Vec<usize> = Vec::new();
+            for &i in members {
+                for p in &self.steps[i].premises {
+                    if let Some(&n) = number.get(p) {
+                        if n != k + 1 && !cites.contains(&n) {
+                            cites.push(n);
+                        }
+                    }
+                }
+            }
+            let cites: Vec<String> = cites.iter().map(|n| n.to_string()).collect();
             let refs = if cites.is_empty() {
                 String::new()
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}\n", k + 1, with_refs(&self.steps[i].text, &refs)));
+            out.push_str(&format!("  {}. {}\n", k + 1, with_refs(text, &refs)));
         }
         out.push_str(&format!(
             "\n  {} gives {goal_text}  (= {}). ∎\n",

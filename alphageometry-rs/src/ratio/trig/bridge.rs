@@ -140,9 +140,11 @@ impl Figure {
             if !used.iter().any(|&u| self.steps[u].eq.as_ref().is_some_and(|e| e.terms.keys().any(|t| matches!(t, LKey::Sin(..))))) {
                 continue;
             }
-            let lines: String = used
-                .iter()
-                .map(|&u| format!("\n       · {}", self.steps[u].text))
+            let order: Vec<usize> = used.iter().copied().collect();
+            let lines: String = self
+                .display_groups(&order)
+                .into_iter()
+                .map(|(_, t)| format!("\n       · {t}"))
                 .collect();
             let kt = if k == Rat::one() { String::new() } else { format!("{}·", rat_text(&k)) };
             let text = format!(

@@ -109,3 +109,15 @@ fn a_rational_ratio_without_a_log_proof_gets_no_bridge() {
     f.gather_log_bridges(&pool, &pool);
     assert!(f.psteps.is_empty());
 }
+
+#[test]
+fn symmedian_proof_reads_as_a_ratio_lemma() {
+    let cons = "A B C = triangle\nO = circumcenter(A, B, C)\n\
+                T = meet(perp_line(B, line(O, B)), perp_line(C, line(O, C)))\n\
+                X = meet(line(A, T), line(B, C))";
+    let Ok(Outcome::Proved(p)) = prove_ratio(cons, "dist(B,X)*dist(A,C)^2 = dist(X,C)*dist(A,B)^2") else {
+        panic!("the symmedian ratio is proved");
+    };
+    assert!(p.contains("Ratio lemma in △ABC with cevian AX: BX/XC = AB·sin∠BAX / (AC·sin∠CAX)"), "{p}");
+    assert!(p.contains("Multiplying the sine relations above"), "{p}");
+}

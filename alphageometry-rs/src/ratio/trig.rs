@@ -3,6 +3,8 @@ use crate::certify::pred_c;
 use crate::proof::FactId;
 
 mod bridge;
+mod render;
+pub(super) use render::Tag;
 #[cfg(test)]
 mod tests;
 
@@ -152,7 +154,8 @@ impl Figure {
                     self.seg(z, x),
                     self.sin_text(sy)
                 );
-                self.push_row(text, e, vec![], true, false);
+                let r = self.push_row(text, e, vec![], true, false);
+                self.steps[r].tag = Some(Tag::Los([a, b, c], (x, y, z)));
             }
         }
     }
@@ -289,7 +292,8 @@ impl Figure {
             vec![pred("eqangle", &[v, p, v, q, w, r, w, s])],
             vec![pred("eqangle", &[v, p, v, q, w, s, w, r])],
         ];
-        self.push_row(text, e, alts, false, true);
+        let i = self.push_row(text, e, alts, false, true);
+        self.steps[i].tag = Some(Tag::EqSin(kx, ky, rel));
     }
 
     /// `XY = 2·OX·sin∠XZY` for a chord `XY` seen from `Z` on a circle with
