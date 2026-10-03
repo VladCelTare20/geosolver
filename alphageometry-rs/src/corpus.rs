@@ -1485,6 +1485,129 @@ fn build_translation(s: Sampled, seed: u64, attempts: u32) -> Translation {
     }
 }
 
+/// One premise-valid sampled figure of a corpus problem, by point name, in
+/// construction order.
+#[derive(Clone, Debug)]
+pub struct FigureSample {
+    pub names: Vec<String>,
+    pub coords: HashMap<String, Vec2>,
+    /// Every conjunct of the problem's own goal holds on this figure.
+    pub goal_holds: bool,
+}
+
+impl FigureSample {
+    fn figure(&self) -> Figure {
+        Figure {
+            names: self.names.clone(),
+            coords: self.coords.clone(),
+        }
+    }
+
+    fn same_orientation(&self, a: &[String]) -> bool {
+        let c = |i: usize| self.coords[a[i].as_str()];
+        cross(c(1) - c(0), c(2) - c(0)).signum() == cross(c(4) - c(3), c(5) - c(3)).signum()
+    }
+}
+
+/// Sample one figure from `seed`: `Ok(None)` when this seed gives no
+/// premise-valid figure, `Err` when the problem cannot be built at all.
+pub fn sample_figure(prob: &AgProblem, seed: u64) -> Result<Option<FigureSample>, String> {
+    match sample(prob, seed) {
+        Ok(s) => Ok(Some(FigureSample {
+            names: s.fig.names,
+            coords: s.fig.coords,
+            goal_holds: s.goal_holds,
+        })),
+        Err(Fail::Retry(_)) => Ok(None),
+        Err(Fail::Fatal(m)) => Err(m),
+    }
+}
+
+/// Whether a construction argument is a numeric constant, not a point name.
+pub fn is_number_arg(s: &str) -> bool {
+    is_number(s)
+}
+
+/// The conjuncts of a goal as plain predicate terms: `midp`, `simtri` and
+/// `contri` are expanded (orientation read from `fig`); anything else is
+/// returned unchanged.
+pub fn goal_conjuncts(goal: &Term, fig: &FigureSample) -> Result<Vec<Term>, String> {
+    if !matches!(goal.name.as_str(), "midp" | "simtri" | "contri") {
+        return Ok(vec![goal.clone()]);
+    }
+    for a in &goal.args {
+        if !fig.coords.contains_key(a.as_str()) {
+            return Err(format!("goal uses undefined point `{a}`"));
+        }
+    }
+    Ok(lower_goal(goal, |a| fig.same_orientation(a))?
+        .into_iter()
+        .map(|np| Term {
+            name: np.name,
+            args: np.points,
+        })
+        .collect())
+}
+
+/// Whether a goal term holds numerically on a figure, with the translator's
+/// tolerances.
+pub fn term_holds(t: &Term, fig: &FigureSample) -> Result<bool, String> {
+    for a in &t.args {
+        if !is_number(a) && !fig.coords.contains_key(a.as_str()) {
+            return Err(format!("`{t}` uses undefined point `{a}`"));
+        }
+    }
+    let scale = fig.figure().radius();
+    let mut all = true;
+    for g in lower_goal(t, |a| fig.same_orientation(a))? {
+        let xs: Vec<Vec2> = g.points.iter().map(|n| fig.coords[n.as_str()]).collect();
+        let nums: Vec<f64> = g.constants.iter().map(Rat::to_f64).collect();
+        all &= holds(&g.name, &xs, &nums, scale).ok_or_else(|| format!("cannot check `{t}`"))?;
+    }
+    Ok(all)
+}
+
+/// Whether an engine predicate holds numerically on a translated problem's
+/// figure, with the translator's tolerances.
+pub fn pred_holds(problem: &Problem, pred: &Predicate) -> Option<bool> {
+    let fig = Figure {
+        names: problem.points.iter().map(|p| p.name.clone()).collect(),
+        coords: problem
+            .points
+            .iter()
+            .map(|p| (p.name.clone(), p.value))
+            .collect(),
+    };
+    let xs: Vec<Vec2> = pred
+        .points
+        .iter()
+        .map(|&i| problem.points[i as usize].value)
+        .collect();
+    let nums: Vec<f64> = pred.constants.iter().map(Rat::to_f64).collect();
+    holds(&pred.name, &xs, &nums, fig.radius())
+}
+
+/// Render a problem as corpus text. A clause whose points all appear in `pins`
+/// is written with those coordinates (`x@1.5_-0.25`, shortest round-trip
+/// form), so translation reproduces that figure exactly.
+pub fn render_problem(prob: &AgProblem, pins: &HashMap<String, Vec2>) -> String {
+    let mut clauses = Vec::new();
+    for c in &prob.clauses {
+        let pinned = c.points.iter().all(|p| pins.contains_key(&p.name));
+        let pts: Vec<String> = c
+            .points
+            .iter()
+            .map(|p| match pins.get(&p.name) {
+                Some(q) if pinned => format!("{}@{}_{}", p.name, q.x, q.y),
+                _ => p.name.clone(),
+            })
+            .collect();
+        let cons: Vec<String> = c.constructions.iter().map(Term::to_string).collect();
+        clauses.push(format!("{} = {}", pts.join(" "), cons.join(", ")));
+    }
+    format!("{} ? {}", clauses.join("; "), prob.goal)
+}
+
 /// Parse and translate one corpus statement.
 pub fn translate_text(name: &str, text: &str, first_seed: u64) -> Result<Translation, String> {
     let p = parse_problem(name, text)?;

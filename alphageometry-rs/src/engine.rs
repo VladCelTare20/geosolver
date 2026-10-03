@@ -987,7 +987,14 @@ impl Ddar {
                         // Numeric: Q is the image of P — radii parallel, with the
                         // orientation the centre type dictates (same direction for
                         // an external centre, opposite for an internal one).
-                        let rp = self.coord(p) - self.coord(o1);
+                        let (vz, vp, vo1) = (self.coord(z), self.coord(p), self.coord(o1));
+                        let u = vp - vz;
+                        let foot = vz + u * ((vo1 - vz).dot(u) / u.dot(u));
+                        let second = foot * 2.0 - vp;
+                        if (second - vp).norm() < 1e-6 * (vp - vo1).norm() {
+                            continue;
+                        }
+                        let rp = vp - vo1;
                         let rq = self.coord(q) - self.coord(o2);
                         let cross = rp.x * rq.y - rp.y * rq.x;
                         if cross.abs() > 1e-7 * rp.norm() * rq.norm() {

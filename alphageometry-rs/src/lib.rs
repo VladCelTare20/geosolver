@@ -24,6 +24,7 @@ pub(crate) mod certify;
 pub mod elim_core;
 pub mod elimination;
 pub mod engine;
+pub mod fuzz;
 pub(crate) mod fingerprint;
 pub mod geo;
 pub mod lincomb;
