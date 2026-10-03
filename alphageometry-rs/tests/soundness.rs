@@ -374,3 +374,25 @@ fn fingerprint_bucketing_does_not_prove_false_neighbours() {
         }
     }
 }
+
+/// Found by `ddar --fuzz-false` (jgex `complete_016_ex-gao_gao_M_M021-64` with
+/// `cong b c b a` dropped). AB = AC, D the midpoint of AB, E and F the second
+/// points of the circle on diameter AB on AC and BC, X the centre of circle DEF
+/// (on AF), Y the reflection of A in X. A is the external centre of similitude
+/// of circles (X, XE) and (Y, YC), but C is the image of the OTHER point of
+/// line AC on circle X (the midpoint of AC), so AE = EF is false. On this
+/// figure BC = AB as well, E is that midpoint, line AC touches circle X, and
+/// the image/antihomologous pairing read off the coordinates is a coincidence.
+#[test]
+fn similitude_pairing_is_not_read_off_a_tangent_coincidence() {
+    let special = "a@0.873411653346327_0.22024962392785574 b@-0.3678402298414716_0.22639228009786294 = segment a b; \
+        d@0.2527857117524277_0.22332095201285934 = midpoint d b a; \
+        c@0.24746601546248825_-0.8516347113230487 = on_circle c a b; \
+        e@0.5604388344044076_-0.3156925436975965 = on_line e a c, on_circle e d a; \
+        f@-0.060187107189491634_-0.3126212156125929 = on_circle f d a, on_line f b c; \
+        x = on_line x a f, on_circum x a d e; y = mirror y a x ? cong a e e f";
+    let o = ddar::fuzz::solve_case("tangent-similitude", special, Duration::from_secs(60), false);
+    assert!(o.parsed, "{}", o.detail);
+    assert_eq!(o.goal_numeric, Some(true), "the special figure is equilateral");
+    assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
+}
