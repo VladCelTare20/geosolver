@@ -259,7 +259,7 @@ pub const THEOREMS: &[Theorem] = &[
     Theorem { category: "Circles: lengths", name: "tangent–secant power", statement: "PT² = PA·PB for a tangent PT and secant PAB — DERIVED (tangent–chord = inscribed angle)  [ratio, derived]" },
     Theorem { category: "Circles: lengths", name: "power of a point", statement: "the product PA·PB along any line through P equals |PO² − R²|  [ratio, derived]" },
     Theorem { category: "Circles: lengths", name: "perpendicular chords", statement: "AC² + BD² = 4R² for perpendicular chords — DERIVED from the antipode + Thales + Pythagoras  [derived]" },
-    Theorem { category: "Circles: lengths", name: "extended law of sines", statement: "a / sin A = 2R  [catalogued]" },
+    Theorem { category: "Circles: lengths", name: "extended law of sines", statement: "a = 2R·sin A, a chord against an inscribed angle (radii certified by DDAR)  [ratio]" },
     Theorem { category: "Circles: lengths", name: "Ptolemy's theorem", statement: "for a cyclic quadrilateral, AC·BD = AB·CD + AD·BC — DERIVED by the general auxiliary-point search (a point on a side + similar triangles), no per-theorem code  [ratio, derived, aux]" },
     Theorem { category: "Circles: lengths", name: "Ptolemy's inequality", statement: "AC·BD ≤ AB·CD + AD·BC, with equality iff ABCD is cyclic  [catalogued]" },
     Theorem { category: "Circles: lengths", name: "radical axis", statement: "the locus of equal power to two circles is a line ⟂ their centre line  [catalogued]" },
@@ -325,7 +325,7 @@ pub const THEOREMS: &[Theorem] = &[
     Theorem { category: "Areas", name: "six equal triangles", statement: "the three medians divide a triangle into six triangles of equal area  [catalogued]" },
 
     // ── Trigonometric relations ───────────────────────────────────────────────
-    Theorem { category: "Trigonometry", name: "law of sines", statement: "a/sin A = b/sin B = c/sin C = 2R  [catalogued]" },
+    Theorem { category: "Trigonometry", name: "law of sines", statement: "a/sin A = b/sin B = c/sin C; with equal sines (θ ≡ ±φ mod 180°, certified by DDAR) and the tabulated sines of 30°, 45°, 60°, 90°  [ratio]" },
     Theorem { category: "Trigonometry", name: "law of cosines", statement: "c² = a² + b² − 2ab·cos C  [catalogued]" },
     Theorem { category: "Trigonometry", name: "law of tangents", statement: "(a−b)/(a+b) = tan(½(A−B)) / tan(½(A+B))  [catalogued]" },
     Theorem { category: "Trigonometry", name: "projection formula", statement: "a = b·cos C + c·cos B  [catalogued]" },

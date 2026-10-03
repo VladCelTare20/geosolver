@@ -357,6 +357,21 @@ fn provers_reject(cons: &str, goal: &str) {
     }
 }
 
+const SYMMEDIAN: &str = "A B C = triangle\nO = circumcenter(A, B, C)\n\
+     T = meet(perp_line(B, line(O, B)), perp_line(C, line(O, C)))\n\
+     X = meet(line(A, T), line(B, C))";
+
+/// TRIG_PLAN §3, items 1–3: false neighbours of the symmedian ratio.
+#[test]
+fn symmedian_false_neighbours_are_never_proved() {
+    provers_reject(SYMMEDIAN, "dist(B,X)*dist(A,C) = dist(X,C)*dist(A,B)");
+    provers_reject(SYMMEDIAN, "dist(B,X)*dist(A,B)^2 = dist(X,C)*dist(A,C)^2");
+    provers_reject(
+        "A B C = triangle\nX = midpoint(B, C)",
+        "dist(B,X)*dist(A,C)^2 = dist(X,C)*dist(A,B)^2",
+    );
+}
+
 /// TRIG_PLAN §3, items 7–8: false neighbours of Ptolemy's second theorem.
 #[test]
 fn ptolemy_second_false_neighbours_are_never_proved() {

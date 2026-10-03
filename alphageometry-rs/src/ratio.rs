@@ -168,6 +168,12 @@ struct Step {
     /// A compound named result cited directly (Menelaus, Ceva, the
     /// angle-bisector ratio). A lone citation equal to the goal is circular.
     headline: bool,
+    /// Alternative premise sets; the row is usable only once DDAR derives one.
+    alts: Vec<Vec<Predicate>>,
+    /// Bookkeeping (a congruence, an equal or known sine): does not count as
+    /// a second reason next to a lone headline.
+    support: bool,
+    lead: bool,
 }
 
 struct Figure {
@@ -235,6 +241,9 @@ impl Figure {
             eq,
             premises,
             headline,
+            alts: Vec::new(),
+            support: false,
+            lead: false,
         });
         self.steps.len() - 1
     }
@@ -1133,7 +1142,14 @@ impl Figure {
         }
         // Drop the pure-equation steps that carry no prose (their justification is
         // the similar-triangle intro they cite); keep intros and cited lemmas.
-        let order: Vec<usize> = keep.iter().copied().filter(|&i| !self.steps[i].text.is_empty()).collect();
+        let mut order: Vec<usize> = keep.iter().copied().filter(|&i| !self.steps[i].text.is_empty()).collect();
+        order.sort_by_key(|&i| (!self.steps[i].lead, i));
+        let trig = keep.iter().any(|&i| {
+            self.steps[i]
+                .eq
+                .as_ref()
+                .is_some_and(|e| e.terms.keys().any(|k| matches!(k, LKey::Sin(..))))
+        });
         let number: BTreeMap<usize, usize> =
             order.iter().enumerate().map(|(k, &i)| (i, k + 1)).collect();
 
@@ -1154,7 +1170,12 @@ impl Figure {
             out.push_str(&format!("  {}. {}\n", k + 1, with_refs(&self.steps[i].text, &refs)));
         }
         out.push_str(&format!(
-            "\n  Combining the proportions above gives {goal_text}  (= {}). ∎\n",
+            "\n  {} gives {goal_text}  (= {}). ∎\n",
+            if trig {
+                "Multiplying the sine relations above"
+            } else {
+                "Combining the proportions above"
+            },
             crate::synthetic::pretty_len(goal_val)
         ));
         out
@@ -1988,6 +2009,19 @@ fn collect_points_m(e: &MExpr, out: &mut BTreeSet<String>) {
     }
 }
 
+/// The construction's user-named points among the first `n` (not the `_k`
+/// helpers the compiler introduces, nor feet dropped later).
+fn named_points(fig: &Figure, n: usize) -> Vec<PointId> {
+    (0..n as PointId).filter(|&p| !fig.names[p as usize].starts_with('_')).collect()
+}
+
+fn goal_points(lhs: &MExpr, rhs: &MExpr, fig: &Figure) -> BTreeSet<PointId> {
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    collect_points_m(lhs, &mut names);
+    collect_points_m(rhs, &mut names);
+    names.iter().filter_map(|n| fig.pt(n)).collect()
+}
+
 impl Figure {
     /// A structural copy (facts + instances) with no accumulated proof steps —
     /// the substrate for trying an auxiliary point.
@@ -2351,14 +2385,12 @@ fn angle_copy(i: &[Vec2], pts: [PointId; 6], sgn: f64) -> Option<Vec2> {
     )
 }
 
-/// Attempt a classical Euclidean proof of a **multiplicative** length goal.
-pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
-    let (lhs, rhs) = crate::metric::parse_equation(goal)?;
+/// The sampled figure plus up to four more independent instances. They gate
+/// the numeric detections: a similarity or parallelism must hold in every
+/// one, so a rule fires only on a construction-general fact, never a
+/// single-instance coincidence.
+fn sampled_instances(cons_src: &str) -> Result<(SampledFigure, Vec<Vec<Vec2>>), String> {
     let sampled = crate::geo::build_sampled_figure(cons_src)?;
-
-    // Several independent instances gate the numeric detections: a similarity or
-    // parallelism must hold in every one, so a rule fires only on a
-    // construction-general fact, never a single-instance coincidence.
     let mut insts: Vec<Vec<Vec2>> = vec![sampled.coords.clone()];
     if let Ok(more) = crate::geo::build_instances(cons_src, 4) {
         let names = &sampled.names;
@@ -2374,6 +2406,13 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
             }
         }
     }
+    Ok((sampled, insts))
+}
+
+/// Attempt a classical Euclidean proof of a **multiplicative** length goal.
+pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
+    let (lhs, rhs) = crate::metric::parse_equation(goal)?;
+    let (sampled, insts) = sampled_instances(cons_src)?;
 
     let mut fig = Figure::gather(&sampled, insts.clone());
     fig.apply();
@@ -2400,6 +2439,7 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let goal_val = eval_numeric(&lhs, &fig).unwrap_or(f64::NAN);
 
     // 1. Monomial (product/ratio/power) ratio engine.
+    let mut mono_goal = None;
     if let (Some(l), Some(r)) = (llower(&lhs, &fig), llower(&rhs, &fig)) {
         let mut goal_eq = l;
         goal_eq.sub_scaled(&r, &Rat::one());
@@ -2408,19 +2448,31 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
                 return Ok(Outcome::Proved(fig.render(&used, goal, goal_val)));
             }
         }
+        mono_goal = Some(goal_eq);
     }
+    let mut s1_fig = fig;
 
     // 2. General sum-of-products engine (degree-2 identities) — with the general
     //    auxiliary-point search for the aux-requiring cases (Ptolemy, …).
     //    A fresh figure: the feet the monomial engine dropped are not part of
     //    this proof, so they must not reach its facts or its derivations.
-    let mut fig = Figure::gather(&sampled, insts);
+    let mut fig = Figure::gather(&sampled, insts.clone());
     let relevant: Vec<PointId> = (0..fig.names.len() as PointId).collect();
     if let Some(proof) = fig.prove_products(&lhs, &rhs, goal, &relevant, &[], true) {
         return Ok(Outcome::Proved(proof));
     }
     if let Some(proof) = fig.aux_search(&lhs, &rhs, goal) {
         return Ok(Outcome::Proved(proof));
+    }
+
+    // 3. Trigonometry, only once every trig-free stage has failed.
+    //    S2: the S1 figure plus sine rows over the construction's own points.
+    let pts = named_points(&s1_fig, sampled.names.len());
+    let goal_pts = goal_points(&lhs, &rhs, &s1_fig);
+    if let Some(goal_eq) = &mono_goal {
+        if let Some(used) = s1_fig.prove_trig_log(goal_eq, &pts, &goal_pts) {
+            return Ok(Outcome::Proved(s1_fig.render(&used, goal, goal_val)));
+        }
     }
 
     Ok(Outcome::Unhandled(
