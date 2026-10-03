@@ -7,23 +7,26 @@
 //! | Env var | Default | Effect |
 //! |---|---|---|
 //! | `AGSTUDIO_BIND` | `127.0.0.1:<port>` | interface/port to bind |
-//! | `AGSTUDIO_BASIC_AUTH` | (none) | `user:pass` — require HTTP Basic auth |
+//! | `AGSTUDIO_BASIC_AUTH` | (none) | require HTTP Basic auth. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
+//! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* Basic credentials per minute before 429 (0 = off) |
+//! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past Basic auth may solve, export and humanize without an account (no history). `1` without Basic auth refuses to start |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests (excess → 503) |
 //! | `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests per minute (0 = off) |
-//! | `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP `/api/translate` + `/api/explain` per minute (0 = off) |
+//! | `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP `/api/translate` + `/api/humanize` per minute (0 = off) |
 //! | `AGSTUDIO_AUTH_PER_MIN` | 15 | per-IP `/api/auth/login` + `register` per minute (0 = off) |
 //! | `AGSTUDIO_MAX_BODY_KB` | 8192 | request body size limit |
 //! | `AGSTUDIO_MAX_INPUT_CHARS` | 16384 | max program length |
-//! | `AGSTUDIO_DISABLE_TRANSLATE` | off | turn off the `/api/translate` endpoint |
-//! | `AGSTUDIO_TRUST_PROXY` | on | read the client IP from `X-Forwarded-For` |
+//! | `AGSTUDIO_DISABLE_TRANSLATE` | off | turn off `/api/translate` and `/api/humanize` (no `claude` subprocess at all) |
+//! | `AGSTUDIO_TRUST_PROXY` | off | client IP = **rightmost** `X-Forwarded-For` entry, honoured only when the TCP peer is loopback/private/CGNAT (i.e. the proxy). Turn on behind `tailscale funnel`/nginx, or every visitor shares one rate-limit bucket |
+//! | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard) |
 //! | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
-//! | `AGSTUDIO_SECURE_COOKIES` | off | add the `Secure` flag to the session cookie (needs HTTPS) |
+//! | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
 
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use axum::{
@@ -35,14 +38,82 @@ use axum::{
     Json,
 };
 use base64::Engine as _;
+use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
+
+use crate::translate;
+
+/// Simultaneous argon2 hash/verify operations (each costs ~19 MiB and tens of
+/// ms of CPU). Login/register beyond this queue rather than pile onto the pool.
+pub const ARGON2_PERMITS: usize = 2;
+
+/// Minimum length of the shared Basic-auth password.
+const MIN_BASIC_PASSWORD_CHARS: usize = 8;
+
+/// The configured HTTP Basic credentials, kept only as SHA-256 digests so a
+/// comparison is constant-time and length-independent.
+#[derive(Clone)]
+pub struct BasicAuth {
+    /// `None` = password-only mode: any username is accepted.
+    user: Option<[u8; 32]>,
+    pass: [u8; 32],
+}
+
+fn sha256(b: &[u8]) -> [u8; 32] {
+    Sha256::digest(b).into()
+}
+
+impl BasicAuth {
+    /// Parse `AGSTUDIO_BASIC_AUTH`: `user:pass`, `:pass`, or a bare `pass`.
+    /// The split is at the first `:`, so a password may itself contain colons
+    /// only when a username (or the leading `:`) is given.
+    pub fn parse(spec: &str) -> Result<BasicAuth, String> {
+        let (user, pass) = match spec.split_once(':') {
+            Some(("", p)) => (None, p),
+            Some((u, p)) => (Some(u), p),
+            None => (None, spec),
+        };
+        if pass.chars().count() < MIN_BASIC_PASSWORD_CHARS {
+            return Err(format!(
+                "AGSTUDIO_BASIC_AUTH is set but unusable: the password must be at least \
+                 {MIN_BASIC_PASSWORD_CHARS} characters (forms: `user:pass`, `:pass`, or `pass`)"
+            ));
+        }
+        Ok(BasicAuth {
+            user: user.map(|u| sha256(u.as_bytes())),
+            pass: sha256(pass.as_bytes()),
+        })
+    }
+
+    /// Whether an `Authorization` header value carries these credentials.
+    pub fn matches(&self, header_value: &str) -> bool {
+        let Some((scheme, b64)) = header_value.trim().split_once(' ') else {
+            return false;
+        };
+        if !scheme.eq_ignore_ascii_case("basic") {
+            return false;
+        }
+        let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64.trim()) else {
+            return false;
+        };
+        let (user, pass) = match decoded.iter().position(|&b| b == b':') {
+            Some(i) => (&decoded[..i], &decoded[i + 1..]),
+            None => (&decoded[..], &[][..]),
+        };
+        let pass_ok = ct_eq(&sha256(pass), &self.pass);
+        let user_ok = self.user.as_ref().map_or(true, |u| ct_eq(&sha256(user), u));
+        pass_ok & user_ok
+    }
+}
 
 /// Parsed, validated server configuration.
 #[derive(Clone)]
 pub struct Config {
     pub bind: SocketAddr,
-    /// The expected `Authorization` header value (`Basic <b64>`), if auth is on.
-    pub basic_auth: Option<String>,
+    pub basic_auth: Option<BasicAuth>,
+    pub basic_auth_fails_per_min: u32,
+    /// Visitors past Basic auth may use the solver without an account.
+    pub guest_mode: bool,
     pub max_concurrent: usize,
     pub rate_per_min: u32,
     pub translate_per_min: u32,
@@ -50,46 +121,48 @@ pub struct Config {
     pub max_body_bytes: usize,
     pub max_input_chars: usize,
     pub trust_proxy: bool,
+    /// Lowercase hostnames (no port) the app is publicly served as.
+    pub public_hosts: Vec<String>,
     pub enable_translate: bool,
     pub db_path: PathBuf,
     pub secure_cookies: bool,
 }
 
-fn env_u32(k: &str, d: u32) -> u32 {
-    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+fn is_on(v: Option<&str>) -> bool {
+    matches!(v, Some("1") | Some("true") | Some("yes") | Some("on"))
 }
-fn env_usize(k: &str, d: usize) -> usize {
-    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
-}
-fn env_flag(k: &str) -> bool {
-    matches!(
-        std::env::var(k).ok().as_deref(),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
+fn is_off(v: Option<&str>) -> bool {
+    matches!(v, Some("0") | Some("false") | Some("no") | Some("off"))
 }
 
 impl Config {
     /// Build from the environment. Returns an error (refusing to start) if a
-    /// non-loopback interface would be exposed without authentication.
+    /// non-loopback interface would be exposed without authentication, or an
+    /// auth setting is present but unusable.
     pub fn from_env(default_port: u16) -> Result<Config, String> {
-        let bind_str =
-            std::env::var("AGSTUDIO_BIND").unwrap_or_else(|_| format!("127.0.0.1:{default_port}"));
+        Config::from_lookup(default_port, |k| std::env::var(k).ok())
+    }
+
+    /// [`Config::from_env`] over an arbitrary variable source (tests).
+    pub fn from_lookup(
+        default_port: u16,
+        get: impl Fn(&str) -> Option<String>,
+    ) -> Result<Config, String> {
+        let num = |k: &str, d: usize| get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+        let flag = |k: &str| is_on(get(k).as_deref());
+
+        let bind_str = get("AGSTUDIO_BIND").unwrap_or_else(|| format!("127.0.0.1:{default_port}"));
         let bind: SocketAddr = bind_str
             .parse()
             .map_err(|_| format!("invalid AGSTUDIO_BIND `{bind_str}` (want e.g. 0.0.0.0:8787)"))?;
 
-        let basic_auth = std::env::var("AGSTUDIO_BASIC_AUTH")
-            .ok()
-            .filter(|s| s.contains(':') && s.len() >= 3)
-            .map(|creds| {
-                format!(
-                    "Basic {}",
-                    base64::engine::general_purpose::STANDARD.encode(creds)
-                )
-            });
+        // Fail closed: a set-but-broken value must never silently mean "no auth".
+        let basic_auth = match get("AGSTUDIO_BASIC_AUTH") {
+            None => None,
+            Some(spec) => Some(BasicAuth::parse(&spec)?),
+        };
 
-        // Fail closed: never expose a public interface unauthenticated by accident.
-        if !bind.ip().is_loopback() && basic_auth.is_none() && !env_flag("AGSTUDIO_ALLOW_INSECURE") {
+        if !bind.ip().is_loopback() && basic_auth.is_none() && !flag("AGSTUDIO_ALLOW_INSECURE") {
             return Err(format!(
                 "refusing to bind the non-loopback interface {bind} with no authentication.\n  \
                  Set AGSTUDIO_BASIC_AUTH=\"user:pass\" to require a login, OR front the app with a \
@@ -98,65 +171,113 @@ impl Config {
             ));
         }
 
+        let guest_raw = get("AGSTUDIO_GUEST_MODE");
+        let guest_mode = if is_on(guest_raw.as_deref()) {
+            true
+        } else if is_off(guest_raw.as_deref()) {
+            false
+        } else {
+            basic_auth.is_some()
+        };
+        if guest_mode && basic_auth.is_none() {
+            return Err("AGSTUDIO_GUEST_MODE=1 needs AGSTUDIO_BASIC_AUTH: guest access is \
+                        \"link + shared password\", never fully open"
+                .into());
+        }
+
+        let public_hosts = get("AGSTUDIO_PUBLIC_HOST")
+            .unwrap_or_default()
+            .split(',')
+            .map(|h| host_only(h.trim()))
+            .filter(|h| !h.is_empty())
+            .collect();
+
         let cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
         Ok(Config {
             bind,
             basic_auth,
-            max_concurrent: env_usize("AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8)),
-            rate_per_min: env_u32("AGSTUDIO_RATE_PER_MIN", 120),
-            translate_per_min: env_u32("AGSTUDIO_TRANSLATE_PER_MIN", 12),
-            auth_per_min: env_u32("AGSTUDIO_AUTH_PER_MIN", 15),
-            max_body_bytes: env_usize("AGSTUDIO_MAX_BODY_KB", 8192).saturating_mul(1024),
-            max_input_chars: env_usize("AGSTUDIO_MAX_INPUT_CHARS", 16384),
-            trust_proxy: !matches!(
-                std::env::var("AGSTUDIO_TRUST_PROXY").ok().as_deref(),
-                Some("0") | Some("false") | Some("off")
-            ),
-            enable_translate: !env_flag("AGSTUDIO_DISABLE_TRANSLATE"),
-            db_path: std::env::var("AGSTUDIO_DB")
+            basic_auth_fails_per_min: num("AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN", 10) as u32,
+            guest_mode,
+            max_concurrent: num("AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8)),
+            rate_per_min: num("AGSTUDIO_RATE_PER_MIN", 120) as u32,
+            translate_per_min: num("AGSTUDIO_TRANSLATE_PER_MIN", 12) as u32,
+            auth_per_min: num("AGSTUDIO_AUTH_PER_MIN", 15) as u32,
+            max_body_bytes: num("AGSTUDIO_MAX_BODY_KB", 8192).saturating_mul(1024),
+            max_input_chars: num("AGSTUDIO_MAX_INPUT_CHARS", 16384),
+            trust_proxy: flag("AGSTUDIO_TRUST_PROXY"),
+            public_hosts,
+            enable_translate: !flag("AGSTUDIO_DISABLE_TRANSLATE"),
+            db_path: get("AGSTUDIO_DB")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("./agstudio.db")),
-            secure_cookies: env_flag("AGSTUDIO_SECURE_COOKIES"),
+                .unwrap_or_else(|| PathBuf::from("./agstudio.db")),
+            secure_cookies: flag("AGSTUDIO_SECURE_COOKIES"),
         })
+    }
+
+    /// Guest access is only ever granted behind the shared Basic password.
+    pub fn guest_allowed(&self) -> bool {
+        self.guest_mode && self.basic_auth.is_some()
     }
 
     /// A one-line human summary for the startup banner.
     pub fn summary(&self) -> String {
         format!(
-            "auth: {} · concurrency: {} · rate: {}/min (translate {}/min) · body ≤ {} KB",
+            "auth: {}{} · concurrency: {} · rate: {}/min (translate {}/min) · body ≤ {} KB · proxy IPs: {}",
             if self.basic_auth.is_some() {
                 "Basic (required)"
             } else {
                 "none (open)"
             },
+            if self.guest_allowed() { ", guests allowed" } else { "" },
             self.max_concurrent,
             self.rate_per_min,
             self.translate_per_min,
             self.max_body_bytes / 1024,
+            if self.trust_proxy { "trusted" } else { "ignored" },
         )
     }
 }
+
+type StatusProbe = fn() -> translate::Status;
+
+/// How long a `claude auth status` result is reused by `/api/status`.
+pub const TRANSLATE_STATUS_TTL: Duration = Duration::from_secs(60);
 
 /// Shared server state.
 pub struct AppState {
     pub config: Config,
     /// Concurrency gate for the CPU/subprocess-heavy endpoints.
     pub heavy: Arc<Semaphore>,
+    /// Concurrency gate for argon2 (login/register).
+    pub argon: Arc<Semaphore>,
     pub rate: Mutex<RateLimiter>,
     pub db: crate::db::Db,
+    /// Spawns `claude auth status`; swappable so tests need no CLI.
+    pub translate_probe: StatusProbe,
+    /// Last probe result. An async mutex, so concurrent misses wait for one
+    /// probe instead of each spawning their own.
+    pub translate_status: tokio::sync::Mutex<Option<(Instant, translate::Status)>>,
     /// Last time expired sessions were swept from the DB (see [`sweep_expired_sessions`]).
     session_sweep: Mutex<Option<Instant>>,
 }
 
 pub type Shared = Arc<AppState>;
 
+fn relock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 impl AppState {
     /// Open (and migrate) `config.db_path` and build the shared state. Fails
     /// closed — a broken/unwritable DB path stops `serve` before it binds,
     /// rather than surfacing as opaque 500s on first login.
     pub fn new(config: Config) -> Result<Shared, String> {
+        AppState::with_translate_probe(config, translate::status)
+    }
+
+    pub fn with_translate_probe(config: Config, probe: StatusProbe) -> Result<Shared, String> {
         let db = crate::db::open(&config.db_path).map_err(|e| {
             format!(
                 "could not open database at {}: {e}",
@@ -165,11 +286,34 @@ impl AppState {
         })?;
         Ok(Arc::new(AppState {
             heavy: Arc::new(Semaphore::new(config.max_concurrent)),
+            argon: Arc::new(Semaphore::new(ARGON2_PERMITS)),
             rate: Mutex::new(RateLimiter::default()),
             db,
             config,
+            translate_probe: probe,
+            translate_status: tokio::sync::Mutex::new(None),
             session_sweep: Mutex::new(None),
         }))
+    }
+
+    /// Translation status for `/api/status`: never spawns anything when
+    /// translation is disabled, otherwise probes on the blocking pool at most
+    /// once per [`TRANSLATE_STATUS_TTL`].
+    pub async fn translate_status(&self) -> translate::Status {
+        let off = translate::Status { installed: false, logged_in: false };
+        if !self.config.enable_translate {
+            return off;
+        }
+        let mut cached = self.translate_status.lock().await;
+        if let Some((at, s)) = *cached {
+            if at.elapsed() < TRANSLATE_STATUS_TTL {
+                return s;
+            }
+        }
+        let probe = self.translate_probe;
+        let s = tokio::task::spawn_blocking(probe).await.unwrap_or(off);
+        *cached = Some((Instant::now(), s));
+        s
     }
 }
 
@@ -226,6 +370,136 @@ mod tests {
         let conn = state.db.lock().unwrap();
         assert!(crate::db::lookup_session(&conn, "dead2").unwrap().is_none());
     }
+
+    fn cfg(vars: &[(&str, &str)]) -> Result<Config, String> {
+        let vars: HashMap<String, String> =
+            vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        Config::from_lookup(8787, move |k| vars.get(k).cloned())
+    }
+
+    #[test]
+    fn unusable_basic_auth_refuses_to_start() {
+        for bad in ["", ":", "short", ":short", "user:short", "user:"] {
+            assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", bad)]).is_err(), "{bad:?} must fail closed");
+        }
+        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", "longenough")]).unwrap().basic_auth.is_some());
+    }
+
+    fn hdr(user: &str, pass: &str) -> String {
+        format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"))
+        )
+    }
+
+    #[test]
+    fn basic_auth_forms() {
+        for spec in [":hunter2hunter2", "hunter2hunter2"] {
+            let a = BasicAuth::parse(spec).unwrap();
+            assert!(a.matches(&hdr("", "hunter2hunter2")));
+            assert!(a.matches(&hdr("whoever", "hunter2hunter2")));
+            assert!(a.matches(&format!("basic {}", &hdr("x", "hunter2hunter2")[6..])));
+            assert!(!a.matches(&hdr("whoever", "hunter2hunter3")));
+            assert!(!a.matches("Bearer hunter2hunter2"));
+            assert!(!a.matches("Basic !!!notbase64"));
+        }
+        let a = BasicAuth::parse("op:pa:ss:word").unwrap();
+        assert!(a.matches(&hdr("op", "pa:ss:word")));
+        assert!(!a.matches(&hdr("other", "pa:ss:word")));
+        assert!(!a.matches(&hdr("op", "pa")));
+    }
+
+    #[test]
+    fn guest_mode_defaults_follow_basic_auth() {
+        assert!(!cfg(&[]).unwrap().guest_allowed());
+        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough")]).unwrap().guest_allowed());
+        let off = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_MODE", "0")]);
+        assert!(!off.unwrap().guest_allowed());
+        assert!(cfg(&[("AGSTUDIO_GUEST_MODE", "1")]).is_err(), "guest mode with no password");
+    }
+
+    #[test]
+    fn trust_proxy_defaults_off_and_public_hosts_parse() {
+        let c = cfg(&[]).unwrap();
+        assert!(!c.trust_proxy);
+        assert!(c.public_hosts.is_empty());
+        let c = cfg(&[
+            ("AGSTUDIO_TRUST_PROXY", "1"),
+            ("AGSTUDIO_PUBLIC_HOST", " Geo.Tail1.ts.net:443 , other.example ,"),
+        ])
+        .unwrap();
+        assert!(c.trust_proxy);
+        assert_eq!(c.public_hosts, ["geo.tail1.ts.net", "other.example"]);
+    }
+
+    fn req_from(peer: &str, xff: &[&str]) -> Request<Body> {
+        let mut b = Request::builder().uri("/api/status");
+        for v in xff {
+            b = b.header("x-forwarded-for", *v);
+        }
+        let mut r = b.body(Body::empty()).unwrap();
+        r.extensions_mut()
+            .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+        r
+    }
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn client_ip_uses_the_rightmost_xff_from_a_trusted_peer_only() {
+        let mut c = cfg(&[]).unwrap();
+        let spoofed = req_from("127.0.0.1:4000", &["6.6.6.6, 203.0.113.5"]);
+        assert_eq!(client_ip(&c, &spoofed), ip("127.0.0.1"), "trust is off by default");
+        c.trust_proxy = true;
+        assert_eq!(client_ip(&c, &spoofed), ip("203.0.113.5"));
+        let split = req_from("127.0.0.1:4000", &["6.6.6.6", "203.0.113.5"]);
+        assert_eq!(client_ip(&c, &split), ip("203.0.113.5"));
+        let tailnet = req_from("100.101.102.103:4000", &["203.0.113.5"]);
+        assert_eq!(client_ip(&c, &tailnet), ip("203.0.113.5"));
+        let direct = req_from("198.51.100.20:4000", &["203.0.113.5"]);
+        assert_eq!(client_ip(&c, &direct), ip("198.51.100.20"), "untrusted peer: XFF ignored");
+        let garbage = req_from("10.0.0.2:4000", &["203.0.113.5, not-an-ip"]);
+        assert_eq!(client_ip(&c, &garbage), ip("10.0.0.2"), "invalid XFF: the peer, per request");
+    }
+
+    #[test]
+    fn ipv6_clients_are_keyed_by_their_64() {
+        let c = cfg(&[]).unwrap();
+        let a = client_ip(&c, &req_from("[2001:db8:1:2:aaaa::1]:1", &[]));
+        let b = client_ip(&c, &req_from("[2001:db8:1:2:bbbb::9]:1", &[]));
+        let other = client_ip(&c, &req_from("[2001:db8:1:3::1]:1", &[]));
+        assert_eq!(a, b);
+        assert_ne!(a, other);
+        let mapped = client_ip(&c, &req_from("[::ffff:198.51.100.7]:1", &[]));
+        assert_eq!(mapped, ip("198.51.100.7"));
+    }
+
+    #[test]
+    fn host_only_strips_ports_and_case() {
+        assert_eq!(host_only("LocalHost:8787"), "localhost");
+        assert_eq!(host_only("[::1]:8787"), "[::1]");
+        assert_eq!(host_only("[::1]"), "[::1]");
+        assert_eq!(host_only("geo.example"), "geo.example");
+    }
+
+    #[test]
+    fn rate_limiter_and_sweep_survive_poison() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::from_env(0).unwrap();
+        config.db_path = dir.path().join("p.db");
+        let state = AppState::new(config).unwrap();
+        let s2 = state.clone();
+        let _ = std::thread::spawn(move || {
+            let _a = s2.rate.lock().unwrap();
+            let _b = s2.session_sweep.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        sweep_expired_sessions(&state);
+        assert!(relock(&state.rate).general.is_empty());
+    }
 }
 
 // ---------------------------------------------------------------- rate limit --
@@ -235,15 +509,19 @@ struct Window {
     start: Instant,
 }
 
-/// A simple per-IP fixed-window limiter with three buckets (general, translate,
-/// and credential-guessing-sensitive auth), memory bounded by a periodic sweep.
+/// A simple per-IP fixed-window limiter with four buckets (general, translate,
+/// credential-guessing-sensitive auth, and failed Basic auth), memory bounded
+/// by a periodic sweep. Keys come from [`client_ip`] (IPv6 already cut to /64).
 #[derive(Default)]
 pub struct RateLimiter {
     general: HashMap<IpAddr, Window>,
     translate: HashMap<IpAddr, Window>,
     auth: HashMap<IpAddr, Window>,
+    basic_fail: HashMap<IpAddr, Window>,
     last_sweep: Option<Instant>,
 }
+
+const WINDOW: Duration = Duration::from_secs(60);
 
 impl RateLimiter {
     fn hit(map: &mut HashMap<IpAddr, Window>, ip: IpAddr, limit: u32, now: Instant) -> bool {
@@ -254,7 +532,7 @@ impl RateLimiter {
             count: 0,
             start: now,
         });
-        if now.duration_since(w.start) >= Duration::from_secs(60) {
+        if now.duration_since(w.start) >= WINDOW {
             w.count = 0;
             w.start = now;
         }
@@ -262,53 +540,171 @@ impl RateLimiter {
         w.count <= limit
     }
 
+    /// Whether `ip` has already used up `limit` in the current window (no hit).
+    fn exhausted(map: &HashMap<IpAddr, Window>, ip: IpAddr, limit: u32, now: Instant) -> bool {
+        limit != 0
+            && map
+                .get(&ip)
+                .is_some_and(|w| now.duration_since(w.start) < WINDOW && w.count >= limit)
+    }
+
     fn sweep(&mut self, now: Instant) {
         if self
             .last_sweep
             .map_or(true, |t| now.duration_since(t) > Duration::from_secs(300))
         {
-            let cut = Duration::from_secs(60);
-            self.general.retain(|_, w| now.duration_since(w.start) < cut);
-            self.translate.retain(|_, w| now.duration_since(w.start) < cut);
-            self.auth.retain(|_, w| now.duration_since(w.start) < cut);
+            for m in [&mut self.general, &mut self.translate, &mut self.auth, &mut self.basic_fail] {
+                m.retain(|_, w| now.duration_since(w.start) < WINDOW);
+            }
             self.last_sweep = Some(now);
         }
     }
 }
 
-fn client_ip(cfg: &Config, req: &Request<Body>) -> IpAddr {
-    if cfg.trust_proxy {
-        if let Some(first) = req
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.split(',').next())
-        {
-            if let Ok(ip) = first.trim().parse::<IpAddr>() {
-                return ip;
-            }
+/// Peers allowed to speak for someone else via `X-Forwarded-For`: the proxy is
+/// on this host (`tailscale funnel`, nginx), a private LAN, or the tailnet.
+fn is_trusted_proxy(ip: IpAddr) -> bool {
+    match canonical(ip) {
+        IpAddr::V4(v4) => {
+            let cgnat = v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64;
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || cgnat
+        }
+        IpAddr::V6(v6) => {
+            let seg0 = v6.segments()[0];
+            v6.is_loopback() || (seg0 & 0xfe00) == 0xfc00 || (seg0 & 0xffc0) == 0xfe80
         }
     }
-    req.extensions()
+}
+
+fn canonical(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    }
+}
+
+/// The rate-limit key: IPv4 as is, IPv6 cut to its /64 (one subscriber's
+/// allocation, which an attacker can otherwise rotate through for free).
+fn rate_key(ip: IpAddr) -> IpAddr {
+    match canonical(ip) {
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        v4 => v4,
+    }
+}
+
+/// Client address for rate limiting. `X-Forwarded-For` is honoured only when
+/// enabled *and* the TCP peer is a trusted proxy, and then only its rightmost
+/// entry — the one that proxy appended; everything left of it is whatever the
+/// client chose to send.
+fn client_ip(cfg: &Config, req: &Request<Body>) -> IpAddr {
+    let peer = req
+        .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|c| c.0.ip())
-        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+        .map(|c| c.0.ip());
+    if cfg.trust_proxy && peer.is_some_and(is_trusted_proxy) {
+        let rightmost = req
+            .headers()
+            .get_all("x-forwarded-for")
+            .iter()
+            .next_back()
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.rsplit(',').next())
+            .and_then(|s| s.trim().parse::<IpAddr>().ok());
+        if let Some(ip) = rightmost {
+            return rate_key(ip);
+        }
+    }
+    rate_key(peer.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)))
+}
+
+/// Lowercased host with any `:port` removed (`[v6]` brackets kept).
+fn host_only(h: &str) -> String {
+    let h = h.trim();
+    let bare = if let Some(end) = h.strip_prefix('[').and_then(|r| r.find(']')) {
+        &h[..end + 2]
+    } else {
+        match h.rsplit_once(':') {
+            Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => name,
+            _ => h,
+        }
+    };
+    bare.to_ascii_lowercase()
+}
+
+fn json_error(code: StatusCode, msg: &str) -> Response {
+    (code, Json(serde_json::json!({ "error": msg }))).into_response()
 }
 
 // --------------------------------------------------------------- middleware --
 
-/// Require HTTP Basic auth when configured (constant-time comparison).
+/// DNS-rebinding guard. A page on `attacker.example` whose DNS flips to
+/// 127.0.0.1 reaches a loopback-bound app with `Host: attacker.example`; only
+/// the names this app is really served as are accepted. Applies when bound to
+/// loopback or when `AGSTUDIO_PUBLIC_HOST` is set; a request with no `Host` at
+/// all (not a browser) passes.
+pub async fn host_guard(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
+    let cfg = &state.config;
+    if !cfg.bind.ip().is_loopback() && cfg.public_hosts.is_empty() {
+        return next.run(req).await;
+    }
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| req.uri().authority().map(|a| a.to_string()));
+    if let Some(host) = host {
+        let h = host_only(&host);
+        let ok = matches!(h.as_str(), "localhost" | "127.0.0.1" | "[::1]")
+            || cfg.public_hosts.contains(&h);
+        if !ok {
+            eprintln!("refused request for unknown Host `{host}`");
+            return json_error(StatusCode::FORBIDDEN, "unknown host");
+        }
+    }
+    next.run(req).await
+}
+
+/// Require HTTP Basic auth when configured. Wrong credentials are counted per
+/// client IP; past `basic_auth_fails_per_min` the IP gets 429 without its
+/// credentials even being checked, so the shared password can't be brute-forced.
+/// A request with no `Authorization` at all (a browser's first, pre-prompt
+/// request) gets the 401 challenge but is not counted.
 pub async fn auth(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
     // The health probe is always reachable (no secret, no side effects).
     if req.uri().path() == "/healthz" {
         return next.run(req).await;
     }
     if let Some(expected) = &state.config.basic_auth {
-        let ok = req
+        let presented = req
             .headers()
             .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|got| ct_eq(got.as_bytes(), expected.as_bytes()));
+            .map(|v| v.to_str().unwrap_or(""));
+        let ok = if let Some(got) = presented {
+            let ip = client_ip(&state.config, &req);
+            let limit = state.config.basic_auth_fails_per_min;
+            let now = Instant::now();
+            if RateLimiter::exhausted(&relock(&state.rate).basic_fail, ip, limit, now) {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, "60")],
+                    "Too many failed logins; try again in a minute.",
+                )
+                    .into_response();
+            }
+            let ok = expected.matches(got);
+            if !ok {
+                let mut r = relock(&state.rate);
+                r.sweep(now);
+                RateLimiter::hit(&mut r.basic_fail, ip, limit, now);
+            }
+            ok
+        } else {
+            false
+        };
         if !ok {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -324,41 +720,49 @@ pub async fn auth(State(state): State<Shared>, req: Request<Body>, next: Next) -
     next.run(req).await
 }
 
+/// Claim the 5-minute session sweep slot, if it is due.
+fn sweep_due(state: &Shared) -> bool {
+    let now = Instant::now();
+    let mut last = relock(&state.session_sweep);
+    let due = last.map_or(true, |t| now.duration_since(t) > Duration::from_secs(300));
+    if due {
+        *last = Some(now);
+    }
+    due
+}
+
 /// Delete expired session rows from the DB at most once per 5 minutes,
 /// piggybacked on request traffic — same cadence and rationale as
 /// `RateLimiter::sweep`, just for the DB-backed session table instead of the
-/// in-memory rate-limit maps.
+/// in-memory rate-limit maps. Blocking; the middleware runs it on the pool.
+#[cfg(test)]
 fn sweep_expired_sessions(state: &Shared) {
-    let now = Instant::now();
-    let due = {
-        let mut last = state.session_sweep.lock().unwrap();
-        let due = last.map_or(true, |t| now.duration_since(t) > Duration::from_secs(300));
-        if due {
-            *last = Some(now);
-        }
-        due
-    };
-    if due {
-        if let Ok(conn) = state.db.lock() {
-            let _ = crate::db::sweep_expired_sessions(&conn);
-        }
+    if sweep_due(state) {
+        purge_expired_sessions(&state.db);
     }
 }
 
+fn purge_expired_sessions(db: &crate::db::Db) {
+    let _ = crate::db::sweep_expired_sessions(&crate::db::lock(db));
+}
+
 /// Per-IP rate limiting for `/api/*` (with a stricter bucket for translate and
-/// explain, which both drive the same costly `claude` CLI subprocess).
+/// humanize, which both drive the same costly `claude` CLI subprocess).
 pub async fn rate_limit(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
-    sweep_expired_sessions(&state);
+    if sweep_due(&state) {
+        let db = state.db.clone();
+        tokio::task::spawn_blocking(move || purge_expired_sessions(&db));
+    }
     let path = req.uri().path();
     if path.starts_with("/api/") {
-        let is_translate = path == "/api/translate" || path == "/api/explain";
+        let is_translate = path == "/api/translate" || path == "/api/humanize";
         // Login and register get their own tight bucket: they are the two
         // routes an attacker can hammer for credential stuffing / spam signups.
         let is_auth = path == "/api/auth/login" || path == "/api/auth/register";
         let ip = client_ip(&state.config, &req);
         let now = Instant::now();
         let allowed = {
-            let mut r = state.rate.lock().unwrap();
+            let mut r = relock(&state.rate);
             r.sweep(now);
             let general = RateLimiter::hit(&mut r.general, ip, state.config.rate_per_min, now);
             let special = !is_translate
@@ -382,24 +786,31 @@ pub async fn rate_limit(State(state): State<Shared>, req: Request<Body>, next: N
 
 /// Cross-origin write protection. The session cookie is `SameSite=Lax`, which
 /// already blocks classic CSRF; this adds a second, independent layer — a
-/// browser-sent `Origin` on a state-changing request must match the `Host` the
-/// request arrived on, or the request is refused. Requests without an `Origin`
-/// header (curl, same-origin GETs, MCP) pass through untouched.
+/// browser-sent `Origin` on a state-changing request must name the host the
+/// request arrived on (ports ignored: nginx's `$host` drops them), and the
+/// opaque `Origin: null` (sandboxed frames, `file:`) is refused outright.
+/// Requests without an `Origin` header (curl, same-origin GETs, MCP) pass.
 pub async fn same_origin(req: Request<Body>, next: Next) -> Response {
     let writes = matches!(
         *req.method(),
-        axum::http::Method::POST | axum::http::Method::PUT | axum::http::Method::DELETE
+        axum::http::Method::POST
+            | axum::http::Method::PUT
+            | axum::http::Method::PATCH
+            | axum::http::Method::DELETE
     );
     if writes {
-        let origin_host = req
-            .headers()
-            .get(header::ORIGIN)
-            .and_then(|v| v.to_str().ok())
-            .filter(|o| *o != "null")
-            .map(|o| o.strip_prefix("https://").or_else(|| o.strip_prefix("http://")).unwrap_or(o));
-        if let Some(origin_host) = origin_host {
-            let host = req.headers().get(header::HOST).and_then(|v| v.to_str().ok());
-            if host != Some(origin_host) {
+        if let Some(origin) = req.headers().get(header::ORIGIN) {
+            let origin = origin.to_str().unwrap_or("null");
+            let origin_host = origin
+                .strip_prefix("https://")
+                .or_else(|| origin.strip_prefix("http://"))
+                .map(host_only);
+            let host = req
+                .headers()
+                .get(header::HOST)
+                .and_then(|v| v.to_str().ok())
+                .map(host_only);
+            if origin_host.is_none() || origin_host != host {
                 let lang = crate::i18n::lang_from_headers(req.headers());
                 return (
                     StatusCode::FORBIDDEN,
@@ -410,6 +821,57 @@ pub async fn same_origin(req: Request<Body>, next: Next) -> Response {
         }
     }
     next.run(req).await
+}
+
+/// The bodies of every `<script>` without a `src` in `html`.
+pub fn inline_scripts(html: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(i) = rest.find("<script") {
+        rest = &rest[i..];
+        let Some(open_end) = rest.find('>') else { break };
+        let tag = &rest[..open_end];
+        let body_start = open_end + 1;
+        let Some(close) = rest[body_start..].find("</script>") else { break };
+        if !tag.contains("src=") {
+            out.push(&rest[body_start..body_start + close]);
+        }
+        rest = &rest[body_start + close..];
+    }
+    out
+}
+
+/// A CSP source expression allowing exactly this inline script.
+pub fn csp_hash(script: &str) -> String {
+    format!(
+        "'sha256-{}'",
+        base64::engine::general_purpose::STANDARD.encode(sha256(script.as_bytes()))
+    )
+}
+
+/// The page CSP: inline scripts are pinned by hash instead of `'unsafe-inline'`,
+/// so injected markup can't run script. Styles keep `'unsafe-inline'` (the
+/// pages use `style=` attributes throughout).
+fn content_security_policy() -> &'static str {
+    static CSP: OnceLock<String> = OnceLock::new();
+    CSP.get_or_init(|| {
+        let pages = [
+            include_str!("../assets/index.html"),
+            include_str!("../assets/auth.html"),
+            include_str!("../assets/landing.html"),
+        ];
+        let hashes: Vec<String> = pages
+            .iter()
+            .flat_map(|p| inline_scripts(p))
+            .map(csp_hash)
+            .collect();
+        format!(
+            "default-src 'self'; script-src 'self' {}; style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; \
+             base-uri 'none'; form-action 'self'",
+            hashes.join(" ")
+        )
+    })
 }
 
 /// Add defensive response headers to every response.
@@ -427,13 +889,7 @@ pub async fn security_headers(
     set(h, header::X_CONTENT_TYPE_OPTIONS, "nosniff");
     set(h, header::X_FRAME_OPTIONS, "DENY");
     set(h, header::REFERRER_POLICY, "no-referrer");
-    set(
-        h,
-        header::CONTENT_SECURITY_POLICY,
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; \
-         img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; \
-         base-uri 'none'; form-action 'self'",
-    );
+    set(h, header::CONTENT_SECURITY_POLICY, content_security_policy());
     set(
         h,
         HeaderName::from_static("permissions-policy"),
@@ -456,16 +912,13 @@ pub async fn security_headers(
     resp
 }
 
-/// Constant-time byte comparison (avoids auth timing side-channels).
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
+/// Constant-time comparison of two equal-length digests.
+fn ct_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
     let mut diff = 0u8;
     for (x, y) in a.iter().zip(b.iter()) {
         diff |= x ^ y;
     }
-    diff == 0
+    std::hint::black_box(diff) == 0
 }
 
 /// Apply process-wide, server-safe resource limits (idempotent; only sets what

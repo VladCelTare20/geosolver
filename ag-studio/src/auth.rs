@@ -11,6 +11,8 @@ use argon2::{
     },
     Argon2,
 };
+use std::sync::OnceLock;
+
 use axum::http::{header, HeaderMap};
 
 use crate::db;
@@ -31,6 +33,27 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// A real argon2 hash of a random secret nobody knows, built once.
+fn dummy_hash() -> &'static str {
+    static DUMMY: OnceLock<String> = OnceLock::new();
+    DUMMY.get_or_init(|| {
+        hash_password(&new_session_id()).expect("argon2 hashes a fixed-size random secret")
+    })
+}
+
+/// Verify `password` against the stored hash, or against a dummy hash when the
+/// user does not exist, so an unknown username costs the same argon2 work as a
+/// wrong password and cannot be told apart by timing.
+pub fn verify_password_or_dummy(password: &str, hash: Option<&str>) -> bool {
+    match hash {
+        Some(h) => verify_password(password, h),
+        None => {
+            let _ = verify_password(password, dummy_hash());
+            false
+        }
+    }
+}
+
 /// A fresh 256-bit session id, hex-encoded.
 pub fn new_session_id() -> String {
     let mut bytes = [0u8; 32];
@@ -38,28 +61,64 @@ pub fn new_session_id() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Over HTTPS the cookie carries the `__Host-` prefix: browsers then refuse it
+/// unless it is `Secure`, `Path=/` and has no `Domain`, so a sibling subdomain
+/// cannot plant or overwrite it.
+pub fn cookie_name(secure: bool) -> &'static str {
+    if secure {
+        "__Host-sid"
+    } else {
+        "sid"
+    }
+}
+
 pub fn set_cookie_header(id: &str, secure: bool) -> String {
     let secure_flag = if secure { "; Secure" } else { "" };
-    format!("sid={id}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL_SECS}{secure_flag}")
+    let name = cookie_name(secure);
+    format!("{name}={id}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL_SECS}{secure_flag}")
 }
 
-pub fn clear_cookie_header() -> &'static str {
-    "sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+pub fn clear_cookie_header(secure: bool) -> String {
+    let secure_flag = if secure { "; Secure" } else { "" };
+    let name = cookie_name(secure);
+    format!("{name}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0{secure_flag}")
 }
 
-/// Read the `sid` value out of the request's `Cookie` header, if present.
-pub fn parse_sid(headers: &HeaderMap) -> Option<String> {
-    let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
-    cookie
-        .split(';')
-        .find_map(|kv| kv.trim().strip_prefix("sid=").map(str::to_string))
+/// Read the session id out of the request's `Cookie` header(s). Anything
+/// ambiguous (the cookie sent twice, e.g. a tossed duplicate) or not shaped like
+/// one of our ids is treated as no session at all.
+pub fn parse_sid(headers: &HeaderMap, secure: bool) -> Option<String> {
+    let prefix = format!("{}=", cookie_name(secure));
+    let mut found = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|c| c.split(';'))
+        .filter_map(|kv| kv.trim().strip_prefix(prefix.as_str()));
+    let sid = found.next()?;
+    if found.next().is_some() {
+        return None;
+    }
+    let well_formed = sid.len() == 64 && sid.bytes().all(|b| b.is_ascii_hexdigit());
+    well_formed.then(|| sid.to_string())
 }
 
-/// Resolve the logged-in user for a request, if its `sid` cookie names a live session.
-pub fn current_user(db: &db::Db, headers: &HeaderMap) -> Option<db::User> {
-    let sid = parse_sid(headers)?;
-    let conn = db.lock().ok()?;
-    db::lookup_session(&conn, &sid).ok()?
+/// Resolve the logged-in user for a request, if its session cookie names a live
+/// session. Blocking (SQLite) — async callers use [`current_user_async`].
+pub fn current_user(db: &db::Db, headers: &HeaderMap, secure: bool) -> Option<db::User> {
+    let sid = parse_sid(headers, secure)?;
+    db::lookup_session(&db::lock(db), &sid).ok()?
+}
+
+/// [`current_user`] on the blocking pool, so a slow DB lock never stalls an
+/// async worker. Requests without a session cookie skip the pool entirely.
+pub async fn current_user_async(db: &db::Db, headers: &HeaderMap, secure: bool) -> Option<db::User> {
+    parse_sid(headers, secure)?;
+    let (db, headers) = (db.clone(), headers.clone());
+    tokio::task::spawn_blocking(move || current_user(&db, &headers, secure))
+        .await
+        .ok()
+        .flatten()
 }
 
 #[cfg(test)]
@@ -97,17 +156,98 @@ mod tests {
         assert!(set.contains("HttpOnly"));
         assert!(set.contains("SameSite=Lax"));
         assert!(!set.contains("Secure"));
-        assert!(set_cookie_header("abc123", true).contains("; Secure"));
         assert!(set.contains("Path=/"));
-        assert!(clear_cookie_header().contains("Max-Age=0"));
-        assert!(clear_cookie_header().contains("Path=/"));
+        assert!(clear_cookie_header(false).starts_with("sid=;"));
+        assert!(clear_cookie_header(false).contains("Max-Age=0"));
+        assert!(clear_cookie_header(false).contains("Path=/"));
     }
 
     #[test]
+    fn secure_cookies_use_the_host_prefix() {
+        let set = set_cookie_header("abc123", true);
+        assert!(set.starts_with("__Host-sid=abc123;"));
+        assert!(set.contains("; Secure"));
+        assert!(set.contains("HttpOnly"));
+        assert!(set.contains("SameSite=Lax"));
+        assert!(set.contains("Path=/"));
+        assert!(!set.contains("Domain"));
+        let clear = clear_cookie_header(true);
+        assert!(clear.starts_with("__Host-sid=;") && clear.contains("Secure") && clear.contains("Max-Age=0"));
+    }
+
+    fn cookie(v: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.append(header::COOKIE, v.parse().unwrap());
+        h
+    }
+
+    const SID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
     fn parse_sid_reads_cookie_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::COOKIE, "foo=bar; sid=deadbeef; other=1".parse().unwrap());
-        assert_eq!(parse_sid(&headers).as_deref(), Some("deadbeef"));
-        assert_eq!(parse_sid(&HeaderMap::new()), None);
+        let h = cookie(&format!("foo=bar; sid={SID}; other=1"));
+        assert_eq!(parse_sid(&h, false).as_deref(), Some(SID));
+        assert_eq!(parse_sid(&HeaderMap::new(), false), None);
+    }
+
+    #[test]
+    fn parse_sid_secure_reads_only_the_host_prefixed_cookie() {
+        let h = cookie(&format!("sid={SID}"));
+        assert_eq!(parse_sid(&h, true), None);
+        let h = cookie(&format!("__Host-sid={SID}"));
+        assert_eq!(parse_sid(&h, true).as_deref(), Some(SID));
+        assert_eq!(parse_sid(&h, false), None);
+    }
+
+    #[test]
+    fn parse_sid_rejects_duplicates_and_malformed_ids() {
+        let other = SID.replace('0', "f");
+        assert_eq!(parse_sid(&cookie(&format!("sid={SID}; sid={other}")), false), None);
+        let mut split = cookie(&format!("sid={SID}"));
+        split.append(header::COOKIE, format!("sid={other}").parse().unwrap());
+        assert_eq!(parse_sid(&split, false), None);
+        assert_eq!(parse_sid(&cookie("sid=deadbeef"), false), None);
+        assert_eq!(parse_sid(&cookie(&format!("sid={}", SID.replace('a', "g"))), false), None);
+    }
+
+    #[test]
+    fn current_user_survives_a_poisoned_db_mutex() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = db::open(&dir.path().join("a.db")).unwrap();
+        {
+            let conn = db::lock(&db);
+            let uid = db::create_user(&conn, "alice", "h").unwrap();
+            db::insert_session(&conn, SID, uid, 3600).unwrap();
+        }
+        let d2 = db.clone();
+        let _ = std::thread::spawn(move || {
+            let _g = d2.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        let h = cookie(&format!("sid={SID}"));
+        assert_eq!(current_user(&db, &h, false).unwrap().username, "alice");
+    }
+
+    #[test]
+    fn unknown_user_costs_a_full_argon2_verify() {
+        let hash = hash_password("the real password").unwrap();
+        let _ = verify_password_or_dummy("warm", None);
+        let time = |f: &dyn Fn()| {
+            (0..3)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    f();
+                    t.elapsed()
+                })
+                .min()
+                .unwrap()
+        };
+        let known = time(&|| assert!(!verify_password_or_dummy("guess", Some(&hash))));
+        let unknown = time(&|| assert!(!verify_password_or_dummy("guess", None)));
+        assert!(
+            unknown * 2 > known,
+            "unknown-user path ({unknown:?}) must cost about the same as a real verify ({known:?})"
+        );
     }
 }

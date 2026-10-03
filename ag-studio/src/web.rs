@@ -2,8 +2,9 @@
 //! JSON API that wraps the solver, the translator, and the PDF/PNG exporter.
 //!
 //! Hardened for exposure behind a reverse proxy (see [`crate::security`]): body
-//! limits, a concurrency gate, per-IP rate limiting, optional HTTP Basic auth,
-//! security headers, gzip compression, and a request timeout.
+//! limits, a concurrency gate, per-IP rate limiting, optional HTTP Basic auth
+//! (with an account-free guest mode behind it), a Host allow-list, security
+//! headers, gzip compression, and a request timeout.
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -11,13 +12,13 @@ use std::time::Duration;
 
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    extract::{DefaultBodyLimit, FromRequest, FromRequestParts, Query, Request, State},
+    http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tower_http::compression::CompressionLayer;
 use tower_http::timeout::TimeoutLayer;
 
@@ -32,21 +33,29 @@ const LANDING_HTML: &str = include_str!("../assets/landing.html");
 const I18N_JS: &str = include_str!("../assets/i18n.js");
 /// Hard ceiling on a decoded upload, independent of the body limit.
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+/// Titles are display labels; anything longer is truncated before use/storage.
+const MAX_TITLE_CHARS: usize = 200;
+/// Auxiliary constructions accepted by `/api/humanize`.
+const MAX_AUX_ITEMS: usize = 64;
+const HISTORY_PAGE_DEFAULT: i64 = 100;
+const HISTORY_PAGE_MAX: i64 = 200;
+/// How long login/register wait for an argon2 slot before answering 503.
+const ARGON2_QUEUE_WAIT: Duration = Duration::from_secs(10);
 
 /// Run the web app until the process is stopped, using the given configuration.
 pub async fn serve(config: Config) -> anyhow::Result<()> {
     let bind = config.bind;
-    let translate_note = if !config.enable_translate {
+    let summary = config.summary();
+    let state = AppState::new(config).map_err(|e| anyhow::anyhow!(e))?;
+    let translate_note = if !state.config.enable_translate {
         "disabled by configuration".to_string()
     } else {
-        match translate::status() {
+        match state.translate_status().await {
             s if s.logged_in => "on (local Claude subscription)".into(),
             s if s.installed => "installed — run `claude auth login` to enable".into(),
             _ => "off — install the `claude` CLI to enable".into(),
         }
     };
-    let summary = config.summary();
-    let state = AppState::new(config).map_err(|e| anyhow::anyhow!(e))?;
     let app = app_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
@@ -98,6 +107,10 @@ fn app_router(state: Shared) -> Router {
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
+            security::host_guard,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
             security::security_headers,
         ))
         .layer(CompressionLayer::new())
@@ -111,19 +124,26 @@ fn app_router(state: Shared) -> Router {
         .with_state(state)
 }
 
-/// `/`: signed-in visitors go straight to the app; everyone else sees the
-/// public landing page pitching the product.
+async fn session_user(state: &Shared, headers: &HeaderMap) -> Option<db::User> {
+    auth::current_user_async(&state.db, headers, state.config.secure_cookies).await
+}
+
+/// `/`: signed-in visitors (and guests, in guest mode) go straight to the app;
+/// everyone else sees the public landing page pitching the product.
 async fn index(State(state): State<Shared>, headers: HeaderMap) -> Response {
-    if auth::current_user(&state.db, &headers).is_some() {
+    if state.config.guest_allowed() {
+        Html(INDEX_HTML).into_response()
+    } else if session_user(&state, &headers).await.is_some() {
         Redirect::to("/app").into_response()
     } else {
         Html(LANDING_HTML).into_response()
     }
 }
 
-/// `/app`: the solver SPA, gated on a valid session (else 302 to `/auth`).
+/// `/app`: the solver SPA, gated on a valid session (else 302 to `/auth`)
+/// unless guest mode lets Basic auth alone in.
 async fn app_page(State(state): State<Shared>, headers: HeaderMap) -> Response {
-    if auth::current_user(&state.db, &headers).is_some() {
+    if state.config.guest_allowed() || session_user(&state, &headers).await.is_some() {
         Html(INDEX_HTML).into_response()
     } else {
         Redirect::to("/auth").into_response()
@@ -160,21 +180,82 @@ struct Status {
 }
 
 async fn api_status(State(state): State<Shared>) -> Json<Status> {
-    let s = translate::status();
-    let enabled = state.config.enable_translate;
+    let s = state.translate_status().await;
     Json(Status {
-        translate_installed: enabled && s.installed,
-        translate_logged_in: enabled && s.logged_in,
+        translate_installed: s.installed,
+        translate_logged_in: s.logged_in,
         version: env!("CARGO_PKG_VERSION"),
     })
+}
+
+// ------------------------------------------------------------ extractors ----
+
+/// `Json<T>` whose rejections use the app's `{ "error": … }` shape and do not
+/// echo serde's detail (struct and field names) back to the client.
+struct ApiJson<T>(T);
+
+impl<T, S> FromRequest<S> for ApiJson<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Response> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(v)) => Ok(ApiJson(v)),
+            Err(rejection) => {
+                eprintln!("rejected request body: {rejection}");
+                Err(err(rejection.status(), "invalid request body"))
+            }
+        }
+    }
+}
+
+/// A signed-in user. Listed before the body extractor in a handler, so an
+/// unauthenticated request is refused before its body is read or parsed.
+struct SessionUser(db::User);
+
+impl FromRequestParts<Shared> for SessionUser {
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &Shared) -> Result<Self, Response> {
+        match session_user(state, &parts.headers).await {
+            Some(u) => Ok(SessionUser(u)),
+            None => Err(err(
+                StatusCode::UNAUTHORIZED,
+                i18n::t(i18n::lang_from_headers(&parts.headers), "auth.sign_in_required"),
+            )),
+        }
+    }
+}
+
+/// Who may use the solver: a signed-in user, or — in guest mode, where the
+/// Basic-auth layer has already admitted the request — an anonymous guest.
+enum Caller {
+    User(db::User),
+    Guest,
+}
+
+impl FromRequestParts<Shared> for Caller {
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &Shared) -> Result<Self, Response> {
+        match SessionUser::from_request_parts(parts, state).await {
+            Ok(SessionUser(u)) => Ok(Caller::User(u)),
+            Err(_) if state.config.guest_allowed() => Ok(Caller::Guest),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 // ------------------------------------------------------------------ auth ----
 //
 // Public routes (no session gate) that manage accounts: register/login mint a
 // session cookie, logout clears it, `me` reports the current user. All password
-// hashing + SQLite work runs on the blocking pool. These sit behind the same
-// rate-limit / Basic-auth / security-header layers as everything else.
+// hashing + SQLite work runs on the blocking pool, argon2 behind its own small
+// semaphore. These sit behind the same rate-limit / Basic-auth / security-header
+// layers as everything else.
 
 #[derive(Deserialize)]
 struct Credentials {
@@ -191,10 +272,15 @@ fn is_unique_violation(e: &rusqlite::Error) -> bool {
     matches!(e, rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation)
 }
 
-/// Validate a username (returning its trimmed, canonical form) and password length.
+/// Usernames are case-insensitive: stored and compared lowercased.
+fn canonical_username(username: &str) -> String {
+    username.trim().to_ascii_lowercase()
+}
+
+/// Validate a username (returning its canonical form) and password length.
 #[allow(clippy::result_large_err)]
 fn valid_credentials(username: &str, password: &str, lang: i18n::Lang) -> Result<String, Response> {
-    let u = username.trim();
+    let u = canonical_username(username);
     let ok_name = (3..=32).contains(&u.chars().count())
         && u.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if !ok_name {
@@ -206,7 +292,7 @@ fn valid_credentials(username: &str, password: &str, lang: i18n::Lang) -> Result
     if !(8..=128).contains(&password.chars().count()) {
         return Err(err(StatusCode::BAD_REQUEST, i18n::t(lang, "auth.pw_len")));
     }
-    Ok(u.to_string())
+    Ok(u)
 }
 
 /// A `{ "username": … }` body plus a session `Set-Cookie`.
@@ -218,21 +304,37 @@ fn auth_ok(username: &str, sid: &str, secure: bool) -> Response {
         .into_response()
 }
 
+/// Wait (bounded) for an argon2 slot, or answer 503.
+async fn argon_permit(
+    state: &Shared,
+    lang: i18n::Lang,
+) -> Result<tokio::sync::OwnedSemaphorePermit, Response> {
+    match tokio::time::timeout(ARGON2_QUEUE_WAIT, state.argon.clone().acquire_owned()).await {
+        Ok(Ok(p)) => Ok(p),
+        _ => Err(err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"))),
+    }
+}
+
 async fn api_register(
     State(state): State<Shared>,
     headers: HeaderMap,
-    Json(req): Json<Credentials>,
+    ApiJson(req): ApiJson<Credentials>,
 ) -> Response {
     let lang = i18n::lang_from_headers(&headers);
     let username = match valid_credentials(&req.username, &req.password, lang) {
         Ok(u) => u,
         Err(e) => return e,
     };
+    let permit = match argon_permit(&state, lang).await {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     let secure = state.config.secure_cookies;
     let db = state.db.clone();
     let outcome = tokio::task::spawn_blocking(move || -> Result<(String, String), RegisterErr> {
         let hash = auth::hash_password(&req.password).map_err(|_| RegisterErr::Internal)?;
-        let conn = db.lock().map_err(|_| RegisterErr::Internal)?;
+        drop(permit);
+        let conn = db::lock(&db);
         let uid = db::create_user(&conn, &username, &hash).map_err(|e| {
             if is_unique_violation(&e) {
                 RegisterErr::Taken
@@ -263,26 +365,32 @@ async fn api_register(
 async fn api_login(
     State(state): State<Shared>,
     headers: HeaderMap,
-    Json(req): Json<Credentials>,
+    ApiJson(req): ApiJson<Credentials>,
 ) -> Response {
     let lang = i18n::lang_from_headers(&headers);
     let secure = state.config.secure_cookies;
+    let permit = match argon_permit(&state, lang).await {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     let db = state.db.clone();
     // `None` is returned for every failure mode (unknown user, bad password) so
-    // the client can't distinguish them; the argon2 verify runs off the DB lock.
+    // the client can't distinguish them — not by status, and not by timing: an
+    // unknown user is verified against a dummy hash. argon2 runs off the DB lock.
     let outcome = tokio::task::spawn_blocking(move || -> Option<(String, String)> {
-        let (uid, username, hash) = {
-            let conn = db.lock().ok()?;
-            let u = db::find_user_by_name(&conn, req.username.trim()).ok()??;
-            (u.id, u.username, u.password_hash)
+        let found = {
+            let conn = db::lock(&db);
+            db::find_user_by_name(&conn, &canonical_username(&req.username)).ok()?
         };
-        if !auth::verify_password(&req.password, &hash) {
-            return None;
-        }
+        let ok = auth::verify_password_or_dummy(
+            &req.password,
+            found.as_ref().map(|u| u.password_hash.as_str()),
+        );
+        drop(permit);
+        let user = found.filter(|_| ok)?;
         let sid = auth::new_session_id();
-        let conn = db.lock().ok()?;
-        db::insert_session(&conn, &sid, uid, auth::SESSION_TTL_SECS).ok()?;
-        Some((username, sid))
+        db::insert_session(&db::lock(&db), &sid, user.id, auth::SESSION_TTL_SECS).ok()?;
+        Some((user.username, sid))
     })
     .await;
     match outcome {
@@ -296,20 +404,20 @@ async fn api_login(
 }
 
 async fn api_logout(State(state): State<Shared>, headers: HeaderMap) -> Response {
-    if let Some(sid) = auth::parse_sid(&headers) {
-        if let Ok(conn) = state.db.lock() {
-            let _ = db::delete_session(&conn, &sid);
-        }
+    let secure = state.config.secure_cookies;
+    if let Some(sid) = auth::parse_sid(&headers, secure) {
+        let db = state.db.clone();
+        let _ = tokio::task::spawn_blocking(move || db::delete_session(&db::lock(&db), &sid)).await;
     }
     (
-        [(header::SET_COOKIE, auth::clear_cookie_header())],
+        [(header::SET_COOKIE, auth::clear_cookie_header(secure))],
         Json(serde_json::json!({ "ok": true })),
     )
         .into_response()
 }
 
 async fn api_me(State(state): State<Shared>, headers: HeaderMap) -> Response {
-    match auth::current_user(&state.db, &headers) {
+    match session_user(&state, &headers).await {
         Some(u) => Json(serde_json::json!({ "username": u.username })).into_response(),
         None => err(
             StatusCode::UNAUTHORIZED,
@@ -348,19 +456,11 @@ fn check_input(state: &Shared, headers: &HeaderMap, input: &str) -> Result<(), R
     Ok(())
 }
 
-/// Require a valid session cookie, or return 401 JSON. Guards the solver,
-/// translate, and export APIs — the account routes above stay public.
-#[allow(clippy::result_large_err)]
-fn require_session(state: &Shared, headers: &HeaderMap) -> Result<(), Response> {
-    if auth::current_user(&state.db, headers).is_some() {
-        Ok(())
-    } else {
-        let lang = i18n::lang_from_headers(headers);
-        Err(err(
-            StatusCode::UNAUTHORIZED,
-            i18n::t(lang, "auth.sign_in_required"),
-        ))
-    }
+/// Trim a client-supplied title and cut it to [`MAX_TITLE_CHARS`]; blank → none.
+fn clean_title(title: Option<String>) -> Option<String> {
+    let t = title?;
+    let t: String = t.trim().chars().take(MAX_TITLE_CHARS).collect();
+    (!t.is_empty()).then_some(t)
 }
 
 /// Acquire a heavy-work slot, or return 503 if the server is at capacity.
@@ -377,6 +477,10 @@ fn heavy_permit(
 
 // ---------------------------------------------------------------- solve ----
 
+fn yes() -> bool {
+    true
+}
+
 #[derive(Deserialize)]
 struct SolveReq {
     input: String,
@@ -391,17 +495,17 @@ struct SolveReq {
     best: bool,
     #[serde(default)]
     budget_secs: Option<f64>,
+    /// `false` when the client is replaying an entry already in history.
+    #[serde(default = "yes")]
+    record: bool,
 }
 
 async fn api_solve(
     State(state): State<Shared>,
+    caller: Caller,
     headers: HeaderMap,
-    Json(req): Json<SolveReq>,
+    ApiJson(req): ApiJson<SolveReq>,
 ) -> Response {
-    let user = match auth::current_user(&state.db, &headers) {
-        Some(u) => u,
-        None => return err(StatusCode::UNAUTHORIZED, i18n::t(i18n::lang_from_headers(&headers), "auth.sign_in_required")),
-    };
     if let Err(e) = check_input(&state, &headers, &req.input) {
         return e;
     }
@@ -409,12 +513,13 @@ async fn api_solve(
         Ok(p) => p,
         Err(e) => return e,
     };
-    let history_title = req.title.clone();
+    let title = clean_title(req.title);
+    let history_title = title.clone();
     let opts = SolveOptions {
         kind: kind_of(&req.input, &req.kind),
         theme: engine::parse_theme(&req.theme),
         want_proof: true,
-        title: req.title,
+        title,
         // The UI lays the legend out in HTML below the figure, so the drawing
         // gets the whole card (matters on phones).
         panel: false,
@@ -438,7 +543,9 @@ async fn api_solve(
     });
     match task.await {
         Ok(Ok(sol)) => {
-            save_history(&state, user.id, &sol, history_title.as_deref()).await;
+            if let (Caller::User(user), true) = (&caller, req.record) {
+                save_history(&state, user.id, &sol, history_title.as_deref()).await;
+            }
             Json(sol).into_response()
         }
         Ok(Err(e)) => {
@@ -461,15 +568,18 @@ fn method_str(m: engine::Method) -> &'static str {
 }
 
 /// Record a completed solve (proved or not) in the caller's history. Best-effort:
-/// a storage error here must never fail the solve response itself.
+/// a storage error here must never fail the solve response itself. Inputs past
+/// the request cap are never stored (the request check bounds `sol.input`'s
+/// source, this bounds what the engine hands back).
 async fn save_history(state: &Shared, user_id: i64, sol: &engine::Solution, title: Option<&str>) {
+    if sol.input.len() > state.config.max_input_chars {
+        return;
+    }
     let db = state.db.clone();
     let (input, proved, method) = (sol.input.clone(), sol.proved, method_str(sol.method));
     let title = title.map(str::to_string);
     let _ = tokio::task::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_| ())?;
-        db::insert_history(&conn, user_id, &input, title.as_deref(), proved, Some(method))
-            .map_err(|_| ())
+        db::insert_history(&db::lock(&db), user_id, &input, title.as_deref(), proved, Some(method))
     })
     .await;
 }
@@ -492,22 +602,33 @@ impl From<db::HistoryEntry> for HistoryItem {
     }
 }
 
-/// The signed-in user's past solves, newest first.
-async fn api_history(State(state): State<Shared>, headers: HeaderMap) -> Response {
-    let user = match auth::current_user(&state.db, &headers) {
-        Some(u) => u,
-        None => return err(StatusCode::UNAUTHORIZED, i18n::t(i18n::lang_from_headers(&headers), "auth.sign_in_required")),
+#[derive(Deserialize)]
+struct HistoryQuery {
+    limit: Option<i64>,
+    /// Return only entries older than this id (the last id of the previous page).
+    before: Option<i64>,
+}
+
+/// A page of the signed-in user's past solves, newest first.
+async fn api_history(
+    State(state): State<Shared>,
+    SessionUser(user): SessionUser,
+    headers: HeaderMap,
+    query: Result<Query<HistoryQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let Ok(Query(q)) = query else {
+        return err(StatusCode::BAD_REQUEST, "invalid query");
     };
+    let limit = q.limit.unwrap_or(HISTORY_PAGE_DEFAULT).clamp(1, HISTORY_PAGE_MAX);
     let db = state.db.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_| ())?;
-        db::list_history(&conn, user.id, 1000, None).map_err(|_| ())
+        db::list_history(&db::lock(&db), user.id, limit, q.before)
     })
     .await;
     match res {
         Ok(Ok(rows)) => Json(rows.into_iter().map(HistoryItem::from).collect::<Vec<_>>()).into_response(),
-        Ok(Err(())) => {
-            eprintln!("history load failed: db error");
+        Ok(Err(e)) => {
+            eprintln!("history load failed: {e}");
             err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"))
         }
         Err(e) => {
@@ -520,24 +641,17 @@ async fn api_history(State(state): State<Shared>, headers: HeaderMap) -> Respons
 /// Delete one of the signed-in user's history entries (others' ids are 404).
 async fn api_history_delete(
     State(state): State<Shared>,
+    SessionUser(user): SessionUser,
     axum::extract::Path(id): axum::extract::Path<i64>,
     headers: HeaderMap,
 ) -> Response {
-    let user = match auth::current_user(&state.db, &headers) {
-        Some(u) => u,
-        None => return err(StatusCode::UNAUTHORIZED, i18n::t(i18n::lang_from_headers(&headers), "auth.sign_in_required")),
-    };
     let db = state.db.clone();
-    let res = tokio::task::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_| ())?;
-        db::delete_history(&conn, user.id, id).map_err(|_| ())
-    })
-    .await;
+    let res = tokio::task::spawn_blocking(move || db::delete_history(&db::lock(&db), user.id, id)).await;
     match res {
         Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Ok(false)) => err(StatusCode::NOT_FOUND, i18n::t(i18n::lang_from_headers(&headers), "history.none")),
-        Ok(Err(())) => {
-            eprintln!("history delete failed: db error");
+        Ok(Err(e)) => {
+            eprintln!("history delete failed: {e}");
             err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"))
         }
         Err(e) => {
@@ -561,12 +675,10 @@ struct TranslateReq {
 
 async fn api_translate(
     State(state): State<Shared>,
+    _user: SessionUser,
     headers: HeaderMap,
-    Json(req): Json<TranslateReq>,
+    ApiJson(req): ApiJson<TranslateReq>,
 ) -> Response {
-    if let Err(e) = require_session(&state, &headers) {
-        return e;
-    }
     if !state.config.enable_translate || !translate::available() {
         return err(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -649,22 +761,25 @@ struct HumanizeReq {
 
 /// Rewrite a machine (DDAR) proof into a flowing, human-readable proof in the
 /// chosen language, via the local Claude Opus subscription. Same
-/// session/availability/rate-limit posture as `/api/translate`; any failure
-/// degrades to a 503 so the client can fall back to the machine proof.
+/// availability/rate-limit posture as `/api/translate` (guests allowed in guest
+/// mode); any failure degrades to a 503 so the client can fall back to the
+/// machine proof.
 async fn api_humanize(
     State(state): State<Shared>,
+    _caller: Caller,
     headers: HeaderMap,
-    Json(req): Json<HumanizeReq>,
+    ApiJson(req): ApiJson<HumanizeReq>,
 ) -> Response {
-    if let Err(e) = require_session(&state, &headers) {
-        return e;
-    }
     let lang = i18n::lang_from_headers(&headers);
     if req.proof.trim().is_empty() {
         return err(StatusCode::BAD_REQUEST, i18n::t(lang, "humanize.need_proof"));
     }
-    let over_limit = req.problem.len() > state.config.max_input_chars
-        || req.proof.len() > 4 * state.config.max_input_chars;
+    let max = state.config.max_input_chars;
+    let aux_bytes: usize = req.aux.iter().map(String::len).sum();
+    let over_limit = req.problem.len() > max
+        || req.proof.len() > 4 * max
+        || req.aux.len() > MAX_AUX_ITEMS
+        || aux_bytes > max;
     if over_limit {
         return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(lang, "err.too_long"));
     }
@@ -747,12 +862,10 @@ struct ExportReq {
 
 async fn api_export(
     State(state): State<Shared>,
+    _caller: Caller,
     headers: HeaderMap,
-    Json(req): Json<ExportReq>,
+    ApiJson(req): ApiJson<ExportReq>,
 ) -> Response {
-    if let Err(e) = require_session(&state, &headers) {
-        return e;
-    }
     if let Err(e) = check_input(&state, &headers, &req.input) {
         return e;
     }
@@ -760,16 +873,16 @@ async fn api_export(
         Ok(p) => p,
         Err(e) => return e,
     };
+    let title = clean_title(req.title);
     // Documents export on a light, print-friendly page regardless of on-screen theme.
     let opts = SolveOptions {
         kind: kind_of(&req.input, &req.kind),
         theme: Theme::Light,
         want_proof: true,
-        title: req.title.clone(),
+        title: title.clone(),
         panel: true,
     };
     let input = req.input;
-    let title = req.title;
     let want_pdf = req.format.eq_ignore_ascii_case("pdf");
 
     let res = tokio::task::spawn_blocking(
@@ -1203,7 +1316,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut config = Config::from_env(0).unwrap();
         config.db_path = dir.path().join("test.db");
-        config.basic_auth = Some("Basic b3A6c2VjcmV0".to_string()); // "op:secret"
+        config.basic_auth = Some(security::BasicAuth::parse("op:secret-pass").unwrap());
         let state = AppState::new(config).unwrap();
 
         // No Basic auth at all: rejected before the route (or any session
@@ -1220,7 +1333,8 @@ mod tests {
 
         // With correct Basic auth, register/login/me still work exactly as
         // without it — the two layers are independent and additive.
-        let basic = "Basic b3A6c2VjcmV0"; // "op:secret"
+        let basic_hdr = basic("op", "secret-pass");
+        let basic = basic_hdr.as_str();
         let req = Request::builder()
             .method("POST")
             .uri("/api/auth/register")
@@ -1369,7 +1483,7 @@ mod tests {
     /// a matching one (or none at all) passes.
     #[tokio::test]
     async fn cross_origin_writes_are_refused() {
-        let (state, _dir) = test_state();
+        let (state, _dir) = state_with(|c| c.public_hosts = vec!["geo.example".into()]);
         let body = creds("mallory", "password123").to_string();
         let mk = |origin: Option<&str>| {
             let mut b = Request::builder()
@@ -1400,22 +1514,18 @@ mod tests {
         assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
     }
 
-    /// `/api/translate` and `/api/explain` drive the same costly `claude` CLI
+    /// `/api/translate` and `/api/humanize` drive the same costly `claude` CLI
     /// subprocess, so `security::rate_limit` must count hits to either one
     /// against a single shared per-IP bucket (not two independent ones).
     #[tokio::test]
-    async fn explain_and_translate_share_rate_limit_bucket() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut config = Config::from_env(0).unwrap();
-        config.db_path = dir.path().join("test.db");
-        config.translate_per_min = 2;
-        // Keep hits cheap (a 503, no CLI spawn): rate-limiting is a middleware
-        // layer that runs before the handler, so it counts regardless.
-        config.enable_translate = false;
-        let state = AppState::new(config).unwrap();
+    async fn humanize_and_translate_share_rate_limit_bucket() {
+        let (state, _dir) = state_with(|c| {
+            c.translate_per_min = 2;
+            // Keep hits cheap (a 503, no CLI spawn): rate-limiting is a middleware
+            // layer that runs before the handler, so it counts regardless.
+            c.enable_translate = false;
+        });
         let cookie = register_cookie(&state, "priya").await;
-
-        // The first two hits to /api/translate consume the shared bucket.
         for _ in 0..2 {
             let (st, _, _) = call(
                 &state,
@@ -1427,28 +1537,470 @@ mod tests {
             .await;
             assert_ne!(st, StatusCode::TOO_MANY_REQUESTS);
         }
-        // A third hit to /api/translate is now rate-limited.
-        let (st, _, _) = call(
-            &state,
-            "POST",
-            "/api/translate",
-            Some(&cookie),
-            serde_json::json!({"text": "x"}),
-        )
-        .await;
-        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
-
-        // /api/explain shares that same bucket: it's already exhausted, so
-        // this is 429 without any hits of its own against /api/explain.
+        // /api/humanize shares that same, now exhausted, bucket.
         let (st, _, body) = call(
             &state,
             "POST",
-            "/api/explain",
+            "/api/humanize",
             Some(&cookie),
-            serde_json::json!({"step": "AB = CD"}),
+            serde_json::json!({"problem": "p", "proof": "001. coll A B C"}),
         )
         .await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(body["error"], "rate limit exceeded — please slow down");
+    }
+
+    // ------------------------------------------------ public-exposure hardening --
+
+    fn state_with(f: impl FnOnce(&mut Config)) -> (Shared, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::from_env(0).unwrap();
+        config.db_path = dir.path().join("test.db");
+        f(&mut config);
+        (AppState::new(config).unwrap(), dir)
+    }
+
+    fn basic(user: &str, pass: &str) -> String {
+        use base64::Engine;
+        format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"))
+        )
+    }
+
+    fn build(
+        method: &str,
+        uri: &str,
+        headers: &[(&str, &str)],
+        body: Option<&str>,
+    ) -> Request<Body> {
+        let mut b = Request::builder().method(method).uri(uri);
+        if body.is_some() {
+            b = b.header(header::CONTENT_TYPE, "application/json");
+        }
+        for (k, v) in headers {
+            b = b.header(*k, *v);
+        }
+        b.body(body.map_or_else(Body::empty, |s| Body::from(s.to_string())))
+            .unwrap()
+    }
+
+    fn from_peer(mut req: Request<Body>, peer: &str) -> Request<Body> {
+        let addr: SocketAddr = peer.parse().unwrap();
+        req.extensions_mut().insert(axum::extract::ConnectInfo(addr));
+        req
+    }
+
+    async fn send(state: &Shared, req: Request<Body>) -> (StatusCode, HeaderMap, String) {
+        let resp = app_router(state.clone()).oneshot(req).await.unwrap();
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        (status, headers, String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    static DISABLED_PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    fn counting_probe() -> translate::Status {
+        DISABLED_PROBES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        translate::Status { installed: true, logged_in: true }
+    }
+
+    static SLOW_PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    fn slow_probe() -> translate::Status {
+        SLOW_PROBES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(400));
+        translate::Status { installed: true, logged_in: true }
+    }
+
+    #[tokio::test]
+    async fn status_never_probes_the_cli_when_translate_is_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::from_env(0).unwrap();
+        config.db_path = dir.path().join("test.db");
+        config.enable_translate = false;
+        let state = AppState::with_translate_probe(config, counting_probe).unwrap();
+        let (st, _, body) = call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(body["translate_installed"], false);
+        assert_eq!(DISABLED_PROBES.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    /// The default `#[tokio::test]` runtime is single-threaded, so a probe run
+    /// inline on the async worker would stall `/healthz` for its whole duration.
+    #[tokio::test]
+    async fn status_probe_runs_off_the_async_worker_and_is_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::from_env(0).unwrap();
+        config.db_path = dir.path().join("test.db");
+        config.enable_translate = true;
+        let state = AppState::with_translate_probe(config, slow_probe).unwrap();
+        let s2 = state.clone();
+        let t = std::time::Instant::now();
+        let status = tokio::spawn(async move {
+            call(&s2, "GET", "/api/status", None, serde_json::Value::Null).await
+        });
+        tokio::task::yield_now().await;
+        let (st, _, _) = send(&state, build("GET", "/healthz", &[], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(t.elapsed() < Duration::from_millis(200), "healthz stalled {:?}", t.elapsed());
+        let (st, _, body) = status.await.unwrap();
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(body["translate_logged_in"], true);
+        call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
+        assert_eq!(SLOW_PROBES.load(std::sync::atomic::Ordering::SeqCst), 1, "second call must hit the cache");
+    }
+
+    #[tokio::test]
+    async fn long_titles_are_capped_before_reaching_history() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "tess").await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ISOSCELES_GEO, "title": "t".repeat(5000)}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK);
+        let (_, _, body) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(body[0]["title"].as_str().unwrap().chars().count(), MAX_TITLE_CHARS);
+    }
+
+    #[tokio::test]
+    async fn history_listing_is_paginated_and_capped() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "pam").await;
+        {
+            let conn = db::lock(&state.db);
+            let uid = db::find_user_by_name(&conn, "pam").unwrap().unwrap().id;
+            for i in 0..(HISTORY_PAGE_MAX + 20) {
+                db::insert_history(&conn, uid, &format!("p{i}"), None, true, None).unwrap();
+            }
+        }
+        let (st, _, body) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(body.as_array().unwrap().len(), HISTORY_PAGE_DEFAULT as usize);
+        let (_, _, body) =
+            call(&state, "GET", "/api/history?limit=100000", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(body.as_array().unwrap().len(), HISTORY_PAGE_MAX as usize);
+        let first = body[0]["id"].as_i64().unwrap();
+        let (_, _, body) = call(
+            &state,
+            "GET",
+            &format!("/api/history?limit=2&before={first}"),
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(body.as_array().unwrap().len(), 2);
+        assert!(body[0]["id"].as_i64().unwrap() < first);
+        let (st, _, body) =
+            call(&state, "GET", "/api/history?limit=abc", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert!(body["error"].is_string());
+    }
+
+    #[tokio::test]
+    async fn humanize_caps_aux_count_and_size() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "abe").await;
+        let many: Vec<String> = (0..(MAX_AUX_ITEMS + 1)).map(|i| format!("x{i}")).collect();
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/humanize",
+            Some(&cookie),
+            serde_json::json!({"problem": "p", "proof": "001. coll A B C", "aux": many}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE);
+        let big = vec!["y".repeat(state.config.max_input_chars); 2];
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/humanize",
+            Some(&cookie),
+            serde_json::json!({"problem": "p", "proof": "001. coll A B C", "aux": big}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn login_waits_for_an_argon2_permit() {
+        let (state, _dir) = test_state();
+        let held = state
+            .argon
+            .clone()
+            .acquire_many_owned(security::ARGON2_PERMITS as u32)
+            .await
+            .unwrap();
+        let pending = tokio::time::timeout(
+            Duration::from_millis(300),
+            call(&state, "POST", "/api/auth/login", None, creds("nobody", "password123")),
+        )
+        .await;
+        assert!(pending.is_err(), "login must not run argon2 without a permit");
+        drop(held);
+        let (st, _, _) = call(&state, "POST", "/api/auth/login", None, creds("nobody", "password123")).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn failed_basic_auth_is_rate_limited_per_ip() {
+        let (state, _dir) = state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(":correct-horse").unwrap());
+            c.basic_auth_fails_per_min = 3;
+        });
+        let attacker = "203.0.113.7:5555";
+        let wrong = basic("x", "wrong-guess");
+        for _ in 0..3 {
+            let r = from_peer(build("GET", "/auth", &[("authorization", &wrong)], None), attacker);
+            assert_eq!(send(&state, r).await.0, StatusCode::UNAUTHORIZED);
+        }
+        let r = from_peer(build("GET", "/auth", &[("authorization", &wrong)], None), attacker);
+        assert_eq!(send(&state, r).await.0, StatusCode::TOO_MANY_REQUESTS);
+        // Locked out: even the right password is not evaluated from that IP.
+        let right = basic("x", "correct-horse");
+        let r = from_peer(build("GET", "/auth", &[("authorization", &right)], None), attacker);
+        assert_eq!(send(&state, r).await.0, StatusCode::TOO_MANY_REQUESTS);
+        // Another client is unaffected.
+        let r = from_peer(build("GET", "/auth", &[("authorization", &right)], None), "198.51.100.9:1");
+        assert_eq!(send(&state, r).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn password_only_basic_auth_accepts_any_username() {
+        let (state, _dir) = state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(":correct-horse").unwrap());
+        });
+        for user in ["", "anyone", "Ünïcode user"] {
+            let r = build("GET", "/auth", &[("authorization", &basic(user, "correct-horse"))], None);
+            assert_eq!(send(&state, r).await.0, StatusCode::OK, "user {user:?}");
+        }
+        let r = build("GET", "/auth", &[("authorization", &basic("anyone", "nope-nope"))], None);
+        let (st, headers, _) = send(&state, r).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        assert!(headers[header::WWW_AUTHENTICATE].to_str().unwrap().contains("realm=\"GeoSolver\""));
+    }
+
+    #[tokio::test]
+    async fn user_pass_basic_auth_still_checks_the_username() {
+        let (state, _dir) = state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse("op:correct-horse").unwrap());
+        });
+        let r = build("GET", "/auth", &[("authorization", &basic("op", "correct-horse"))], None);
+        assert_eq!(send(&state, r).await.0, StatusCode::OK);
+        let r = build("GET", "/auth", &[("authorization", &basic("other", "correct-horse"))], None);
+        assert_eq!(send(&state, r).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn secure_cookie_mode_uses_the_host_prefix_end_to_end() {
+        let (state, _dir) = state_with(|c| c.secure_cookies = true);
+        let (st, set, _) =
+            call(&state, "POST", "/api/auth/register", None, creds("sec", "password123")).await;
+        assert_eq!(st, StatusCode::OK);
+        let set = set.unwrap();
+        assert!(set.starts_with("__Host-sid=") && set.contains("; Secure"), "{set}");
+        let cookie = cookie_of(&set);
+        let (st, _, _) = call(&state, "GET", "/api/auth/me", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::OK);
+        let plain = cookie.replacen("__Host-sid=", "sid=", 1);
+        let (st, _, _) = call(&state, "GET", "/api/auth/me", Some(&plain), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        let (_, set, _) = call(&state, "POST", "/api/auth/logout", Some(&cookie), serde_json::Value::Null).await;
+        assert!(set.unwrap().starts_with("__Host-sid=;"));
+    }
+
+    #[tokio::test]
+    async fn loopback_bind_refuses_foreign_host_headers() {
+        let (state, _dir) = test_state();
+        assert!(state.config.bind.ip().is_loopback());
+        for host in ["localhost:8787", "127.0.0.1:8787", "[::1]:8787", "LOCALHOST"] {
+            let (st, _, _) = send(&state, build("GET", "/auth", &[("host", host)], None)).await;
+            assert_eq!(st, StatusCode::OK, "{host}");
+        }
+        let (st, _, _) = send(&state, build("GET", "/auth", &[("host", "rebind.attacker.example")], None)).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn public_host_list_admits_the_proxied_hostname() {
+        let (state, _dir) = state_with(|c| c.public_hosts = vec!["geo.tail1234.ts.net".into()]);
+        for host in ["geo.tail1234.ts.net", "GEO.tail1234.ts.net:443", "localhost:8787"] {
+            let (st, _, _) = send(&state, build("GET", "/auth", &[("host", host)], None)).await;
+            assert_eq!(st, StatusCode::OK, "{host}");
+        }
+        let (st, _, _) = send(&state, build("GET", "/auth", &[("host", "evil.example")], None)).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_requests_are_refused_before_the_body_is_parsed() {
+        let (state, _dir) = test_state();
+        for uri in ["/api/solve", "/api/translate", "/api/export", "/api/humanize"] {
+            let (st, _, body) = send(&state, build("POST", uri, &[], Some("{not json"))).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED, "{uri}: {body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn bad_json_gets_the_app_error_shape() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "joe").await;
+        for body in ["{not json", r#"{"kind":"geo"}"#] {
+            let (st, headers, text) =
+                send(&state, build("POST", "/api/solve", &[("cookie", &cookie)], Some(body))).await;
+            assert!(st.is_client_error(), "{st}");
+            assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("application/json"));
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert!(v["error"].is_string(), "{text}");
+            assert!(!text.contains("SolveReq") && !text.contains("missing field"), "{text}");
+        }
+        let (st, _, text) = send(&state, build("POST", "/api/auth/login", &[], Some("[]"))).await;
+        assert!(st.is_client_error());
+        assert!(serde_json::from_str::<serde_json::Value>(&text).unwrap()["error"].is_string());
+    }
+
+    #[tokio::test]
+    async fn poisoned_db_mutex_does_not_log_everyone_out() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "pia").await;
+        let db = state.db.clone();
+        let _ = std::thread::spawn(move || {
+            let _g = db.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        let (st, _, _) = call(&state, "GET", "/api/auth/me", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::OK);
+        let (st, _, _) = call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
+        assert_eq!(st, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn replayed_solve_with_record_false_adds_no_history() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "rex").await;
+        call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ISOSCELES_GEO, "title": "kept"})).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ISOSCELES_GEO, "title": "kept", "record": false}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK);
+        let (_, _, body) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(body.as_array().unwrap().len(), 1);
+        assert_eq!(body[0]["title"], "kept");
+    }
+
+    #[tokio::test]
+    async fn usernames_are_case_insensitive() {
+        let (state, _dir) = test_state();
+        let (st, _, body) = call(&state, "POST", "/api/auth/register", None, creds("Alice", "password123")).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(body["username"], "alice");
+        let (st, _, _) = call(&state, "POST", "/api/auth/register", None, creds("ALICE", "password123")).await;
+        assert_eq!(st, StatusCode::CONFLICT);
+        let (st, _, body) = call(&state, "POST", "/api/auth/login", None, creds("aLiCe", "password123")).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(body["username"], "alice");
+    }
+
+    #[tokio::test]
+    async fn origin_null_is_refused_and_ports_are_ignored() {
+        let (state, _dir) = state_with(|c| c.public_hosts = vec!["geo.example".into()]);
+        let body = creds("olga", "password123").to_string();
+        let post = |host: &str, origin: &str| {
+            build("POST", "/api/auth/register", &[("host", host), ("origin", origin)], Some(&body))
+        };
+        let (st, _, _) = send(&state, post("geo.example", "null")).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        // nginx `$host` drops the port the browser put in `Origin`.
+        let (st, _, text) = send(&state, post("geo.example", "https://geo.example:8443")).await;
+        assert_eq!(st, StatusCode::OK, "{text}");
+        let (st, _, _) = send(&state, post("geo.example:8443", "https://evil.example:8443")).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn csp_allows_only_the_known_inline_scripts() {
+        let (state, _dir) = test_state();
+        let (_, headers, _) = get_page(&state, "/auth", None).await;
+        let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap().to_string();
+        let script_src = csp.split(';').find(|d| d.trim().starts_with("script-src")).unwrap();
+        assert!(!script_src.contains("unsafe-inline"), "{script_src}");
+        for html in [INDEX_HTML, AUTH_HTML, LANDING_HTML] {
+            for script in security::inline_scripts(html) {
+                assert!(script_src.contains(&security::csp_hash(script)), "missing hash in {script_src}");
+            }
+        }
+    }
+
+    fn guest_state(guest: bool) -> (Shared, tempfile::TempDir) {
+        state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(":shared-secret").unwrap());
+            c.guest_mode = guest;
+        })
+    }
+
+    #[tokio::test]
+    async fn guest_mode_lets_basic_auth_alone_solve_export_and_humanize() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
+        let (st, _, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        assert_eq!(st, StatusCode::OK, "{text}");
+        let export = serde_json::json!({"input": ISOSCELES_GEO, "format": "png"}).to_string();
+        let (st, _, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export))).await;
+        assert_eq!(st, StatusCode::OK);
+        let hz = serde_json::json!({"problem": "p", "proof": "   "}).to_string();
+        let (st, _, _) = send(&state, build("POST", "/api/humanize", &[("authorization", &auth)], Some(&hz))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "past the session gate, into validation");
+        // `/` is the app itself, not the account landing page.
+        let (st, _, page) = send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(page.contains("id=\"solve\""), "guest `/` should serve the solver UI");
+        let (st, _, _) = send(&state, build("GET", "/app", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        // Without the Basic password, nothing.
+        let (st, _, _) = send(&state, build("POST", "/api/solve", &[], Some(&solve))).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn guest_mode_off_still_requires_a_session() {
+        let (state, _dir) = guest_state(false);
+        let auth = basic("", "shared-secret");
+        let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
+        let (st, _, _) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn guest_solves_write_no_history() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let creds_body = creds("member", "password123").to_string();
+        let (st, _, _) = send(
+            &state,
+            build("POST", "/api/auth/register", &[("authorization", &auth)], Some(&creds_body)),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "an account exists, so a stray insert could succeed");
+        let solve = serde_json::json!({"input": ISOSCELES_GEO, "title": "g"}).to_string();
+        let (st, _, _) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        assert_eq!(st, StatusCode::OK);
+        let rows: i64 = db::lock(&state.db)
+            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+        let (st, _, _) = send(&state, build("GET", "/api/history", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
     }
 }
