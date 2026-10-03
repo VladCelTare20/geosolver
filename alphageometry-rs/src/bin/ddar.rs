@@ -46,6 +46,54 @@ use ddar::Problem;
 
 const DATASET: &str = include_str!("../../problems.tsv");
 
+const USAGE: &str = "\
+usage: ddar [mode] [options] [<problem|program|file>]
+
+Modes:
+  --bench                 solve the bundled IMO set with timings (default)
+  --max <prog|file>       universal solver: DDAR, else the aux search at max effort
+  --geo <prog|file>       compile a high-level .geo program and solve it
+  --metric <prog|file>    prove a metric (length) goal with a Euclidean proof
+  --geo-show <prog|file>  compile and print the low-level form
+  --constructions         list the high-level language vocabulary
+  --theorems              list the classical-theorem proof library
+  --aux \"<problem>\"       solve a low-level problem with the aux search
+  --explore               report which bundled aux points are load-bearing
+  --batch [dir]           run the universal solver on every problem in dir
+  --bench-aux             leave-one-out aux rediscovery benchmark
+  --verify-warm           check warm-start == full solve over the corpus
+  \"<problem>\"             solve a single low-level problem string
+
+Options:
+  --proof                 print a numbered proof after solving
+  --svg <file>            write an SVG figure
+  --theme dark|light      figure color scheme (default dark)
+  --title <text>          title atop the figure's construction panel
+  -h, --help              print this help
+";
+
+const MODES: &[&str] = &[
+    "--bench", "--geo", "--geo-show", "--aux", "--explore", "--constructions", "--bench-aux",
+    "--verify-warm", "--metric", "--batch", "--max", "--theorems",
+];
+
+enum ArgKind {
+    Help,
+    Mode,
+    Unknown,
+    Positional,
+}
+
+/// Classify an argument that is not an option's value.
+fn classify_arg(arg: &str) -> ArgKind {
+    match arg {
+        "-h" | "--help" => ArgKind::Help,
+        a if MODES.contains(&a) => ArgKind::Mode,
+        a if a.starts_with("--") || (a.starts_with('-') && a.len() == 2) => ArgKind::Unknown,
+        _ => ArgKind::Positional,
+    }
+}
+
 struct Opts {
     proof: bool,
     svg_path: Option<String>,
@@ -80,11 +128,15 @@ fn main() {
                 }
             }
             "--title" => opts.title = Some(it.next().unwrap_or_else(|| fail("--title needs text"))),
-            "--bench" | "--geo" | "--geo-show" | "--aux" | "--explore" | "--constructions"
-            | "--bench-aux" | "--verify-warm" | "--metric" | "--batch" | "--max" | "--theorems" => {
-                mode = Some(arg)
-            }
-            other => positional.push(other.to_string()),
+            other => match classify_arg(other) {
+                ArgKind::Help => {
+                    print!("{USAGE}");
+                    return;
+                }
+                ArgKind::Mode => mode = Some(arg),
+                ArgKind::Unknown => fail(&format!("unknown option {other} (see ddar --help)")),
+                ArgKind::Positional => positional.push(arg),
+            },
         }
     }
 
@@ -765,5 +817,25 @@ fn explore(opts: &Opts) {
         if !load_bearing.is_empty() {
             println!("{:<10} load-bearing: {}", e.name, load_bearing.join(", "));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_flags_are_recognised() {
+        for h in ["--help", "-h"] {
+            assert!(matches!(classify_arg(h), ArgKind::Help), "{h}");
+        }
+        assert!(USAGE.contains("--geo <prog|file>") && USAGE.contains("-h, --help"));
+    }
+
+    #[test]
+    fn unknown_options_are_rejected_not_parsed_as_problems() {
+        assert!(matches!(classify_arg("--bogus"), ArgKind::Unknown));
+        assert!(matches!(classify_arg("a b c = triangle a b c ? perp a b a c"), ArgKind::Positional));
+        assert!(matches!(classify_arg("--geo"), ArgKind::Mode));
     }
 }
