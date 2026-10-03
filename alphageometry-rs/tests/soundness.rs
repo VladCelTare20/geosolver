@@ -396,3 +396,21 @@ fn similitude_pairing_is_not_read_off_a_tangent_coincidence() {
     assert_eq!(o.goal_numeric, Some(true), "the special figure is equilateral");
     assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
 }
+
+/// Second fuzzer finding of the same rule (jgex `E061-63f` with the tangent
+/// construction of `e` dropped, aux points p, q, r as the aux search found
+/// them). On the original figure line DE touches the circle through A, C, D,
+/// so DA = DE holds there, but nothing in the hypotheses says so.
+#[test]
+fn similitude_pairing_is_not_read_off_a_tangent_line() {
+    let special = "a@-0.9675444639971735_-0.4702425265711835 b@0.17646760846163745_-0.21674859371974686 = segment a b; \
+        c@-0.39553842776776804_-0.3434955601454652 = midpoint c b a; \
+        d@-0.21930150243035063_0.215249681560101 = s_angle b a d 30, on_circle d c a; \
+        e@0.7484736446910423_-0.09000162729402861 = on_line e a b; \
+        p = on_line p d e, on_circum p a c d; q = reflect q a d e; \
+        r = on_line r d e, angle_bisector r d c e ? cong d a d e";
+    let o = ddar::fuzz::solve_case("tangent-line-similitude", special, Duration::from_secs(60), false);
+    assert!(o.parsed, "{}", o.detail);
+    assert_eq!(o.goal_numeric, Some(true), "DA = DE on the tangent figure");
+    assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
+}
