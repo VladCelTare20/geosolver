@@ -354,7 +354,7 @@ fn cmd_translate(args: &[String]) -> ExitCode {
     let translation = match translate::translate(&source) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("translation failed: {e}");
+            eprintln!("translation failed: {e:#}");
             return ExitCode::from(1);
         }
     };
