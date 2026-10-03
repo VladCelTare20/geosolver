@@ -1,0 +1,6 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(P,A)*dist(P,B) = dist(P,C)*dist(P,D)
+
+  1. A, B, C, D are concyclic: ∠APC = ∠DPB (the same angle) and ∠PAC = ∠PDB (an exterior angle of a cyclic quadrilateral equals the interior opposite angle) — so triangles △APC and △DPB are similar (AA), giving AP:DP = PC:PB = CA:BD.
+
+  Combining the proportions above gives dist(P,A)*dist(P,B) = dist(P,C)*dist(P,D)  (= 0.1812). ∎

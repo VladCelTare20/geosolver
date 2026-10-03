@@ -1,0 +1,10 @@
+EUCLIDEAN PROOF
+  Goal:  dist(A, B) ^ 2 + dist(B, C) ^ 2 + dist(C, D) ^ 2 + dist(D, A) ^ 2 = dist(A, C) ^ 2 + dist(B, D) ^ 2 + 4 * dist(M, N) ^ 2
+
+  1. M is the midpoint of AC, so AM² = ¼·AC².
+  2. N is the midpoint of BD, so BN² = ¼·BD².
+  3. By Apollonius's median theorem in triangle NAC with median NM: NA² + NC² = 2·NM² + 2·AM².
+  4. By Apollonius's median theorem in triangle ABD with median AN: AB² + AD² = 2·AN² + 2·BN².
+  5. By Apollonius's median theorem in triangle CBD with median CN: CB² + CD² = 2·CN² + 2·BN².
+
+  Combining the equations above gives dist(A, B) ^ 2 + dist(B, C) ^ 2 + dist(C, D) ^ 2 + dist(D, A) ^ 2 = dist(A, C) ^ 2 + dist(B, D) ^ 2 + 4 * dist(M, N) ^ 2  (= 5.3882). ∎

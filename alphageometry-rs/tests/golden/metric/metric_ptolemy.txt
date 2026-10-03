@@ -1,0 +1,25 @@
+EUCLIDEAN PROOF (sum of products)
+  Goal:  dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + dist(A,D)*dist(B,C)
+
+  1. Let K be the point on BC with ∠BAK = ∠CAD.
+  2. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. assumption: coll A B _4
+       ↳ 002. collinear: A _4 B [001]
+       ↳ 003. assumption: cong _4 A _4 B
+       ↳ 004. assumption: cong _5 A _5 B
+       ↳ 005. assumption: cong _4 C _4 D
+       ↳ 006. assumption: cong _5 C _5 D
+       ↳ 007. construction: coll B K C
+       ↳ 008. collinear: C B K [007]
+       ↳ 009. construction: eqangle A K A B A C A D
+       ↳ 010. similar triangles: △AB_5 ∼ △BA_5 [002 & 004]
+       ↳ 011. similar triangles: △A_4_5 ∼ △B_4_5 [002 & 003 & 004 & 010]
+       ↳ 012. similar triangles: △_4CD ∼ △_4DC [005]
+       ↳ 013. similar triangles: △_4C_5 ∼ △_4D_5 [005 & 006 & 011 & 012]
+       ↳ 014. similar triangles: △_4AD ∼ △_4BC [002 & 003 & 005 & 008 & 011 & 012 & 013]
+       ↳ 015. similar triangles: △_4AC ∼ △_4BD [002 & 003 & 005 & 009 & 011 & 012 & 013 & 014]
+  3. ∠DAB = ∠CAK and ∠ABD = ∠AKC (derived from the hypotheses), so △ABD ~ △AKC (AA): AB·KC = AK·BD, BD·CA = KC·DA, AB·CA = AK·DA.  [from 2]
+  4. ∠KAB = ∠CAD and ∠ABK = ∠ADC (derived from the hypotheses), so △ABK ~ △ADC (AA): AB·DC = AD·BK, BK·CA = DC·KA, AB·CA = AD·KA.  [from 2]
+  5. B lies on CK, so CB + BK = CK; times AD: CB·AD + BK·AD = CK·AD.
+
+  Adding the relations above gives dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + dist(A,D)*dist(B,C)  (= 4.6754). ∎

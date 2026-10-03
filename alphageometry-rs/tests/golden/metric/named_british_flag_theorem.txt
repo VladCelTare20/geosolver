@@ -1,0 +1,22 @@
+EUCLIDEAN PROOF
+  Goal:  dist(P, A) ^ 2 + dist(P, C) ^ 2 = dist(P, B) ^ 2 + dist(P, D) ^ 2
+
+  1. Let M be the intersection of AC and BD.
+  2. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. assumption: perp B C A B
+       ↳ 002. assumption: para A B D C
+       ↳ 003. assumption: para A D B C
+       ↳ 004. construction: coll A C M
+       ↳ 005. collinear: A M C [004]
+       ↳ 006. construction: coll B D M
+       ↳ 007. collinear: B M D [006]
+       ↳ 008. similar triangles: △ACD ∼ △CAB [001 & 002 & 003 & 005]
+       ↳ 009. similar triangles: △ADM ∼ △CBM [003 & 005 & 007 & 008]
+       ↳ 010. concyclic (inscribed angles): D B C A [001 & 002 & 003 & 005 & 008 & 009]
+  3. |AM| = |BM| (derived from the hypotheses), so AM² = BM².  [from 1, 2]
+  4. M is the midpoint of AC (derived from the hypotheses).  [from 1, 2]
+  5. M is the midpoint of BD (derived from the hypotheses).  [from 1, 2]
+  6. By Apollonius's median theorem in triangle PAC with median PM: PA² + PC² = 2·PM² + 2·AM².  [from 1, 4]
+  7. By Apollonius's median theorem in triangle PBD with median PM: PB² + PD² = 2·PM² + 2·BM².  [from 1, 5]
+
+  Combining the equations above gives dist(P, A) ^ 2 + dist(P, C) ^ 2 = dist(P, B) ^ 2 + dist(P, D) ^ 2  (= 1.1808). ∎

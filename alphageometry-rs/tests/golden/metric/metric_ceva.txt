@@ -1,0 +1,7 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(B,D)*dist(C,E)*dist(A,F) = dist(D,C)*dist(E,A)*dist(F,B)
+
+  1. By Menelaus's theorem for the transversal CPF of triangle ABD, BC·DP·AF = CD·PA·FB.
+  2. By Menelaus's theorem for the transversal BPE of triangle ACD, CB·DP·AE = BD·PA·EC.
+
+  Combining the proportions above gives dist(B,D)*dist(C,E)*dist(A,F) = dist(D,C)*dist(E,A)*dist(F,B)  (= 0.0068). ∎

@@ -1,0 +1,7 @@
+EUCLIDEAN PROOF
+  Goal:  dist(P,A)^2 + dist(P,B)^2 = 25
+
+  1. |PA|^2 = 9 (given).
+  2. |PB|^2 = 16 (given).
+
+  Combining the equations above gives dist(P,A)^2 + dist(P,B)^2 = 25  (= 25). ∎
