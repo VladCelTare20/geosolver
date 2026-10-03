@@ -949,7 +949,7 @@ impl Ddar {
                     for (z1, t1, p1) in zij {
                         for (z2, t2, p2) in zik {
                             for (z3, t3, p3) in zjk {
-                                if (*t1 as u8 + *t2 as u8 + *t3 as u8) % 2 != 0 {
+                                if !(*t1 as u8 + *t2 as u8 + *t3 as u8).is_multiple_of(2) {
                                     continue; // odd internal count: not collinear
                                 }
                                 let (z1, z2, z3) = (*z1, *z2, *z3);

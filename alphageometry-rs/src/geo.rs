@@ -2510,7 +2510,7 @@ fn solve_constrained(
     };
     let cost = |r: &[f64]| r.iter().map(|x| x * x).sum::<f64>();
 
-    let restarts = if seeded_only { 1 } else { 200u64 as u64 };
+    let restarts = if seeded_only { 1 } else { 200_u64 };
     for restart in 0..restarts {
         let mut p = if restart == 0 { seed_pt } else { rng.point(2.5) };
         let mut lambda = 1e-2;
@@ -3166,7 +3166,7 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
                         "[fig] goal-true seed {seed}, margin {margin:.2}°, proves: {proved_in_validation}"
                     );
                 }
-                if best_true.as_ref().map_or(true, |(m, _)| margin > *m) {
+                if best_true.as_ref().is_none_or(|(m, _)| margin > *m) {
                     best_true = Some((margin, compiled));
                 }
                 true_builds += 1;

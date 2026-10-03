@@ -107,35 +107,36 @@ enum Tok {
 
 fn lex(s: &str) -> Result<Vec<Tok>, String> {
     let mut out = Vec::new();
-    let b = s.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        let c = b[i] as char;
+    let mut it = s.char_indices().peekable();
+    while let Some(&(start, c)) = it.peek() {
         if c.is_whitespace() {
-            i += 1;
+            it.next();
         } else if c.is_ascii_digit() || c == '.' {
-            let start = i;
-            while i < b.len() && ((b[i] as char).is_ascii_digit() || b[i] == b'.') {
-                i += 1;
-            }
-            out.push(Tok::Num(
-                s[start..i]
-                    .parse()
-                    .map_err(|_| format!("bad number '{}'", &s[start..i]))?,
-            ));
-        } else if c.is_alphanumeric() || c == '_' || c == '\'' {
-            let start = i;
-            while i < b.len() {
-                let ch = b[i] as char;
-                if ch.is_alphanumeric() || ch == '_' || ch == '\'' {
-                    i += 1;
-                } else {
+            let mut end = start;
+            while let Some(&(j, d)) = it.peek() {
+                if !(d.is_ascii_digit() || d == '.') {
                     break;
                 }
+                end = j + d.len_utf8();
+                it.next();
             }
-            out.push(Tok::Ident(s[start..i].to_string()));
+            out.push(Tok::Num(
+                s[start..end]
+                    .parse()
+                    .map_err(|_| format!("bad number '{}'", &s[start..end]))?,
+            ));
+        } else if c.is_ascii_alphanumeric() || c == '_' || c == '\'' {
+            let mut end = start;
+            while let Some(&(j, d)) = it.peek() {
+                if !(d.is_ascii_alphanumeric() || d == '_' || d == '\'') {
+                    break;
+                }
+                end = j + d.len_utf8();
+                it.next();
+            }
+            out.push(Tok::Ident(s[start..end].to_string()));
         } else {
-            i += 1;
+            it.next();
             match c {
                 '+' | '-' | '*' | '/' | '^' => out.push(Tok::Op(c)),
                 '(' => out.push(Tok::LParen),

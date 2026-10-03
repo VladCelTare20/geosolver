@@ -130,6 +130,7 @@ pub struct Solution {
 ///
 /// No wall-clock bound beyond the aux search's run caps (`AUX_MAX_RUNS`); use
 /// [`solve_within`] where a caller needs a hard deadline.
+#[cfg(test)]
 pub fn solve(input: &str, opts: &SolveOptions) -> Result<Solution, String> {
     solve_within(input, opts, None)
 }
@@ -566,7 +567,7 @@ fn consider(
     *examined += 1;
     if best
         .as_ref()
-        .map_or(true, |(_, _, bs, bf)| (steps, facts) < (*bs, *bf))
+        .is_none_or(|(_, _, bs, bf)| (steps, facts) < (*bs, *bf))
     {
         *best = Some((aux, proof, steps, facts));
     }

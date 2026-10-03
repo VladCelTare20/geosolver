@@ -222,3 +222,12 @@ fn collinear_points_are_not_a_parallelogram() {
     }
     assert!(metric::solve(cons, goal, 48).is_err());
 }
+
+#[test]
+fn non_ascii_in_a_metric_goal_is_a_clean_error_not_a_panic() {
+    for goal in ["dist(A,B) = é", "dist(A,B) = 2é", "dist(Aé,B) = 2", "dist(A,B) = 1 ∙ 2"] {
+        let res = catch_unwind(AssertUnwindSafe(|| metric::solve("A = free\nB = free", goal, 8)));
+        assert!(res.is_ok(), "metric prover panicked on {goal:?}");
+        assert!(res.unwrap().is_err(), "{goal:?} must be rejected");
+    }
+}

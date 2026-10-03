@@ -101,7 +101,7 @@ impl BasicAuth {
             None => (&decoded[..], &[][..]),
         };
         let pass_ok = ct_eq(&sha256(pass), &self.pass);
-        let user_ok = self.user.as_ref().map_or(true, |u| ct_eq(&sha256(user), u));
+        let user_ok = self.user.as_ref().is_none_or(|u| ct_eq(&sha256(user), u));
         pass_ok & user_ok
     }
 }
@@ -551,7 +551,7 @@ impl RateLimiter {
     fn sweep(&mut self, now: Instant) {
         if self
             .last_sweep
-            .map_or(true, |t| now.duration_since(t) > Duration::from_secs(300))
+            .is_none_or(|t| now.duration_since(t) > Duration::from_secs(300))
         {
             for m in [&mut self.general, &mut self.translate, &mut self.auth, &mut self.basic_fail] {
                 m.retain(|_, w| now.duration_since(w.start) < WINDOW);
@@ -724,7 +724,7 @@ pub async fn auth(State(state): State<Shared>, req: Request<Body>, next: Next) -
 fn sweep_due(state: &Shared) -> bool {
     let now = Instant::now();
     let mut last = relock(&state.session_sweep);
-    let due = last.map_or(true, |t| now.duration_since(t) > Duration::from_secs(300));
+    let due = last.is_none_or(|t| now.duration_since(t) > Duration::from_secs(300));
     if due {
         *last = Some(now);
     }

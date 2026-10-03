@@ -22,6 +22,10 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tower_http::compression::CompressionLayer;
 use tower_http::timeout::TimeoutLayer;
 
+/// Wall-clock cap on one solve, well inside the 120 s request timeout so the
+/// client gets the not-proven result instead of a 504.
+const SOLVE_DEADLINE: Duration = Duration::from_secs(60);
+
 use crate::engine::{self, InputKind, SolveOptions};
 use crate::security::{self, AppState, Config, Shared};
 use crate::{auth, db, i18n, render, translate};
@@ -538,7 +542,7 @@ async fn api_solve(
         if best {
             engine::solve_best(&input, &opts, budget)
         } else {
-            engine::solve(&input, &opts)
+            engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
         }
     });
     match task.await {
@@ -888,7 +892,8 @@ async fn api_export(
     let res = tokio::task::spawn_blocking(
         move || -> anyhow::Result<(Vec<u8>, &'static str, &'static str)> {
             let _permit = permit;
-            let sol = engine::solve(&input, &opts).map_err(|e| anyhow::anyhow!(e))?;
+            let sol = engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
+                .map_err(|e| anyhow::anyhow!(e))?;
             let report = render::report_svg(&sol, title.as_deref(), true);
             if want_pdf {
                 Ok((

@@ -28,11 +28,13 @@ pub struct User {
     pub id: i64,
     pub username: String,
     pub password_hash: String,
+    #[allow(dead_code)]
     pub created_at: i64,
 }
 
 pub struct HistoryEntry {
     pub id: i64,
+    #[allow(dead_code)]
     pub user_id: i64,
     pub input: String,
     pub title: Option<String>,

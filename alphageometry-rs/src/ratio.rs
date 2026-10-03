@@ -115,9 +115,9 @@ fn factor(mut n: u64) -> Vec<(i64, i64)> {
     let mut out = Vec::new();
     let mut d = 2u64;
     while d * d <= n {
-        if n % d == 0 {
+        if n.is_multiple_of(d) {
             let mut e = 0;
-            while n % d == 0 {
+            while n.is_multiple_of(d) {
                 n /= d;
                 e += 1;
             }

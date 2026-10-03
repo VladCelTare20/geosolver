@@ -31,7 +31,7 @@ pub fn prime_decomposition(mut n: u64) -> Vec<(u64, u32)> {
     assert!(n > 0);
     let mut result = Vec::new();
     let mut p2 = 0u32;
-    while n % 2 == 0 {
+    while n.is_multiple_of(2) {
         p2 += 1;
         n /= 2;
     }
@@ -40,9 +40,9 @@ pub fn prime_decomposition(mut n: u64) -> Vec<(u64, u32)> {
     }
     let mut d = 3u64;
     while d * d <= n {
-        if n % d == 0 {
+        if n.is_multiple_of(d) {
             let mut e = 0u32;
-            while n % d == 0 {
+            while n.is_multiple_of(d) {
                 e += 1;
                 n /= d;
             }

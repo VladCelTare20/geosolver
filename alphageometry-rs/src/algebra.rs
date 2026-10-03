@@ -585,7 +585,7 @@ fn lower_hypotheses(fig: &AlgFigure) -> Vec<Hyp> {
         out.retain(|h| {
             h.poly
                 .max_var()
-                .map_or(true, |mv| !fig.defs.contains_key(&(mv / 2)))
+                .is_none_or(|mv| !fig.defs.contains_key(&(mv / 2)))
         });
         let mut defs: Vec<(&PointId, &PointDef)> = fig.defs.iter().collect();
         defs.sort_by_key(|(id, _)| **id);
@@ -1003,7 +1003,7 @@ impl<'a> GoalLowerer<'a> {
         let k = p.round() as u32;
         // Even powers of a length or area are sign-independent, so they lower to
         // a plain polynomial with no auxiliary (branch-carrying) variable.
-        if k % 2 == 0 {
+        if k.is_multiple_of(2) {
             if let MExpr::Dist(a, b) = base {
                 let (a, b) = (self.pt(a)?, self.pt(b)?);
                 return Ok(sq_dist(a, b).pow(k / 2));

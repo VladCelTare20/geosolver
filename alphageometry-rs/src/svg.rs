@@ -329,7 +329,7 @@ fn line_extremes(pts: &[Vec2]) -> Option<(Vec2, Vec2)> {
     for i in 0..pts.len() {
         for j in (i + 1)..pts.len() {
             let d = distance(pts[i], pts[j]);
-            if best.map_or(true, |(bd, _, _)| d > bd) {
+            if best.is_none_or(|(bd, _, _)| d > bd) {
                 best = Some((d, pts[i], pts[j]));
             }
         }
