@@ -16,6 +16,7 @@ services:
       AGSTUDIO_BIND: "0.0.0.0:8787"
       AGSTUDIO_TRUST_PROXY: "1"
       AGSTUDIO_SECURE_COOKIES: "1"
+      # Set AGSTUDIO_PUBLIC_HOST=<your.domain> in .env - the Host check needs it.
     volumes:
       - agstudio-data:/data   # SQLite accounts/sessions/history — survives rebuilds
     expose:

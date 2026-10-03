@@ -11,7 +11,10 @@ back it up. Each option below does that for you. Pick one of:
 
 Everything is **secure by default**: the server *refuses to start* on a
 non-loopback interface unless you set `AGSTUDIO_BASIC_AUTH` (or explicitly opt
-out with `AGSTUDIO_ALLOW_INSECURE=1` behind a proxy). It also has a per-IP rate
+out with `AGSTUDIO_ALLOW_INSECURE=1` behind a proxy), and refuses to start if
+`AGSTUDIO_BASIC_AUTH` is set but too weak to use. With Basic auth on, **guest
+mode** lets anyone with the password solve and export without an account —
+share a link and a password, nothing else. It also has a per-IP rate
 limit, a concurrency cap, a request-body limit, and CSP/security headers.
 
 ---
@@ -75,21 +78,26 @@ ProtectSystem=strict, no capabilities); its only writable path is
 
 ## Environment variables
 
-| Variable | Default | Purpose |
+| Env var | Default | Effect |
 |---|---|---|
-| `AGSTUDIO_BIND` | `127.0.0.1:8787` | interface:port to bind |
-| `AGSTUDIO_BASIC_AUTH` | (none) | `user:pass` — require HTTP Basic auth. **Required for a public bind.** |
-| `AGSTUDIO_ALLOW_INSECURE` | off | allow a non-loopback bind with no auth (only if a proxy is the sole entry point) |
-| `AGSTUDIO_TRUST_PROXY` | off | read the client IP from `X-Forwarded-For` |
-| `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests (503 when full) |
-| `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests/min (0 = off) |
-| `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP translations/min |
-| `AGSTUDIO_MAX_BODY_KB` | 8192 | request body limit |
+| `AGSTUDIO_BIND` | `127.0.0.1:<port>` | interface/port to bind |
+| `AGSTUDIO_BASIC_AUTH` | (none) | require HTTP Basic auth. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
+| `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* Basic credentials per minute before 429 (0 = off) |
+| `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past Basic auth may solve, export and humanize without an account (no history). `1` without Basic auth refuses to start |
+| `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
+| `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests (excess → 503) |
+| `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests per minute (0 = off) |
+| `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP `/api/translate` + `/api/humanize` per minute (0 = off) |
+| `AGSTUDIO_AUTH_PER_MIN` | 15 | per-IP `/api/auth/login` + `register` per minute (0 = off) |
+| `AGSTUDIO_MAX_BODY_KB` | 8192 | request body size limit |
 | `AGSTUDIO_MAX_INPUT_CHARS` | 16384 | max program length |
-| `AGSTUDIO_DISABLE_TRANSLATE` | off | disable the `/api/translate` endpoint |
-| `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts, sessions, history (the only state) |
-| `AGSTUDIO_SECURE_COOKIES` | off | `Secure`/`__Host-` session cookie — turn on whenever served over HTTPS |
-| `AUX_MAX_RUNS`, `AUX_MAX_DEPTH`, `RAYON_NUM_THREADS` | server-safe | solver effort caps (set automatically; override to tune) |
+| `AGSTUDIO_DISABLE_TRANSLATE` | off | turn off `/api/translate` and `/api/humanize` (no `claude` subprocess at all) |
+| `AGSTUDIO_TRUST_PROXY` | off | client IP = **rightmost** `X-Forwarded-For` entry, honoured only when the TCP peer is loopback/private/CGNAT (i.e. the proxy). Turn on behind `tailscale funnel`/nginx, or every visitor shares one rate-limit bucket |
+| `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard) |
+| `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
+| `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
+| `AGSTUDIO_EXPORT_DIR` | `$XDG_DATA_HOME/geosolver/exports` | MCP `export_report` writes only here (bare filenames, no overwrite unless asked) |
+| `AUX_MAX_RUNS`, `AUX_MAX_DEPTH`, `RAYON_NUM_THREADS` | server-safe | solver effort caps (set automatically; override to tune). Each web solve is also capped at 60 s wall clock |
 
 ## Health, logs, updates
 

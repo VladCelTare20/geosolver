@@ -200,12 +200,12 @@ A single binary (UI, fonts, and grammar are baked in) plus one SQLite file for
 accounts and history, hardened for public exposure — see **[deploy/DEPLOY.md](deploy/DEPLOY.md)**. The fastest path:
 
 ```sh
-cp deploy/.env.example deploy/.env          # set AGSTUDIO_BASIC_AUTH
+cp deploy/.env.example deploy/.env          # set AGSTUDIO_BASIC_AUTH, AGSTUDIO_PUBLIC_HOST
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 Security defaults: the server **refuses to start on a public interface without
-authentication**, and enforces a per-IP rate limit, a concurrency cap, a body-size
+authentication** (a shared password is enough — guests need no account), and enforces a per-IP rate limit, a concurrency cap, a body-size
 limit, and CSP/security headers. Config is all environment variables
 ([reference](deploy/DEPLOY.md#environment-variables)). Options include Docker +
 nginx (TLS), plain `docker run`, or a hardened `systemd` unit.
