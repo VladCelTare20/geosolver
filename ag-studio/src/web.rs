@@ -22,13 +22,10 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tower_http::compression::CompressionLayer;
 use tower_http::timeout::TimeoutLayer;
 
-/// Wall-clock cap on one solve, well inside the 120 s request timeout so the
-/// client gets the not-proven result instead of a 504.
-const SOLVE_DEADLINE: Duration = Duration::from_secs(60);
-
 use crate::engine::{self, InputKind, SolveOptions};
 use crate::security::{self, AppState, Config, Shared};
-use crate::{auth, db, i18n, render, translate};
+use crate::worker::{self, Outcome};
+use crate::{auth, db, i18n, translate};
 use ddar::svg::Theme;
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
@@ -467,16 +464,59 @@ fn clean_title(title: Option<String>) -> Option<String> {
     (!t.is_empty()).then_some(t)
 }
 
-/// Acquire a heavy-work slot, or return 503 if the server is at capacity.
+/// Seconds a client is told to wait after a 503 for a full server.
+const BUSY_RETRY_AFTER: &str = "10";
+
+/// Acquire a heavy-work slot, waiting at most `queue_wait`; past that, 503
+/// with `Retry-After`.
 #[allow(clippy::result_large_err)]
-fn heavy_permit(
+async fn heavy_permit(
     state: &Shared,
     headers: &HeaderMap,
 ) -> Result<tokio::sync::OwnedSemaphorePermit, Response> {
-    state.heavy.clone().try_acquire_owned().map_err(|_| {
-        let lang = i18n::lang_from_headers(headers);
-        err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"))
-    })
+    let wait = state.config.queue_wait;
+    match tokio::time::timeout(wait, state.heavy.clone().acquire_owned()).await {
+        Ok(Ok(permit)) => Ok(permit),
+        _ => {
+            let lang = i18n::lang_from_headers(headers);
+            let mut resp = err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"));
+            resp.headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from_static(BUSY_RETRY_AFTER));
+            Err(resp)
+        }
+    }
+}
+
+/// A worker outcome as a solution, or the error response for the client.
+#[allow(clippy::result_large_err)]
+fn solution_of(
+    outcome: Outcome,
+    req: &worker::Request,
+    headers: &HeaderMap,
+) -> Result<(engine::Solution, Option<Box<worker::Reply>>), Response> {
+    match outcome {
+        Outcome::Done(mut reply) => {
+            let result = std::mem::replace(&mut reply.result, Err(String::new()));
+            match result {
+                Ok(sol) => Ok((sol, Some(reply))),
+                Err(e) => {
+                    eprintln!("solve error: {e}"); // detail to the operator's log, not the client
+                    Err(err(StatusCode::BAD_REQUEST, e)) // compile/parse errors describe the user's input
+                }
+            }
+        }
+        Outcome::TimedOut => {
+            eprintln!("solve worker killed at its {:.0}s hard limit", req.hard_limit().as_secs_f64());
+            Ok((worker::time_limit_solution(&req.input, req.limit()), None))
+        }
+        Outcome::Failed(e) => {
+            eprintln!("solve worker failed: {e}");
+            Err(err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(i18n::lang_from_headers(headers), "solve.failed"),
+            ))
+        }
+    }
 }
 
 // ---------------------------------------------------------------- solve ----
@@ -513,7 +553,7 @@ async fn api_solve(
     if let Err(e) = check_input(&state, &headers, &req.input) {
         return e;
     }
-    let permit = match heavy_permit(&state, &headers) {
+    let permit = match heavy_permit(&state, &headers).await {
         Ok(p) => p,
         Err(e) => return e,
     };
@@ -528,38 +568,30 @@ async fn api_solve(
         // gets the whole card (matters on phones).
         panel: false,
     };
-    let input = req.input;
-    let best = req.best;
     // Reject non-finite budgets; clamp to a server-safe ceiling.
     let budget = Duration::from_secs_f64(
         req.budget_secs
             .filter(|v| v.is_finite())
             .unwrap_or(20.0)
             .clamp(0.5, 60.0),
-    );
-    let task = tokio::task::spawn_blocking(move || {
-        let _permit = permit; // hold the slot until the work actually finishes
-        if best {
-            engine::solve_best(&input, &opts, budget)
-        } else {
-            engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
-        }
-    });
-    match task.await {
-        Ok(Ok(sol)) => {
+    )
+    .min(state.config.solve_deadline);
+    let job = if req.best {
+        worker::Request::new(&req.input, &opts, worker::Mode::Best, budget)
+    } else {
+        worker::Request::new(&req.input, &opts, worker::Mode::Solve, state.config.solve_deadline)
+    };
+    // The permit lives with the worker process: freed when it is reaped, also
+    // when this future is dropped because the client went away.
+    let outcome = worker::run(&job, Some(permit)).await;
+    match solution_of(outcome, &job, &headers) {
+        Ok((sol, _)) => {
             if let (Caller::User(user), true) = (&caller, req.record) {
                 save_history(&state, user.id, &sol, history_title.as_deref()).await;
             }
             Json(sol).into_response()
         }
-        Ok(Err(e)) => {
-            eprintln!("solve error: {e}"); // detail to the operator's log, not the client
-            err(StatusCode::BAD_REQUEST, e) // compile/parse errors describe the user's input
-        }
-        Err(e) => {
-            eprintln!("solve panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "solve.failed"))
-        }
+        Err(resp) => resp,
     }
 }
 
@@ -722,7 +754,7 @@ async fn api_translate(
             return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(i18n::lang_from_headers(&headers), "translate.too_long"));
         }
     }
-    let permit = match heavy_permit(&state, &headers) {
+    let permit = match heavy_permit(&state, &headers).await {
         Ok(p) => p,
         Err(e) => return e,
     };
@@ -821,7 +853,7 @@ async fn api_humanize(
             i18n::t(lang, "humanize.unavailable"),
         );
     }
-    let permit = match heavy_permit(&state, &headers) {
+    let permit = match heavy_permit(&state, &headers).await {
         Ok(p) => p,
         Err(e) => return e,
     };
@@ -901,7 +933,7 @@ async fn api_export(
     if let Err(e) = check_input(&state, &headers, &req.input) {
         return e;
     }
-    let permit = match heavy_permit(&state, &headers) {
+    let permit = match heavy_permit(&state, &headers).await {
         Ok(p) => p,
         Err(e) => return e,
     };
@@ -911,50 +943,50 @@ async fn api_export(
         kind: kind_of(&req.input, &req.kind),
         theme: Theme::Light,
         want_proof: true,
-        title: title.clone(),
+        title,
         panel: true,
     };
-    let input = req.input;
     let want_pdf = req.format.eq_ignore_ascii_case("pdf");
+    let mut job =
+        worker::Request::new(&req.input, &opts, worker::Mode::Solve, state.config.solve_deadline);
+    job.report = Some(if want_pdf { worker::Format::Pdf } else { worker::Format::Png });
+    let (content_type, disposition) = if want_pdf {
+        ("application/pdf", "attachment; filename=\"geosolver-proof.pdf\"")
+    } else {
+        ("image/png", "attachment; filename=\"geosolver-proof.png\"")
+    };
+    let failed = || {
+        err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))
+    };
 
-    let res = tokio::task::spawn_blocking(
-        move || -> anyhow::Result<(Vec<u8>, &'static str, &'static str)> {
-            let _permit = permit;
-            let sol = engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
-                .map_err(|e| anyhow::anyhow!(e))?;
-            let report = render::report_svg(&sol, title.as_deref(), true);
-            if want_pdf {
-                Ok((
-                    render::svg_to_pdf(&report)?,
-                    "application/pdf",
-                    "attachment; filename=\"geosolver-proof.pdf\"",
-                ))
-            } else {
-                Ok((
-                    render::svg_to_png(&report, 2.0)?,
-                    "image/png",
-                    "attachment; filename=\"geosolver-proof.png\"",
-                ))
-            }
-        },
-    )
-    .await;
-
-    match res {
-        Ok(Ok((bytes, content_type, disposition))) => Response::builder()
+    let outcome = worker::run(&job, Some(permit)).await;
+    if matches!(outcome, Outcome::TimedOut) {
+        eprintln!("export worker killed at its {:.0}s hard limit", job.hard_limit().as_secs_f64());
+        return err(
+            StatusCode::GATEWAY_TIMEOUT,
+            format!(
+                "the solve overran its {:.0}s time limit and was stopped; nothing to export",
+                job.limit().as_secs_f64()
+            ),
+        );
+    }
+    let reply = match solution_of(outcome, &job, &headers) {
+        Ok((_, Some(reply))) => reply,
+        Ok((_, None)) => return failed(),
+        Err(resp) => return resp,
+    };
+    match reply.report_bytes() {
+        Some(Ok(bytes)) => Response::builder()
             .header(header::CONTENT_TYPE, content_type)
             .header(header::CONTENT_DISPOSITION, disposition)
             .header(header::CACHE_CONTROL, "no-store")
             .body(Body::from(bytes))
-            .unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))),
-        Ok(Err(e)) => {
+            .unwrap_or_else(|_| failed()),
+        Some(Err(e)) => {
             eprintln!("export error: {e}");
-            err(StatusCode::BAD_REQUEST, format!("{e}"))
+            err(StatusCode::BAD_REQUEST, e)
         }
-        Err(e) => {
-            eprintln!("export panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "export.failed"))
-        }
+        None => failed(),
     }
 }
 
@@ -2066,5 +2098,163 @@ mod tests {
         assert_eq!(rows, 0);
         let (st, _, _) = send(&state, build("GET", "/api/history", &[("authorization", &auth)], None)).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+
+    #[cfg(unix)]
+    mod preemption {
+        use super::*;
+        use crate::worker::tests::{hang_input, reaped, wait_for_pid, wait_reaped};
+        use std::time::Instant;
+        use tokio::io::AsyncWriteExt;
+
+        async fn bounded<T>(f: impl std::future::Future<Output = T>) -> T {
+            tokio::time::timeout(Duration::from_secs(60), f).await.expect("test step hung")
+        }
+
+        fn post(uri: &str, cookie: &str, body: serde_json::Value) -> Request<Body> {
+            build("POST", uri, &[("cookie", cookie)], Some(&body.to_string()))
+        }
+
+        async fn wait_permits(state: &Shared, n: usize) {
+            bounded(async {
+                while state.heavy.available_permits() != n {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await;
+        }
+
+        #[tokio::test]
+        async fn a_solve_past_its_deadline_is_killed_reported_not_proven_and_frees_its_slot() {
+            let (state, _dir) = state_with(|c| {
+                c.max_concurrent = 1;
+                c.solve_deadline = Duration::from_secs(1);
+            });
+            let cookie = register_cookie(&state, "deadline").await;
+            let tmp = tempfile::tempdir().unwrap();
+            let (input, pidfile) = hang_input(tmp.path(), "pid");
+            let t = Instant::now();
+            let (st, _, body) =
+                bounded(send(&state, post("/api/solve", &cookie, serde_json::json!({"input": input})))).await;
+            let took = t.elapsed();
+            assert_eq!(st, StatusCode::OK, "{body}");
+            let sol: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(sol["proved"], false);
+            assert_eq!(sol["status"], "not-proved");
+            assert!(sol["note"].as_str().unwrap().contains("time limit"), "{sol}");
+            assert!(took < Duration::from_secs(1) + worker::GRACE + Duration::from_secs(2), "{took:?}");
+            let pid = wait_for_pid(&pidfile).await;
+            assert!(reaped(pid), "worker {pid} outlived its request");
+            assert_eq!(state.heavy.available_permits(), 1, "the slot leaked");
+
+            let (st, _, body) =
+                bounded(send(&state, post("/api/solve", &cookie, serde_json::json!({"input": ISOSCELES_GEO})))).await;
+            assert_eq!(st, StatusCode::OK, "{body}");
+            assert!(body.contains("\"proved\":true"), "{body}");
+        }
+
+        #[tokio::test]
+        async fn an_export_past_its_deadline_is_killed_and_answers_504() {
+            let (state, _dir) = state_with(|c| {
+                c.max_concurrent = 1;
+                c.solve_deadline = Duration::from_secs(1);
+            });
+            let cookie = register_cookie(&state, "exporter").await;
+            let tmp = tempfile::tempdir().unwrap();
+            let (input, pidfile) = hang_input(tmp.path(), "pid");
+            let body = serde_json::json!({"input": input, "format": "pdf"});
+            let (st, _, text) = bounded(send(&state, post("/api/export", &cookie, body))).await;
+            assert_eq!(st, StatusCode::GATEWAY_TIMEOUT, "{text}");
+            assert!(text.contains("time limit"), "{text}");
+            assert!(reaped(wait_for_pid(&pidfile).await));
+            assert_eq!(state.heavy.available_permits(), 1);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn a_saturated_server_answers_503_with_retry_after_and_stays_responsive() {
+            let (state, _dir) = state_with(|c| {
+                c.max_concurrent = 2;
+                c.queue_wait = Duration::from_millis(300);
+            });
+            let cookie = register_cookie(&state, "busy").await;
+            let tmp = tempfile::tempdir().unwrap();
+            let mut hogs = Vec::new();
+            let mut pids = Vec::new();
+            for i in 0..2 {
+                let (input, pidfile) = hang_input(tmp.path(), &format!("pid{i}"));
+                let (state, cookie) = (state.clone(), cookie.clone());
+                hogs.push(tokio::spawn(async move {
+                    send(&state, post("/api/solve", &cookie, serde_json::json!({"input": input}))).await
+                }));
+                pids.push(wait_for_pid(&pidfile).await);
+            }
+            assert_eq!(state.heavy.available_permits(), 0);
+
+            let t = Instant::now();
+            let (st, headers, body) =
+                bounded(send(&state, post("/api/solve", &cookie, serde_json::json!({"input": ISOSCELES_GEO})))).await;
+            let queued = t.elapsed();
+            assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+            assert_eq!(headers.get(header::RETRY_AFTER).unwrap(), BUSY_RETRY_AFTER);
+            assert!(queued >= Duration::from_millis(300), "did not queue: {queued:?}");
+            assert!(queued < Duration::from_secs(2), "queued too long: {queued:?}");
+            let (st, _, _) = bounded(send(&state, post("/api/export", &cookie, serde_json::json!({"input": ISOSCELES_GEO})))).await;
+            assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
+
+            for (uri, cookie) in [("/healthz", None), ("/", None), ("/auth", None), ("/app", Some(cookie.as_str()))] {
+                let t = Instant::now();
+                let headers: Vec<(&str, &str)> = cookie.map(|c| ("cookie", c)).into_iter().collect();
+                let (st, _, _) = bounded(send(&state, build("GET", uri, &headers, None))).await;
+                assert_eq!(st, StatusCode::OK, "{uri}");
+                assert!(t.elapsed() < Duration::from_millis(500), "{uri} took {:?} under saturation", t.elapsed());
+            }
+
+            for hog in &hogs {
+                hog.abort();
+            }
+            for pid in pids {
+                wait_reaped(pid, Duration::from_secs(3)).await;
+            }
+            wait_permits(&state, 2).await;
+        }
+
+        async fn bind_test_port() -> tokio::net::TcpListener {
+            for port in 18800..18850 {
+                if let Ok(l) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+                    return l;
+                }
+            }
+            panic!("no free port in 18800-18849");
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn a_client_that_disconnects_mid_solve_gets_its_worker_killed_and_slot_freed() {
+            let (state, _dir) = state_with(|c| c.max_concurrent = 1);
+            let cookie = register_cookie(&state, "leaver").await;
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let app = app_router(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await });
+
+            let tmp = tempfile::tempdir().unwrap();
+            let (input, pidfile) = hang_input(tmp.path(), "pid");
+            let body = serde_json::json!({"input": input}).to_string();
+            let request = format!(
+                "POST /api/solve HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nCookie: {cookie}\r\n\
+                 Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                addr.port(),
+                body.len()
+            );
+            let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+            sock.write_all(request.as_bytes()).await.unwrap();
+            let pid = wait_for_pid(&pidfile).await;
+            assert_eq!(state.heavy.available_permits(), 0);
+
+            drop(sock);
+            let took = wait_reaped(pid, Duration::from_secs(3)).await;
+            wait_permits(&state, 1).await;
+            eprintln!("worker reaped {took:?} after the client hung up");
+            server.abort();
+        }
     }
 }

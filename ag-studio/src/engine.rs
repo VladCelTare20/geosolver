@@ -79,7 +79,7 @@ impl Default for SolveOptions {
 }
 
 /// Which prover produced the result.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Method {
     /// DDAR deductive closure (no auxiliary point).
@@ -92,7 +92,7 @@ pub enum Method {
 
 /// What a solve established. Serialized as `"proved"`, `"holds-numerically"`,
 /// `"refuted"` or `"not-proved"`; only `Proved` comes with `proved: true`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Status {
     /// A classical Euclidean proof: a DDAR deduction or a theorem-citing
@@ -137,7 +137,7 @@ impl Status {
 }
 
 /// The full outcome of a solve: proof, figure, and metadata.
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Solution {
     /// The original input program.
     pub input: String,

@@ -6,15 +6,21 @@
 //! The transport is the MCP stdio convention: newline-delimited JSON-RPC 2.0.
 //! stdout carries the protocol exclusively — all diagnostics go to stderr.
 
-use std::io::{BufRead, Write};
+use std::collections::HashMap;
+use std::future::Future;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Poll};
 
-use base64::Engine;
 use serde_json::{json, Value};
+use tokio::io::AsyncBufReadExt;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::engine::{self, InputKind, SolveOptions};
-use crate::render;
 use crate::translate;
+use crate::worker::{self, Outcome};
 use ddar::svg::Theme;
 
 /// Protocol revisions this server speaks, newest first. `initialize` echoes the
@@ -25,50 +31,206 @@ const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 
 /// Run the MCP server, reading requests from stdin and writing responses to
-/// stdout, until stdin closes.
+/// stdout, until stdin closes and every in-flight tool call has answered.
 pub fn serve() -> anyhow::Result<()> {
     // Keep degenerate-figure panics from the aux search off the (shared) stderr
     // as noisy backtraces; they are already contained by `engine::solve`.
     std::panic::set_hook(Box::new(|_| {}));
     eprintln!("geosolver MCP server ready (stdio)");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let input = tokio::io::BufReader::new(tokio::io::stdin());
+    let result = rt.block_on(serve_io(input, std::io::stdout()));
+    rt.shutdown_timeout(std::time::Duration::from_secs(1));
+    result
+}
 
-    let stdin = std::io::stdin();
-    let mut input = stdin.lock();
-    let mut stdout = std::io::stdout();
-    let mut buf: Vec<u8> = Vec::new();
+type Inflight = Arc<Mutex<HashMap<String, (u64, tokio::task::AbortHandle)>>>;
+
+fn relock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn emit<W: Write>(out: &Mutex<W>, resp: &Value) -> std::io::Result<()> {
+    let line = serde_json::to_string(resp)?;
+    let mut w = relock(out);
+    writeln!(w, "{line}")?;
+    w.flush()
+}
+
+/// Simultaneous solve workers: `AGSTUDIO_MAX_CONCURRENT`, default 2.
+fn max_concurrent() -> usize {
+    std::env::var("AGSTUDIO_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(2)
+        .clamp(1, 64)
+}
+
+/// The protocol loop. Solves run as tasks, so the loop keeps reading while
+/// they work; `notifications/cancelled` aborts one, which kills its worker.
+async fn serve_io<R, W>(mut input: R, out: W) -> anyhow::Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: Write + Send + 'static,
+{
+    let out = Arc::new(Mutex::new(out));
+    let inflight: Inflight = Arc::default();
+    let slots = Arc::new(Semaphore::new(max_concurrent()));
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut seq = 0u64;
+    let mut buf = Vec::new();
     loop {
         buf.clear();
-        if input.read_until(b'\n', &mut buf)? == 0 {
+        if input.read_until(b'\n', &mut buf).await? == 0 {
             break;
         }
-        if let Some(resp) = handle_line(&buf) {
-            writeln!(stdout, "{}", serde_json::to_string(&resp)?)?;
-            stdout.flush()?;
+        while tasks.try_join_next().is_some() {}
+        match route(&buf) {
+            Route::Reply(Some(resp)) => emit(&out, &resp)?,
+            Route::Reply(None) => {}
+            Route::Cancel(key) => {
+                if let Some((_, task)) = relock(&inflight).remove(&key) {
+                    task.abort();
+                    eprintln!("request {key} cancelled; its solver was stopped");
+                }
+            }
+            Route::Tool { id, name, args } => {
+                seq += 1;
+                let me = seq;
+                let key = id.to_string();
+                let (out, inflight_ref, slots) = (out.clone(), inflight.clone(), slots.clone());
+                let mut map = relock(&inflight);
+                let task_key = key.clone();
+                let handle = tasks.spawn(async move {
+                    let resp = run_tool(id, &name, args, slots).await;
+                    {
+                        let mut map = relock(&inflight_ref);
+                        if map.get(&task_key).is_some_and(|(s, _)| *s == me) {
+                            map.remove(&task_key);
+                        }
+                    }
+                    if let Err(e) = emit(&out, &resp) {
+                        eprintln!("could not write a response: {e}");
+                    }
+                });
+                map.insert(key, (me, handle));
+            }
         }
     }
+    while tasks.join_next().await.is_some() {}
     Ok(())
+}
+
+/// What to do with one input line.
+enum Route {
+    /// Answer now (or say nothing).
+    Reply(Option<Value>),
+    /// `notifications/cancelled` for the request with this (JSON-encoded) id.
+    Cancel(String),
+    /// A slow tool call, run as a cancellable task.
+    Tool { id: Value, name: String, args: Value },
+}
+
+fn route(raw: &[u8]) -> Route {
+    let req = match validate(raw) {
+        Ok(req) => req,
+        Err(reply) => return Route::Reply(reply),
+    };
+    let method = req.get("method").and_then(Value::as_str).unwrap_or("");
+    let id = req.get("id").cloned();
+    let params = req.get("params").cloned().unwrap_or(Value::Null);
+    if method == "notifications/cancelled" && id.is_none() {
+        return match params.get("requestId") {
+            Some(target) => Route::Cancel(target.to_string()),
+            None => Route::Reply(None),
+        };
+    }
+    let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+    if let (Some(id), "tools/call", true) = (id.clone(), method, is_slow_tool(name)) {
+        return Route::Tool {
+            id,
+            name: name.to_string(),
+            args: params.get("arguments").cloned().unwrap_or(Value::Null),
+        };
+    }
+    Route::Reply(catch_panics(id, || handle(&req)))
+}
+
+fn is_slow_tool(name: &str) -> bool {
+    matches!(name, "solve_geometry" | "export_report")
+}
+
+async fn run_tool(id: Value, name: &str, args: Value, slots: Arc<Semaphore>) -> Value {
+    let work = async {
+        let permit = slots.acquire_owned().await.ok();
+        match name {
+            "solve_geometry" => tool_solve(&args, permit).await,
+            _ => tool_export(&args, permit).await,
+        }
+    };
+    match CatchUnwind(Box::pin(work)).await {
+        Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+        Err(_) => {
+            eprintln!("tool call panicked; returning an error instead of crashing");
+            json!({
+                "jsonrpc": "2.0", "id": id,
+                "error": { "code": -32000, "message": "internal error while handling this request" }
+            })
+        }
+    }
+}
+
+/// `catch_unwind` for a future: a panic in one tool call becomes that call's
+/// error response instead of a lost reply.
+struct CatchUnwind<F>(Pin<Box<F>>);
+
+impl<F: Future> Future for CatchUnwind<F> {
+    type Output = std::thread::Result<F::Output>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let fut = self.0.as_mut();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fut.poll(cx))) {
+            Ok(Poll::Pending) => Poll::Pending,
+            Ok(Poll::Ready(v)) => Poll::Ready(Ok(v)),
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-/// Validate and dispatch one raw line. Returns the response to write, or
-/// `None` for blank lines, notifications, and responses sent by the client.
+/// Validate and dispatch one raw line synchronously (no slow tools). Returns
+/// the response to write, or `None` for blank lines, notifications, and
+/// responses sent by the client.
+#[cfg(test)]
 fn handle_line(raw: &[u8]) -> Option<Value> {
+    match validate(raw) {
+        Ok(req) => catch_panics(req.get("id").cloned(), || handle(&req)),
+        Err(reply) => reply,
+    }
+}
+
+/// Parse and validate one raw line as a JSON-RPC 2.0 request or notification.
+/// `Err` carries the reply for an invalid line (or `None`: say nothing).
+fn validate(raw: &[u8]) -> Result<Value, Option<Value>> {
     let Ok(text) = std::str::from_utf8(raw) else {
         eprintln!("rejecting a JSON-RPC line that is not valid UTF-8");
-        return Some(error_response(Value::Null, PARSE_ERROR, "parse error: invalid UTF-8"));
+        return Err(Some(error_response(Value::Null, PARSE_ERROR, "parse error: invalid UTF-8")));
     };
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return None;
+        return Err(None);
     }
     let req: Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("rejecting malformed JSON-RPC line: {e}");
-            return Some(error_response(Value::Null, PARSE_ERROR, &format!("parse error: {e}")));
+            return Err(Some(error_response(Value::Null, PARSE_ERROR, &format!("parse error: {e}"))));
         }
     };
     let Some(obj) = req.as_object() else {
@@ -77,29 +239,29 @@ fn handle_line(raw: &[u8]) -> Option<Value> {
         } else {
             "a request must be a JSON object"
         };
-        return Some(error_response(Value::Null, INVALID_REQUEST, what));
+        return Err(Some(error_response(Value::Null, INVALID_REQUEST, what)));
     };
     let id = obj.get("id");
     let id_ok = matches!(id, None | Some(Value::String(_)) | Some(Value::Number(_)));
     if obj.get("method").is_none() && (obj.contains_key("result") || obj.contains_key("error")) {
         // A response from the client (we never send requests); nothing to say.
-        return None;
+        return Err(None);
     }
     if !id_ok {
-        return Some(error_response(
+        return Err(Some(error_response(
             Value::Null,
             INVALID_REQUEST,
             "invalid request: `id` must be a string or a number",
-        ));
+        )));
     }
     let reply_id = id.cloned().unwrap_or(Value::Null);
     if obj.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        return id.map(|_| error_response(reply_id, INVALID_REQUEST, "invalid request: jsonrpc must be \"2.0\""));
+        return Err(id.map(|_| error_response(reply_id, INVALID_REQUEST, "invalid request: jsonrpc must be \"2.0\"")));
     }
     if !obj.get("method").is_some_and(Value::is_string) {
-        return id.map(|_| error_response(reply_id, INVALID_REQUEST, "invalid request: missing `method`"));
+        return Err(id.map(|_| error_response(reply_id, INVALID_REQUEST, "invalid request: missing `method`")));
     }
-    catch_panics(id.cloned(), || handle(&req))
+    Ok(req)
 }
 
 /// Runs `f`, converting any panic into a JSON-RPC error response instead of
@@ -217,9 +379,11 @@ fn tools_call(params: &Value) -> Result<Value, (i64, String)> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or(Value::Null);
     match name {
-        "geo_reference" => Ok(text_result(translate::grammar(), false)),
-        "solve_geometry" => Ok(tool_solve(&args)),
-        "export_report" => Ok(tool_export(&args)),
+        "geo_reference" => {
+            let _ = args;
+            Ok(text_result(translate::grammar(), false))
+        }
+        slow if is_slow_tool(slow) => Err((-32603, format!("{slow} is dispatched asynchronously"))),
         other => Err((-32602, format!("unknown tool: {other}"))),
     }
 }
@@ -256,26 +420,34 @@ fn opts_from(args: &Value, default_theme: Theme) -> (String, SolveOptions) {
     )
 }
 
-fn tool_solve(args: &Value) -> Value {
+async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value {
     let (program, opts) = opts_from(args, Theme::Light);
     if program.trim().is_empty() {
         return text_result("error: `program` is required", true);
     }
     let best = args.get("best").and_then(Value::as_bool).unwrap_or(false);
-    let result = if best {
+    let mut job = if best {
         let secs = args
             .get("budget_secs")
             .and_then(Value::as_f64)
             .filter(|v| v.is_finite())
             .unwrap_or(20.0)
             .clamp(0.5, 120.0);
-        engine::solve_best(&program, &opts, std::time::Duration::from_secs_f64(secs))
+        worker::Request::new(&program, &opts, worker::Mode::Best, std::time::Duration::from_secs_f64(secs))
     } else {
-        engine::solve_within(&program, &opts, Some(timeout_from(args)))
+        worker::Request::new(&program, &opts, worker::Mode::Solve, timeout_from(args))
     };
-    let sol = match result {
-        Ok(s) => s,
-        Err(e) => return text_result(&format!("error: {e}"), true),
+    job.figure_png_scale = Some(1.5);
+    let (sol, figure_png) = match worker::run(&job, permit).await {
+        Outcome::Done(reply) => match reply.result {
+            Ok(sol) => (sol, reply.figure_png),
+            Err(e) => return text_result(&format!("error: {e}"), true),
+        },
+        Outcome::TimedOut => (worker::time_limit_solution(&program, job.limit()), None),
+        Outcome::Failed(e) => {
+            eprintln!("solve worker failed: {e}");
+            return text_result("error: the solver process failed (crashed or ran out of memory)", true);
+        }
     };
 
     // Text: verdict, method, proof, and the compiled low-level form.
@@ -320,8 +492,7 @@ fn tool_solve(args: &Value) -> Value {
 
     // Image: the figure as a PNG.
     let mut content = vec![json!({ "type": "text", "text": text })];
-    if let Ok(png) = render::svg_to_png(&sol.svg, 1.5) {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+    if let Some(b64) = figure_png {
         content.push(json!({ "type": "image", "data": b64, "mimeType": "image/png" }));
     }
     // "Not proven" is a valid answer, not a tool failure.
@@ -440,14 +611,14 @@ fn resolve_export_path(
     }
 }
 
-fn tool_export(args: &Value) -> Value {
+async fn tool_export(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value {
     match export_dir() {
-        Ok(dir) => tool_export_in(args, &dir),
+        Ok(dir) => tool_export_in(args, &dir, permit).await,
         Err(e) => text_result(&format!("error: {e}"), true),
     }
 }
 
-fn tool_export_in(args: &Value, dir: &Path) -> Value {
+async fn tool_export_in(args: &Value, dir: &Path, permit: Option<OwnedSemaphorePermit>) -> Value {
     // Documents export on a light, print-friendly page.
     let (program, opts) = opts_from(args, Theme::Light);
     if program.trim().is_empty() {
@@ -472,19 +643,32 @@ fn tool_export_in(args: &Value, dir: &Path) -> Value {
     if let Err(e) = resolve_export_path(dir, name, &format, overwrite) {
         return text_result(&format!("error: {e}"), true);
     }
-    let sol = match engine::solve_within(&program, &opts, Some(timeout_from(args))) {
+    let mut job = worker::Request::new(&program, &opts, worker::Mode::Solve, timeout_from(args));
+    job.report = Some(if format == "png" { worker::Format::Png } else { worker::Format::Pdf });
+    let reply = match worker::run(&job, permit).await {
+        Outcome::Done(reply) => reply,
+        Outcome::TimedOut => {
+            return text_result(
+                &format!(
+                    "error: the solve overran its {:.0}s time limit and was stopped; nothing was written",
+                    job.limit().as_secs_f64()
+                ),
+                true,
+            )
+        }
+        Outcome::Failed(e) => {
+            eprintln!("export worker failed: {e}");
+            return text_result("error: the solver process failed (crashed or ran out of memory)", true);
+        }
+    };
+    let sol = match &reply.result {
         Ok(s) => s,
         Err(e) => return text_result(&format!("error: {e}"), true),
     };
-    let report = render::report_svg(&sol, opts.title.as_deref(), true);
-    let rendered = if format == "png" {
-        render::svg_to_png(&report, 2.0)
-    } else {
-        render::svg_to_pdf(&report)
-    };
-    let bytes = match rendered {
-        Ok(b) => b,
-        Err(e) => return text_result(&format!("error rendering {format}: {e}"), true),
+    let bytes = match reply.report_bytes() {
+        Some(Ok(b)) => b,
+        Some(Err(e)) => return text_result(&format!("error rendering {format}: {e}"), true),
+        None => return text_result(&format!("error rendering {format}: no output"), true),
     };
     let path = match resolve_export_path(dir, name, &format, overwrite) {
         Ok(p) => p,
@@ -617,9 +801,9 @@ mod tests {
         assert_eq!(v["protocolVersion"], SUPPORTED_PROTOCOLS[0]);
     }
 
-    #[test]
-    fn numeric_only_goal_is_reported_not_proven_with_its_evidence() {
-        let r = tool_solve(&json!({"program": "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)"}));
+    #[tokio::test]
+    async fn numeric_only_goal_is_reported_not_proven_with_its_evidence() {
+        let r = tool_solve(&json!({"program": "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)"}), None).await;
         assert_eq!(r["isError"], false, "{r}");
         let text = r["content"][0]["text"].as_str().unwrap();
         assert!(text.starts_with("NOT PROVEN — no Euclidean proof"), "{text}");
@@ -627,14 +811,136 @@ mod tests {
         assert!(text.contains("not a proof"), "{text}");
     }
 
-    #[test]
-    fn not_proven_is_a_result_not_a_tool_error() {
-        let r = tool_solve(&json!({"program": "A B C = triangle\nprove perp(A, B, A, C)"}));
+    #[tokio::test]
+    async fn not_proven_is_a_result_not_a_tool_error() {
+        let r = tool_solve(&json!({"program": "A B C = triangle\nprove perp(A, B, A, C)"}), None).await;
         assert_eq!(r["isError"], false, "{r}");
         // False in the sampled figure: refuted, which is still a normal result.
         assert!(r["content"][0]["text"].as_str().unwrap().starts_with("REFUTED"), "{r}");
-        let r = tool_solve(&json!({"program": "this is not geo"}));
+        assert_eq!(r["content"][1]["mimeType"], "image/png", "the figure comes back too");
+        let r = tool_solve(&json!({"program": "this is not geo"}), None).await;
         assert_eq!(r["isError"], true);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_solve_that_overruns_its_timeout_is_killed_and_reported_not_proven() {
+        use crate::worker::tests::{hang_input, wait_for_pid, wait_reaped};
+        let dir = tempfile::tempdir().unwrap();
+        let (program, pidfile) = hang_input(dir.path(), "pid");
+        let t = std::time::Instant::now();
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tool_solve(&json!({"program": program, "timeout_secs": 1}), None),
+        )
+        .await
+        .expect("the tool call must end at its hard limit");
+        assert!(t.elapsed() < std::time::Duration::from_secs(1) + worker::GRACE + std::time::Duration::from_secs(2));
+        assert_eq!(r["isError"], false, "{r}");
+        let text = r["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("NOT PROVEN"), "{text}");
+        assert!(text.contains("time limit"), "{text}");
+        let pid = wait_for_pid(&pidfile).await;
+        wait_reaped(pid, std::time::Duration::from_secs(1)).await;
+    }
+
+    /// A `Write` the test can read back while the server task owns it.
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Captured {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            relock(&self.0).extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Captured {
+        fn responses(&self) -> Vec<Value> {
+            String::from_utf8_lossy(&relock(&self.0))
+                .lines()
+                .filter_map(|l| serde_json::from_str(l).ok())
+                .collect()
+        }
+
+        async fn wait_for(&self, id: Value) -> Value {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                if let Some(r) = self.responses().into_iter().find(|r| r["id"] == id) {
+                    return r;
+                }
+                assert!(std::time::Instant::now() < until, "no response for id {id}");
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancelling_a_running_solve_kills_its_worker_while_the_server_keeps_answering() {
+        use crate::worker::tests::{hang_input, wait_for_pid, wait_reaped};
+        use tokio::io::AsyncWriteExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (program, pidfile) = hang_input(dir.path(), "pid");
+        let (mut client, server_end) = tokio::io::duplex(1 << 16);
+        let out = Captured::default();
+        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone()));
+        let send = |v: Value| format!("{v}\n");
+
+        let call = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+            "params": {"name": "solve_geometry", "arguments": {"program": program}}});
+        client.write_all(send(call).as_bytes()).await.unwrap();
+        let pid = wait_for_pid(&pidfile).await;
+
+        let ping = json!({"jsonrpc": "2.0", "id": 8, "method": "ping"});
+        client.write_all(send(ping).as_bytes()).await.unwrap();
+        let t = std::time::Instant::now();
+        assert_eq!(out.wait_for(json!(8)).await["result"], json!({}));
+        assert!(t.elapsed() < std::time::Duration::from_secs(2), "ping waited on the solve");
+
+        let cancel = json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+            "params": {"requestId": 7, "reason": "user gave up"}});
+        client.write_all(send(cancel).as_bytes()).await.unwrap();
+        let took = wait_reaped(pid, std::time::Duration::from_secs(3)).await;
+        eprintln!("cancelled worker reaped {took:?} after the notification");
+
+        drop(client);
+        tokio::time::timeout(std::time::Duration::from_secs(10), server)
+            .await
+            .expect("the server must stop at EOF")
+            .unwrap()
+            .unwrap();
+        assert!(
+            out.responses().iter().all(|r| r["id"] != 7),
+            "a cancelled request gets no response: {:?}",
+            out.responses()
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn tool_calls_answer_after_stdin_closes() {
+        let input = format!(
+            "{}\n{}\n",
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "solve_geometry", "arguments": {"program": crate::worker::tests::CIRCUMCENTER}}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "ping"})
+        );
+        let out = Captured::default();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            serve_io(tokio::io::BufReader::new(input.as_bytes()), out.clone()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let rs = out.responses();
+        assert_eq!(rs.len(), 2, "{rs:?}");
+        let solve = rs.iter().find(|r| r["id"] == 1).unwrap();
+        assert!(solve["result"]["content"][0]["text"].as_str().unwrap().starts_with("PROVEN"), "{solve}");
     }
 
     #[test]
@@ -668,15 +974,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn export_rejects_unknown_formats_and_writes_inside_the_dir() {
+    #[tokio::test]
+    async fn export_rejects_unknown_formats_and_writes_inside_the_dir() {
         let dir = tempfile::tempdir().unwrap();
         let prog = "A B C = triangle\nO = circumcenter(A, B, C)\nprove cong(O, A, O, B)";
-        let r = tool_export_in(&json!({"program": prog, "format": "svg"}), dir.path());
+        let r = tool_export_in(&json!({"program": prog, "format": "svg"}), dir.path(), None).await;
         assert_eq!(r["isError"], true, "{r}");
-        let r = tool_export_in(&json!({"program": prog, "filename": "../escape.pdf"}), dir.path());
+        let r = tool_export_in(&json!({"program": prog, "filename": "../escape.pdf"}), dir.path(), None).await;
         assert_eq!(r["isError"], true, "{r}");
-        let r = tool_export_in(&json!({"program": prog, "filename": "ok.pdf"}), dir.path());
+        let r = tool_export_in(&json!({"program": prog, "filename": "ok.pdf"}), dir.path(), None).await;
         assert_eq!(r["isError"], false, "{r}");
         let bytes = std::fs::read(dir.path().join("ok.pdf")).unwrap();
         assert!(bytes.starts_with(b"%PDF"));

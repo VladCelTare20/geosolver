@@ -17,6 +17,7 @@ dependencies = [
  "argon2",
  "axum",
  "base64",
+ "libc",
  "rand_core 0.6.4",
  "resvg",
  "rusqlite",

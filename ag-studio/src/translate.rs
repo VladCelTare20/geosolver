@@ -382,8 +382,19 @@ fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Output> {
             return Err(anyhow!(e).context("waiting for the claude CLI"));
         }
     };
-    let stdout = out_reader.map(join).unwrap_or_default();
-    let stderr = err_reader.map(join).unwrap_or_default();
+    // The child has exited, but a process it left behind may still hold the
+    // pipes open: wait for the output only briefly, then kill the group (still
+    // alive, since a member holds the pipe) and give up on stragglers.
+    let readers = [out_reader, err_reader];
+    let mut got = collect(&readers, OUTPUT_DRAIN);
+    if got.is_none() {
+        #[cfg(unix)]
+        killpg(child.id());
+        got = collect(&readers, OUTPUT_DRAIN);
+    }
+    let Some([stdout, stderr]) = got else {
+        bail!("claude exited but a process it started kept its output open");
+    };
     Ok(Output {
         status,
         stdout,
@@ -391,35 +402,57 @@ fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Output> {
     })
 }
 
+/// How long to wait for a finished child's output to drain.
+const OUTPUT_DRAIN: Duration = Duration::from_secs(2);
+
+type Reader = Option<std::sync::mpsc::Receiver<Vec<u8>>>;
+
+/// Both pipes' contents, or `None` if either is still open after `wait`.
+fn collect(readers: &[Reader; 2], wait: Duration) -> Option<[Vec<u8>; 2]> {
+    let until = std::time::Instant::now() + wait;
+    let mut out: [Vec<u8>; 2] = Default::default();
+    for (slot, reader) in out.iter_mut().zip(readers) {
+        if let Some(rx) = reader {
+            match rx.recv_timeout(until.saturating_duration_since(std::time::Instant::now())) {
+                Ok(bytes) => *slot = bytes,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return None,
+            }
+        }
+    }
+    Some(out)
+}
+
+#[cfg(unix)]
+fn killpg(pgid: u32) {
+    if let Ok(pgid) = i32::try_from(pgid) {
+        if pgid > 1 {
+            // SAFETY: plain syscall on a group this process created.
+            unsafe {
+                libc::killpg(pgid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
 /// Kill a child and everything in its process group, then reap it.
 fn kill_tree(child: &mut std::process::Child) {
+    // The child leads its own group (`process_group(0)`) and is not reaped
+    // yet, so its pid names the group.
     #[cfg(unix)]
-    {
-        // The child leads its own group (`process_group(0)`), so -pid names it.
-        // std has no killpg; the `kill` utility is everywhere this runs.
-        let _ = Command::new("kill")
-            .arg("-KILL")
-            .arg("--")
-            .arg(format!("-{}", child.id()))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
+    killpg(child.id());
     let _ = child.kill();
     let _ = child.wait();
 }
 
-fn reader_thread<R: Read + Send + 'static>(mut r: R) -> std::thread::JoinHandle<Vec<u8>> {
+fn reader_thread<R: Read + Send + 'static>(mut r: R) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = r.read_to_end(&mut buf);
-        buf
-    })
-}
-
-fn join(h: std::thread::JoinHandle<Vec<u8>>) -> Vec<u8> {
-    h.join().unwrap_or_default()
+        let _ = tx.send(buf);
+    });
+    rx
 }
 
 /// Pull the `.geo` program out of a model reply: prefer a ```geo fenced block,
@@ -882,6 +915,33 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert!(!alive(), "grandchild {pid} survived the timeout");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_leftover_process_holding_the_output_cannot_hang_the_caller() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("straggler.pid");
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("sleep 60 & echo $! > '{}'; echo done", pidfile.display()))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let t = std::time::Instant::now();
+        let out = run_with_timeout(cmd, Duration::from_secs(30)).unwrap();
+        assert!(t.elapsed() < OUTPUT_DRAIN * 2 + Duration::from_secs(2), "{:?}", t.elapsed());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "done");
+        let pid = std::fs::read_to_string(&pidfile).unwrap();
+        let gone = |pid: &str| {
+            std::fs::read_to_string(format!("/proc/{pid}/stat"))
+                .map(|st| st.rsplit(')').next().unwrap_or("").trim_start().starts_with('Z'))
+                .unwrap_or(true)
+        };
+        let until = std::time::Instant::now() + Duration::from_secs(3);
+        while !gone(pid.trim()) && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(gone(pid.trim()), "straggler {pid} survived");
     }
 
     #[test]

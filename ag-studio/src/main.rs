@@ -17,6 +17,7 @@ mod render;
 mod security;
 mod translate;
 mod web;
+mod worker;
 
 use std::collections::HashMap;
 use std::process::ExitCode;
@@ -35,6 +36,7 @@ fn main() -> ExitCode {
         Some("translate") => cmd_translate(&args[1..]),
         Some("best") => cmd_best(&args[1..]),
         Some("serve") => cmd_serve(&args[1..]),
+        Some(worker::SUBCOMMAND) => ExitCode::from(worker::worker_main().clamp(0, 255) as u8),
         Some("mcp") => {
             if let Some(extra) = args.get(1) {
                 return usage_error(&format!("mcp takes no arguments (got {extra:?})"));
@@ -277,6 +279,7 @@ fn cmd_best(args: &[String]) -> ExitCode {
         Err(e) => return usage_error(&e),
     };
     let budget = Duration::from_secs_f64(secs.clamp(0.1, 600.0));
+    arm_hard_limit("best", "--budget", budget);
     eprintln!(
         "Searching up to {:.0}s for the shortest proof…",
         budget.as_secs_f64()
@@ -300,6 +303,7 @@ fn cmd_render(args: &[String]) -> ExitCode {
         Ok(s) => s.map_or(engine::DEFAULT_SOLVE_TIMEOUT, Duration::from_secs_f64),
         Err(e) => return usage_error(&e),
     };
+    arm_hard_limit("render", "--timeout", timeout);
     match solve_within(&p.source, &p.opts, Some(timeout)) {
         Ok(sol) => emit_solution(&sol, &p.out, p.opts.title.as_deref(), p.light),
         Err(e) => {
@@ -378,6 +382,7 @@ fn cmd_translate(args: &[String]) -> ExitCode {
         opts.theme = Theme::Light;
         light = true;
     }
+    arm_hard_limit("translate --solve", "--timeout", timeout);
     match solve_within(&translation.geo, &opts, Some(timeout)) {
         Ok(sol) => emit_solution(&sol, &out, opts.title.as_deref(), light),
         Err(e) => {
@@ -385,6 +390,18 @@ fn cmd_translate(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// Make `limit` (plus [`worker::GRACE`]) a hard bound on the rest of the command.
+fn arm_hard_limit(cmd: &str, flag: &str, limit: Duration) {
+    worker::arm_watchdog(
+        limit + worker::GRACE,
+        format!(
+            "`{cmd}` ({flag} {:.0}s + {:.0}s grace)",
+            limit.as_secs_f64(),
+            worker::GRACE.as_secs_f64()
+        ),
+    );
 }
 
 /// Read a program from a file path, or return it verbatim if it is inline text.

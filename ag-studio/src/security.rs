@@ -11,7 +11,9 @@
 //! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* Basic credentials per minute before 429 (0 = off) |
 //! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past Basic auth may solve, export and humanize without an account (no history). `1` without Basic auth refuses to start |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
-//! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests (excess → 503) |
+//! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
+//! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
+//! | `AGSTUDIO_WORKER_MEM_MB` | 2048 | address-space cap (`RLIMIT_AS`) of each solve worker process; 0 = none |
 //! | `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests per minute (0 = off) |
 //! | `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP `/api/translate` + `/api/humanize` per minute (0 = off) |
 //! | `AGSTUDIO_AUTH_PER_MIN` | 15 | per-IP `/api/auth/login` + `register` per minute (0 = off) |
@@ -126,7 +128,15 @@ pub struct Config {
     pub enable_translate: bool,
     pub db_path: PathBuf,
     pub secure_cookies: bool,
+    /// How long a heavy request waits for a slot before 503 + `Retry-After`.
+    pub queue_wait: Duration,
+    /// Wall-clock deadline of one web solve or export (its worker is killed
+    /// [`crate::worker::GRACE`] later).
+    pub solve_deadline: Duration,
 }
+
+/// Default web solve deadline, well inside the 120 s request timeout.
+pub const SOLVE_DEADLINE: Duration = Duration::from_secs(60);
 
 fn is_on(v: Option<&str>) -> bool {
     matches!(v, Some("1") | Some("true") | Some("yes") | Some("on"))
@@ -200,7 +210,7 @@ impl Config {
             basic_auth,
             basic_auth_fails_per_min: num("AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN", 10) as u32,
             guest_mode,
-            max_concurrent: num("AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8)),
+            max_concurrent: num("AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8)).max(1),
             rate_per_min: num("AGSTUDIO_RATE_PER_MIN", 120) as u32,
             translate_per_min: num("AGSTUDIO_TRANSLATE_PER_MIN", 12) as u32,
             auth_per_min: num("AGSTUDIO_AUTH_PER_MIN", 15) as u32,
@@ -213,6 +223,8 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("./agstudio.db")),
             secure_cookies: flag("AGSTUDIO_SECURE_COOKIES"),
+            queue_wait: Duration::from_secs(num("AGSTUDIO_QUEUE_WAIT_SECS", 5).min(60) as u64),
+            solve_deadline: SOLVE_DEADLINE,
         })
     }
 
