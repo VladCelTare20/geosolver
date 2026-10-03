@@ -1271,6 +1271,15 @@ fn llower(e: &MExpr, fig: &Figure) -> Option<LEq> {
             scale(&mut a, &Rat::new(1, 2));
             Some(a)
         }
+        MExpr::Sin(x) => match &**x {
+            MExpr::Angle(a, b, c) => {
+                let k = fig.sin_atom(fig.pt(b)?, fig.pt(a)?, fig.pt(c)?)?;
+                let mut eq = LEq::default();
+                eq.add_term(k, Rat::one());
+                Some(eq)
+            }
+            _ => None,
+        },
         _ => None,
     }
 }

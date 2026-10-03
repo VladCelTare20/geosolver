@@ -398,6 +398,29 @@ fn power_of_a_point_sign_is_read_from_the_configuration() {
     assert!(proof.starts_with("EUCLIDEAN PROOF"), "{proof}");
 }
 
+/// TRIG_PLAN §3, item 16 and P5: goals stated with `sin(angle(..))`. The law
+/// of sines never proves its own restatement, the extended law of sines is
+/// not a lone citation, and wrong constants or angles stay unproved.
+#[test]
+fn sine_goals_are_not_lone_citations_and_false_ones_fail() {
+    let tri = "A B C = triangle";
+    let restated = "dist(B,C)*sin(angle(A,B,C)) = dist(A,C)*sin(angle(B,A,C))";
+    match metric::solve(tri, restated, 48) {
+        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.numerically_holds(), Some(true)),
+        other => panic!("the law of sines must not prove its own restatement: {other:?}"),
+    }
+    let circ = "A B C = triangle\nO = circumcenter(A, B, C)";
+    let proof = metric::solve(circ, "dist(B,C) = 2*dist(O,A)*sin(angle(B,A,C))", 48)
+        .expect("BC = 2R sin A is derived");
+    assert!(proof.contains("Law of sines in") && proof.contains("Extended law of sines"), "{proof}");
+    provers_reject(circ, "dist(B,C) = dist(O,A)*sin(angle(B,A,C))");
+    provers_reject(circ, "dist(B,C) = 2*dist(O,A)*sin(angle(A,B,C))");
+    provers_reject(
+        "A = free\nB = free\nC = point: angle(B, A, C) = 30",
+        "dist(B,C) = dist(A,B)*sin(angle(B,A,C))",
+    );
+}
+
 /// TRIG_PLAN §3, items 7–8: false neighbours of Ptolemy's second theorem.
 #[test]
 fn ptolemy_second_false_neighbours_are_never_proved() {
