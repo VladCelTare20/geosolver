@@ -118,22 +118,6 @@ impl Status {
             Status::NotProved => "Not proven",
         }
     }
-
-    /// A one-line explanation of the verdict (`samples` = sampled figures).
-    pub fn explain(self, samples: Option<usize>) -> String {
-        match self {
-            Status::Proved => "classical Euclidean proof".to_string(),
-            Status::HoldsNumerically => format!(
-                "no Euclidean proof found; the goal holds numerically in {} sampled \
-                 figures — evidence, not a proof",
-                samples.unwrap_or(0)
-            ),
-            Status::Refuted => {
-                "the goal fails in a sampled figure — the statement appears to be false".to_string()
-            }
-            Status::NotProved => "no proof found within the search budget".to_string(),
-        }
-    }
 }
 
 /// The full outcome of a solve: proof, figure, and metadata.

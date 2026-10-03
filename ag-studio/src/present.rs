@@ -151,10 +151,6 @@ impl Names {
         self.map.get(raw).cloned().unwrap_or_else(|| disp(raw))
     }
 
-    pub fn knows(&self, raw: &str) -> bool {
-        self.map.contains_key(raw)
-    }
-
     /// Split a run like `BC_5` into raw point names, if it is made only of
     /// known names (longest names first, with backtracking).
     pub fn segment(&self, run: &str) -> Option<Vec<String>> {
@@ -296,7 +292,7 @@ impl Fact {
     fn new(kind: &'static str, args: Vec<String>, points: Vec<String>) -> Fact {
         Fact { kind, args, points }
     }
-    /// A plain-text English rendering (exports, MCP, tests).
+    #[cfg(test)]
     pub fn plain(&self) -> String {
         let a = |i: usize| self.args.get(i).cloned().unwrap_or_default();
         match self.kind {

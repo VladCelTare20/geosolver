@@ -281,6 +281,10 @@ pub fn insert_history(
 
 pub fn insert_history_full(conn: &Connection, user_id: i64, h: &NewHistory) -> rusqlite::Result<i64> {
     conn.execute(
+        "DELETE FROM history WHERE user_id = ?1 AND input = ?2 AND title IS ?3 AND method IS ?4 AND status IS ?5",
+        params![user_id, h.input, h.title, h.method, h.status],
+    )?;
+    conn.execute(
         "INSERT INTO history (user_id, input, title, proved, method, status, goal, solution, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![user_id, h.input, h.title, h.proved as i64, h.method, h.status, h.goal, h.solution, now()],
@@ -434,6 +438,23 @@ mod tests {
         assert!(hist[1].proved);
         assert_eq!(hist[1].status.as_deref(), Some("proved"));
         assert_eq!(list_history(&conn, b, 1000, None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn resolving_the_same_problem_replaces_its_entry() {
+        let conn = mem();
+        let a = create_user(&conn, "alice", "h").unwrap();
+        let b = create_user(&conn, "bob", "h").unwrap();
+        insert_history(&conn, a, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(&conn, a, "p2", None, true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(&conn, b, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(&conn, a, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
+        let hist = list_history(&conn, a, 1000, None).unwrap();
+        assert_eq!(hist.iter().map(|h| h.input.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+        assert_eq!(list_history(&conn, b, 1000, None).unwrap().len(), 1);
+        insert_history(&conn, a, "p1", None, true, Some("ddar+aux"), Some("proved")).unwrap();
+        insert_history(&conn, a, "p1", None, false, Some("ddar"), Some("not-proved")).unwrap();
+        assert_eq!(list_history(&conn, a, 1000, None).unwrap().len(), 4);
     }
 
     #[test]

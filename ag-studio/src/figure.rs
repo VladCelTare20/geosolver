@@ -183,6 +183,21 @@ fn arc_path(v: Pt, p1: Pt, p2: Pt, r: f64) -> Option<(String, Vec<Pt>)> {
     Some((d, pts))
 }
 
+fn label_width(name: &str) -> f64 {
+    let em: f64 = name
+        .chars()
+        .map(|c| match c {
+            'M' | 'W' => 0.9,
+            'm' | 'w' => 0.75,
+            '′' | '\'' => 0.3,
+            '₀'..='₉' => 0.4,
+            c if c.is_uppercase() => 0.72,
+            _ => 0.55,
+        })
+        .sum();
+    LABEL_FS * (em + 0.15)
+}
+
 pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Extras) -> String {
     let aux_from = aux_from.unwrap_or(usize::MAX);
     let n = problem.points.len();
@@ -685,8 +700,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 Shape::Path(..) => {}
             }
         }
-        let chars = name.chars().count() as f64;
-        let w = LABEL_FS * (0.55 * chars + 0.15);
+        let w = label_width(&name);
         let h = LABEL_FS * 0.9;
         let mut best: Option<(f64, Pt)> = None;
         for k in 0..24 {
@@ -702,7 +716,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                     d
                 })
                 .fold(std::f64::consts::PI, f64::min);
-            let reach = 7.0 + (dv.0.abs() * w / 2.0).max(dv.1.abs() * h / 2.0);
+            let reach = 9.0 + (dv.0.abs() * w / 2.0).max(dv.1.abs() * h / 2.0);
             let c = add(p, mul(dv, reach));
             let bx = (c.0 - w / 2.0, c.1 - h / 2.0, c.0 + w / 2.0, c.1 + h / 2.0);
             let mut penalty = 0.0;
@@ -772,7 +786,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     }
     for (_, name, p, off) in &labels {
         let c = add(*p, *off);
-        let w = LABEL_FS * (0.55 * name.chars().count() as f64 + 0.15);
+        let w = label_width(name);
         grow((c.0 - w / 2.0, c.1 - LABEL_FS * 0.55));
         grow((c.0 + w / 2.0, c.1 + LABEL_FS * 0.55));
     }
@@ -835,24 +849,6 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             }
         }
     }
-    let mut dot_order: Vec<usize> = (0..n).collect();
-    dot_order.sort_by_key(|&i| is_aux(i as u32));
-    for i in dot_order {
-        let p = scr[i];
-        if !finite(p) {
-            continue;
-        }
-        let aux = is_aux(i as u32);
-        let _ = writeln!(
-            s,
-            r#"<circle class="f-dot{}" cx="{:.1}" cy="{:.1}" r="{DOT_R}" fill="{}" data-p="{}"/>"#,
-            if aux { " f-aux" } else { "" },
-            p.0,
-            p.1,
-            if aux { AUX } else { INK },
-            esc(&dn(i as u32))
-        );
-    }
     for (i, name, p, off) in &labels {
         let aux = is_aux(*i as u32);
         let c = add(*p, *off);
@@ -869,6 +865,24 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             off.0,
             off.1,
             esc(name)
+        );
+    }
+    let mut dot_order: Vec<usize> = (0..n).collect();
+    dot_order.sort_by_key(|&i| is_aux(i as u32));
+    for i in dot_order {
+        let p = scr[i];
+        if !finite(p) {
+            continue;
+        }
+        let aux = is_aux(i as u32);
+        let _ = writeln!(
+            s,
+            r#"<circle class="f-dot{}" cx="{:.1}" cy="{:.1}" r="{DOT_R}" fill="{}" data-p="{}"/>"#,
+            if aux { " f-aux" } else { "" },
+            p.0,
+            p.1,
+            if aux { AUX } else { INK },
+            esc(&dn(i as u32))
         );
     }
     s.push_str("</svg>\n");

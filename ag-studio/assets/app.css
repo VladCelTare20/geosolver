@@ -237,6 +237,9 @@ kbd { font-family: var(--font-ui); font-size: var(--fs-12); font-weight: 500; pa
 
 @media (pointer: coarse) {
   :root { --target: 44px; }
+  .filter { min-height: 40px; padding: 0 14px; }
+  .cite { min-width: 32px; height: 32px; }
+  .hist-del { width: 44px !important; height: 44px !important; }
   .seg > button, .seg > a { min-height: 38px; }
   .btn-sm { min-height: 40px; }
 }
