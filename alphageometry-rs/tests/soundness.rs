@@ -455,3 +455,141 @@ fn classical_rules_do_not_prove_near_misses() {
         }
     }
 }
+
+/// The same false neighbours against the rollout search (several points at
+/// once, coincidence-ranked) for a few seconds each.
+#[test]
+fn rollout_search_does_not_prove_false_neighbours() {
+    let orthic = "A B C = triangle\nFa = foot(A, line(B, C))\nFb = foot(B, line(C, A))\n\
+                  Fc = foot(C, line(A, B))\nMa = midpoint(B, C)\n";
+    let excenter = "A B C = triangle\nI = incenter(A, B, C)\nIa = excenter(A, B, C)\n";
+    let falsehoods = [
+        format!("{orthic}prove cyclic(Fa, Fb, Fc, A)"),
+        format!("{orthic}prove eqangle(Fa, Fb, Fa, Fc, A, B, A, C)"),
+        format!("{excenter}prove cyclic(A, I, C, Ia)"),
+    ];
+    for src in falsehoods {
+        let problem = compile(&src).unwrap().problem;
+        let found = bounded(120, move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            ddar::aux_search::solve_max_until(&problem, false, Some(deadline)).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("the rollout search proved a false statement with {used:?}:\n{src}");
+        }
+    }
+}
+
+fn fmt_pt(name: &str, x: f64, y: f64) -> String {
+    format!("{name}@{x:.17}_{y:.17}")
+}
+
+/// Each new auxiliary kind (virtual lines met with figure objects, harmonic
+/// conjugates, intersections with circles the closure proved) next to a free
+/// point `k` that only *happens* to satisfy the goal relation in the sampled
+/// coordinates. The coincidence ranking puts exactly the candidates through `k`
+/// first; none may assert the coincidence, so neither DDAR nor the rollout
+/// search may prove the goal.
+#[test]
+fn new_aux_kinds_do_not_assume_numeric_coincidences() {
+    use ddar::aux_search::{candidate_pool, solve_max_until, Kind, WarmBase};
+    let free = format!(
+        "{} {} {} = ",
+        fmt_pt("d", -0.7, 0.9),
+        fmt_pt("e", 1.6, -0.8),
+        fmt_pt("g", 0.2, -1.1)
+    );
+    let (a, b, c) = ((0.0f64, 0.0f64), (1.3f64, 0.2f64), (0.4f64, 1.1f64));
+    let base = format!(
+        "{} {} {} = ; {free}",
+        fmt_pt("a", a.0, a.1),
+        fmt_pt("b", b.0, b.1),
+        fmt_pt("c", c.0, c.1)
+    );
+    let (ux, uy) = (b.0 - a.0, b.1 - a.1);
+    let para_k = (c.0 + 0.8 * ux, c.1 + 0.8 * uy);
+    let perp_k = (c.0 - 0.7 * uy, c.1 + 0.7 * ux);
+    let (tx, ty) = (0.6f64, 0.8f64);
+    let tangent_k = (tx - 0.9 * ty, ty + 0.9 * tx);
+    let th = |p: (f64, f64)| p.1.atan2(p.0);
+    let q = (-0.5f64, 0.8f64);
+    let iso = th(b) + th(c) - th(q);
+    let iso_k = (1.1 * iso.cos(), 1.1 * iso.sin());
+    let (ha, hb, hc) = (0.0f64, 2.0f64, 0.5f64);
+    let hk = (2.0 * ha * hb - hc * (ha + hb)) / (ha + hb - 2.0 * hc);
+    let cases: Vec<(Kind, String)> = vec![
+        (Kind::ParaMeet, format!("{base}; {} = ? para c k a b", fmt_pt("k", para_k.0, para_k.1))),
+        (Kind::PerpMeet, format!("{base}; {} = ? perp c k a b", fmt_pt("k", perp_k.0, perp_k.1))),
+        (
+            Kind::TangentMeet,
+            format!(
+                "o@0.0_0.0 x@1.0_0.0 = ; {} = cong o t o x; {free}; {} = ? perp o t t k",
+                fmt_pt("t", tx, ty),
+                fmt_pt("k", tangent_k.0, tangent_k.1)
+            ),
+        ),
+        (
+            Kind::IsogonalMeet,
+            format!(
+                "{base}; {} = ; {} = ? eqangle a b a k a q a c",
+                fmt_pt("q", q.0, q.1),
+                fmt_pt("k", iso_k.0, iso_k.1)
+            ),
+        ),
+        (
+            Kind::Harmonic,
+            format!(
+                "a@0.0_0.0 b@2.0_0.0 = ; c@0.5_0.0 = coll a b c; {free}; {} = coll a b k ? eqratio c a c b k a k b",
+                fmt_pt("k", hk, 0.0)
+            ),
+        ),
+        (
+            Kind::CircleCircle,
+            format!(
+                "o@0.0_0.0 x@1.0_0.0 = ; y@0.0_1.0 = cong o y o x; z@-1.0_0.0 = cong o z o x; \
+                 w@1.0_0.5 = ; {} = cong w u w o; {free}; k@0.6_-0.8 = ? cong o k o x",
+                fmt_pt("u", 1.0, 0.5 + 1.25f64.sqrt())
+            ),
+        ),
+    ];
+    for (kind, src) in cases {
+        let problem = Problem::parse(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert!(!solve_problem(&problem).unwrap(), "DDAR proved a coincidence:\n{src}");
+        let all = candidate_pool(&problem, 0.0);
+        assert!(
+            all.iter().any(|(_, c)| c.kind == kind),
+            "no {kind:?} candidate generated for\n{src}"
+        );
+        let warm = WarmBase::new(&problem).unwrap();
+        for (_, c) in all.iter().filter(|(_, c)| c.kind == kind) {
+            assert!(!warm.check(c), "`{}` proves a numeric coincidence:\n{src}", c.desc);
+        }
+        let found = bounded(120, move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(4);
+            solve_max_until(&problem, false, Some(deadline)).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("{kind:?}: the aux search proved a numeric coincidence with {used:?}:\n{src}");
+        }
+    }
+}
+
+/// The rollout search adds up to four points at once; a free point that
+/// merely sits on a circle must stay off it whatever combination is tried.
+#[test]
+fn rollouts_do_not_assume_numeric_circle_membership() {
+    let problem = Problem::parse(
+        "o@0.0_0.0 x@1.0_0.0 y@0.0_1.0 = cong o x o y; k@0.6_0.8 = ? cong o k o x",
+    )
+    .unwrap();
+    let found = bounded(120, move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(6);
+        ddar::aux_search::solve_max_until(&problem, false, Some(deadline)).0
+    });
+    if let Some(p) = found {
+        let used: Vec<&str> = p.constructions.iter().map(|c| c.desc.as_str()).collect();
+        panic!("a free point was proved on a circle using {used:?}");
+    }
+}

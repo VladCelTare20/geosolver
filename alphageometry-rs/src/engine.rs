@@ -909,10 +909,21 @@ impl Ddar {
 
     /// Run the fixpoint loop until no new fact is derived.
     pub fn deduction_closure(&mut self) {
+        self.deduction_closure_until(None);
+    }
+
+    /// [`Ddar::deduction_closure`] that gives up between passes once
+    /// `deadline` has passed; returns whether the fixpoint was reached.
+    pub fn deduction_closure_until(&mut self, deadline: Option<std::time::Instant>) -> bool {
         loop {
-            self.base_closure();
+            if !self.base_closure(deadline) {
+                return false;
+            }
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+                return false;
+            }
             if !self.classical_rules() {
-                break;
+                return true;
             }
         }
     }
@@ -941,9 +952,12 @@ impl Ddar {
         changed
     }
 
-    fn base_closure(&mut self) {
+    fn base_closure(&mut self, deadline: Option<std::time::Instant>) -> bool {
         let mut changed = true;
         while changed {
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+                return false;
+            }
             self.update_cache();
             changed = false;
             let mut ids: Option<PairIds> = None;
@@ -975,6 +989,7 @@ impl Ddar {
             changed |= self.search_similitude();
             changed |= self.search_radical_axis();
         }
+        true
     }
 
     /// Centres of similitude (homothety centres) of circle pairs, and the two
@@ -2411,6 +2426,26 @@ impl Ddar {
             }
         }
         false
+    }
+
+    /// Lines of the closure holding at least three points.
+    pub fn proved_lines(&self) -> Vec<Vec<PointId>> {
+        self.live_lines
+            .iter()
+            .map(|&l| &self.lines[l])
+            .filter(|l| l.points.len() >= 3)
+            .map(|l| l.points.clone())
+            .collect()
+    }
+
+    /// Circles of the closure as `(points, centers)`.
+    pub fn proved_circles(&self) -> Vec<(Vec<PointId>, Vec<PointId>)> {
+        self.live_circles
+            .iter()
+            .map(|&c| &self.circles[c])
+            .filter(|c| c.points.len() >= 3 || (!c.centers.is_empty() && !c.points.is_empty()))
+            .map(|c| (c.points.clone(), c.centers.clone()))
+            .collect()
     }
 
     fn check_concyclic(&self, points: &[PointId], centers: &[PointId]) -> bool {
