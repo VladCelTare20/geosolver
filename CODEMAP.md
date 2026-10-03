@@ -9,6 +9,7 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 - `cargo build --release -p ag-studio` — the `agstudio` binary
 - `cargo test --release --workspace` — all tests (~260)
 - `cargo run --release -p alphageometry-rs --bin ddar -- --bench` — must stay 26/26
+- `ddar --corpus corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 --out r.tsv` — honest solve rate on the AG1 corpora (DDAR + aux search, hard per-problem deadline); `--corpus-check` translates only. Keep jobs × threads ≤ 12 on the shared box.
 - `nix build .#geosolver`, `nix develop`
 
 ## Invariants

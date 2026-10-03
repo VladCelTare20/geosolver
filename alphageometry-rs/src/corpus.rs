@@ -191,7 +191,7 @@ pub fn read_corpus(text: &str) -> Result<Vec<(String, String)>, String> {
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .collect();
-    if lines.len() % 2 != 0 {
+    if !lines.len().is_multiple_of(2) {
         return Err(format!(
             "corpus has an odd number of non-empty lines ({}); expected name/statement pairs",
             lines.len()
@@ -287,15 +287,9 @@ pub fn parse_problem(name: &str, text: &str) -> Result<AgProblem, String> {
     })
 }
 
-// ---------------------------------------------------------------------------
-// Numeric geometry
-// ---------------------------------------------------------------------------
-
 #[derive(Clone, Copy, Debug)]
 enum Obj {
-    /// Through `p` with direction `d` (nonzero).
     Line { p: Vec2, d: Vec2 },
-    /// From `p` in direction `d`, `t >= 0` only.
     Ray { p: Vec2, d: Vec2 },
     Circle { c: Vec2, r: f64 },
 }
@@ -305,12 +299,9 @@ enum Sketch {
     Points(Vec<Vec2>),
 }
 
-/// Why one sampling attempt failed.
 #[derive(Debug)]
 enum Fail {
-    /// The sample is degenerate or violates a check — try another seed.
     Retry(String),
-    /// The problem cannot be translated at all.
     Fatal(String),
 }
 
@@ -345,7 +336,7 @@ fn unit_at(t: f64) -> Vec2 {
 }
 fn unit(a: Vec2) -> Res<Vec2> {
     let n = a.norm();
-    if !(n > 1e-12) {
+    if n.is_nan() || n <= 1e-12 {
         return retry("zero-length direction");
     }
     Ok(a * (1.0 / n))
@@ -364,7 +355,7 @@ fn line(a: Vec2, b: Vec2) -> Res<Obj> {
     Ok(Obj::Line { p: a, d: b - a })
 }
 fn line_dir(p: Vec2, d: Vec2) -> Res<Obj> {
-    if !(d.norm() > 1e-12) {
+    if d.norm().is_nan() || d.norm() <= 1e-12 {
         return retry("line with no direction");
     }
     Ok(Obj::Line { p, d })
@@ -447,7 +438,6 @@ fn obj_distance(o: &Obj, x: Vec2) -> f64 {
     }
 }
 
-/// Deterministic xorshift RNG (so a seed reproduces a figure exactly).
 struct Rng(u64);
 impl Rng {
     fn new(seed: u64) -> Rng {
@@ -473,7 +463,6 @@ impl Rng {
     }
 }
 
-/// Current figure, for scale-aware sampling and rejection.
 struct Figure {
     names: Vec<String>,
     coords: HashMap<String, Vec2>,
@@ -487,7 +476,6 @@ impl Figure {
         let n = self.names.len().max(1) as f64;
         self.pts().fold(v(0.0, 0.0), |a, b| a + b) * (1.0 / n)
     }
-    /// Radius of the figure around its centroid (1.0 for an empty figure).
     fn radius(&self) -> f64 {
         if self.names.len() < 2 {
             return 1.0;
@@ -517,7 +505,6 @@ impl Figure {
             Obj::Circle { c, r: cr } => c + unit_at(rng.range(0.0, 2.0 * PI)) * cr,
         }
     }
-    /// AG1's `check_too_close` / `check_too_far`, scaled to the figure.
     fn placement_ok(&self, p: Vec2) -> bool {
         if !(p.x.is_finite() && p.y.is_finite()) {
             return false;
@@ -533,7 +520,6 @@ impl Figure {
     }
 }
 
-/// A nondegenerate random triangle near the unit scale: every angle ≥ 15°.
 fn random_triangle(rng: &mut Rng) -> [Vec2; 3] {
     loop {
         let a = v(rng.range(-1.0, 1.0), rng.range(-1.0, 1.0));
@@ -560,7 +546,6 @@ fn random_segment(rng: &mut Rng) -> [Vec2; 2] {
     [a, b]
 }
 
-/// Incircle (or the excircle opposite `a`) touch points and centre.
 fn tritangent(a: Vec2, b: Vec2, c: Vec2, ex: bool) -> Res<Vec<Vec2>> {
     let la = (b - c).norm();
     let lb = (c - a).norm();
@@ -577,8 +562,6 @@ fn tritangent(a: Vec2, b: Vec2, c: Vec2, ex: bool) -> Res<Vec<Vec2>> {
     Ok(vec![x, y, z, i])
 }
 
-/// Locus of `x` with directed angle `∠(xb → xa) = θ` (mod π), i.e. the circle
-/// through `a`, `b` on which `dir(xa) - dir(xb) ≡ θ`.
 fn angle_locus(a: Vec2, b: Vec2, theta: f64) -> Res<Obj> {
     let t = theta.rem_euclid(PI);
     if t < 1e-6 || PI - t < 1e-6 {
@@ -677,15 +660,12 @@ fn two_lines_one_circle(a: Vec2, b: Vec2, c: Vec2, p: Vec2) -> Res<Vec<Vec2>> {
     Ok(vec![foot(x, a, c - a), foot(x, b, c - b), g, x])
 }
 
-/// One numeric argument: a point or a number literal.
 #[derive(Clone, Copy)]
 enum NArg {
     P(Vec2),
     N(f64),
 }
 
-/// Like AG1's `random_rfss`, a shape built from nothing (`isquare`, `risos`,
-/// ...) is reflected with probability 1/2, so both orientations are sampled.
 fn sketch(name: &str, args: &[NArg], fig: &Figure, rng: &mut Rng) -> Res<Sketch> {
     let out = sketch_raw(name, args, fig, rng)?;
     Ok(match out {
@@ -712,7 +692,6 @@ fn sketch_raw(name: &str, args: &[NArg], fig: &Figure, rng: &mut Rng) -> Res<Ske
     };
     let locus = |o: Res<Obj>| o.map(Locus);
     Ok(match name {
-        // --- loci ---
         "line" => locus(line(p(0)?, p(1)?))?,
         "pline" => locus(line_dir(p(0)?, p(2)? - p(1)?))?,
         "tline" => locus(line_dir(p(0)?, rot90(p(2)? - p(1)?)))?,
@@ -782,7 +761,6 @@ fn sketch_raw(name: &str, args: &[NArg], fig: &Figure, rng: &mut Rng) -> Res<Ske
             }
             Locus(Obj::Ray { p: a, d: a - b })
         }
-        // --- explicit points ---
         "midp" => Points(vec![mid(p(0)?, p(1)?)]),
         "pmirror" => Points(vec![p(1)? * 2.0 - p(0)?]),
         "reflect" => {
@@ -988,11 +966,6 @@ fn sketch_raw(name: &str, args: &[NArg], fig: &Figure, rng: &mut Rng) -> Res<Ske
     })
 }
 
-// ---------------------------------------------------------------------------
-// Numeric predicate checks
-// ---------------------------------------------------------------------------
-
-/// Signed angle difference reduced mod π to (-π/2, π/2].
 fn ang_mod_pi(x: f64) -> f64 {
     let y = x.rem_euclid(PI);
     if y > PI / 2.0 {
@@ -1002,9 +975,6 @@ fn ang_mod_pi(x: f64) -> f64 {
     }
 }
 
-/// Numerically test an AG1 predicate (premise, precondition, or goal) on
-/// coordinates. `scale` is the figure radius (distances are compared
-/// relative to it). `None` for an unknown predicate.
 fn holds(name: &str, x: &[Vec2], nums: &[f64], scale: f64) -> Option<bool> {
     let tol = 1e-7 * scale.max(1e-9);
     let atol = 1e-8;
@@ -1047,7 +1017,6 @@ fn holds(name: &str, x: &[Vec2], nums: &[f64], scale: f64) -> Option<bool> {
         "cyclic" => {
             need(4) && {
                 let mut ok = false;
-                // Use the best-conditioned triple as the reference circle.
                 'outer: for i in 0..x.len() {
                     for j in (i + 1)..x.len() {
                         for k in (j + 1)..x.len() {
@@ -1085,11 +1054,6 @@ fn holds(name: &str, x: &[Vec2], nums: &[f64], scale: f64) -> Option<bool> {
     })
 }
 
-// ---------------------------------------------------------------------------
-// Translation
-// ---------------------------------------------------------------------------
-
-/// An engine predicate with names (resolved to ids at the end).
 #[derive(Clone, Debug)]
 struct NamedPred {
     name: String,
@@ -1117,7 +1081,6 @@ fn parse_rat(s: &str) -> Result<Rat, String> {
         .map_err(|_| format!("bad number `{s}`"))
 }
 
-/// Lower an AG1 premise to engine predicates.
 fn lower_premise(t: &Term) -> Result<Vec<NamedPred>, String> {
     let pts: Vec<String> = t.args.iter().filter(|a| !is_number(a)).cloned().collect();
     let nums: Vec<&String> = t.args.iter().filter(|a| is_number(a)).collect();
@@ -1179,10 +1142,6 @@ fn lower_premise(t: &Term) -> Result<Vec<NamedPred>, String> {
     }
 }
 
-/// Lower an AG1 goal to a conjunction of engine predicates. `orient` reports
-/// whether two point triples have the same orientation in the figure (used to
-/// state `simtri`/`contri` as directed-angle equalities, which imply the
-/// similarity in either case).
 fn lower_goal(t: &Term, same_orientation: impl Fn(&[String]) -> bool) -> Result<Vec<NamedPred>, String> {
     let p = |name: &str, pts: &[&String]| NamedPred {
         name: name.to_string(),

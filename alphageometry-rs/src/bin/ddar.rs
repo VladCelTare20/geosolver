@@ -965,7 +965,7 @@ fn corpus_bench(file: Option<&String>, opts: &Opts) {
             None => statuses.push((o.status.clone(), 1)),
         }
     }
-    statuses.sort_by(|a, b| b.1.cmp(&a.1));
+    statuses.sort_by_key(|s| std::cmp::Reverse(s.1));
     let st: Vec<String> = statuses.iter().map(|(s, k)| format!("{s} {k}")).collect();
     eprintln!("  status:                  {}", st.join(", "));
     if results.iter().any(|o| o.status == "UNSOUND") {

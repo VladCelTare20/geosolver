@@ -288,6 +288,34 @@ manually-provided auxiliary points) are proved by both implementations.
 *(Measured on the same 16-core Windows machine; Python 3.10 + NumPy, Rust 1.94
 release build. Reproduce with the commands below.)*
 
+### Solve rate on the AlphaGeometry corpora
+
+`--bench` times 26 hand-picked rows and so says nothing about *coverage*. The
+honest measure is the original AlphaGeometry test sets, read in their own
+construction language (`corpus/imo_ag_30.txt`, `corpus/jgex_ag_231.txt`; see
+[`src/corpus.rs`](src/corpus.rs)) and solved by the full Euclidean pipeline —
+DDAR, then the auxiliary-point search — with a hard per-problem wall-clock
+deadline (each problem runs in its own process and is killed at the budget
+plus a grace period). A problem counts only if the engine produced a numbered
+proof; `--proofs <dir>` writes every one.
+
+| Corpus | Budget | Proved | DDAR alone | With aux points | AG1 reference |
+| --- | ---: | ---: | ---: | ---: | --- |
+| imo_ag_30 | 120 s | **25/30** | 15 | 10 | DD+AR 14, AlphaGeometry (LM) 25 |
+| jgex_ag_231 | 30 s | **227/231** | 196 | 31 | DD+AR 198, AlphaGeometry 228 |
+
+*(Commit 2e916c7, 4 × 3 threads for imo, 6 × 2 for jgex, on a shared
+i7-11700K. Every problem of both sets translates and its goal holds on the
+sampled figure.)* Unsolved: IMO 2008 P1b, 2008 P6, 2011 P6, 2020 P1, 2021 P3;
+JGEX Morley, Thébault t5, E075-27f, yL182-1.
+
+```sh
+ddar --corpus ../corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 \
+     --out imo.tsv --proofs proofs/
+ddar --corpus-check ../corpus/jgex_ag_231.txt      # translation only
+ddar --corpus-one ../corpus/imo_ag_30.txt translated_imo_2019_p6 --proof
+```
+
 Where the speed comes from:
 
 - **Points are dense integer ids** and every per-pair table is a flat `n×n`
@@ -360,6 +388,8 @@ Bottom-up, each layer is small and independently tested:
 | [`metric`](src/metric.rs) | Metric-goal grammar; Euclidean proof, numeric fallback |
 | [`algebra`](src/algebra.rs) | Exact multivariate polynomials + Wu's-method checker (internal) |
 | [`aux_search`](src/aux_search.rs) | Ranked auxiliary-point construction search |
+| [`corpus`](src/corpus.rs) | Reader for the original AlphaGeometry corpus language (`defs.txt` constructions) |
+| [`bench`](src/bench.rs) | Deadline-bounded, process-isolated solve-rate benchmark |
 | [`svg`](src/svg.rs) | Figure rendering to standalone SVG |
 
 ## Correctness methodology
