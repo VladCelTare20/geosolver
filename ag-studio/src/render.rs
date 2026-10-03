@@ -419,7 +419,7 @@ mod tests {
         let at = text.find("/MediaBox").expect("MediaBox");
         let nums: Vec<f32> = text[at + 9..]
             .trim_start_matches([' ', '['])
-            .split(|c: char| c == ']')
+            .split(']')
             .next()
             .unwrap()
             .split_whitespace()

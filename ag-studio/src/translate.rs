@@ -874,7 +874,7 @@ mod tests {
         // Dead = gone or a zombie awaiting its (re)parent's reap.
         let alive = || {
             std::fs::read_to_string(format!("/proc/{}/stat", pid.trim()))
-                .map(|st| st.rsplit(')').next().unwrap_or("").trim_start().chars().next() != Some('Z'))
+                .map(|st| !st.rsplit(')').next().unwrap_or("").trim_start().starts_with('Z'))
                 .unwrap_or(false)
         };
         let until = std::time::Instant::now() + Duration::from_secs(3);
@@ -894,11 +894,11 @@ mod tests {
         let all = |_: &Path| true;
         let path_var = std::env::join_paths([a.path()]).unwrap();
 
-        let got = find_claude_from(Some(env_bin.clone().into()), Some(path_var.clone()), &[fallback.clone()], all);
+        let got = find_claude_from(Some(env_bin.clone().into()), Some(path_var.clone()), std::slice::from_ref(&fallback), all);
         assert_eq!(got, Some(env_bin.clone()));
-        let got = find_claude_from(None, Some(path_var.clone()), &[fallback.clone()], all);
+        let got = find_claude_from(None, Some(path_var.clone()), std::slice::from_ref(&fallback), all);
         assert_eq!(got, Some(on_path.clone()));
-        let got = find_claude_from(None, None, &[fallback.clone()], all);
+        let got = find_claude_from(None, None, std::slice::from_ref(&fallback), all);
         assert_eq!(got, Some(fallback.clone()));
         // An explicit AGSTUDIO_CLAUDE_BIN that does not run is not silently replaced.
         let none = |p: &Path| p != env_bin.as_path();

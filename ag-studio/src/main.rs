@@ -232,14 +232,16 @@ fn prepare(cmd: &str, args: &[String], switches: &[&str], valued: &[&str]) -> Re
         }
     };
     let source = load_program(&program)?;
-    let mut opts = SolveOptions::default();
-    opts.kind = if parsed.has("--low-level") {
-        InputKind::LowLevel
-    } else {
-        InputKind::detect(&source)
+    let mut opts = SolveOptions {
+        kind: if parsed.has("--low-level") {
+            InputKind::LowLevel
+        } else {
+            InputKind::detect(&source)
+        },
+        want_proof: !parsed.has("--no-proof"),
+        title: parsed.get("--title").map(str::to_string),
+        ..SolveOptions::default()
     };
-    opts.want_proof = !parsed.has("--no-proof");
-    opts.title = parsed.get("--title").map(str::to_string);
     let out = out_flags(&parsed);
     let mut light = false;
     match theme {
