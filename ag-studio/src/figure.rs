@@ -586,7 +586,10 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             ("perp", 4) => {
                 gseg(p[0], p[1], &mut goal_els);
                 gseg(p[2], p[3], &mut goal_els);
-                if let Some((d, pts)) = right_angle(p[0], p[1], p[2], p[3]) {
+                let (u, v) = (sub(scr[p[1] as usize], scr[p[0] as usize]), sub(scr[p[3] as usize], scr[p[2] as usize]));
+                let cos = (u.0 * v.0 + u.1 * v.1).abs() / (len(u) * len(v)).max(1e-9);
+                let holds = cos < 0.02;
+                if let Some((d, pts)) = right_angle(p[0], p[1], p[2], p[3]).filter(|_| holds) {
                     goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 1.8, pts: gp.clone(), centre: None });
                 }
             }

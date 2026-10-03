@@ -240,6 +240,42 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
     }
 }
 
+/// An auxiliary construction in words (`midpoint of BC`), falling back to the
+/// engine's own notation for kinds without a template.
+pub fn aux_text(a: &Value, lang: Lang) -> String {
+    let raw = a["text"].as_str().unwrap_or("").to_string();
+    let kind = a["kind"].as_str().unwrap_or("");
+    let key = format!("aux.{kind}");
+    let template = i18n::t(lang, &key);
+    if template == i18n::t(lang, "aux.__none__") {
+        return raw;
+    }
+    let circle_words = |x: &str| -> String {
+        for (f, k) in [("circumcircle(", "aux.circumcircle"), ("circle(", "aux.circle")] {
+            if let Some(inner) = x.strip_prefix(f).and_then(|r| r.strip_suffix(')')) {
+                let mut s = i18n::t(lang, k).to_string();
+                for (i, p) in inner.split(',').map(str::trim).enumerate() {
+                    s = s.replace(&format!("{{{i}}}"), p);
+                }
+                return s;
+            }
+        }
+        x.to_string()
+    };
+    let mut args: Vec<String> = a["args"]
+        .as_array()
+        .map(|v| v.iter().filter_map(|x| x.as_str()).map(circle_words).collect())
+        .unwrap_or_default();
+    if matches!(kind, "midpoint" | "circumcenter" | "orthocenter" | "parallelogram") {
+        args = args.iter().flat_map(|x| x.split(',').map(|s| s.trim().to_string()).collect::<Vec<_>>()).collect();
+    }
+    let mut s = template.to_string();
+    for (i, p) in args.iter().enumerate() {
+        s = s.replace(&format!("{{{i}}}"), p);
+    }
+    if s.contains('{') { raw } else { s }
+}
+
 fn rule_text(step: &Value, lang: Lang) -> String {
     match (step["rule"].as_str().unwrap_or("other"), step["rule_name"].as_str()) {
         ("theorem", Some(name)) => name.to_string(),
@@ -354,8 +390,9 @@ pub fn report_from_json(v: &Value, lang: Lang) -> String {
     y += card_h + 22.0;
 
     let mut meta: Vec<String> = vec![fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang)];
-    if let Some(n) = v["proof_steps"].as_u64() {
-        meta.push(i18n::tf(lang, "report.steps", &[("n", n.to_string())]));
+    let shown_steps = view["proof"]["steps"].as_array().map_or(0, Vec::len);
+    if status == "proved" && shown_steps > 0 {
+        meta.push(i18n::tf(lang, "report.steps", &[("n", shown_steps.to_string())]));
     }
     text(&mut body, MARGIN, y, 12.0, 400, MUTED, SANS, &meta.join("  \u{b7}  "));
     y += 16.0;
@@ -428,11 +465,7 @@ pub fn report_from_json(v: &Value, lang: Lang) -> String {
     if let Some(aux) = view["aux"].as_array().filter(|a| !a.is_empty()) {
         section(&mut body, &mut y, i18n::t(lang, "report.aux"));
         for a in aux {
-            let line = format!(
-                "{} = {}",
-                a["name"].as_str().unwrap_or(""),
-                a["text"].as_str().unwrap_or("")
-            );
+            let line = format!("{}: {}", a["name"].as_str().unwrap_or(""), aux_text(a, lang));
             for l in wrap(&line, cols) {
                 text(&mut body, MARGIN, y, BODY_FS, 400, "#b45309", SANS, &l);
                 y += LEADING;

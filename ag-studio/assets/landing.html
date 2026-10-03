@@ -1,481 +1,206 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#16181b" media="(prefers-color-scheme: dark)" />
-<meta name="description" content="GeoSolver turns a photographed or described geometry problem into a labeled figure and a complete, human-readable proof." />
-<script>/* no-flash: hide until the stored language is applied (only when non-default) */
-(function(){try{var l=localStorage.getItem('lang')||'en';document.documentElement.lang=l;
-document.documentElement.setAttribute('data-lang',l);if(l!=='en'){document.documentElement.style.visibility='hidden';
-setTimeout(function(){document.documentElement.style.visibility='';},1000);}}catch(e){}})();</script>
-<title>GeoSolver — geometry, proved</title>
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="%232456a6" stroke-width="2"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="%232456a6" stroke-width="2" stroke-linejoin="round"/></svg>' />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f7f5">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="GeoSolver draws the labelled figure of a geometry problem and searches for a proof in which every step is machine-checked.">
+<script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);if(localStorage.getItem('lang')==='ro'){d.lang='ro';d.setAttribute('data-lang','ro');d.classList.add('i18n-pending');setTimeout(function(){d.classList.remove('i18n-pending');},800);}}catch(e){}})();</script>
+<title>GeoSolver — geometry proofs you can check</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%231f4fa0' stroke-width='2.2'/%3E%3Cpath d='M16 4.6 26.2 22H5.8Z' fill='none' stroke='%231f4fa0' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/stix-two-text.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/app.css">
 <style>
-  :root {
-    --paper: #f7f7f5; --card: #ffffff; --well: #f2f2ef;
-    --ink: #1b1f24; --muted: #61686f; --line: #e3e4e1; --line-strong: #cfd1cd;
-    --accent: #2456a6; --accent-hover: #1c4589; --accent-ink: #ffffff;
-    --ok: #1e7b34;
-    --serif: 'Charter','Bitstream Charter','Iowan Old Style',Georgia,'Times New Roman',serif;
-    --sans: system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-    --mono: ui-monospace,'Cascadia Mono',Consolas,'DejaVu Sans Mono',monospace;
-    --radius: 8px;
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--s5); }
+  .site-header .inner { max-width: 1120px; }
+  .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: var(--s7); align-items: center; padding: var(--s7) 0 var(--s6); }
+  .eyebrow { font-size: var(--fs-13); font-weight: 600; color: var(--accent); letter-spacing: 0.02em; margin-bottom: var(--s3); }
+  .hero h1 { font-family: var(--font-math); font-size: clamp(2rem, 4.4vw, var(--fs-39)); font-weight: 600; line-height: 1.12; letter-spacing: -0.01em; margin-bottom: var(--s4); }
+  .lede { font-size: var(--fs-16); color: var(--text-2); max-width: 52ch; line-height: 1.6; margin-bottom: var(--s5); }
+  .cta { display: flex; gap: var(--s3); flex-wrap: wrap; }
+  .trust { list-style: none; padding: 0; margin: var(--s5) 0 0; display: grid; gap: var(--s2); font-size: var(--fs-14); color: var(--text-2); }
+  .trust li { display: flex; gap: var(--s2); align-items: center; }
+  .trust svg { width: 18px; height: 18px; color: var(--proved); flex: none; }
+  .hero-fig { padding: var(--s3); }
+  .hero-fig .fig-box { aspect-ratio: 1 / 1; position: relative; background: var(--fig-bg); border-radius: var(--r-control); overflow: hidden; }
+  .hero-fig .fig-box > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-fig figcaption { display: flex; gap: var(--s2); align-items: center; justify-content: space-between; flex-wrap: wrap; padding: var(--s3) var(--s2) var(--s1); font-size: var(--fs-13); color: var(--text-2); }
+  .section { padding: var(--s7) 0; }
+  .section h2 { font-family: var(--font-math); font-size: clamp(1.5rem, 3vw, var(--fs-31)); font-weight: 600; margin-bottom: var(--s2); letter-spacing: -0.005em; }
+  .section .sub { color: var(--text-2); max-width: 66ch; margin-bottom: var(--s5); font-size: var(--fs-16); }
+  .case-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+  .case-head h3 { font-size: var(--fs-16); font-weight: 650; margin-right: auto; }
+  .case-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
+  .case-text { padding: var(--s5); display: grid; gap: var(--s4); align-content: start; border-right: 1px solid var(--border); }
+  .statement-text { font-family: var(--font-math); font-size: 1.1rem; line-height: 1.6; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2); }
+  .stat { padding: var(--s3) var(--s2); border: 1px solid var(--border); border-radius: var(--r-control); background: var(--surface-2); text-align: center; }
+  .stat .n { font-size: var(--fs-20); font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: var(--fs-12); color: var(--text-2); line-height: 1.3; margin-top: 2px; }
+  .case-fig { position: relative; }
+  .case-fig .sticky { position: sticky; top: calc(var(--header-h) + var(--s3)); padding: var(--s3); }
+  .case-fig .fig-viewport { height: min(70vh, 560px); border-radius: var(--r-control); border: 1px solid var(--border); flex: none; }
+  .case-fig .fig-tools { justify-content: flex-end; margin-top: var(--s2); }
+  .more { margin-top: var(--s3); }
+  .features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s4); }
+  .feature { padding: var(--s5); display: grid; gap: var(--s2); align-content: start; }
+  .feature .f-ic { width: 36px; height: 36px; border-radius: var(--r-control); display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); margin-bottom: var(--s2); }
+  .feature .f-ic svg { width: 20px; height: 20px; }
+  .feature h3 { font-size: var(--fs-16); font-weight: 650; }
+  .feature p { color: var(--text-2); font-size: var(--fs-14); }
+  .how { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); counter-reset: how; }
+  .how li { padding: var(--s5); display: grid; gap: var(--s2); align-content: start; counter-increment: how; }
+  .how li::before { content: counter(how); width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: var(--fs-14); margin-bottom: var(--s2); }
+  .how h3 { font-size: var(--fs-16); font-weight: 650; }
+  .how p { color: var(--text-2); }
+  .how code { font-family: var(--font-mono); font-size: 0.92em; }
+  .closing { text-align: center; padding: var(--s7) var(--s5); display: grid; gap: var(--s3); justify-items: center; margin-bottom: var(--s7); }
+  .closing h2 { font-family: var(--font-math); font-size: clamp(1.5rem, 3vw, var(--fs-31)); font-weight: 600; }
+  .closing p { color: var(--text-2); }
+  .header-cta { display: flex; gap: var(--s2); align-items: center; }
+  @media (max-width: 1000px) {
+    .hero { grid-template-columns: 1fr; gap: var(--s5); padding-top: var(--s6); }
+    .hero-fig { max-width: 560px; }
+    .case-body { grid-template-columns: 1fr; }
+    .case-text { border-right: 0; border-bottom: 1px solid var(--border); }
+    .case-fig { order: -1; border-bottom: 1px solid var(--border); }
+    .case-fig .sticky { position: static; }
+    .case-fig .fig-viewport { height: min(60vh, 460px); }
+    .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .how { grid-template-columns: 1fr; }
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #16181b; --card: #1d2024; --well: #191c1f;
-      --ink: #e6e8ea; --muted: #9aa2aa; --line: #2b2f34; --line-strong: #3b4046;
-      --accent: #86abdd; --accent-hover: #9dbce6; --accent-ink: #10131a;
-      --ok: #63b077;
-    }
-  }
-  * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; background:var(--paper); color:var(--ink); font-family:var(--sans);
-    -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent; overflow-x:hidden; }
-  body { min-height:100vh; font-size:15px; line-height:1.5; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* !important: .figure-card svg's display:block would otherwise tie on
-     specificity and win by order. */
-  svg.sc-dark { display:none !important; }
-  @media (prefers-color-scheme: dark) {
-    svg.sc-light { display:none !important; }
-    svg.sc-dark { display:block !important; }
-  }
-
-  header { max-width:1100px; margin:0 auto; padding:calc(22px + env(safe-area-inset-top)) 28px 0;
-    display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
-  .wordmark { display:flex; align-items:center; gap:11px; }
-  .wordmark svg { width:26px; height:26px; color:var(--accent); flex:none; }
-  .wordmark .name { font-family:var(--serif); font-size:21px; font-weight:600; letter-spacing:.01em; white-space:nowrap; }
-  header nav { display:flex; gap:8px; }
-  header nav a { display:inline-flex; align-items:center; font-size:14px; font-weight:600; padding:8px 16px; border-radius:6px; color:var(--ink); white-space:nowrap; border:1px solid transparent; }
-  header nav a:not(.primary) { border-color:var(--line-strong); }
-  header nav a.primary { background:var(--accent); color:var(--accent-ink); }
-  header nav a.primary:hover { background:var(--accent-hover); text-decoration:none; }
-  header nav a:not(.primary):hover { background:var(--well); border-color:var(--accent); color:var(--accent); text-decoration:none; }
-  /* push the language toggle + Sign in to the right of the wordmark */
-  .lang-seg { margin-left:auto; display:inline-flex; height:37px; border:1px solid var(--line-strong); border-radius:6px; overflow:hidden; }
-  .lang-seg button { border:none; background:transparent; color:var(--muted); font:inherit; font-size:12.5px;
-    font-weight:700; letter-spacing:.03em; padding:0 11px; cursor:pointer; }
-  .lang-seg button + button { border-left:1px solid var(--line-strong); }
-  .lang-seg button:hover { color:var(--accent); }
-  .lang-seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
-
-  main { max-width:1100px; margin:0 auto; padding:52px 28px 40px; }
-  .hero { display:grid; grid-template-columns:1.05fr 1fr; gap:44px; align-items:center; }
-  .hero h1 { font-family:var(--serif); font-size:clamp(28px, 5vw, 42px); line-height:1.16; margin:0 0 16px; font-weight:600; }
-  .hero p.lede { color:var(--muted); font-size:16.5px; line-height:1.6; margin:0 0 24px; max-width:48ch; }
-  .cta { display:flex; gap:12px; flex-wrap:wrap; }
-  .cta a { display:inline-flex; align-items:center; justify-content:center; padding:12px 22px; border-radius:7px; font-weight:600; font-size:15px; text-align:center; }
-  .cta a.primary { background:var(--accent); color:var(--accent-ink); }
-  .cta a.primary:hover { background:var(--accent-hover); text-decoration:none; }
-  .cta a.ghost { border:1px solid var(--line-strong); color:var(--ink); }
-  .cta a.ghost:hover { border-color:var(--accent); color:var(--accent); text-decoration:none; }
-  .trustline { display:flex; gap:8px 22px; flex-wrap:wrap; margin-top:26px; color:var(--muted); font-size:13px; }
-  .trustline span { display:inline-flex; align-items:center; gap:7px; }
-  .trustline svg { width:15px; height:15px; color:var(--ok); flex:none; }
-
-  .figure-card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 16px 12px; }
-  .figure-card svg { width:100%; height:auto; display:block; border-radius:6px; }
-  .figure-card .cap { color:var(--muted); font-size:12.5px; text-align:center; margin-top:10px; font-family:var(--mono);
-    display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; }
-  .figure-card .cap .ok { color:var(--ok); font-weight:700; font-family:var(--sans); }
-
-  .sec-title { font-family:var(--serif); font-size:clamp(22px, 3.6vw, 28px); font-weight:600; margin:0 0 6px; }
-  .sec-sub { color:var(--muted); font-size:15px; margin:0 0 26px; max-width:64ch; }
-
-  /* ---------- IMO showcase ---------- */
-  .showcase { margin-top:84px; }
-  .case { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  .case .head { padding:16px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .case .head h3 { font-family:var(--serif); font-size:19px; font-weight:600; margin:0; }
-  .badge { font-size:12px; font-weight:600; padding:4px 11px; border-radius:999px; white-space:nowrap; }
-  .badge.hard { background:color-mix(in srgb, var(--accent) 12%, transparent); color:var(--accent); }
-  .badge.ok { background:color-mix(in srgb, var(--ok) 14%, transparent); color:var(--ok); }
-  .case .body { padding:22px; display:grid; grid-template-columns:1fr 1fr; gap:26px; align-items:start; }
-  .case .body > div { min-width:0; }
-  .statement { font-family:var(--serif); font-size:15.5px; line-height:1.65; margin:0 0 18px; }
-  .statement em { font-style:normal; font-weight:600; }
-  .stats { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:0 0 18px; }
-  .stat { background:var(--well); border:1px solid var(--line); border-radius:8px; padding:10px 8px; text-align:center; min-width:0; }
-  .stat .n { font-family:var(--serif); font-size:19px; font-weight:600; color:var(--ink); }
-  .stat .l { font-size:11px; color:var(--muted); margin-top:2px; line-height:1.3; }
-  .insight { border-left:3px solid var(--accent); background:var(--well); border-radius:0 8px 8px 0;
-    padding:12px 14px; font-size:13.5px; line-height:1.55; color:var(--ink); margin:0 0 18px; }
-  .insight b { color:var(--accent); }
-  .insight code { font-family:var(--mono); font-size:12.5px; word-break:break-word; }
-  details.proof { border:1px solid var(--line); border-radius:8px; background:var(--well); }
-  details.proof summary { cursor:pointer; padding:12px 16px; font-size:13.5px; font-weight:600; color:var(--ink); }
-  details.proof summary:hover { color:var(--accent); }
-  details.proof[open] summary { border-bottom:1px solid var(--line); }
-  details.proof pre { margin:0; padding:14px 16px; font-family:var(--mono); font-size:12px; line-height:1.65;
-    overflow-x:auto; white-space:pre; max-height:420px; overflow-y:auto; }
-  .qed { font-family:var(--serif); font-weight:700; }
-  .proof-prose { font-family:var(--serif); font-size:14.5px; line-height:1.72; color:var(--ink);
-    padding:16px 18px; margin:0; max-height:440px; overflow-y:auto; }
-  .proof-prose p { margin:0 0 12px; }
-  .proof-prose p:last-child { margin-bottom:0; }
-  .proof-prose em { font-style:italic; }
-  .proof-prose strong { font-weight:700; }
-
-  /* ---------- features ---------- */
-  .features { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; margin-top:26px; }
-  .feature { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; min-width:0; }
-  .feature .icon { width:30px; height:30px; color:var(--accent); margin-bottom:12px; }
-  .feature h3 { font-family:var(--serif); font-size:16.5px; margin:0 0 7px; font-weight:600; }
-  .feature p { color:var(--muted); font-size:13.5px; line-height:1.55; margin:0; overflow-wrap:break-word; }
-
-  /* ---------- how it works ---------- */
-  .how { margin-top:84px; }
-  .steps { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; counter-reset:step; }
-  .step { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; position:relative; min-width:0; }
-  .step::before { counter-increment:step; content:counter(step);
-    display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%;
-    background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:14px; margin-bottom:12px; }
-  .step h3 { font-family:var(--serif); font-size:16.5px; margin:0 0 7px; font-weight:600; }
-  .step p { color:var(--muted); font-size:13.5px; line-height:1.55; margin:0; overflow-wrap:break-word; }
-  .step code { font-family:var(--mono); font-size:12px; word-break:break-word; }
-
-  .closing { margin-top:84px; text-align:center; background:var(--card); border:1px solid var(--line);
-    border-radius:12px; padding:44px 24px; }
-  .closing h2 { font-family:var(--serif); font-size:clamp(22px, 4vw, 30px); font-weight:600; margin:0 0 10px; }
-  .closing p { color:var(--muted); margin:0 auto 22px; max-width:52ch; }
-
-  footer { max-width:1100px; margin:0 auto; padding:24px 28px calc(36px + env(safe-area-inset-bottom));
-    color:var(--muted); font-size:13px; text-align:center; }
-
-  @media (max-width:920px) {
-    .hero { grid-template-columns:1fr; gap:30px; }
-    .case .body { grid-template-columns:1fr; }
-    .features { grid-template-columns:1fr 1fr; }
-    .steps { grid-template-columns:1fr; }
-    main { padding:36px 18px 24px; }
-    header { padding:calc(18px + env(safe-area-inset-top)) 16px 0; }
-    .showcase, .how, .closing { margin-top:56px; }
-  }
-  @media (max-width:520px) {
-    .features { grid-template-columns:1fr; }
-    .stats { grid-template-columns:repeat(2, minmax(0,1fr)); }
-    header nav a { padding:8px 12px; font-size:13.5px; }
-    .cta a { flex:1; text-align:center; }
+  @media (max-width: 600px) {
+    .wrap { padding: 0 var(--s4); }
+    .features { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .case-text { padding: var(--s4); }
+    .case-head { padding: var(--s3) var(--s4); }
+    .cta .btn { flex: 1 1 100%; }
+    .header-cta .btn { padding: 0 var(--s3); }
+    .section { padding: var(--s6) 0; }
   }
 </style>
+<script src="/assets/i18n.js"></script>
 </head>
 <body>
-<header>
-  <div class="wordmark">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-    <span class="name">GeoSolver</span>
+<a class="skip-link" href="#main" data-i18n="nav.skip">Skip to content</a>
+<header class="site-header">
+  <div class="inner">
+    <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <span>GeoSolver</span>
+    </a>
+    <div class="spacer"></div>
+    <div class="header-cta">
+      <div class="seg lang-seg" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+        <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
+        <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
+      </div>
+      <button type="button" class="icon-btn" data-theme-toggle aria-label="Colour theme"></button>
+      <a class="btn btn-secondary btn-sm" href="/auth" data-i18n="nav.signin">Sign in</a>
+    </div>
   </div>
-  <div class="lang-seg" role="group" aria-label="Language / Limbă">
-    <button type="button" data-lang-set="en" aria-pressed="true">EN</button>
-    <button type="button" data-lang-set="ro" aria-pressed="false">RO</button>
-  </div>
-  <nav>
-    <a href="/auth?mode=login" data-i18n="nav.signin">Sign in</a>
-  </nav>
 </header>
-<main>
-  <section class="hero">
-    <div>
-      <h1 data-i18n="hero.h1">Geometry, proved while you watch.</h1>
-      <p class="lede" data-i18n="hero.lede">Photograph or describe a geometry problem and GeoSolver returns a
-        labeled figure and a complete, human-readable proof — powered by a from-scratch
-        Rust implementation of the AlphaGeometry deduction engine.</p>
-      <div class="cta">
-        <a class="primary" href="/auth?mode=register" data-i18n="hero.cta_create">Create a free account</a>
-      </div>
-      <div class="trustline">
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="trust.ms">proofs in milliseconds</span></span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="trust.local">runs 100% locally</span></span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="trust.checked">every step machine-checked</span></span>
-      </div>
-    </div>
-    <div class="figure-card">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 40 560 447" class="sc-light" role="img" aria-label="Figure for IMO 2023 Problem 2, solved by GeoSolver" font-family="Helvetica, Arial, sans-serif">
-<defs><clipPath id="figclip-sc-light"><rect x="40" y="40" width="560" height="447" rx="10"/></clipPath></defs>
-<g clip-path="url(#figclip-sc-light)">
-<line x1="279.9" y1="251.1" x2="67.7" y2="286.8" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="382.3" y2="263.5" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="193.3" y2="186.3" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="572.3" y2="338.1" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="387.8" y2="256.9" stroke="#b45309" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="6 5"/>
-<line x1="348.4" y1="62.2" x2="193.3" y2="186.3" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="348.4" y1="62.2" x2="387.8" y2="256.9" stroke="#b45309" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="6 5"/>
-<line x1="193.3" y1="186.3" x2="298.2" y2="200.5" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="227.2" y2="396.2" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="178.4" y2="296.4" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="382.3" y2="263.5" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="67.7" y1="286.8" x2="178.4" y2="296.4" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="572.3" y2="338.1" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="279.9" y1="251.1" x2="178.4" y2="296.4" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="334.2" y2="281.2" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="572.3" y1="338.1" x2="382.3" y2="263.5" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="193.3" y1="186.3" x2="178.4" y2="296.4" stroke="#aab6c1" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="245.4" y1="82.2" x2="425.8" y2="486.4" stroke="#465059" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="420.2" y1="488.9" x2="344.4" y2="38.1" stroke="#465059" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="219.9" y1="416.2" x2="355.7" y2="42.2" stroke="#465059" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="251.5" y1="82.8" x2="317.9" y2="477.1" stroke="#465059" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="329.1" y1="466.1" x2="53.0" y2="276.7" stroke="#465059" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="219.9" y1="416.2" x2="355.7" y2="42.2" stroke="#465059" stroke-width="1.6" stroke-linecap="round"/>
-<circle cx="382.3" cy="263.5" r="204.1" fill="none" stroke="#2a6fb0" stroke-width="1.6" opacity="0.85"/>
-<circle cx="178.4" cy="296.4" r="111.1" fill="none" stroke="#2a6fb0" stroke-width="1.6" opacity="0.85"/>
-<polyline points="300.3,372.7 311.2,370.9 313.0,381.8" fill="none" stroke="#5a6672" stroke-width="1.3"/>
-<polyline points="204.2,187.8 202.8,198.7 191.9,197.2" fill="none" stroke="#5a6672" stroke-width="1.3"/>
-<line x1="205.3" y1="292.0" x2="215.2" y2="290.5" stroke="#5a6672" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="304.2" y1="322.8" x2="310.8" y2="330.3" stroke="#b45309" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="275.6" y1="126.9" x2="269.3" y2="119.1" stroke="#5a6672" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="272.4" y1="129.4" x2="266.2" y2="121.6" stroke="#5a6672" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="372.6" y1="156.6" x2="362.8" y2="158.6" stroke="#b45309" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="373.4" y1="160.5" x2="363.6" y2="162.5" stroke="#b45309" stroke-width="1.4" stroke-linecap="round"/>
-<polyline points="399.0,362.7 404.2,366.4 400.5,371.6" fill="none" stroke="#5a6672" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-<polyline points="174.6,273.4 169.4,269.7 173.1,264.5" fill="none" stroke="#5a6672" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M255.1,103.9 L253.2,123.8 L253.7,123.8 L254.2,123.9 L254.7,123.9 L255.2,123.9 L255.8,123.9 L256.3,123.8 L256.8,123.8 L257.3,123.8 L257.8,123.7 L258.3,123.6 L258.8,123.5 L259.3,123.4 L259.8,123.3 L260.3,123.2 L260.8,123.0 L261.3,122.9 L261.8,122.7 L262.3,122.5 L262.8,122.4 L263.2,122.1Z" fill="#1f77b4" fill-opacity="0.30" stroke="#1f77b4" stroke-width="1.2" stroke-opacity="0.9"/>
-<path d="M255.1,103.9 L263.2,122.1 L263.7,121.9 L264.2,121.7 L264.6,121.5 L265.1,121.2 L265.5,121.0 L266.0,120.7 L266.4,120.4 L266.8,120.1 L267.2,119.8 L267.6,119.5 L268.0,119.1 L268.4,118.8 L268.8,118.5 L269.2,118.1 L269.5,117.7 L269.9,117.4 L270.2,117.0 L270.5,116.6 L270.9,116.2 L271.2,115.8Z" fill="#1f77b4" fill-opacity="0.30" stroke="#1f77b4" stroke-width="1.2" stroke-opacity="0.9"/>
-<path d="M227.2,396.2 L229.1,376.3 L229.8,376.4 L230.4,376.4 L231.0,376.6 L231.7,376.7 L232.3,376.9 L233.0,377.0 L233.6,377.2 L234.2,377.5 L234.8,377.7 L235.4,377.9 L236.0,378.2 L236.6,378.5 L237.2,378.8 L237.7,379.2 L238.3,379.5 L238.8,379.9 L239.3,380.3 L239.8,380.7 L240.3,381.1 L240.8,381.6Z" fill="#2ca02c" fill-opacity="0.30" stroke="#2ca02c" stroke-width="1.2" stroke-opacity="0.9"/>
-<path d="M227.2,396.2 L240.8,381.6 L241.3,382.0 L241.8,382.5 L242.2,383.0 L242.6,383.5 L243.0,384.0 L243.4,384.5 L243.8,385.0 L244.2,385.6 L244.5,386.1 L244.8,386.7 L245.1,387.3 L245.4,387.9 L245.7,388.5 L245.9,389.1 L246.1,389.7 L246.3,390.3 L246.5,391.0 L246.7,391.6 L246.8,392.2 L246.9,392.9Z" fill="#2ca02c" fill-opacity="0.30" stroke="#2ca02c" stroke-width="1.2" stroke-opacity="0.9"/>
-<line x1="255.1" y1="103.9" x2="227.2" y2="396.2" stroke="#d81f26" stroke-width="2.4" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="298.2" y2="200.5" stroke="#d81f26" stroke-width="2.4" stroke-linecap="round"/>
-<path d="M255.1,103.9 L252.6,129.8 L253.3,129.8 L254.0,129.9 L254.6,129.9 L255.3,129.9 L256.0,129.9 L256.6,129.8 L257.3,129.8 L258.0,129.7 L258.6,129.6 L259.3,129.5 L259.9,129.4 L260.6,129.3 L261.3,129.1 L261.9,129.0 L262.5,128.8 L263.2,128.6 L263.8,128.4 L264.4,128.1 L265.1,127.9 L265.7,127.6Z" fill="#d81f26" fill-opacity="0.30" stroke="#d81f26" stroke-width="1.2" stroke-opacity="0.9"/>
-<line x1="255.1" y1="103.9" x2="298.2" y2="200.5" stroke="#d81f26" stroke-width="2.4" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="572.3" y2="338.1" stroke="#d81f26" stroke-width="2.4" stroke-linecap="round"/>
-<path d="M255.1,103.9 L265.7,127.6 L266.3,127.3 L266.9,127.1 L267.5,126.7 L268.1,126.4 L268.6,126.1 L269.2,125.7 L269.8,125.3 L270.3,125.0 L270.9,124.6 L271.4,124.1 L271.9,123.7 L272.4,123.3 L272.9,122.8 L273.4,122.4 L273.8,121.9 L274.3,121.4 L274.7,120.9 L275.2,120.4 L275.6,119.9 L276.0,119.3Z" fill="#d81f26" fill-opacity="0.30" stroke="#d81f26" stroke-width="1.2" stroke-opacity="0.9"/>
-</g>
-<circle cx="255.1" cy="103.9" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="227.2" cy="396.2" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="572.3" cy="338.1" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="382.3" cy="263.5" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="334.2" cy="281.2" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="416.2" cy="464.8" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="348.4" cy="62.2" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="279.9" cy="251.1" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="314.3" cy="456.0" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="67.7" cy="286.8" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="193.3" cy="186.3" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="178.4" cy="296.4" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="298.2" cy="200.5" r="4.2" fill="#16191d" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="387.8" cy="256.9" r="4.2" fill="#b45309" stroke="#00000022" stroke-width="0.5"/>
-<text x="238.6" y="106.3" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">A</text>
-<text x="210.3" y="401.4" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">B</text>
-<text x="588.1" y="350.8" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">C</text>
-<text x="399.5" y="254.9" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">O</text>
-<text x="349.8" y="280.7" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">I</text>
-<text x="426.0" y="456.8" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">N</text>
-<text x="334.6" y="58.8" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">S</text>
-<text x="296.9" y="257.0" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">D</text>
-<text x="327.3" y="451.5" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">E</text>
-<text x="52.4" y="300.5" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">L</text>
-<text x="184.8" y="178.1" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">P</text>
-<text x="168.8" y="317.3" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">O₁</text>
-<text x="315.2" y="206.4" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#12813a">X</text>
-<text x="403.9" y="273.2" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" fill="#b45309">P′</text>
-</svg>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 40 560 447" class="sc-dark" role="img" aria-label="Figure for IMO 2023 Problem 2, solved by GeoSolver" font-family="Helvetica, Arial, sans-serif">
-<defs><clipPath id="figclip-sc-dark"><rect x="40" y="40" width="560" height="447" rx="10"/></clipPath></defs>
-<g clip-path="url(#figclip-sc-dark)">
-<line x1="279.9" y1="251.1" x2="67.7" y2="286.8" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="382.3" y2="263.5" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="193.3" y2="186.3" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="572.3" y2="338.1" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="387.8" y2="256.9" stroke="#ffc24b" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="6 5"/>
-<line x1="348.4" y1="62.2" x2="193.3" y2="186.3" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="348.4" y1="62.2" x2="387.8" y2="256.9" stroke="#ffc24b" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="6 5"/>
-<line x1="193.3" y1="186.3" x2="298.2" y2="200.5" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="227.2" y2="396.2" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="178.4" y2="296.4" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="382.3" y2="263.5" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="67.7" y1="286.8" x2="178.4" y2="296.4" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="572.3" y2="338.1" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="279.9" y1="251.1" x2="178.4" y2="296.4" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="227.2" y1="396.2" x2="334.2" y2="281.2" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="572.3" y1="338.1" x2="382.3" y2="263.5" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="193.3" y1="186.3" x2="178.4" y2="296.4" stroke="#5c6b7a" stroke-width="1.3" stroke-linecap="round"/>
-<line x1="245.4" y1="82.2" x2="425.8" y2="486.4" stroke="#e8ecf1" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="420.2" y1="488.9" x2="344.4" y2="38.1" stroke="#e8ecf1" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="219.9" y1="416.2" x2="355.7" y2="42.2" stroke="#e8ecf1" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="251.5" y1="82.8" x2="317.9" y2="477.1" stroke="#e8ecf1" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="329.1" y1="466.1" x2="53.0" y2="276.7" stroke="#e8ecf1" stroke-width="1.6" stroke-linecap="round"/>
-<line x1="219.9" y1="416.2" x2="355.7" y2="42.2" stroke="#e8ecf1" stroke-width="1.6" stroke-linecap="round"/>
-<circle cx="382.3" cy="263.5" r="204.1" fill="none" stroke="#37c8d6" stroke-width="1.6" opacity="0.85"/>
-<circle cx="178.4" cy="296.4" r="111.1" fill="none" stroke="#37c8d6" stroke-width="1.6" opacity="0.85"/>
-<polyline points="300.3,372.7 311.2,370.9 313.0,381.8" fill="none" stroke="#c4ccd6" stroke-width="1.3"/>
-<polyline points="204.2,187.8 202.8,198.7 191.9,197.2" fill="none" stroke="#c4ccd6" stroke-width="1.3"/>
-<line x1="205.3" y1="292.0" x2="215.2" y2="290.5" stroke="#c4ccd6" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="304.2" y1="322.8" x2="310.8" y2="330.3" stroke="#ffc24b" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="275.6" y1="126.9" x2="269.3" y2="119.1" stroke="#c4ccd6" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="272.4" y1="129.4" x2="266.2" y2="121.6" stroke="#c4ccd6" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="372.6" y1="156.6" x2="362.8" y2="158.6" stroke="#ffc24b" stroke-width="1.4" stroke-linecap="round"/>
-<line x1="373.4" y1="160.5" x2="363.6" y2="162.5" stroke="#ffc24b" stroke-width="1.4" stroke-linecap="round"/>
-<polyline points="399.0,362.7 404.2,366.4 400.5,371.6" fill="none" stroke="#c4ccd6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-<polyline points="174.6,273.4 169.4,269.7 173.1,264.5" fill="none" stroke="#c4ccd6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M255.1,103.9 L253.2,123.8 L253.7,123.8 L254.2,123.9 L254.7,123.9 L255.2,123.9 L255.8,123.9 L256.3,123.8 L256.8,123.8 L257.3,123.8 L257.8,123.7 L258.3,123.6 L258.8,123.5 L259.3,123.4 L259.8,123.3 L260.3,123.2 L260.8,123.0 L261.3,122.9 L261.8,122.7 L262.3,122.5 L262.8,122.4 L263.2,122.1Z" fill="#4c9be8" fill-opacity="0.30" stroke="#4c9be8" stroke-width="1.2" stroke-opacity="0.9"/>
-<path d="M255.1,103.9 L263.2,122.1 L263.7,121.9 L264.2,121.7 L264.6,121.5 L265.1,121.2 L265.5,121.0 L266.0,120.7 L266.4,120.4 L266.8,120.1 L267.2,119.8 L267.6,119.5 L268.0,119.1 L268.4,118.8 L268.8,118.5 L269.2,118.1 L269.5,117.7 L269.9,117.4 L270.2,117.0 L270.5,116.6 L270.9,116.2 L271.2,115.8Z" fill="#4c9be8" fill-opacity="0.30" stroke="#4c9be8" stroke-width="1.2" stroke-opacity="0.9"/>
-<path d="M227.2,396.2 L229.1,376.3 L229.8,376.4 L230.4,376.4 L231.0,376.6 L231.7,376.7 L232.3,376.9 L233.0,377.0 L233.6,377.2 L234.2,377.5 L234.8,377.7 L235.4,377.9 L236.0,378.2 L236.6,378.5 L237.2,378.8 L237.7,379.2 L238.3,379.5 L238.8,379.9 L239.3,380.3 L239.8,380.7 L240.3,381.1 L240.8,381.6Z" fill="#57c26a" fill-opacity="0.30" stroke="#57c26a" stroke-width="1.2" stroke-opacity="0.9"/>
-<path d="M227.2,396.2 L240.8,381.6 L241.3,382.0 L241.8,382.5 L242.2,383.0 L242.6,383.5 L243.0,384.0 L243.4,384.5 L243.8,385.0 L244.2,385.6 L244.5,386.1 L244.8,386.7 L245.1,387.3 L245.4,387.9 L245.7,388.5 L245.9,389.1 L246.1,389.7 L246.3,390.3 L246.5,391.0 L246.7,391.6 L246.8,392.2 L246.9,392.9Z" fill="#57c26a" fill-opacity="0.30" stroke="#57c26a" stroke-width="1.2" stroke-opacity="0.9"/>
-<line x1="255.1" y1="103.9" x2="227.2" y2="396.2" stroke="#ff5a5f" stroke-width="2.4" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="298.2" y2="200.5" stroke="#ff5a5f" stroke-width="2.4" stroke-linecap="round"/>
-<path d="M255.1,103.9 L252.6,129.8 L253.3,129.8 L254.0,129.9 L254.6,129.9 L255.3,129.9 L256.0,129.9 L256.6,129.8 L257.3,129.8 L258.0,129.7 L258.6,129.6 L259.3,129.5 L259.9,129.4 L260.6,129.3 L261.3,129.1 L261.9,129.0 L262.5,128.8 L263.2,128.6 L263.8,128.4 L264.4,128.1 L265.1,127.9 L265.7,127.6Z" fill="#ff5a5f" fill-opacity="0.30" stroke="#ff5a5f" stroke-width="1.2" stroke-opacity="0.9"/>
-<line x1="255.1" y1="103.9" x2="298.2" y2="200.5" stroke="#ff5a5f" stroke-width="2.4" stroke-linecap="round"/>
-<line x1="255.1" y1="103.9" x2="572.3" y2="338.1" stroke="#ff5a5f" stroke-width="2.4" stroke-linecap="round"/>
-<path d="M255.1,103.9 L265.7,127.6 L266.3,127.3 L266.9,127.1 L267.5,126.7 L268.1,126.4 L268.6,126.1 L269.2,125.7 L269.8,125.3 L270.3,125.0 L270.9,124.6 L271.4,124.1 L271.9,123.7 L272.4,123.3 L272.9,122.8 L273.4,122.4 L273.8,121.9 L274.3,121.4 L274.7,120.9 L275.2,120.4 L275.6,119.9 L276.0,119.3Z" fill="#ff5a5f" fill-opacity="0.30" stroke="#ff5a5f" stroke-width="1.2" stroke-opacity="0.9"/>
-</g>
-<circle cx="255.1" cy="103.9" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="227.2" cy="396.2" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="572.3" cy="338.1" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="382.3" cy="263.5" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="334.2" cy="281.2" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="416.2" cy="464.8" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="348.4" cy="62.2" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="279.9" cy="251.1" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="314.3" cy="456.0" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="67.7" cy="286.8" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="193.3" cy="186.3" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="178.4" cy="296.4" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="298.2" cy="200.5" r="4.2" fill="#ffffff" stroke="#00000022" stroke-width="0.5"/>
-<circle cx="387.8" cy="256.9" r="4.2" fill="#ffc24b" stroke="#00000022" stroke-width="0.5"/>
-<text x="238.6" y="106.3" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">A</text>
-<text x="210.3" y="401.4" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">B</text>
-<text x="588.1" y="350.8" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">C</text>
-<text x="399.5" y="254.9" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">O</text>
-<text x="349.8" y="280.7" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">I</text>
-<text x="426.0" y="456.8" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">N</text>
-<text x="334.6" y="58.8" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">S</text>
-<text x="296.9" y="257.0" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">D</text>
-<text x="327.3" y="451.5" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">E</text>
-<text x="52.4" y="300.5" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">L</text>
-<text x="184.8" y="178.1" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">P</text>
-<text x="168.8" y="317.3" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">O₁</text>
-<text x="315.2" y="206.4" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#9be29b">X</text>
-<text x="403.9" y="273.2" text-anchor="middle" font-size="19" font-weight="600" font-style="italic" paint-order="stroke" stroke="#0b0e13" stroke-width="4" stroke-linejoin="round" fill="#ffc24b">P′</text>
-</svg>
-      <div class="cap"><span class="ok" data-i18n="cap.proven">Proven ∎</span> <span data-i18n="cap.text">IMO 2023, Problem 2 — solved by GeoSolver in 0.94 s</span></div>
-    </div>
-  </section>
 
-  <section class="showcase" aria-label="IMO showcase">
-    <h2 class="sec-title" data-i18n="show.title">Watch it crack a real IMO problem.</h2>
-    <p class="sec-sub" data-i18n="show.sub">This is not a mock-up. GeoSolver proved IMO 2023 Problem 2 — a medal-level
-      contest problem — discovering the key auxiliary constructions on its
-      own. The full machine-checked proof is below.</p>
-    <div class="case">
-      <div class="head">
-        <h3 data-i18n="case.title">IMO 2023 · Problem 2</h3>
-        <span class="badge hard" data-i18n="badge.hard">olympiad hard</span>
-        <span class="badge ok" data-i18n="badge.proven">Proven ∎ in 0.94 s</span>
+<main id="main">
+  <div class="wrap">
+    <section class="hero" aria-labelledby="hero-h">
+      <div>
+        <p class="eyebrow" data-i18n="hero.eyebrow">Olympiad geometry, machine-checked</p>
+        <h1 id="hero-h" data-i18n="hero.h1">Geometry proofs you can check line by line.</h1>
+        <p class="lede" data-i18n="hero.lede">Write or describe a geometry problem. GeoSolver draws the labelled figure and searches for a proof in which every step cites the rule it uses, so you can verify it yourself.</p>
+        <div class="cta">
+          <a class="btn btn-primary btn-lg" href="/auth?mode=register" data-i18n="hero.cta_create">Create a free account</a>
+          <a class="btn btn-secondary btn-lg" href="#showcase" data-i18n="hero.cta_example">See a solved IMO problem</a>
+        </div>
+        <ul class="trust">
+          <li><span data-icon="check"></span><span data-i18n="trust.checked">every numbered step machine-checked</span></li>
+          <li><span data-icon="check"></span><span data-i18n="trust.honest">says so when it cannot prove something</span></li>
+          <li><span data-icon="check"></span><span data-i18n="trust.speed">most textbook problems in under a second</span></li>
+        </ul>
       </div>
-      <div class="body">
-        <div>
-          <p class="statement" data-i18n="case.statement" data-i18n-html>Let <em>ABC</em> be an acute-angled triangle with <em>AB</em> &lt; <em>AC</em>,
-            and let <em>Ω</em> be its circumcircle. Let <em>S</em> be the midpoint of the arc <em>CB</em>
-            of <em>Ω</em> containing <em>A</em>. The perpendicular from <em>A</em> to <em>BC</em> meets
-            <em>BS</em> at <em>D</em> and meets <em>Ω</em> again at <em>E ≠ A</em>. The line through
-            <em>D</em> parallel to <em>BC</em> meets line <em>BE</em> at <em>L</em>, and the circumcircle
-            <em>ω</em> of triangle <em>BDL</em> meets <em>Ω</em> again at <em>P ≠ B</em>.
-            <em>Prove that the tangent to ω at P meets line BS on the internal bisector of ∠BAC.</em></p>
-          <div class="stats">
-            <div class="stat"><div class="n" data-i18n="stat.wall_v">0.94 s</div><div class="l" data-i18n="stat.wall">to the first proof</div></div>
-            <div class="stat"><div class="n">60</div><div class="l" data-i18n="stat.steps">steps in the final proof</div></div>
-            <div class="stat"><div class="n">1</div><div class="l" data-i18n="stat.aux">auxiliary point needed</div></div>
-            <div class="stat"><div class="n">312</div><div class="l" data-i18n="stat.ddar">DDAR runs</div></div>
+      <figure class="hero-fig card" style="margin:0">
+        <div class="fig-box" id="hero-fig" role="img" aria-label="IMO 2023 Problem 2"></div>
+        <figcaption><span class="chip tone-proved"><span data-icon="check"></span><span data-i18n="v.proved">Proved</span></span><span data-i18n="case.title">IMO 2023 · Problem 2</span></figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <section class="section" id="showcase" aria-labelledby="show-h">
+    <div class="wrap">
+      <h2 id="show-h" data-i18n="show.title">A real IMO problem, solved and checked</h2>
+      <p class="sub" data-i18n="show.sub">IMO 2023 Problem 2.</p>
+      <article class="card case">
+        <div class="case-head">
+          <h3 data-i18n="case.title">IMO 2023 · Problem 2</h3>
+          <span class="chip tone-proved"><span data-icon="check"></span><span data-i18n="v.proved">Proved</span></span>
+        </div>
+        <div class="case-body">
+          <div class="case-text">
+            <p class="statement-text" data-i18n="case.statement" data-i18n-html></p>
+            <div class="stats">
+              <div class="stat"><div class="n" id="st-first">0.9 s</div><div class="l" data-i18n="stat.first">to the first proof</div></div>
+              <div class="stat"><div class="n" id="st-steps">60</div><div class="l" data-i18n="stat.steps">machine-checked steps</div></div>
+              <div class="stat"><div class="n" id="st-aux">1</div><div class="l" data-i18n="stat.aux">auxiliary point</div></div>
+              <div class="stat"><div class="n" id="st-examined">19</div><div class="l" data-i18n="stat.examined">proofs compared</div></div>
+            </div>
+            <div>
+              <h4 class="label" style="margin:0 0 var(--s2)" data-i18n="proof.tab.steps">Verified steps</h4>
+              <ol class="steps" id="steps"></ol>
+              <button type="button" class="btn btn-secondary btn-sm more" id="more" aria-expanded="false" aria-controls="steps"></button>
+            </div>
           </div>
-          <div class="insight" data-i18n="show.insight" data-i18n-html><b>The search found the key constructions on its own.</b> To reason about
-            the tangent at all, the engine names its meeting point with <code>BS</code> as <code>X</code> and
-            hunts for auxiliary points that make the figure speak: in under a second it proved the theorem by
-            extending <code>BO₁</code> and the tangent <code>XP</code> to their second intersections with
-            <code>Ω</code>. A 30-second refinement pass then distilled the shortest proof it could find —
-            60 machine-checked steps resting on a single auxiliary point: the reflection of <code>P</code>
-            across line <code>BS</code>.</div>
-        </div>
-        <div>
-          <details class="proof" open>
-            <summary data-i18n="show.summary">The full proof, exactly as GeoSolver wrote it</summary>
-            <div class="proof-prose" data-lang-only="en">
-      <p>Solution. Write <em>Ω</em> for the circumcircle of <em>△ABC</em> and <em>ω</em> for the circumcircle of <em>△BDL</em>, with centre <em>O₁</em>. Let <em>X</em> be the point where the tangent to <em>ω</em> at <em>P</em> meets line <em>BS</em>, so that <em>XP ⊥ PO₁</em>. The solver&#x27;s single auxiliary construction is the reflection <em>P′</em> of <em>P</em> across the line <em>BS</em>, pinned by the two equalities <em>BP′ = BP</em> and <em>SP′ = SP</em>.</p>
-      <p>First the whole figure is tied to <em>Ω</em>. The points <em>S</em>, <em>E</em> and <em>P</em> lie on <em>Ω</em> together with <em>A</em>, <em>B</em>, <em>C</em>, so inscribed angles run freely among all six. Because <em>AD ⊥ BC</em> and <em>A</em>, <em>D</em>, <em>E</em> are collinear, the triangles <em>△ADS</em> and <em>△BDE</em> are similar, and the parallel <em>DL ∥ BC</em> carries this across to <em>△BLD ∼ △CSE</em>: each of the constructed points <em>D</em>, <em>E</em>, <em>L</em> now sees a chord of <em>Ω</em> at a known angle.</p>
-      <p>Next, the reflection. Since <em>S</em> is the midpoint of arc <em>CB</em>, we have <em>SB = SC</em>, and reflecting across <em>BS</em> produces the mirror pair <em>△BSP ≅ △BSP′</em>. Passing the tangency <em>XP ⊥ PO₁</em> and the cyclic quadruple <em>B, D, L, P</em> through this mirror forces <em>P′</em> onto the circle through <em>A</em>, <em>D</em>, <em>S</em> — the pivotal concyclicity of the proof.</p>
-      <p>The endgame is a chain of spiral similarities pivoting at <em>X</em>. The tangent angle at <em>P</em>, read inside the two circles, yields <em>△DXP ∼ △PAP′</em> and then <em>△DPX ∼ △PBX</em>, which lock <em>X</em> — already collinear with <em>B</em>, <em>S</em>, <em>D</em> — into one last similarity: <em>△ADX ∼ △BAX</em>.</p>
-      <p>Unwound through the inscribed angles established above, that similarity says precisely that <em>AX</em> makes equal angles with <em>AB</em> and <em>AC</em>: <em>∠BAX = ∠XAC</em>. So the tangent to <em>ω</em> at <em>P</em> meets line <em>BS</em> at a point of the internal bisector of <em>∠BAC</em>. ∎</p>
+          <div class="case-fig">
+            <div class="sticky">
+              <div class="fig-viewport" id="case-fig" tabindex="0" role="group" data-i18n-attr="aria-label:fig.region" aria-label="Figure"></div>
+              <div class="fig-tools" role="toolbar" data-i18n-attr="aria-label:fig.title" aria-label="Figure">
+                <button type="button" class="icon-btn" id="z-out" data-i18n-attr="aria-label:fig.zoom_out;title:fig.zoom_out" aria-label="Zoom out"></button>
+                <button type="button" class="icon-btn" id="z-in" data-i18n-attr="aria-label:fig.zoom_in;title:fig.zoom_in" aria-label="Zoom in"></button>
+                <button type="button" class="icon-btn" id="z-fit" data-i18n-attr="aria-label:fig.fit;title:fig.fit" aria-label="Fit to view"></button>
+              </div>
             </div>
-            <div class="proof-prose" data-lang-only="ro" hidden>
-      <p>Soluție. Notăm cu <em>Ω</em> cercul circumscris triunghiului <em>ABC</em> și cu <em>ω</em> cercul circumscris triunghiului <em>BDL</em>, cu centrul <em>O₁</em>. Fie <em>X</em> punctul în care tangenta la <em>ω</em> în <em>P</em> întâlnește dreapta <em>BS</em>, astfel încât <em>XP ⊥ PO₁</em>. Singura construcție auxiliară a demonstrației este reflexia <em>P′</em> a lui <em>P</em> față de dreapta <em>BS</em>, fixată prin egalitățile <em>BP′ = BP</em> și <em>SP′ = SP</em>.</p>
-      <p>Mai întâi întreaga figură este legată de <em>Ω</em>. Punctele <em>S</em>, <em>E</em> și <em>P</em> se află pe <em>Ω</em> împreună cu <em>A</em>, <em>B</em>, <em>C</em>, deci unghiurile înscrise circulă liber între toate cele șase. Deoarece <em>AD ⊥ BC</em> și <em>A</em>, <em>D</em>, <em>E</em> sunt coliniare, triunghiurile <em>ADS</em> și <em>BDE</em> sunt asemenea, iar paralela <em>DL ∥ BC</em> transportă această asemănare în <em>△BLD ∼ △CSE</em>: fiecare dintre punctele construite <em>D</em>, <em>E</em>, <em>L</em> vede acum o coardă a lui <em>Ω</em> sub un unghi cunoscut.</p>
-      <p>Urmează reflexia. Cum <em>S</em> este mijlocul arcului <em>CB</em>, avem <em>SB = SC</em>, iar reflexia față de <em>BS</em> produce perechea-oglindă <em>△BSP ≅ △BSP′</em>. Trecând tangența <em>XP ⊥ PO₁</em> și patrulaterul inscriptibil <em>B, D, L, P</em> prin această oglindă, <em>P′</em> este forțat pe cercul care trece prin <em>A</em>, <em>D</em>, <em>S</em> — conciclitatea-pivot a demonstrației.</p>
-      <p>Finalul este un lanț de asemănări spirale cu pivot în <em>X</em>. Unghiul de tangență din <em>P</em>, citit în cele două cercuri, dă <em>△DXP ∼ △PAP′</em> și apoi <em>△DPX ∼ △PBX</em>, care îl blochează pe <em>X</em> — aflat deja pe dreapta <em>B</em>, <em>S</em>, <em>D</em> — într-o ultimă asemănare: <em>△ADX ∼ △BAX</em>.</p>
-      <p>Desfăcută prin unghiurile înscrise stabilite mai sus, această asemănare spune exact că <em>AX</em> face unghiuri egale cu <em>AB</em> și <em>AC</em>: <em>∠BAX = ∠XAC</em>. Așadar tangenta la <em>ω</em> în <em>P</em> întâlnește dreapta <em>BS</em> într-un punct de pe bisectoarea interioară a unghiului <em>∠BAC</em>. ∎</p>
-            </div>
-          </details>
+          </div>
         </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="feat-h">
+    <div class="wrap">
+      <h2 id="feat-h" data-i18n="feat.title">What you get</h2>
+      <p class="sub" data-i18n="feat.sub">A proof you can audit, a figure that talks to it, and an honest verdict.</p>
+      <div class="features">
+        <div class="feature card"><span class="f-ic" data-icon="check"></span><h3 data-i18n="feat.rigor.h">Machine-checked steps</h3><p data-i18n="feat.rigor.p"></p></div>
+        <div class="feature card"><span class="f-ic" data-icon="approx"></span><h3 data-i18n="feat.verdict.h">An honest verdict</h3><p data-i18n="feat.verdict.p"></p></div>
+        <div class="feature card"><span class="f-ic" data-icon="fit"></span><h3 data-i18n="feat.figure.h">A figure that follows the proof</h3><p data-i18n="feat.figure.p"></p></div>
+        <div class="feature card"><span class="f-ic" data-icon="image"></span><h3 data-i18n="feat.photo.h">Words, photos or .geo</h3><p data-i18n="feat.photo.p"></p></div>
       </div>
     </div>
   </section>
 
-  <section class="showcase" aria-label="features">
-    <h2 class="sec-title" data-i18n="feat.title">Everything a geometry student needs.</h2>
-    <p class="sec-sub" data-i18n="feat.sub">From photo to a proof you can actually read — with an
-      interactive figure that works on a phone.</p>
-    <div class="features">
-      <div class="feature">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M8 6l1.2-2h5.6L16 6"/></svg>
-        <h3 data-i18n="feat.photo.h">Photo → proof</h3>
-        <p data-i18n="feat.photo.p">Snap a textbook problem or describe it in plain English; the built-in translator
-          turns it into a solvable geometry program.</p>
-      </div>
-      <div class="feature">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
-        <h3 data-i18n="feat.rigor.h">Every step verified</h3>
-        <p data-i18n="feat.rigor.p">The engine machine-checks each deduction, so the proof is sound — not a
-          plausible-looking guess.</p>
-      </div>
-      <div class="feature">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16M4 10h16M4 15h11M4 20h7"/></svg>
-        <h3 data-i18n="feat.proof.h">Human-readable proof</h3>
-        <p data-i18n="feat.proof.p">Every proof is rewritten by Claude Opus into a clear, flowing argument — like a
-          solutions manual, not a wall of symbols.</p>
-      </div>
-      <div class="feature">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/></svg>
-        <h3 data-i18n="feat.pdf.h">PDF export</h3>
-        <p data-i18n="feat.pdf.p">Export a print-ready PDF or PNG report combining the figure and proof for homework,
-          handouts, or study notes.</p>
-      </div>
+  <section class="section" aria-labelledby="how-h">
+    <div class="wrap">
+      <h2 id="how-h" data-i18n="how.title">How it works</h2>
+      <ol class="how">
+        <li class="card"><h3 data-i18n="how.s1.h">State the problem</h3><p data-i18n="how.s1.p" data-i18n-html></p></li>
+        <li class="card"><h3 data-i18n="how.s2.h">GeoSolver searches</h3><p data-i18n="how.s2.p"></p></li>
+        <li class="card"><h3 data-i18n="how.s3.h">Check and export</h3><p data-i18n="how.s3.p"></p></li>
+      </ol>
     </div>
   </section>
 
-  <section class="how" aria-label="how it works">
-    <h2 class="sec-title" data-i18n="how.title">Three steps, no setup.</h2>
-    <p class="sec-sub" data-i18n="how.sub">Solves stay in your private history so you can reopen any proof later.</p>
-    <div class="steps">
-      <div class="step">
-        <h3 data-i18n="how.s1.h">State the problem</h3>
-        <p data-i18n="how.s1.p" data-i18n-html>Type it in plain English, paste a <code>.geo</code> program, or upload a photo of
-          the page.</p>
-      </div>
-      <div class="step">
-        <h3 data-i18n="how.s2.h">GeoSolver proves it</h3>
-        <p data-i18n="how.s2.p">Deductive closure plus an auxiliary-point search — the same recipe as AlphaGeometry,
-          reimplemented in fast native Rust.</p>
-      </div>
-      <div class="step">
-        <h3 data-i18n="how.s3.h">Read, zoom, export</h3>
-        <p data-i18n="how.s3.p">Read the proof in plain language, explore the labeled figure, and
-          save the PDF.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="closing">
-    <h2 data-i18n="close.h">Your next proof is seconds away.</h2>
-    <p data-i18n="close.p">Free account, no email required — pick a username and start solving.</p>
-    <div class="cta" style="justify-content:center">
-      <a class="primary" href="/auth?mode=register" data-i18n="close.cta">Create a free account</a>
-    </div>
-  </section>
+  <div class="wrap">
+    <section class="closing card" aria-labelledby="close-h">
+      <h2 id="close-h" data-i18n="close.h">Try it on your own problem.</h2>
+      <p data-i18n="close.p">Free account, no email needed.</p>
+      <a class="btn btn-primary btn-lg" href="/auth?mode=register" data-i18n="close.cta">Create a free account</a>
+    </section>
+  </div>
 </main>
-<footer data-i18n="footer">GeoSolver — a geometry proof assistant for students.</footer>
-<script src="/assets/i18n.js"></script>
+<footer class="site-footer"><p data-i18n="footer">GeoSolver — a geometry proof assistant.</p></footer>
+<script src="/assets/site.js"></script>
+<script src="/assets/landing.js"></script>
 </body>
 </html>

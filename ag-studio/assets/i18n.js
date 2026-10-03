@@ -1,361 +1,621 @@
-/* GeoSolver i18n — English/Romanian, client-side.
+/* GeoSolver i18n — English / Romanian.
  *
- * Usage in markup:
- *   <span data-i18n="hero.h1">Olympiad geometry…</span>      → textContent
- *   <span data-i18n="x" data-i18n-html>…</span>              → innerHTML (trusted strings only)
- *   <input data-i18n-attr="placeholder:app.input_ph">        → attribute(s), ";"-separated
- *   <button data-lang-set="ro">RO</button>                    → sets language on click
- *   <button data-lang-toggle>EN·RO</button>                   → toggles language on click
- *   <el data-lang-only="ro">…</el>                            → shown only in that language
- *
- * Dynamic strings (JS): i18n.t('key', {name: 'X'}).
- * Re-render dynamic content on the 'langchange' event.
- *
- * Default is English; a saved choice (localStorage) wins and is mirrored to a
- * `lang` cookie so the backend answers in the same language.
+ * Markup: data-i18n="key" (text), data-i18n-html (trusted HTML), data-i18n-attr="attr:key;…",
+ * data-lang-set="ro" (switch), data-lang-only="ro" (shown only in that language).
+ * Script: i18n.t(key, vars), i18n.tp(key, n, vars) (plural: key.one / key.few / key.other),
+ * i18n.current(), i18n.set(lang), i18n.fmtNum(x, digits), i18n.locale().
+ * A saved choice (localStorage) wins and is mirrored to a `lang` cookie so the
+ * server answers in the same language. Fires `langchange` on document.
  */
 (function () {
   "use strict";
 
   var DICT = {
     en: {
-      // — shared / nav —
       "nav.signin": "Sign in",
       "nav.create": "Create account",
-      "nav.back": "← Back to GeoSolver",
-      "lang.name": "EN",
-      "lang.switch": "Schimbă în română",
+      "nav.back": "Back to GeoSolver",
+      "nav.home": "GeoSolver home",
+      "nav.skip": "Skip to content",
+      "nav.app": "Open the app",
+      "nav.history": "History",
+      "lang.label": "Language",
+      "theme.label": "Colour theme: {mode}",
+      "theme.system": "System",
+      "theme.light": "Light",
+      "theme.dark": "Dark",
+      "app.logout": "Log out",
+      "app.signed_in_as": "Signed in as {name}",
+      "app.footer": "GeoSolver · a from-scratch Rust implementation of the AlphaGeometry deduction engine",
 
-      // — landing: hero —
-      "hero.h1": "Geometry, proved while you watch.",
-      "hero.lede": "Photograph or describe a geometry problem and GeoSolver returns a labeled figure and a complete, human-readable proof — powered by a from-scratch Rust implementation of the AlphaGeometry deduction engine.",
-      "hero.cta_create": "Create a free account",
-      "hero.cta_signin": "Sign in",
-      "trust.ms": "proofs in milliseconds",
-      "trust.local": "written in plain language",
-      "trust.checked": "every step machine-checked",
-      "cap.proven": "Proven ∎",
-      "cap.text": "IMO 2023, Problem 2 — solved by GeoSolver in 0.94 s",
+      "ai.on": "AI translation on",
+      "ai.checking": "Checking AI…",
+      "ai.off": "AI translation off",
+      "ai.signin": "AI needs sign-in",
+      "ai.tip.on": "Describe problems in words or photos; an AI model turns them into .geo.",
+      "ai.reason.disabled": "AI translation is turned off on this server, so problems must be written as .geo programs.",
+      "ai.reason.sign_in": "Sign in to describe problems in words or photos. As a guest you can solve .geo programs.",
+      "ai.reason.not_installed": "AI translation needs the Claude CLI on the server, which is not installed. Write the problem as a .geo program instead.",
+      "ai.reason.not_logged_in": "The server's Claude CLI is not signed in (run claude auth login on the server). Write the problem as a .geo program instead.",
+      "ai.reason.checking": "Checking whether AI translation is available…",
 
-      // — landing: showcase —
-      "show.title": "Watch it crack a real IMO problem.",
-      "show.sub": "This is not a mock-up. GeoSolver proved IMO 2023 Problem 2 — a medal-level contest problem — discovering the key auxiliary constructions on its own. The full machine-checked proof is below.",
-      "case.title": "IMO 2023 · Problem 2",
-      "badge.hard": "olympiad hard",
-      "badge.proven": "Proven ∎ in 0.94 s",
-      "case.statement": "Let <em>ABC</em> be an acute-angled triangle with <em>AB</em> &lt; <em>AC</em>, and let <em>Ω</em> be its circumcircle. Let <em>S</em> be the midpoint of the arc <em>CB</em> of <em>Ω</em> containing <em>A</em>. The perpendicular from <em>A</em> to <em>BC</em> meets <em>BS</em> at <em>D</em> and meets <em>Ω</em> again at <em>E ≠ A</em>. The line through <em>D</em> parallel to <em>BC</em> meets line <em>BE</em> at <em>L</em>, and the circumcircle <em>ω</em> of triangle <em>BDL</em> meets <em>Ω</em> again at <em>P ≠ B</em>. <em>Prove that the tangent to ω at P meets line BS on the internal bisector of ∠BAC.</em>",
-      "stat.wall_v": "0.94 s",
-      "stat.wall": "to the first proof",
-      "stat.steps": "steps in the final proof",
-      "stat.aux": "auxiliary point needed",
-      "stat.ddar": "DDAR runs",
-      "show.insight": "<b>The search found the key constructions on its own.</b> To reason about the tangent at all, the engine names its meeting point with <code>BS</code> as <code>X</code> and hunts for auxiliary points that make the figure speak: in under a second it proved the theorem by extending <code>BO₁</code> and the tangent <code>XP</code> to their second intersections with <code>Ω</code>. A 30-second refinement pass then distilled the shortest proof it could find — 60 machine-checked steps resting on a single auxiliary point: the reflection of <code>P</code> across line <code>BS</code>.",
-      "show.summary": "The full proof, exactly as GeoSolver wrote it",
+      "app.problem": "Problem",
+      "tab.describe": "Describe",
+      "tab.photo": "Photo",
+      "tab.geo": ".geo",
+      "describe.label": "Describe the problem in words",
+      "describe.ph": "e.g. In triangle ABC, H is the orthocenter. Prove that the reflection of H in line BC lies on the circumcircle of ABC.",
+      "describe.note": "An AI model turns your words into a .geo program. The proof itself is machine-checked.",
+      "photo.label": "Photo of the problem",
+      "photo.drop": "Drop a photo here, or",
+      "photo.choose": "choose a file",
+      "photo.hint": "PNG, JPG or WebP, up to 8 MB. An AI model reads it; the proof is machine-checked.",
+      "photo.replace": "Replace",
+      "photo.remove": "Remove photo",
+      "photo.alt": "The uploaded problem",
+      "geo.label": ".geo program",
+      "geo.help": "Syntax",
+      "geo.help.title": ".geo in one minute",
+      "geo.help.body": "<p>One statement per line. Name points, construct new ones, then state the goal.</p><pre class=\"mono\">A B C = triangle\nH = orthocenter(A, B, C)\nM = midpoint(B, C)\nD = foot(A, line(B, C))\nP = point: coll(A, M, P), perp(P, H, A, M)\nprove cyclic(A, B, C, reflect(H, line(B, C)))</pre><p>Goals: <code>coll</code>, <code>perp</code>, <code>para</code>, <code>cong</code>, <code>cyclic</code>, <code>eqangle</code>, <code>eqratio</code>, or an equation such as <code>dist(A,D)^2 = 14</code>. Lines starting with <code>#</code> are comments.</p>",
+      "examples": "Examples",
+      "examples.title": "Example problems",
+      "unavailable.write_geo": "Write .geo instead",
+      "unavailable.signin": "Sign in",
 
-      // — landing: features —
-      "feat.title": "Everything a geometry student needs.",
-      "feat.sub": "From a photo to a proof you can actually read — rigorous, and written in plain language.",
-      "feat.photo.h": "Photo → proof",
-      "feat.photo.p": "Snap a textbook problem or describe it in plain English; the built-in translator turns it into a solvable geometry program.",
-      "feat.rigor.h": "Every step verified",
-      "feat.rigor.p": "The engine machine-checks each deduction, so the proof is sound — not a plausible-looking guess.",
-      "feat.proof.h": "Human-readable proof",
-      "feat.proof.p": "Every proof is rewritten by Claude Opus into a clear, flowing argument — like a solutions manual, not a wall of symbols.",
-      "feat.pdf.h": "PDF export",
-      "feat.pdf.p": "Export a print-ready PDF or PNG report combining the figure and proof for homework, handouts, or study notes.",
+      "effort.label": "Search",
+      "effort.standard": "Standard",
+      "effort.shortest": "Shortest proof",
+      "effort.hint.standard": "Stops at the first proof (time limit {s} s).",
+      "effort.hint.shortest": "Shows the first proof, then spends up to 20 s looking for a shorter one.",
+      "solve": "Solve",
+      "solve.shortcut": "Solve with {keys}",
+      "cancel": "Cancel",
+      "clear": "Clear",
+      "cleared": "Editor cleared.",
+      "undo": "Undo",
 
-      // — landing: how —
-      "how.title": "Three steps, no setup.",
-      "how.sub": "Solves stay in your private history so you can reopen any proof later.",
-      "how.s1.h": "State the problem",
-      "how.s1.p": "Type it in plain English, paste a <code>.geo</code> program, or upload a photo of the page.",
-      "how.s2.h": "GeoSolver proves it",
-      "how.s2.p": "Deductive closure plus an auxiliary-point search — the same recipe as AlphaGeometry, reimplemented in fast native Rust.",
-      "how.s3.h": "Read and export",
-      "how.s3.p": "Read the proof in plain language, check the labeled figure, and save a print-ready PDF.",
+      "empty.title": "Your proof will appear here",
+      "empty.body": "Write a .geo program, describe a problem, or start from an example. Every step GeoSolver reports is machine-checked.",
+      "empty.examples": "Try an example",
 
-      // — landing: closing / footer —
-      "close.h": "Your next proof is seconds away.",
-      "close.p": "Free account, no email required — pick a username and start solving.",
-      "close.cta": "Create a free account",
-      "footer": "GeoSolver — a geometry proof assistant for students.",
+      "solving.translating": "Translating the description",
+      "solving.solving": "Searching for a proof",
+      "solving.elapsed": "{t} of {max}",
+      "solving.shortest": "Looking for a shorter proof",
+      "stage.translate": "Translate",
+      "stage.solve": "Prove",
+      "stage.done": "Done",
+      "cancelled": "Solving cancelled.",
 
-      // — auth —
+      "err.title.compile": "The program has an error",
+      "err.where": "Line {line}, column {col}",
+      "err.details": "Technical details",
+      "err.title.network": "Can't reach the server",
+      "err.body.network": "Check your connection, then try again.",
+      "err.title.timeout": "The server stopped waiting",
+      "err.body.timeout": "The request was cut off after 120 seconds. Very hard problems can outlast the search; try the standard search, or simplify the problem.",
+      "err.title.busy": "The server is busy",
+      "err.body.busy": "Every solver slot is in use right now. Try again in a moment.",
+      "err.title.rate": "Too many requests",
+      "err.body.rate": "You have sent a lot of requests in a short time. Wait a minute, then try again.",
+      "err.title.auth": "Your session has ended",
+      "err.body.auth": "Sign in again to keep solving.",
+      "err.title.too_large": "The program is too long",
+      "err.title.translate": "Could not translate the problem",
+      "err.title.generic": "Something went wrong",
+      "err.retry": "Try again",
+      "err.empty_geo": "Write a .geo program first.",
+      "err.empty_describe": "Describe the problem first.",
+      "err.empty_photo": "Choose a photo first.",
+      "err.cannot_translate": "The AI could not turn this into a geometry problem. Try rephrasing it, or write the .geo program directly.",
+
+      "v.proved": "Proved",
+      "v.proved.x": "Every numbered step below is machine-checked.",
+      "v.false": "The statement is false",
+      "v.false.x": "A sampled figure contradicts it, so no proof can exist.",
+      "v.numeric": "Holds numerically — no Euclidean proof",
+      "v.numeric.x": "True in all {n} sampled figures, but GeoSolver found no synthetic proof. That is evidence, not a proof.",
+      "v.not": "Not proved",
+      "v.not.x": "The search ended without a proof. The statement may still be true.",
+      "v.time": "Not proved — time limit reached",
+      "v.time.x": "The search stopped at the {s} s limit without finding a proof. The statement may still be true.",
+      "note.budget": "No proof was found within the search budget.",
+      "note.metric_error": "The Euclidean prover could not handle this goal.",
+      "note.unsound": "A derivation was found but rejected, because the sampled figure contradicts it (likely a degenerate figure).",
+      "note.replay": "The search reported a proof, but its constructions could not be replayed.",
+      "meta.method.ddar": "Deductive search",
+      "meta.method.aux.one": "Deductive search + {n} auxiliary point",
+      "meta.method.aux.other": "Deductive search + {n} auxiliary points",
+      "meta.method.euclid": "Euclidean theorems",
+      "meta.steps.one": "{n} step",
+      "meta.steps.other": "{n} steps",
+      "meta.samples.one": "{n} sampled figure",
+      "meta.samples.other": "{n} sampled figures",
+      "meta.time": "Time",
+      "counter.title": "Counterexample",
+      "counter.angle": "In the sampled figure the angle between {a} and {b} is {lhs}°, not {rhs}°.",
+      "counter.length": "In the sampled figure {a} = {lhs} but {b} = {rhs}.",
+      "counter.angles": "In the sampled figure {a} = {lhs}° but {b} = {rhs}°.",
+      "counter.values": "In the sampled figure the left side is {lhs} and the right side is {rhs}.",
+      "counter.off_line": "In the sampled figure {a} is not on line {b}.",
+      "counter.off_circle": "In the sampled figure {a} is not on the circle through {b}.",
+
+      "action.copy_proof": "Copy proof",
+      "action.copy_geo": "Copy .geo",
+      "action.export": "Export",
+      "export.pdf": "PDF report",
+      "export.png": "PNG report",
+      "export.svg": "Figure (SVG)",
+      "export.preparing": "Preparing {fmt}…",
+      "export.done": "{fmt} downloaded.",
+      "export.failed": "Export failed: {msg}",
+      "copied": "Copied to the clipboard.",
+      "copy_fail": "Could not copy to the clipboard.",
+      "shorter.searching": "Looking for a shorter proof…",
+      "shorter.found": "Found a shorter proof: {n} steps instead of {m}.",
+      "shorter.none": "No shorter proof was found; keeping this one.",
+      "shorter.stop": "Stop",
+      "again": "Solve again",
+
+      "st.statement": "Statement",
+      "st.given": "Given",
+      "st.prove": "Prove",
+      "st.aux": "Auxiliary points",
+      "st.aux.hint": "Added by the search; drawn dashed in the figure.",
+      "proof.title": "Proof",
+      "proof.tab.steps": "Verified steps",
+      "proof.tab.ai": "AI explanation",
+      "proof.ai.badge": "Not machine-checked",
+      "proof.ai.note": "Written by an AI model from the verified steps. It is not machine-checked and may contain mistakes. The numbered steps are the proof.",
+      "proof.ai.loading": "Writing an explanation…",
+      "proof.ai.fail": "The explanation could not be written. The verified steps are unaffected.",
+      "proof.ai.regen": "Regenerate",
+      "proof.from": "from",
+      "proof.cite": "Go to step {n}",
+      "proof.none": "There is no proof to show.",
+      "proof.conclusion": "Therefore",
+      "details.title": "Details",
+      "details.geo": "Compiled .geo program",
+      "details.note": "Engine note",
+
+      "fact.coll": "{pts} are collinear",
+      "fact.cyclic": "{pts} are concyclic",
+      "fact.midp": "{m} is the midpoint of {seg}",
+      "fact.circle": "{o} is the circumcenter of △{tri}",
+      "rule.given": "given",
+      "rule.construction": "construction",
+      "rule.aux": "auxiliary construction",
+      "rule.similar": "similar triangles",
+      "rule.collinear": "collinearity",
+      "rule.concyclic": "inscribed angles",
+      "rule.eqradius": "equal radii",
+      "rule.coincide": "coincident points",
+      "rule.transfer": "segment arithmetic",
+      "rule.arcchord": "equal arcs ⇔ equal chords",
+      "rule.algebra": "algebra",
+      "rule.other": "deduction",
+      "aux.midpoint": "midpoint of {0}{1}",
+      "aux.circumcenter": "circumcenter of △{0}{1}{2}",
+      "aux.orthocenter": "orthocenter of △{0}{1}{2}",
+      "aux.foot": "foot of the perpendicular from {0} to {1}",
+      "aux.reflect": "reflection of {0} in {1}",
+      "aux.intersect": "intersection of {0} and {1}",
+      "aux.parallelogram": "completes the parallelogram {0}{1}{2}",
+      "aux.spiral_center": "centre of the spiral similarity taking {0} to {1}",
+      "aux.isogonal": "isogonal conjugate of {0} in △{1}",
+      "aux.inverse": "inverse of {0} in the circle ({1}, {1}{2})",
+      "aux.antipode": "antipode of {0}",
+      "aux.tangent": "tangency point of a tangent from {0}",
+      "aux.arc_midpoint": "midpoint of arc {0}{1}",
+      "aux.bisector_foot": "foot of the bisector from {0} in △{1}",
+      "aux.circumcircle": "circumcircle of △{0}{1}{2}",
+      "aux.circle": "circle ({0}, {0}{1})",
+
+      "fig.title": "Figure",
+      "fig.zoom_in": "Zoom in",
+      "fig.zoom_out": "Zoom out",
+      "fig.fit": "Fit to view",
+      "fig.full": "Full screen",
+      "fig.exit_full": "Exit full screen",
+      "fig.download": "Download figure (SVG)",
+      "fig.hint.fine": "Scroll to zoom · drag to pan · 0 resets",
+      "fig.hint.coarse": "Pinch to zoom · drag to pan · double-tap resets",
+      "fig.legend.given": "Construction",
+      "fig.legend.goal": "Goal",
+      "fig.legend.aux": "Auxiliary",
+      "fig.empty": "The figure appears here once a problem is solved.",
+      "fig.aria": "Figure with points {pts}. Goal: {goal}.",
+      "fig.region": "Figure — use + and − to zoom, arrow keys to pan, 0 to reset, F for full screen",
+
+      "hist.title": "History",
+      "hist.search": "Search history",
+      "hist.filter": "Filter by verdict",
+      "hist.filter.all": "All",
+      "hist.filter.proved": "Proved",
+      "hist.filter.false": "False",
+      "hist.filter.numeric": "Numerical",
+      "hist.filter.not": "Not proved",
+      "hist.empty": "No solves yet. Problems you solve are saved here.",
+      "hist.none_match": "Nothing matches your search.",
+      "hist.loading": "Loading…",
+      "hist.delete": "Delete “{title}”",
+      "hist.deleted": "Deleted “{title}”.",
+      "hist.load_fail": "Could not load your history.",
+      "hist.del_fail": "Could not delete that entry.",
+      "hist.untitled": "Untitled problem",
+      "hist.open_fail": "Could not open that entry.",
+      "hist.close": "Close history",
+      "hist.guest": "Sign in to keep a history of your solves.",
+      "status.proved": "Proved",
+      "status.refuted": "False",
+      "status.holds-numerically": "Numerical only",
+      "status.not-proved": "Not proved",
+      "status.legacy": "Unchecked",
+
       "auth.doctitle": "Sign in · GeoSolver",
       "auth.welcome": "Welcome back",
       "auth.create_head": "Create your account",
-      "auth.sub_login": "Sign in to solve, save, and revisit your proofs.",
-      "auth.sub_register": "Free — no email required. Just pick a name and password.",
+      "auth.sub_login": "Sign in to solve, save and revisit your proofs.",
+      "auth.sub_register": "Free, no email needed. Pick a username and a password.",
       "auth.username": "Username",
       "auth.password": "Password",
       "auth.user_hint": "3–32 characters: letters, digits, - or _",
       "auth.pass_hint": "At least 8 characters",
-      "auth.err_user": "Please enter a username (3–32 characters).",
-      "auth.err_pass": "Password must be at least 8 characters.",
-      "auth.signed_in": "Signed in as {name}. Redirecting…",
+      "auth.user_ok": "Looks good",
+      "auth.show": "Show password",
+      "auth.hide": "Hide password",
+      "auth.err_user": "Enter a username of 3–32 characters: letters, digits, - or _.",
+      "auth.err_pass": "The password needs at least 8 characters.",
+      "auth.signed_in": "Signed in as {name}. Opening the app…",
       "auth.generic_err": "Something went wrong. Please try again.",
       "auth.net_err": "Could not reach the server. Please try again.",
+      "auth.working": "Please wait…",
+      "auth.tabs": "Sign in or create an account",
 
-      // — app: header / input —
-      "app.tag": "type or photograph a geometry problem — get the labeled figure and a step-by-step proof",
-      "app.ai_on": "AI translation on",
-      "app.ai_signin": "sign in to enable AI",
-      "app.ai_off": "AI translation off",
-      "app.logout": "Log out",
-      "app.problem": "Problem",
-      "app.mode_describe": "Describe",
-      "app.mode_geo": ".geo code",
-      "app.figure": "Figure",
-      "app.theme_light": "Light",
-      "app.theme_dark": "Dark",
-      "app.describe_label": "Describe the problem in words, or upload a photo of it:",
-      "app.geo_label": "Write a .geo program:",
-      "app.input_ph_describe": "e.g. In triangle ABC, H is the orthocenter. Prove the reflection of H over line BC lies on the circumcircle of ABC.",
-      "app.input_ph_geo": "# a .geo program\nA B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
-      "app.drop_text": "Drop a photo of the problem here, or click to choose",
-      "app.drop_replace": "{name} — click to replace",
-      "app.best": "Find the shortest proof",
-      "app.best_hint": "— compares every proof it can reach in up to 20 seconds",
-      "app.solve": "Solve",
-      "app.clear": "Clear",
-
-      // — app: output —
-      "app.solution": "Solution",
-      "app.empty": "Enter your problem and press <b>Solve</b>. The labeled figure and the step-by-step proof appear here.",
-      "app.zoom_out": "Zoom out",
-      "app.zoom_in": "Zoom in",
-      "app.fit": "Fit to view",
-      "app.fullscreen": "Fullscreen",
-      "app.exit_fullscreen": "Exit fullscreen",
-      "app.fig_hint": "scroll / pinch to zoom · drag to pan · double-tap to reset",
-      "app.save_pdf": "Save PDF",
-      "app.save_png": "Save PNG",
-      "app.given": "Given",
-      "app.prove": "Prove",
-      "app.aux_label": "Auxiliary constructions the search introduced",
-      "app.compiled_geo": "Compiled .geo program",
-      "app.proof": "Proof.",
-      "app.search_result": "Search result.",
-      "app.writing_proof": "Writing a clean proof…",
-      "app.proof_omitted": "No proof was found within the search budget.",
-      "app.proof_fallback": "The proof writer is unavailable — showing the machine-verified steps.",
-      "app.numeric_title": "Numerical check — not a proof.",
-      "app.counterexample": "Counterexample.",
-
-      // — app: dynamic status —
-      "app.working": "Working…",
-      "app.translating": "Translating…",
-      "app.finding_shortest": "Finding the shortest proof…",
-      "app.solving": "Solving…",
-      "app.verdict_proven": "Proven ∎",
-      "app.verdict_not": "Not proven",
-      "app.verdict_numeric": "Not proven — holds numerically",
-      "app.verdict_refuted": "Refuted",
-      "app.numeric_only": "<b>No Euclidean proof was found.</b> The statement holds numerically in all {n} sampled figures — that is evidence, not a proof.",
-      "app.n_figures": "checked in {n} figures",
-      "app.method_ddar": "DDAR",
-      "app.method_aux": "DDAR + aux search",
-      "app.method_euclid": "Euclidean prover",
-      "app.n_points": "{n} points",
-      "app.n_steps": "{n} steps",
-      "app.n_examined": "examined {n} constructions",
-      "app.false_stmt": "The goal does not hold in the sampled figure — the statement appears to be <b>false</b>. The engine attempted it anyway.",
-
-      // — app: errors —
-      "app.err_write_geo": "Write a .geo program first.",
-      "app.err_describe": "Describe the problem or upload a photo.",
-      "app.err_translation": "Translation failed: {msg}",
-      "app.err_cannot_translate": "The model could not turn this into a geometry problem:",
-      "app.err_solve": "Solve error: {msg}",
-      "app.err_generic": "Something went wrong: {msg}",
-      "app.err_export": "Export failed: {msg}",
-      "app.warn_login": "One-time setup: sign the Claude CLI into your subscription — run <code>claude auth login</code> in a terminal, then reload this page. (No API key — it uses your Claude subscription.) Meanwhile you can switch to <b>.geo code</b> and solve directly.",
-      "app.warn_install": "AI translation needs the Claude CLI. Run <code>npm i -g @anthropic-ai/claude-code</code>, then <code>claude auth login</code>, then reload — or switch to <b>.geo code</b> and write the program directly.",
-
-      // — app: history —
-      "app.history": "History",
-      "app.loading": "Loading…",
-      "app.no_solves": "No solves yet.",
-      "app.untitled": "Untitled",
-      "app.proven": "Proven",
-      "app.not_proven": "Not proven",
-      "app.numeric": "Not proven — holds numerically",
-      "app.refuted": "Refuted",
-      "app.unchecked": "Recorded before the strict Euclidean check — reopen to check again",
-      "app.reopen": "Reopen: {label}",
-      "app.delete": "Delete",
-      "app.del_fail": "Could not delete that entry.",
-      "app.footer": "GeoSolver · a from-scratch Rust implementation of the AlphaGeometry deduction engine",
+      "hero.eyebrow": "Olympiad geometry, machine-checked",
+      "hero.h1": "Geometry proofs you can check line by line.",
+      "hero.lede": "Write or describe a geometry problem. GeoSolver draws the labelled figure and searches for a proof in which every step cites the rule it uses, so you can verify it yourself.",
+      "hero.cta_create": "Create a free account",
+      "hero.cta_example": "See a solved IMO problem",
+      "trust.speed": "most textbook problems in under a second",
+      "trust.checked": "every numbered step machine-checked",
+      "trust.honest": "says so when it cannot prove something",
+      "show.title": "A real IMO problem, solved and checked",
+      "show.sub": "IMO 2023 Problem 2. GeoSolver found a first proof in 0.9 s; a 30-second refinement then found this shorter proof, which needs a single auxiliary point. Hover or focus a step to see its points in the figure.",
+      "case.title": "IMO 2023 · Problem 2",
+      "case.statement": "Let <i>ABC</i> be an acute-angled triangle with <i>AB</i> &lt; <i>AC</i>, and let <i>Ω</i> be its circumcircle. Let <i>S</i> be the midpoint of the arc <i>CB</i> of <i>Ω</i> containing <i>A</i>. The perpendicular from <i>A</i> to <i>BC</i> meets <i>BS</i> at <i>D</i> and meets <i>Ω</i> again at <i>E</i> ≠ <i>A</i>. The line through <i>D</i> parallel to <i>BC</i> meets line <i>BE</i> at <i>L</i>, and the circumcircle <i>ω</i> of triangle <i>BDL</i> meets <i>Ω</i> again at <i>P</i> ≠ <i>B</i>. Prove that the tangent to <i>ω</i> at <i>P</i> meets line <i>BS</i> on the internal bisector of ∠<i>BAC</i>.",
+      "stat.first": "to the first proof",
+      "stat.steps": "machine-checked steps",
+      "stat.aux": "auxiliary point",
+      "stat.examined": "proofs compared",
+      "show.steps": "Show all {n} steps",
+      "show.fewer": "Show fewer steps",
+      "feat.title": "What you get",
+      "feat.sub": "A proof you can audit, a figure that talks to it, and an honest verdict.",
+      "feat.rigor.h": "Machine-checked steps",
+      "feat.rigor.p": "Each step names its rule (similar triangles, inscribed angles, …) and the earlier steps it uses.",
+      "feat.verdict.h": "An honest verdict",
+      "feat.verdict.p": "Proved, false (with a counterexample), true only numerically, or not proved. It never dresses up a guess as a proof.",
+      "feat.figure.h": "A figure that follows the proof",
+      "feat.figure.p": "Point at a step and the points and lines it talks about light up.",
+      "feat.photo.h": "Words, photos or .geo",
+      "feat.photo.p": "Type the problem, photograph it, or write the construction directly. AI translation is clearly labelled.",
+      "how.title": "How it works",
+      "how.s1.h": "State the problem",
+      "how.s1.p": "In words, as a photo, or as a short <code>.geo</code> construction.",
+      "how.s2.h": "GeoSolver searches",
+      "how.s2.p": "Deductive closure plus a search for auxiliary points, the same recipe as AlphaGeometry, in native Rust.",
+      "how.s3.h": "Check and export",
+      "how.s3.p": "Read the verified steps next to the figure, then save a PDF or PNG report.",
+      "close.h": "Try it on your own problem.",
+      "close.p": "Free account, no email needed.",
+      "close.cta": "Create a free account",
+      "footer": "GeoSolver — a geometry proof assistant.",
     },
 
     ro: {
-      // — shared / nav —
       "nav.signin": "Autentificare",
       "nav.create": "Creează cont",
-      "nav.back": "← Înapoi la GeoSolver",
-      "lang.name": "RO",
-      "lang.switch": "Switch to English",
+      "nav.back": "Înapoi la GeoSolver",
+      "nav.home": "Pagina principală GeoSolver",
+      "nav.skip": "Sari la conținut",
+      "nav.app": "Deschide aplicația",
+      "nav.history": "Istoric",
+      "lang.label": "Limbă",
+      "theme.label": "Temă de culori: {mode}",
+      "theme.system": "Sistem",
+      "theme.light": "Luminoasă",
+      "theme.dark": "Întunecată",
+      "app.logout": "Deconectare",
+      "app.signed_in_as": "Autentificat ca {name}",
+      "app.footer": "GeoSolver · o implementare în Rust, scrisă de la zero, a motorului de deducție AlphaGeometry",
 
-      // — landing: hero —
-      "hero.h1": "Geometrie, demonstrată sub ochii tăi.",
-      "hero.lede": "Fotografiază sau descrie o problemă de geometrie, iar GeoSolver îți întoarce o figură etichetată și o demonstrație completă, pe înțelesul tău — totul pornit de la o implementare în Rust, scrisă de la zero, a motorului de deducție AlphaGeometry.",
-      "hero.cta_create": "Creează un cont gratuit",
-      "hero.cta_signin": "Autentificare",
-      "trust.ms": "demonstrații în milisecunde",
-      "trust.local": "scrise pe înțelesul tău",
-      "trust.checked": "fiecare pas verificat automat",
-      "cap.proven": "Demonstrat ∎",
-      "cap.text": "IMO 2023, Problema 2 — rezolvată de GeoSolver în 0,94 s",
+      "ai.on": "Traducere AI activă",
+      "ai.checking": "Se verifică AI…",
+      "ai.off": "Traducere AI inactivă",
+      "ai.signin": "AI necesită autentificare",
+      "ai.tip.on": "Descrie problemele în cuvinte sau prin fotografii; un model AI le transformă în .geo.",
+      "ai.reason.disabled": "Traducerea AI este dezactivată pe acest server, deci problemele trebuie scrise ca programe .geo.",
+      "ai.reason.sign_in": "Autentifică-te ca să descrii probleme în cuvinte sau prin fotografii. Ca invitat poți rezolva programe .geo.",
+      "ai.reason.not_installed": "Traducerea AI are nevoie de CLI-ul Claude pe server, care nu este instalat. Scrie problema ca program .geo.",
+      "ai.reason.not_logged_in": "CLI-ul Claude de pe server nu este autentificat (rulează claude auth login pe server). Scrie problema ca program .geo.",
+      "ai.reason.checking": "Se verifică dacă traducerea AI este disponibilă…",
 
-      // — landing: showcase —
-      "show.title": "Vezi-l cum rezolvă o problemă reală de la IMO.",
-      "show.sub": "Nu este o simulare. GeoSolver a demonstrat Problema 2 de la IMO 2023 — o problemă de concurs de nivel de medalie — descoperind singur construcțiile auxiliare cheie. Demonstrația completă, verificată automat, este mai jos.",
-      "case.title": "IMO 2023 · Problema 2",
-      "badge.hard": "nivel olimpiadă",
-      "badge.proven": "Demonstrat ∎ în 0,94 s",
-      "case.statement": "Fie <em>ABC</em> un triunghi ascuțitunghic cu <em>AB</em> &lt; <em>AC</em> și fie <em>Ω</em> cercul său circumscris. Fie <em>S</em> mijlocul arcului <em>CB</em> al lui <em>Ω</em> care îl conține pe <em>A</em>. Perpendiculara din <em>A</em> pe <em>BC</em> intersectează <em>BS</em> în <em>D</em> și intersectează <em>Ω</em> a doua oară în <em>E ≠ A</em>. Paralela prin <em>D</em> la <em>BC</em> intersectează dreapta <em>BE</em> în <em>L</em>, iar cercul circumscris <em>ω</em> al triunghiului <em>BDL</em> intersectează <em>Ω</em> a doua oară în <em>P ≠ B</em>. <em>Demonstrați că tangenta la ω în P intersectează dreapta BS pe bisectoarea interioară a unghiului ∠BAC.</em>",
-      "stat.wall_v": "0,94 s",
-      "stat.wall": "până la prima demonstrație",
-      "stat.steps": "pași în demonstrația finală",
-      "stat.aux": "punct auxiliar necesar",
-      "stat.ddar": "rulări DDAR",
-      "show.insight": "<b>Căutarea a descoperit singură construcțiile cheie.</b> Ca să poată raționa despre tangentă, motorul îi dă un nume punctului în care aceasta întâlnește <code>BS</code> — <code>X</code> — și caută puncte auxiliare care să facă figura să vorbească: în mai puțin de o secundă a demonstrat teorema prelungind <code>BO₁</code> și tangenta <code>XP</code> până la a doua lor intersecție cu <code>Ω</code>. O trecere de rafinare de 30 de secunde a distilat apoi cea mai scurtă demonstrație găsită — 60 de pași verificați automat, sprijiniți pe un singur punct auxiliar: reflexia lui <code>P</code> față de dreapta <code>BS</code>.",
-      "show.summary": "Demonstrația completă, exact așa cum a scris-o GeoSolver",
+      "app.problem": "Problemă",
+      "tab.describe": "Descriere",
+      "tab.photo": "Fotografie",
+      "tab.geo": ".geo",
+      "describe.label": "Descrie problema în cuvinte",
+      "describe.ph": "de ex. În triunghiul ABC, H este ortocentrul. Demonstrați că simetricul lui H față de dreapta BC se află pe cercul circumscris triunghiului ABC.",
+      "describe.note": "Un model AI transformă cuvintele tale într-un program .geo. Demonstrația în sine este verificată automat.",
+      "photo.label": "Fotografia problemei",
+      "photo.drop": "Trage o fotografie aici sau",
+      "photo.choose": "alege un fișier",
+      "photo.hint": "PNG, JPG sau WebP, până la 8 MB. Un model AI o citește; demonstrația este verificată automat.",
+      "photo.replace": "Înlocuiește",
+      "photo.remove": "Elimină fotografia",
+      "photo.alt": "Problema încărcată",
+      "geo.label": "Program .geo",
+      "geo.help": "Sintaxă",
+      "geo.help.title": ".geo într-un minut",
+      "geo.help.body": "<p>O instrucțiune pe rând. Numește puncte, construiește altele noi, apoi scrie concluzia.</p><pre class=\"mono\">A B C = triangle\nH = orthocenter(A, B, C)\nM = midpoint(B, C)\nD = foot(A, line(B, C))\nP = point: coll(A, M, P), perp(P, H, A, M)\nprove cyclic(A, B, C, reflect(H, line(B, C)))</pre><p>Concluzii: <code>coll</code>, <code>perp</code>, <code>para</code>, <code>cong</code>, <code>cyclic</code>, <code>eqangle</code>, <code>eqratio</code> sau o ecuație precum <code>dist(A,D)^2 = 14</code>. Rândurile care încep cu <code>#</code> sunt comentarii.</p>",
+      "examples": "Exemple",
+      "examples.title": "Probleme exemplu",
+      "unavailable.write_geo": "Scrie .geo",
+      "unavailable.signin": "Autentificare",
 
-      // — landing: features —
-      "feat.title": "Tot ce îi trebuie unui elev la geometrie.",
-      "feat.sub": "De la o fotografie la o demonstrație pe care chiar o poți citi — riguroasă și scrisă pe înțelesul tău.",
-      "feat.photo.h": "Fotografie → demonstrație",
-      "feat.photo.p": "Fotografiază o problemă din manual sau descrie-o în cuvinte; traducătorul integrat o transformă într-un program de geometrie ce poate fi rezolvat.",
-      "feat.rigor.h": "Fiecare pas verificat",
-      "feat.rigor.p": "Motorul verifică automat fiecare deducție, așa că demonstrația este corectă — nu o presupunere care doar pare plauzibilă.",
-      "feat.proof.h": "Demonstrație pe înțelesul tău",
-      "feat.proof.p": "Fiecare demonstrație este rescrisă de Claude Opus într-un raționament clar și curgător — ca într-o culegere cu rezolvări, nu un șir de simboluri.",
-      "feat.pdf.h": "Export PDF",
-      "feat.pdf.p": "Exportă un raport PDF sau PNG gata de tipărit, care îmbină figura și demonstrația — pentru teme, fișe sau notițe.",
+      "effort.label": "Căutare",
+      "effort.standard": "Standard",
+      "effort.shortest": "Cea mai scurtă",
+      "effort.hint.standard": "Se oprește la prima demonstrație (limită de {s} s).",
+      "effort.hint.shortest": "Arată prima demonstrație, apoi caută până la 20 s una mai scurtă.",
+      "solve": "Rezolvă",
+      "solve.shortcut": "Rezolvă cu {keys}",
+      "cancel": "Anulează",
+      "clear": "Golește",
+      "cleared": "Editorul a fost golit.",
+      "undo": "Anulează",
 
-      // — landing: how —
-      "how.title": "Trei pași, fără nicio configurare.",
-      "how.sub": "Rezolvările rămân în istoricul tău privat, ca să poți redeschide oricând orice demonstrație.",
-      "how.s1.h": "Enunță problema",
-      "how.s1.p": "Scrie-o în cuvinte, lipește un program <code>.geo</code> sau încarcă o fotografie a paginii.",
-      "how.s2.h": "GeoSolver o demonstrează",
-      "how.s2.p": "Închidere deductivă plus o căutare de puncte auxiliare — aceeași rețetă ca AlphaGeometry, reimplementată în Rust nativ și rapid.",
-      "how.s3.h": "Citește și exportă",
-      "how.s3.p": "Citește demonstrația în cuvinte simple, verifică figura etichetată și salvează un PDF gata de tipărit.",
+      "empty.title": "Demonstrația va apărea aici",
+      "empty.body": "Scrie un program .geo, descrie o problemă sau pornește de la un exemplu. Fiecare pas raportat de GeoSolver este verificat automat.",
+      "empty.examples": "Încearcă un exemplu",
 
-      // — landing: closing / footer —
-      "close.h": "Următoarea ta demonstrație e la câteva secunde distanță.",
-      "close.p": "Cont gratuit, fără e-mail — alege un nume de utilizator și începe să rezolvi.",
-      "close.cta": "Creează un cont gratuit",
-      "footer": "GeoSolver — un asistent de demonstrații de geometrie pentru elevi.",
+      "solving.translating": "Se traduce descrierea",
+      "solving.solving": "Se caută o demonstrație",
+      "solving.elapsed": "{t} din {max}",
+      "solving.shortest": "Se caută o demonstrație mai scurtă",
+      "stage.translate": "Traducere",
+      "stage.solve": "Demonstrare",
+      "stage.done": "Gata",
+      "cancelled": "Rezolvarea a fost anulată.",
 
-      // — auth —
+      "err.title.compile": "Programul conține o eroare",
+      "err.where": "Rândul {line}, coloana {col}",
+      "err.details": "Detalii tehnice",
+      "err.title.network": "Serverul nu poate fi contactat",
+      "err.body.network": "Verifică conexiunea, apoi încearcă din nou.",
+      "err.title.timeout": "Serverul a încetat să aștepte",
+      "err.body.timeout": "Cererea a fost întreruptă după 120 de secunde. Problemele foarte grele pot depăși căutarea; încearcă modul standard sau simplifică problema.",
+      "err.title.busy": "Serverul este ocupat",
+      "err.body.busy": "Toate locurile de rezolvare sunt ocupate. Încearcă din nou în câteva momente.",
+      "err.title.rate": "Prea multe cereri",
+      "err.body.rate": "Ai trimis multe cereri într-un timp scurt. Așteaptă un minut, apoi încearcă din nou.",
+      "err.title.auth": "Sesiunea a expirat",
+      "err.body.auth": "Autentifică-te din nou ca să continui.",
+      "err.title.too_large": "Programul este prea lung",
+      "err.title.translate": "Problema nu a putut fi tradusă",
+      "err.title.generic": "Ceva n-a mers",
+      "err.retry": "Încearcă din nou",
+      "err.empty_geo": "Scrie mai întâi un program .geo.",
+      "err.empty_describe": "Descrie mai întâi problema.",
+      "err.empty_photo": "Alege mai întâi o fotografie.",
+      "err.cannot_translate": "AI-ul nu a putut transforma asta într-o problemă de geometrie. Reformulează sau scrie direct programul .geo.",
+
+      "v.proved": "Demonstrat",
+      "v.proved.x": "Fiecare pas numerotat de mai jos este verificat automat.",
+      "v.false": "Afirmația este falsă",
+      "v.false.x": "O figură eșantionată o contrazice, deci nu poate exista o demonstrație.",
+      "v.numeric": "Adevărat numeric — fără demonstrație euclidiană",
+      "v.numeric.x": "Adevărat în toate cele {n} figuri eșantionate, dar GeoSolver nu a găsit o demonstrație sintetică. Este o dovadă numerică, nu o demonstrație.",
+      "v.not": "Nedemonstrat",
+      "v.not.x": "Căutarea s-a încheiat fără demonstrație. Afirmația poate fi totuși adevărată.",
+      "v.time": "Nedemonstrat — limita de timp a fost atinsă",
+      "v.time.x": "Căutarea s-a oprit la limita de {s} s fără a găsi o demonstrație. Afirmația poate fi totuși adevărată.",
+      "note.budget": "Nu s-a găsit o demonstrație în bugetul de căutare.",
+      "note.metric_error": "Demonstratorul euclidian nu a putut trata această concluzie.",
+      "note.unsound": "S-a găsit o derivare, dar a fost respinsă: figura eșantionată o contrazice (probabil o figură degenerată).",
+      "note.replay": "Căutarea a raportat o demonstrație ale cărei construcții nu au putut fi reconstruite.",
+      "meta.method.ddar": "Căutare deductivă",
+      "meta.method.aux.one": "Căutare deductivă + {n} punct auxiliar",
+      "meta.method.aux.few": "Căutare deductivă + {n} puncte auxiliare",
+      "meta.method.aux.other": "Căutare deductivă + {n} de puncte auxiliare",
+      "meta.method.euclid": "Teoreme euclidiene",
+      "meta.steps.one": "{n} pas",
+      "meta.steps.few": "{n} pași",
+      "meta.steps.other": "{n} de pași",
+      "meta.samples.one": "{n} figură eșantionată",
+      "meta.samples.few": "{n} figuri eșantionate",
+      "meta.samples.other": "{n} de figuri eșantionate",
+      "meta.time": "Timp",
+      "counter.title": "Contraexemplu",
+      "counter.angle": "În figura eșantionată unghiul dintre {a} și {b} este {lhs}°, nu {rhs}°.",
+      "counter.length": "În figura eșantionată {a} = {lhs}, dar {b} = {rhs}.",
+      "counter.angles": "În figura eșantionată {a} = {lhs}°, dar {b} = {rhs}°.",
+      "counter.values": "În figura eșantionată membrul stâng este {lhs}, iar cel drept {rhs}.",
+      "counter.off_line": "În figura eșantionată {a} nu se află pe dreapta {b}.",
+      "counter.off_circle": "În figura eșantionată {a} nu se află pe cercul prin {b}.",
+
+      "action.copy_proof": "Copiază demonstrația",
+      "action.copy_geo": "Copiază .geo",
+      "action.export": "Exportă",
+      "export.pdf": "Raport PDF",
+      "export.png": "Raport PNG",
+      "export.svg": "Figură (SVG)",
+      "export.preparing": "Se pregătește {fmt}…",
+      "export.done": "{fmt} descărcat.",
+      "export.failed": "Exportul a eșuat: {msg}",
+      "copied": "Copiat în clipboard.",
+      "copy_fail": "Nu s-a putut copia în clipboard.",
+      "shorter.searching": "Se caută o demonstrație mai scurtă…",
+      "shorter.found": "Am găsit o demonstrație mai scurtă: {n} pași în loc de {m}.",
+      "shorter.none": "Nu s-a găsit o demonstrație mai scurtă; o păstrăm pe aceasta.",
+      "shorter.stop": "Oprește",
+      "again": "Rezolvă din nou",
+
+      "st.statement": "Enunț",
+      "st.given": "Ipoteze",
+      "st.prove": "De demonstrat",
+      "st.aux": "Puncte auxiliare",
+      "st.aux.hint": "Adăugate de căutare; desenate punctat în figură.",
+      "proof.title": "Demonstrație",
+      "proof.tab.steps": "Pași verificați",
+      "proof.tab.ai": "Explicație AI",
+      "proof.ai.badge": "Neverificată automat",
+      "proof.ai.note": "Scrisă de un model AI pe baza pașilor verificați. Nu este verificată automat și poate conține greșeli. Pașii numerotați sunt demonstrația.",
+      "proof.ai.loading": "Se scrie o explicație…",
+      "proof.ai.fail": "Explicația nu a putut fi scrisă. Pașii verificați nu sunt afectați.",
+      "proof.ai.regen": "Regenerează",
+      "proof.from": "din",
+      "proof.cite": "Mergi la pasul {n}",
+      "proof.none": "Nu există o demonstrație de afișat.",
+      "proof.conclusion": "Prin urmare",
+      "details.title": "Detalii",
+      "details.geo": "Programul .geo compilat",
+      "details.note": "Nota motorului",
+
+      "fact.coll": "{pts} sunt coliniare",
+      "fact.cyclic": "{pts} sunt conciclice",
+      "fact.midp": "{m} este mijlocul segmentului {seg}",
+      "fact.circle": "{o} este centrul cercului circumscris △{tri}",
+      "rule.given": "ipoteză",
+      "rule.construction": "construcție",
+      "rule.aux": "construcție auxiliară",
+      "rule.similar": "triunghiuri asemenea",
+      "rule.collinear": "coliniaritate",
+      "rule.concyclic": "unghiuri înscrise",
+      "rule.eqradius": "raze egale",
+      "rule.coincide": "puncte confundate",
+      "rule.transfer": "aritmetica segmentelor",
+      "rule.arcchord": "arce egale ⇔ coarde egale",
+      "rule.algebra": "calcul",
+      "rule.other": "deducție",
+      "aux.midpoint": "mijlocul segmentului {0}{1}",
+      "aux.circumcenter": "centrul cercului circumscris △{0}{1}{2}",
+      "aux.orthocenter": "ortocentrul △{0}{1}{2}",
+      "aux.foot": "piciorul perpendicularei din {0} pe {1}",
+      "aux.reflect": "simetricul lui {0} față de {1}",
+      "aux.intersect": "intersecția dintre {0} și {1}",
+      "aux.parallelogram": "completează paralelogramul {0}{1}{2}",
+      "aux.spiral_center": "centrul asemănării spirale care duce {0} în {1}",
+      "aux.isogonal": "conjugatul izogonal al lui {0} în △{1}",
+      "aux.inverse": "inversul lui {0} față de cercul ({1}, {1}{2})",
+      "aux.antipode": "punctul diametral opus lui {0}",
+      "aux.tangent": "punctul de tangență al unei tangente din {0}",
+      "aux.arc_midpoint": "mijlocul arcului {0}{1}",
+      "aux.bisector_foot": "piciorul bisectoarei din {0} în △{1}",
+      "aux.circumcircle": "cercul circumscris △{0}{1}{2}",
+      "aux.circle": "cercul ({0}, {0}{1})",
+
+      "fig.title": "Figură",
+      "fig.zoom_in": "Mărește",
+      "fig.zoom_out": "Micșorează",
+      "fig.fit": "Încadrează",
+      "fig.full": "Ecran complet",
+      "fig.exit_full": "Ieși din ecran complet",
+      "fig.download": "Descarcă figura (SVG)",
+      "fig.hint.fine": "Derulează pentru zoom · trage pentru deplasare · 0 resetează",
+      "fig.hint.coarse": "Ciupește pentru zoom · trage pentru deplasare · dublă atingere resetează",
+      "fig.legend.given": "Construcție",
+      "fig.legend.goal": "Concluzie",
+      "fig.legend.aux": "Auxiliar",
+      "fig.empty": "Figura apare aici după ce o problemă este rezolvată.",
+      "fig.aria": "Figură cu punctele {pts}. Concluzie: {goal}.",
+      "fig.region": "Figură — folosește + și − pentru zoom, săgețile pentru deplasare, 0 pentru resetare, F pentru ecran complet",
+
+      "hist.title": "Istoric",
+      "hist.search": "Caută în istoric",
+      "hist.filter": "Filtrează după verdict",
+      "hist.filter.all": "Toate",
+      "hist.filter.proved": "Demonstrate",
+      "hist.filter.false": "False",
+      "hist.filter.numeric": "Numerice",
+      "hist.filter.not": "Nedemonstrate",
+      "hist.empty": "Încă nicio rezolvare. Problemele rezolvate se salvează aici.",
+      "hist.none_match": "Nimic nu corespunde căutării.",
+      "hist.loading": "Se încarcă…",
+      "hist.delete": "Șterge „{title}”",
+      "hist.deleted": "Ai șters „{title}”.",
+      "hist.load_fail": "Istoricul nu a putut fi încărcat.",
+      "hist.del_fail": "Intrarea nu a putut fi ștearsă.",
+      "hist.untitled": "Problemă fără titlu",
+      "hist.open_fail": "Intrarea nu a putut fi deschisă.",
+      "hist.close": "Închide istoricul",
+      "hist.guest": "Autentifică-te ca să păstrezi un istoric al rezolvărilor.",
+      "status.proved": "Demonstrat",
+      "status.refuted": "Fals",
+      "status.holds-numerically": "Doar numeric",
+      "status.not-proved": "Nedemonstrat",
+      "status.legacy": "Neverificat",
+
       "auth.doctitle": "Autentificare · GeoSolver",
       "auth.welcome": "Bine ai revenit",
       "auth.create_head": "Creează-ți contul",
       "auth.sub_login": "Autentifică-te ca să rezolvi, să salvezi și să revii la demonstrațiile tale.",
-      "auth.sub_register": "Gratuit — fără e-mail. Alege doar un nume și o parolă.",
+      "auth.sub_register": "Gratuit, fără e-mail. Alege un nume de utilizator și o parolă.",
       "auth.username": "Nume de utilizator",
       "auth.password": "Parolă",
       "auth.user_hint": "3–32 de caractere: litere, cifre, - sau _",
       "auth.pass_hint": "Cel puțin 8 caractere",
-      "auth.err_user": "Introdu un nume de utilizator (3–32 de caractere).",
+      "auth.user_ok": "Arată bine",
+      "auth.show": "Arată parola",
+      "auth.hide": "Ascunde parola",
+      "auth.err_user": "Introdu un nume de 3–32 de caractere: litere, cifre, - sau _.",
       "auth.err_pass": "Parola trebuie să aibă cel puțin 8 caractere.",
-      "auth.signed_in": "Autentificat ca {name}. Redirecționare…",
+      "auth.signed_in": "Autentificat ca {name}. Se deschide aplicația…",
       "auth.generic_err": "Ceva n-a mers. Încearcă din nou.",
       "auth.net_err": "Serverul nu poate fi contactat. Încearcă din nou.",
+      "auth.working": "Te rugăm să aștepți…",
+      "auth.tabs": "Autentificare sau cont nou",
 
-      // — app: header / input —
-      "app.tag": "scrie sau fotografiază o problemă de geometrie — primești figura etichetată și o demonstrație pas cu pas",
-      "app.ai_on": "traducere AI activă",
-      "app.ai_signin": "autentifică Claude pentru AI",
-      "app.ai_off": "traducere AI dezactivată",
-      "app.logout": "Deconectare",
-      "app.problem": "Problemă",
-      "app.mode_describe": "Descrie",
-      "app.mode_geo": "cod .geo",
-      "app.figure": "Figură",
-      "app.theme_light": "Deschisă",
-      "app.theme_dark": "Întunecată",
-      "app.describe_label": "Descrie problema în cuvinte sau încarcă o fotografie a ei:",
-      "app.geo_label": "Scrie un program .geo:",
-      "app.input_ph_describe": "ex.: În triunghiul ABC, H este ortocentrul. Arată că reflexia lui H față de dreapta BC se află pe cercul circumscris triunghiului ABC.",
-      "app.input_ph_geo": "# un program .geo\nA B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
-      "app.drop_text": "Trage aici o fotografie a problemei sau apasă pentru a alege",
-      "app.drop_replace": "{name} — apasă pentru a înlocui",
-      "app.best": "Găsește cea mai scurtă demonstrație",
-      "app.best_hint": "— compară toate demonstrațiile posibile în cel mult 20 de secunde",
-      "app.solve": "Rezolvă",
-      "app.clear": "Șterge",
-
-      // — app: output —
-      "app.solution": "Soluție",
-      "app.empty": "Introdu problema și apasă <b>Rezolvă</b>. Figura etichetată și demonstrația pas cu pas apar aici.",
-      "app.zoom_out": "Micșorează",
-      "app.zoom_in": "Mărește",
-      "app.fit": "Încadrează în vizor",
-      "app.fullscreen": "Tot ecranul",
-      "app.exit_fullscreen": "Ieși din modul tot ecranul",
-      "app.fig_hint": "derulează / apropie degetele pentru zoom · trage pentru a deplasa · dublu-atinge pentru resetare",
-      "app.save_pdf": "Salvează PDF",
-      "app.save_png": "Salvează PNG",
-      "app.given": "Ipoteze",
-      "app.prove": "De demonstrat",
-      "app.aux_label": "Construcțiile auxiliare introduse de căutare",
-      "app.compiled_geo": "Programul .geo compilat",
-      "app.proof": "Demonstrație.",
-      "app.search_result": "Rezultatul căutării.",
-      "app.writing_proof": "Se redactează o demonstrație clară…",
-      "app.proof_omitted": "Nu s-a găsit nicio demonstrație în bugetul de căutare.",
-      "app.proof_fallback": "Redactorul de demonstrații nu este disponibil — se afișează pașii verificați automat.",
-      "app.numeric_title": "Verificare numerică — nu este o demonstrație.",
-      "app.counterexample": "Contraexemplu.",
-
-      // — app: dynamic status —
-      "app.working": "Se lucrează…",
-      "app.translating": "Se traduce…",
-      "app.finding_shortest": "Caut cea mai scurtă demonstrație…",
-      "app.solving": "Se rezolvă…",
-      "app.verdict_proven": "Demonstrat ∎",
-      "app.verdict_not": "Nedemonstrat",
-      "app.verdict_numeric": "Nedemonstrat — se verifică numeric",
-      "app.verdict_refuted": "Infirmat",
-      "app.numeric_only": "<b>Nu s-a găsit nicio demonstrație euclidiană.</b> Enunțul se verifică numeric în toate cele {n} figuri eșantionate — este un indiciu, nu o demonstrație.",
-      "app.n_figures": "verificat în {n} figuri",
-      "app.method_ddar": "DDAR",
-      "app.method_aux": "DDAR + căutare auxiliară",
-      "app.method_euclid": "Demonstrator euclidian",
-      "app.n_points": "{n} puncte",
-      "app.n_steps": "{n} pași",
-      "app.n_examined": "{n} construcții examinate",
-      "app.false_stmt": "Enunțul nu se verifică în figura eșantionată — afirmația pare <b>falsă</b>. Motorul a încercat totuși.",
-
-      // — app: errors —
-      "app.err_write_geo": "Scrie mai întâi un program .geo.",
-      "app.err_describe": "Descrie problema sau încarcă o fotografie.",
-      "app.err_translation": "Traducerea a eșuat: {msg}",
-      "app.err_cannot_translate": "Modelul nu a putut transforma asta într-o problemă de geometrie:",
-      "app.err_solve": "Eroare la rezolvare: {msg}",
-      "app.err_generic": "Ceva n-a mers: {msg}",
-      "app.err_export": "Exportul a eșuat: {msg}",
-      "app.warn_login": "Configurare unică: autentifică CLI-ul Claude în abonamentul tău — rulează <code>claude auth login</code> într-un terminal, apoi reîncarcă pagina. (Fără cheie API — folosește abonamentul tău Claude.) Între timp poți trece la <b>cod .geo</b> și rezolva direct.",
-      "app.warn_install": "Traducerea AI are nevoie de CLI-ul Claude. Rulează <code>npm i -g @anthropic-ai/claude-code</code>, apoi <code>claude auth login</code>, apoi reîncarcă — sau treci la <b>cod .geo</b> și scrie programul direct.",
-
-      // — app: history —
-      "app.history": "Istoric",
-      "app.loading": "Se încarcă…",
-      "app.no_solves": "Încă nicio rezolvare.",
-      "app.untitled": "Fără titlu",
-      "app.proven": "Demonstrat",
-      "app.not_proven": "Nedemonstrat",
-      "app.numeric": "Nedemonstrat — se verifică numeric",
-      "app.refuted": "Infirmat",
-      "app.unchecked": "Înregistrat înainte de verificarea euclidiană strictă — redeschide pentru a reverifica",
-      "app.reopen": "Redeschide: {label}",
-      "app.delete": "Șterge",
-      "app.del_fail": "Nu am putut șterge intrarea.",
-      "app.footer": "GeoSolver · o implementare în Rust, scrisă de la zero, a motorului de deducție AlphaGeometry",
+      "hero.eyebrow": "Geometrie de olimpiadă, verificată automat",
+      "hero.h1": "Demonstrații de geometrie pe care le poți verifica rând cu rând.",
+      "hero.lede": "Scrie sau descrie o problemă de geometrie. GeoSolver desenează figura etichetată și caută o demonstrație în care fiecare pas își numește regula, ca s-o poți verifica singur.",
+      "hero.cta_create": "Creează un cont gratuit",
+      "hero.cta_example": "Vezi o problemă IMO rezolvată",
+      "trust.speed": "majoritatea problemelor de manual în sub o secundă",
+      "trust.checked": "fiecare pas numerotat verificat automat",
+      "trust.honest": "spune deschis când nu poate demonstra",
+      "show.title": "O problemă IMO reală, rezolvată și verificată",
+      "show.sub": "IMO 2023, Problema 2. GeoSolver a găsit o primă demonstrație în 0,9 s; o rafinare de 30 de secunde a găsit apoi această demonstrație mai scurtă, care are nevoie de un singur punct auxiliar. Treci cu mouse-ul sau focalizează un pas ca să-i vezi punctele în figură.",
+      "case.title": "IMO 2023 · Problema 2",
+      "case.statement": "Fie <i>ABC</i> un triunghi ascuțitunghic cu <i>AB</i> &lt; <i>AC</i> și fie <i>Ω</i> cercul său circumscris. Fie <i>S</i> mijlocul arcului <i>CB</i> al lui <i>Ω</i> care îl conține pe <i>A</i>. Perpendiculara din <i>A</i> pe <i>BC</i> intersectează <i>BS</i> în <i>D</i> și intersectează <i>Ω</i> a doua oară în <i>E</i> ≠ <i>A</i>. Paralela prin <i>D</i> la <i>BC</i> intersectează dreapta <i>BE</i> în <i>L</i>, iar cercul circumscris <i>ω</i> al triunghiului <i>BDL</i> intersectează <i>Ω</i> a doua oară în <i>P</i> ≠ <i>B</i>. Demonstrați că tangenta la <i>ω</i> în <i>P</i> intersectează dreapta <i>BS</i> pe bisectoarea interioară a unghiului ∠<i>BAC</i>.",
+      "stat.first": "până la prima demonstrație",
+      "stat.steps": "pași verificați automat",
+      "stat.aux": "punct auxiliar",
+      "stat.examined": "demonstrații comparate",
+      "show.steps": "Arată toți cei {n} de pași",
+      "show.fewer": "Arată mai puțini pași",
+      "feat.title": "Ce primești",
+      "feat.sub": "O demonstrație pe care o poți verifica, o figură care o urmează și un verdict onest.",
+      "feat.rigor.h": "Pași verificați automat",
+      "feat.rigor.p": "Fiecare pas își numește regula (triunghiuri asemenea, unghiuri înscrise, …) și pașii anteriori pe care îi folosește.",
+      "feat.verdict.h": "Un verdict onest",
+      "feat.verdict.p": "Demonstrat, fals (cu un contraexemplu), adevărat doar numeric sau nedemonstrat. Nu prezintă niciodată o presupunere drept demonstrație.",
+      "feat.figure.h": "O figură care urmează demonstrația",
+      "feat.figure.p": "Arată spre un pas și punctele și dreptele despre care vorbește se evidențiază.",
+      "feat.photo.h": "Cuvinte, fotografii sau .geo",
+      "feat.photo.p": "Scrie problema, fotografiaz-o sau scrie direct construcția. Traducerea AI este marcată clar.",
+      "how.title": "Cum funcționează",
+      "how.s1.h": "Enunță problema",
+      "how.s1.p": "În cuvinte, ca fotografie sau ca o scurtă construcție <code>.geo</code>.",
+      "how.s2.h": "GeoSolver caută",
+      "how.s2.p": "Închidere deductivă plus o căutare de puncte auxiliare, aceeași rețetă ca AlphaGeometry, în Rust nativ.",
+      "how.s3.h": "Verifică și exportă",
+      "how.s3.p": "Citește pașii verificați lângă figură, apoi salvează un raport PDF sau PNG.",
+      "close.h": "Încearcă pe propria ta problemă.",
+      "close.p": "Cont gratuit, fără e-mail.",
+      "close.cta": "Creează un cont gratuit",
+      "footer": "GeoSolver — un asistent pentru demonstrații de geometrie.",
     },
   };
 
@@ -363,39 +623,57 @@
     try { return localStorage.getItem("lang"); } catch (e) { return null; }
   }
   function current() {
-    var l = stored();
-    return l === "ro" ? "ro" : "en"; // English-first default
+    return stored() === "ro" ? "ro" : "en";
   }
+  function locale() { return current() === "ro" ? "ro-RO" : "en-GB"; }
   function setCookie(l) {
     try { document.cookie = "lang=" + l + ";path=/;max-age=31536000;samesite=lax"; } catch (e) {}
   }
-  function t(key, vars) {
+  function lookup(key) {
     var l = current();
-    var s = (DICT[l] && DICT[l][key]);
-    if (s == null) s = (DICT.en && DICT.en[key]);
-    if (s == null) s = key;
+    var s = DICT[l] && DICT[l][key];
+    if (s == null) s = DICT.en[key];
+    return s;
+  }
+  function fill(s, vars) {
     if (vars) for (var k in vars) s = s.split("{" + k + "}").join(vars[k]);
     return s;
   }
+  function t(key, vars) {
+    var s = lookup(key);
+    return fill(s == null ? key : s, vars);
+  }
+  var rules = {};
+  function tp(key, n, vars) {
+    var l = current();
+    var pr = rules[l] || (rules[l] = new Intl.PluralRules(locale()));
+    var cat = pr.select(n);
+    var s = lookup(key + "." + cat);
+    if (s == null && cat === "few") s = lookup(key + ".other");
+    if (s == null) s = lookup(key + ".other") || key;
+    var v = vars ? Object.assign({}, vars) : {};
+    if (v.n == null) v.n = fmtNum(n);
+    return fill(s, v);
+  }
+  function fmtNum(x, digits) {
+    var o = digits == null ? { maximumFractionDigits: 20 } : { minimumFractionDigits: digits, maximumFractionDigits: digits };
+    try { return new Intl.NumberFormat(locale(), o).format(x); } catch (e) { return String(x); }
+  }
 
-  function applyLang(l) {
-    if (l !== "en" && l !== "ro") l = "en";
-    try { localStorage.setItem("lang", l); } catch (e) {}
-    setCookie(l);
-    document.documentElement.lang = l;
-    document.documentElement.setAttribute("data-lang", l);
-
+  function apply() {
+    var l = current();
+    var root = document.documentElement;
+    root.lang = l;
+    root.setAttribute("data-lang", l);
     document.querySelectorAll("[data-i18n]").forEach(function (el) {
       var v = t(el.getAttribute("data-i18n"));
-      if (el.hasAttribute("data-i18n-html")) el.innerHTML = v;
-      else el.textContent = v;
+      if (el.hasAttribute("data-i18n-html")) el.innerHTML = v; else el.textContent = v;
     });
     document.querySelectorAll("[data-i18n-attr]").forEach(function (el) {
       el.getAttribute("data-i18n-attr").split(";").forEach(function (pair) {
         var i = pair.indexOf(":");
         if (i < 0) return;
-        var attr = pair.slice(0, i).trim();
-        var key = pair.slice(i + 1).trim();
+        var attr = pair.slice(0, i).trim(), key = pair.slice(i + 1).trim();
         if (attr && key) el.setAttribute(attr, t(key));
       });
     });
@@ -405,28 +683,24 @@
     document.querySelectorAll("[data-lang-set]").forEach(function (b) {
       b.setAttribute("aria-pressed", b.getAttribute("data-lang-set") === l ? "true" : "false");
     });
-    document.querySelectorAll("[data-lang-label]").forEach(function (b) {
-      b.textContent = l === "en" ? "RO" : "EN";
-      b.setAttribute("title", t("lang.switch"));
-      b.setAttribute("aria-label", t("lang.switch"));
-    });
+    var dt = document.querySelector("meta[name='i18n-title']");
+    if (dt) document.title = t(dt.getAttribute("content"));
+    root.classList.remove("i18n-pending");
+  }
 
+  function set(l) {
+    if (l !== "en" && l !== "ro") l = "en";
+    try { localStorage.setItem("lang", l); } catch (e) {}
+    setCookie(l);
+    apply();
     document.dispatchEvent(new CustomEvent("langchange", { detail: { lang: l } }));
-    document.documentElement.style.visibility = ""; // reveal (FOUC guard)
   }
-  function toggle() { applyLang(current() === "en" ? "ro" : "en"); }
 
-  window.i18n = { t: t, applyLang: applyLang, toggle: toggle, current: current };
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-lang-set]");
+    if (b) { e.preventDefault(); if (b.getAttribute("data-lang-set") !== current()) set(b.getAttribute("data-lang-set")); }
+  });
 
-  function init() {
-    document.querySelectorAll("[data-lang-set]").forEach(function (b) {
-      b.addEventListener("click", function () { applyLang(b.getAttribute("data-lang-set")); });
-    });
-    document.querySelectorAll("[data-lang-toggle]").forEach(function (b) {
-      b.addEventListener("click", toggle);
-    });
-    applyLang(current());
-  }
-  if (document.readyState !== "loading") init();
-  else document.addEventListener("DOMContentLoaded", init);
+  setCookie(current());
+  window.i18n = { t: t, tp: tp, current: current, locale: locale, set: set, apply: apply, fmtNum: fmtNum, has: function (k) { return lookup(k) != null; } };
 })();

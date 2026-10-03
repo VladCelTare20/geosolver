@@ -43,6 +43,7 @@ const ASSETS: &[(&str, &str, &str, &[u8])] = &[
     ("app.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/app.js")),
     ("auth.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/auth.js")),
     ("landing.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/landing.js")),
+    ("showcase.json", "application/json", "no-cache", include_bytes!("../assets/showcase.json")),
     ("fonts/stix-two-text.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/stix-two-text.woff2")),
     ("fonts/stix-two-text-italic.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/stix-two-text-italic.woff2")),
     ("fonts/inter.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/inter.woff2")),

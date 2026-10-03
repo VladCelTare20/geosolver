@@ -705,7 +705,7 @@ pub struct ProofView {
     pub style: &'static str,
 }
 
-fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names) -> ProofView {
+fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -> ProofView {
     let mut steps = Vec::new();
     let mut conclusion = None;
     for line in text.lines() {
@@ -751,7 +751,14 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names) -> ProofView {
             match rule {
                 "assumption" | "construction" => {
                     let f = fact_of_pred_text(problem, names, stmt).unwrap_or_else(|| formula(stmt));
-                    ("given", if rule == "assumption" { "given" } else { "construction" }, None, f)
+                    let rule = if f.points.iter().any(|p| aux.contains(p)) {
+                        "aux"
+                    } else if rule == "assumption" {
+                        "given"
+                    } else {
+                        "construction"
+                    };
+                    ("given", rule, None, f)
                 }
                 "similar triangles" => {
                     let tri: Vec<String> = stmt
@@ -791,7 +798,55 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names) -> ProofView {
         };
         steps.push(Step { n, kind, rule, rule_name, fact, deps });
     }
-    ProofView { steps, conclusion, style: "ddar" }
+    ProofView { steps: drop_restatements(steps), conclusion, style: "ddar" }
+}
+
+/// Drop steps that only restate one cited step with the same points (the
+/// engine's `collinear: A I M [003]` after `assumption: coll A I M`), then
+/// renumber, pointing citations at the surviving step.
+fn drop_restatements(steps: Vec<Step>) -> Vec<Step> {
+    fn key(f: &Fact) -> (&'static str, Vec<String>) {
+        let mut p = f.points.clone();
+        p.sort();
+        p.dedup();
+        (f.kind, p)
+    }
+    let mut alias: HashMap<usize, usize> = HashMap::new();
+    let mut facts: HashMap<usize, (&'static str, Vec<String>)> = HashMap::new();
+    for s in &steps {
+        facts.insert(s.n, key(&s.fact));
+        if s.kind == "step" && matches!(s.rule, "collinear" | "concyclic") && s.deps.len() == 1 {
+            let mut d = s.deps[0];
+            while let Some(&a) = alias.get(&d) {
+                d = a;
+            }
+            if facts.get(&d) == Some(&key(&s.fact)) {
+                alias.insert(s.n, d);
+            }
+        }
+    }
+    let kept: Vec<Step> = steps.into_iter().filter(|s| !alias.contains_key(&s.n)).collect();
+    let renum: HashMap<usize, usize> = kept.iter().enumerate().map(|(i, s)| (s.n, i + 1)).collect();
+    kept.into_iter()
+        .map(|mut s| {
+            s.n = renum[&s.n];
+            let mut deps: Vec<usize> = s
+                .deps
+                .iter()
+                .filter_map(|&d| {
+                    let mut d = d;
+                    while let Some(&a) = alias.get(&d) {
+                        d = a;
+                    }
+                    renum.get(&d).copied()
+                })
+                .collect();
+            deps.sort_unstable();
+            deps.dedup();
+            s.deps = deps;
+            s
+        })
+        .collect()
 }
 
 /// The theorem a Euclidean prose step cites (`… by Stewart's theorem …`).
@@ -1153,7 +1208,13 @@ pub fn source_title(src: &str) -> Option<String> {
             cut = cut.min(i);
         }
     }
-    let t: String = text[..cut].trim().chars().take(80).collect();
+    let head = text[..cut].trim();
+    let generic = ["THEOREM", "LEMMA", "PROBLEM", "EXAMPLE", "FACT"].iter().any(|g| head.eq_ignore_ascii_case(g));
+    let picked = match (generic, text[cut..].trim_start().strip_prefix('(')) {
+        (true, Some(rest)) => rest.split(')').next().unwrap_or(head).trim(),
+        _ => head,
+    };
+    let t: String = picked.chars().take(80).collect();
     (!t.is_empty()).then_some(t)
 }
 
@@ -1311,7 +1372,10 @@ pub fn build(sol: &Solution) -> View {
 
     let proof = match (&sol.proof, sol.method) {
         (Some(p), Method::Euclidean) => parse_euclid_proof(p, &names),
-        (Some(p), _) => parse_ddar_proof(p, &fig, &names),
+        (Some(p), _) => {
+            let aux_names: HashSet<String> = points.iter().filter(|p| p.aux).map(|p| p.name.clone()).collect();
+            parse_ddar_proof(p, &fig, &names, &aux_names)
+        }
         (None, _) => ProofView { steps: vec![], conclusion: None, style: "none" },
     };
     let aux = sol.aux_constructions.iter().map(|a| aux_view(a, &names)).collect();
@@ -1643,5 +1707,6 @@ mod tests {
     fn titles_come_from_the_leading_comment() {
         assert_eq!(source_title("# Stewart's theorem (additive engine): x\nB = free").as_deref(), Some("Stewart's theorem"));
         assert_eq!(source_title("A B C = triangle"), None);
+        assert_eq!(source_title("# THEOREM (Euler line): O, G, H are collinear").as_deref(), Some("Euler line"));
     }
 }

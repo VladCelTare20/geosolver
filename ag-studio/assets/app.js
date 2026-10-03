@@ -1,0 +1,1115 @@
+/* GeoSolver app: composer, solving flow, verdict, proof, figure, history. */
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var t = function (k, v) { return window.i18n.t(k, v); };
+  var tp = function (k, n, v) { return window.i18n.tp(k, n, v); };
+  var esc = GS.esc, icons = GS.icons;
+  var isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) {} },
+  };
+
+  var EXAMPLES = [
+    { id: "ortho", en: "Orthocenter reflection", ro: "Simetricul ortocentrului", tag: "cyclic",
+      src: "# The reflection of the orthocenter in a side lies on the circumcircle.\nA B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))" },
+    { id: "euler", en: "Euler line", ro: "Dreapta lui Euler", tag: "coll",
+      src: "# Euler line: circumcenter, centroid and orthocenter are collinear.\nA B C = triangle\nO = circumcenter(A, B, C)\nG = centroid(A, B, C)\nH = orthocenter(A, B, C)\nprove coll(O, G, H)" },
+    { id: "nine", en: "Nine-point circle", ro: "Cercul lui Euler", tag: "cyclic",
+      src: "# Nine-point circle: the side midpoints and an altitude foot are concyclic.\nA B C = triangle\nMa = midpoint(B, C)\nMb = midpoint(A, C)\nMc = midpoint(A, B)\nF = foot(A, line(B, C))\nprove cyclic(Ma, Mb, Mc, F)" },
+    { id: "simson", en: "Simson line", ro: "Dreapta lui Simson", tag: "coll",
+      src: "# Simson line: the feet of the perpendiculars from a point on the circumcircle are collinear.\nA B C = triangle\nP = on_circum(A, B, C)\nX = foot(P, line(B, C))\nY = foot(P, line(C, A))\nZ = foot(P, line(A, B))\nprove coll(X, Y, Z)" },
+    { id: "stewart", en: "Stewart's theorem", ro: "Teorema lui Stewart", tag: "metric",
+      src: "# Stewart's theorem: a cevian with BD:DC = 1:2 has AD² = 14.\nB = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = point: dist(A,B)=5, dist(A,C)=4\nprove dist(A,D)^2 = 14" },
+    { id: "pyth", en: "Pythagorean theorem", ro: "Teorema lui Pitagora", tag: "metric",
+      src: "# Pythagorean theorem\nB C = segment\nA = on_dia(B, C)\nprove dist(A, B)^2 + dist(A, C)^2 = dist(B, C)^2" },
+    { id: "imo2019", en: "IMO 2019 · Problem 2", ro: "IMO 2019 · Problema 2", tag: "IMO",
+      src: "# IMO 2019 Problem 2\nA B C = triangle\nA1 = point: coll(B, C, A1)\nB1 = point: coll(A, C, B1)\nP = point: coll(A, A1, P)\nQ = point: coll(B, B1, Q), para(P, Q, A, B)\nP1 = point: coll(B1, P, P1), eqangle(P1, P, P1, C, A, B, A, C)\nQ1 = point: coll(A1, Q, Q1), eqangle(Q1, C, Q1, Q, B, C, B, A)\nprove cyclic(P, Q, P1, Q1)" },
+    { id: "imo2023", en: "IMO 2023 · Problem 2", ro: "IMO 2023 · Problema 2", tag: "IMO",
+      src: "# IMO 2023 Problem 2\nA B C = triangle\nO = circumcenter(A, B, C)\nI = incenter(A, B, C)\nN = meet(line(A, I), circumcircle(A, B, C))\nS = meet(line(N, O), circumcircle(A, B, C))\nD = point: coll(B, S, D), perp(A, D, B, C)\nE = meet(line(A, D), circumcircle(A, B, C))\nL = point: coll(B, E, L), para(D, L, B, C)\nP = meet(circle(B, D, L), circumcircle(A, B, C))\nO1 = circumcenter(B, D, L)\nX = point: coll(B, S, X), perp(X, P, P, O1)\nprove eqangle(A, B, A, X, A, X, A, C)" },
+    { id: "false", en: "A false claim (median ⟂ side)", ro: "O afirmație falsă (mediana ⟂ latura)", tag: "false",
+      src: "# A false claim: the median from C is perpendicular to AB.\nA B C = triangle\nM = midpoint(A, B)\nprove perp(C, M, A, B)" },
+    { id: "numeric", en: "True, but only numerically", ro: "Adevărat, dar doar numeric", tag: "numeric",
+      src: "# The median splits the triangle into two triangles of equal area.\nA B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)" },
+  ];
+
+  var S = {
+    status: null, mode: "geo", effort: "standard", photo: null,
+    busy: false, abort: null, timer: null, started: 0, deadline: 60,
+    sol: null, geo: "", title: null, steps: null,
+    aiCache: {}, aiSeq: 0, history: [], filter: "all", query: "", pendingDeletes: new Map(),
+    refining: null, activeHistory: null,
+  };
+
+  function paintIcons(root) {
+    (root || document).querySelectorAll("[data-icon]").forEach(function (el) {
+      if (!el.firstChild) el.innerHTML = icons[el.getAttribute("data-icon")] || "";
+    });
+  }
+  function setIcon(id, name) { var e = $(id); if (e) e.innerHTML = icons[name]; }
+
+  // ---------------------------------------------------------------- status --
+  function api(url, opts) {
+    opts = opts || {};
+    var init = { method: opts.method || "GET", headers: {}, signal: opts.signal, keepalive: !!opts.keepalive };
+    if (opts.body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(opts.body); }
+    return fetch(url, init).then(function (res) {
+      var ct = res.headers.get("content-type") || "";
+      if (opts.raw && res.ok) return { ok: true, status: res.status, res: res };
+      return (ct.indexOf("json") >= 0 ? res.json() : res.text().then(function (x) { return { error: x || res.statusText }; }))
+        .catch(function () { return {}; })
+        .then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
+    });
+  }
+
+  function loadStatus(attempt) {
+    attempt = attempt || 0;
+    api("/api/status").then(function (r) {
+      if (!r.ok) throw new Error("status");
+      S.status = r.data;
+      S.deadline = r.data.solve_deadline_secs || 60;
+      paintAccount();
+      paintAiPill();
+      paintGates();
+      paintEffortHint();
+      if (attempt === 0) firstModeChoice();
+      if (r.data.translate_checking && attempt < 20) setTimeout(function () { loadStatus(attempt + 1); }, 1500);
+      if (attempt === 0 && r.data.signed_in) { loadHistory(); }
+    }).catch(function () {
+      if (attempt < 3) setTimeout(function () { loadStatus(attempt + 1); }, 2000);
+    });
+  }
+
+  function paintAccount() {
+    var st = S.status || {};
+    $("account").hidden = !st.signed_in;
+    $("signin").hidden = !!st.signed_in || !st.guest;
+    if (st.signed_in) {
+      $("username").textContent = st.username;
+      $("avatar").textContent = (st.username || "?").slice(0, 1);
+      $("account").setAttribute("title", t("app.signed_in_as", { name: st.username }));
+    }
+    var rail = !!st.signed_in;
+    document.body.classList.toggle("has-rail", rail);
+    $("rail").hidden = !rail;
+    $("rail-toggle").hidden = !rail;
+  }
+
+  function paintAiPill() {
+    var st = S.status, pill = $("ai-pill"), txt = $("ai-pill-text");
+    var cls = "checking", key = "ai.checking", tip = t("ai.reason.checking");
+    if (st && !st.translate_checking) {
+      if (st.can_translate) { cls = "on"; key = "ai.on"; tip = t("ai.tip.on"); }
+      else if (st.translate_block === "sign_in") { cls = "off"; key = "ai.signin"; tip = t("ai.reason.sign_in"); }
+      else { cls = "off"; key = "ai.off"; tip = t("ai.reason." + (st.translate_block || "disabled")); }
+    }
+    pill.className = "status-pill " + cls;
+    txt.textContent = t(key);
+    pill.title = tip;
+  }
+
+  function aiBlock() {
+    var st = S.status;
+    if (!st) return "checking";
+    if (st.can_translate) return null;
+    return st.translate_block || "disabled";
+  }
+
+  function paintGates() {
+    var block = aiBlock();
+    document.querySelectorAll("[data-gate]").forEach(function (g) {
+      var body = g.parentNode.querySelector(".ai-body");
+      if (!block) { g.hidden = true; body.hidden = false; return; }
+      g.hidden = false;
+      body.hidden = true;
+      var actions = '<button type="button" class="btn btn-secondary btn-sm" data-goto-geo>' + esc(t("unavailable.write_geo")) + "</button>";
+      if (block === "sign_in") actions = '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("unavailable.signin")) + "</a>" + actions;
+      g.innerHTML = '<div class="banner ' + (block === "checking" ? "tone-info" : "tone-neutral") + '">' + (block === "checking" ? '<span class="spinner" aria-hidden="true"></span>' : icons.info) +
+        "<div><p>" + esc(t("ai.reason." + block)) + '</p><div class="gate-actions">' + actions + "</div></div></div>";
+    });
+    paintSolveEnabled();
+  }
+
+  // ------------------------------------------------------------------ tabs --
+  var MODES = ["describe", "photo", "geo"];
+  function setMode(m, focus) {
+    S.mode = m;
+    store.set("gs.mode", m);
+    MODES.forEach(function (x) {
+      var tab = $("tab-" + x), on = x === m;
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+      tab.tabIndex = on ? 0 : -1;
+      $("panel-" + x).hidden = !on;
+    });
+    if (focus) $("tab-" + m).focus();
+    paintSolveEnabled();
+    if (m === "geo") editor.refresh();
+  }
+  function firstModeChoice() {
+    var saved = store.get("gs.mode");
+    if (aiBlock()) { setMode("geo"); return; }
+    if (MODES.indexOf(saved) >= 0) setMode(saved);
+  }
+  function wireTabs() {
+    MODES.forEach(function (m, i) {
+      var tab = $("tab-" + m);
+      tab.addEventListener("click", function () { setMode(m); });
+      tab.addEventListener("keydown", function (e) {
+        var j = null;
+        if (e.key === "ArrowRight") j = (i + 1) % MODES.length;
+        else if (e.key === "ArrowLeft") j = (i + MODES.length - 1) % MODES.length;
+        else if (e.key === "Home") j = 0;
+        else if (e.key === "End") j = MODES.length - 1;
+        if (j != null) { e.preventDefault(); setMode(MODES[j], true); }
+      });
+    });
+    document.addEventListener("click", function (e) {
+      if (e.target.closest("[data-goto-geo]")) { setMode("geo"); $("geo-input").focus(); }
+    });
+  }
+
+  // ---------------------------------------------------------------- editor --
+  var KEYWORDS = { prove: 1, goal: 1, point: 1 };
+  var FUNCS = "triangle segment line circle circumcircle midpoint circumcenter circumcentre orthocenter orthocentre incenter incentre centroid foot reflect mirror parallelogram meet intersect bisector perp_bisector perp_line para_line tangent eq_triangle square on_dia on_line on_circle on_circum on_bline on_pline on_tline shift excenter nine_point_center ninepoints iso_triangle free coll cyclic cong perp para eqangle eqratio on dist angle area sqrt sin cos".split(" ");
+  var FUNCSET = {}; FUNCS.forEach(function (f) { FUNCSET[f] = 1; });
+  function highlightLine(line) {
+    var out = "", i = 0;
+    var hash = line.indexOf("#");
+    var code = hash >= 0 ? line.slice(0, hash) : line;
+    var re = /([A-Za-z_][A-Za-z0-9_']*)|(\d+(?:\.\d+)?)|(\s+)|([(),:=;?^*+\-/])|(.)/g, m;
+    while ((m = re.exec(code))) {
+      if (m[1]) {
+        var w = m[1];
+        if (KEYWORDS[w]) out += '<span class="tk-kw">' + w + "</span>";
+        else if (FUNCSET[w]) out += '<span class="tk-fn">' + w + "</span>";
+        else if (/^[A-Z]/.test(w)) out += '<span class="tk-pt">' + esc(w) + "</span>";
+        else out += '<span class="tk-id">' + esc(w) + "</span>";
+      } else if (m[2]) out += '<span class="tk-num">' + m[2] + "</span>";
+      else if (m[3]) out += m[3];
+      else if (m[4]) out += '<span class="tk-p">' + esc(m[4]) + "</span>";
+      else out += esc(m[5]);
+    }
+    if (hash >= 0) out += '<span class="tk-com">' + esc(line.slice(hash)) + "</span>";
+    void i;
+    return out;
+  }
+  var editor = (function () {
+    var ta = $("geo-input"), code = $("hl-code"), gutter = $("gutter"), pre = $("hl");
+    var err = null, saveT = null;
+    function render() {
+      var lines = ta.value.split("\n");
+      var html = lines.map(function (ln, idx) {
+        var h;
+        if (err && err.line === idx + 1) {
+          var c0 = Math.max(0, err.col - 1), c1 = Math.min(ln.length, c0 + Math.max(1, err.len || 1));
+          if (c0 >= ln.length) h = highlightLine(ln) + '<span class="tk-err tk-eol"> </span>';
+          else h = highlightLine(ln.slice(0, c0)) + '<span class="tk-err">' + esc(ln.slice(c0, c1)) + "</span>" + highlightLine(ln.slice(c1));
+        } else h = highlightLine(ln);
+        return h;
+      }).join("\n") + "\n";
+      code.innerHTML = html;
+      gutter.innerHTML = lines.map(function (_, idx) {
+        return '<span' + (err && err.line === idx + 1 ? ' class="is-err"' : "") + ">" + (idx + 1) + "</span>";
+      }).join("");
+      var rows = Math.min(18, Math.max(6, lines.length + 1));
+      ta.style.height = rows * 1.6 * 14 + 24 + "px";
+      sync();
+    }
+    function sync() {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+      gutter.scrollTop = ta.scrollTop;
+    }
+    ta.addEventListener("input", function () {
+      if (err) setError(null);
+      render();
+      clearTimeout(saveT);
+      saveT = setTimeout(function () { store.set("gs.draft.geo", ta.value); }, 400);
+      paintSolveEnabled();
+    });
+    ta.addEventListener("scroll", sync);
+    function setError(e) {
+      err = e && e.line ? e : null;
+      ta.setAttribute("aria-invalid", err ? "true" : "false");
+      var box = $("geo-error");
+      if (e && e.message) {
+        box.hidden = false;
+        box.innerHTML = icons.alert + "<span>" + (err ? '<strong>' + esc(t("err.where", { line: err.line, col: err.col })) + "</strong> · " : "") + esc(e.message) + "</span>";
+      } else { box.hidden = true; box.innerHTML = ""; }
+      render();
+    }
+    function focusError() {
+      if (!err) return;
+      var lines = ta.value.split("\n"), pos = 0;
+      for (var i = 0; i < err.line - 1 && i < lines.length; i++) pos += lines[i].length + 1;
+      pos += Math.max(0, err.col - 1);
+      ta.focus();
+      ta.setSelectionRange(pos, pos + Math.max(1, err.len || 1));
+    }
+    return {
+      get: function () { return ta.value; },
+      set: function (v) { ta.value = v; setError(null); render(); store.set("gs.draft.geo", v); paintSolveEnabled(); },
+      refresh: render, setError: setError, focusError: focusError,
+    };
+  })();
+
+  // -------------------------------------------------------------- examples --
+  function exampleName(ex) { return window.i18n.current() === "ro" ? ex.ro : ex.en; }
+  function loadExample(id, solveNow) {
+    var ex = EXAMPLES.filter(function (x) { return x.id === id; })[0];
+    if (!ex) return;
+    setMode("geo");
+    editor.set(ex.src);
+    closeMenu();
+    if (solveNow) solve();
+    else $("geo-input").focus();
+  }
+  function paintExamples() {
+    $("examples-menu").innerHTML = EXAMPLES.map(function (ex) {
+      return '<button type="button" role="menuitem" data-example="' + ex.id + '"><span>' + esc(exampleName(ex)) + '</span><span class="menu-sub">' + esc(ex.tag) + "</span></button>";
+    }).join("");
+    $("example-chips").innerHTML = EXAMPLES.filter(function (x) { return ["ortho", "euler", "stewart", "imo2023", "false", "numeric"].indexOf(x.id) >= 0; }).map(function (ex) {
+      return '<button type="button" class="btn btn-secondary btn-sm" data-example-solve="' + ex.id + '">' + esc(exampleName(ex)) + "</button>";
+    }).join("");
+  }
+  var menuOpen = false;
+  function openMenu() {
+    var m = $("examples-menu");
+    m.hidden = false; menuOpen = true;
+    $("examples-btn").setAttribute("aria-expanded", "true");
+    var first = m.querySelector("[role=menuitem]");
+    if (first) first.focus();
+  }
+  function closeMenu(focusBtn) {
+    if (!menuOpen) return;
+    $("examples-menu").hidden = true; menuOpen = false;
+    $("examples-btn").setAttribute("aria-expanded", "false");
+    if (focusBtn) $("examples-btn").focus();
+  }
+  function wireExamples() {
+    $("examples-btn").addEventListener("click", function () { menuOpen ? closeMenu() : openMenu(); });
+    $("examples-menu").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-example]");
+      if (b) loadExample(b.getAttribute("data-example"));
+    });
+    $("examples-menu").addEventListener("keydown", function (e) {
+      var items = Array.prototype.slice.call($("examples-menu").querySelectorAll("[role=menuitem]"));
+      var i = items.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === "Home") { e.preventDefault(); items[0].focus(); }
+      else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus(); }
+      else if (e.key === "Escape" || e.key === "Tab") { closeMenu(e.key === "Escape"); }
+    });
+    document.addEventListener("click", function (e) {
+      if (menuOpen && !e.target.closest(".menu-wrap")) closeMenu();
+      var s = e.target.closest("[data-example-solve]");
+      if (s) loadExample(s.getAttribute("data-example-solve"), true);
+    });
+    $("syntax-btn").addEventListener("click", function () {
+      var open = $("syntax-help").hidden;
+      $("syntax-help").hidden = !open;
+      $("syntax-btn").setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+
+  // ---------------------------------------------------------------- effort --
+  function setEffort(v, focus) {
+    S.effort = v;
+    store.set("gs.effort", v);
+    document.querySelectorAll("#effort [role=radio]").forEach(function (b) {
+      var on = b.getAttribute("data-effort") === v;
+      b.setAttribute("aria-checked", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+      if (on && focus) b.focus();
+    });
+    paintEffortHint();
+  }
+  function paintEffortHint() {
+    $("effort-hint").textContent = S.effort === "shortest" ? t("effort.hint.shortest") : t("effort.hint.standard", { s: S.deadline });
+  }
+  function wireEffort() {
+    var btns = Array.prototype.slice.call(document.querySelectorAll("#effort [role=radio]"));
+    btns.forEach(function (b, i) {
+      b.addEventListener("click", function () { setEffort(b.getAttribute("data-effort")); });
+      b.addEventListener("keydown", function (e) {
+        if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].indexOf(e.key) < 0) return;
+        e.preventDefault();
+        var j = (e.key === "ArrowRight" || e.key === "ArrowDown") ? (i + 1) % btns.length : (i + btns.length - 1) % btns.length;
+        setEffort(btns[j].getAttribute("data-effort"), true);
+      });
+    });
+    setEffort(store.get("gs.effort") === "shortest" ? "shortest" : "standard");
+  }
+
+  // ----------------------------------------------------------------- photo --
+  function setPhoto(file) {
+    if (!file) { S.photo = null; $("dz-empty").hidden = false; $("dz-full").hidden = true; $("dz-actions").hidden = true; $("photo-input").value = ""; paintSolveEnabled(); return; }
+    var r = new FileReader();
+    r.onload = function () {
+      S.photo = { b64: r.result, name: file.name };
+      $("photo-preview").src = r.result;
+      $("photo-preview").alt = t("photo.alt");
+      $("photo-name").textContent = file.name;
+      $("dz-empty").hidden = true; $("dz-full").hidden = false; $("dz-actions").hidden = false;
+      paintSolveEnabled();
+    };
+    r.readAsDataURL(file);
+  }
+  function wirePhoto() {
+    var dz = $("dropzone");
+    $("photo-input").addEventListener("change", function (e) { if (e.target.files[0]) setPhoto(e.target.files[0]); });
+    dz.addEventListener("dragover", function (e) { e.preventDefault(); dz.classList.add("is-over"); });
+    dz.addEventListener("dragleave", function () { dz.classList.remove("is-over"); });
+    dz.addEventListener("drop", function (e) { e.preventDefault(); dz.classList.remove("is-over"); if (e.dataTransfer.files[0]) setPhoto(e.dataTransfer.files[0]); });
+    $("photo-remove").addEventListener("click", function () { setPhoto(null); $("photo-input").focus(); });
+  }
+
+  // ----------------------------------------------------------------- solve --
+  function paintSolveEnabled() {
+    var ok = !S.busy;
+    if (S.mode !== "geo" && aiBlock()) ok = false;
+    $("solve").disabled = !ok;
+  }
+
+  function show(which) {
+    ["state-empty", "state-solving", "state-error", "verdict"].forEach(function (id) { $(id).hidden = id !== which; });
+  }
+
+  function stagesFor(mode) {
+    return mode === "geo" ? ["solve"] : ["translate", "solve"];
+  }
+  function paintStepper(stages, current) {
+    $("stepper").innerHTML = stages.map(function (s, i) {
+      var cls = i < current ? "done" : i === current ? "current" : "";
+      return '<li class="' + cls + '"' + (i === current ? ' aria-current="step"' : "") + "><span class=\"st-dot\" aria-hidden=\"true\"></span>" + esc(t("stage." + s)) + "</li>";
+    }).join("");
+    $("stepper").hidden = stages.length < 2;
+  }
+
+  function startTimer(maxSecs) {
+    S.started = Date.now();
+    clearInterval(S.timer);
+    var tick = function () {
+      var el = (Date.now() - S.started) / 1000;
+      $("solving-elapsed").textContent = t("solving.elapsed", { t: Math.floor(el) + " s", max: maxSecs + " s" });
+      $("progress-bar").style.width = Math.min(100, (el / maxSecs) * 100) + "%";
+    };
+    tick();
+    S.timer = setInterval(tick, 250);
+  }
+  function stopTimer() { clearInterval(S.timer); S.timer = null; }
+
+  function setBusy(on) {
+    S.busy = on;
+    $("cancel").hidden = !on;
+    $("clear").hidden = on;
+    paintSolveEnabled();
+  }
+
+  function clearResult() {
+    S.sol = null; S.steps = null;
+    $("proof-area").hidden = true;
+    viewer.setSvg("");
+    $("fig-empty").hidden = false;
+    $("fig-legend").hidden = true;
+    document.body.classList.remove("has-result");
+  }
+
+  function solve() {
+    if (S.busy) return;
+    if (S.refining) stopRefining();
+    var mode = S.mode;
+    var geo = editor.get().trim();
+    var describe = $("describe-input").value.trim();
+    if (mode === "geo" && !geo) { editor.setError({ message: t("err.empty_geo") }); $("geo-input").focus(); return; }
+    if (mode === "describe" && !describe) { showError({ title: t("err.title.generic"), body: t("err.empty_describe") }); $("describe-input").focus(); return; }
+    if (mode === "photo" && !S.photo) { showError({ title: t("err.title.generic"), body: t("err.empty_photo") }); $("photo-input").focus(); return; }
+    if (mode !== "geo" && aiBlock()) return;
+    editor.setError(null);
+    clearResult();
+    setBusy(true);
+    var ctl = new AbortController();
+    S.abort = ctl;
+    var stages = stagesFor(mode);
+    show("state-solving");
+    var shortestFirst = S.effort === "shortest";
+    function stage(i) {
+      paintStepper(stages, i);
+      $("solving-title").textContent = stages[i] === "translate" ? t("solving.translating") : t("solving.solving");
+      startTimer(stages[i] === "translate" ? 75 : S.deadline);
+    }
+    stage(0);
+    announce(t(mode === "geo" ? "solving.solving" : "solving.translating"));
+    scrollToStatus();
+
+    var title = null;
+    var chain = Promise.resolve(geo);
+    if (mode !== "geo") {
+      var body = mode === "photo" ? { image_base64: S.photo.b64, filename: S.photo.name } : { text: describe };
+      chain = api("/api/translate", { method: "POST", body: body, signal: ctl.signal }).then(function (r) {
+        if (!r.ok) throw httpError(r, "translate");
+        var g = r.data.geo || "";
+        if (/cannot translate/i.test(g) || !g.trim()) throw { title: t("err.title.translate"), body: t("err.cannot_translate") };
+        title = r.data.title || null;
+        editor.set(g);
+        stage(1);
+        return g;
+      });
+    }
+    chain.then(function (g) {
+      S.geo = g;
+      return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
+        if (!r.ok) throw httpError(r, "solve");
+        return r.data;
+      });
+    }).then(function (sol) {
+      stopTimer();
+      setBusy(false);
+      S.abort = null;
+      renderSolution(sol, { announce: true, focus: true });
+      if (S.status && S.status.signed_in) loadHistory();
+      if (shortestFirst && sol.status === "proved" && sol.method !== "euclidean") refineShorter(sol);
+    }).catch(function (e) {
+      stopTimer();
+      setBusy(false);
+      S.abort = null;
+      if (e && e.name === "AbortError") {
+        show("state-empty");
+        GS.toast(t("cancelled"));
+        announce(t("cancelled"));
+        return;
+      }
+      showError(e && e.title ? e : networkError(e));
+    });
+  }
+
+  function cancel() {
+    if (S.abort) S.abort.abort();
+    if (S.refining) stopRefining();
+  }
+
+  function httpError(r, what) {
+    var d = r.data || {};
+    if (r.status === 400 && d.code === "compile") {
+      return { title: t("err.title.compile"), body: d.error, diagnosis: d.diagnosis, detail: d.detail, compile: true };
+    }
+    if (r.status === 401) return { title: t("err.title.auth"), body: t("err.body.auth"), signin: true };
+    if (r.status === 429) return { title: t("err.title.rate"), body: t("err.body.rate"), retry: true };
+    if (r.status === 503 && what !== "translate") return { title: t("err.title.busy"), body: t("err.body.busy"), retry: true };
+    if (r.status === 504) return { title: t("err.title.timeout"), body: t("err.body.timeout"), retry: true };
+    if (r.status === 413) return { title: t("err.title.too_large"), body: d.error || "" };
+    if (what === "translate") return { title: t("err.title.translate"), body: d.error || t("err.cannot_translate"), retry: r.status >= 500 };
+    return { title: t("err.title.generic"), body: d.error || ("HTTP " + r.status), retry: true };
+  }
+  function networkError(e) {
+    return { title: t("err.title.network"), body: t("err.body.network"), retry: true, detail: e && e.message };
+  }
+
+  function showError(e) {
+    var box = $("state-error");
+    var where = e.diagnosis && e.diagnosis.line ? '<p class="err-where"><button type="button" class="link-btn" id="err-goto">' + esc(t("err.where", { line: e.diagnosis.line, col: e.diagnosis.col })) + "</button></p>" : "";
+    var actions = "";
+    if (e.retry) actions += '<button type="button" class="btn btn-secondary btn-sm" id="err-retry">' + icons.retry + "<span>" + esc(t("err.retry")) + "</span></button>";
+    if (e.signin) actions += '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("nav.signin")) + "</a>";
+    box.innerHTML = '<div class="err-head">' + icons.alert + "<div><h3>" + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
+      (actions ? '<div class="err-actions">' + actions + "</div>" : "") +
+      (e.detail ? '<details class="err-detail"><summary>' + esc(t("err.details")) + "</summary><pre>" + esc(e.detail) + "</pre></details>" : "");
+    show("state-error");
+    if (e.compile) {
+      setMode("geo");
+      editor.setError({ line: e.diagnosis && e.diagnosis.line, col: e.diagnosis && e.diagnosis.col, len: e.diagnosis && e.diagnosis.len, message: e.body });
+    }
+    var g = $("err-goto");
+    if (g) g.addEventListener("click", function () { editor.focusError(); });
+    var rt = $("err-retry");
+    if (rt) rt.addEventListener("click", solve);
+    scrollToStatus();
+  }
+
+  function announce(msg) {
+    var a = $("announce");
+    a.textContent = "";
+    setTimeout(function () { a.textContent = msg; }, 50);
+  }
+  function scrollToStatus() {
+    if (window.matchMedia("(max-width: 1199px)").matches) {
+      var el = $("status-area");
+      var top = el.getBoundingClientRect().top + window.scrollY - 72;
+      if (Math.abs(window.scrollY - top) > 40) window.scrollTo({ top: top, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    }
+  }
+
+  // ---------------------------------------------------------------- verdict --
+  function verdictModel(sol) {
+    var v = sol.view || {}, note = v.note || {};
+    var timeLimited = note.key === "time_limit";
+    switch (sol.status) {
+      case "proved": return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
+      case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
+      case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: t("v.numeric.x", { n: sol.numeric_samples || (v.evidence && v.evidence.samples) || 0 }) };
+      default:
+        if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: note.secs || S.deadline }) };
+        var extra = { budget: "note.budget", metric_error: "note.metric_error", unsound: "note.unsound", replay: "note.replay" }[note.key];
+        return { tone: "neutral", icon: "minus", head: t("v.not"), text: t("v.not.x") + (extra ? " " + t(extra) : "") };
+    }
+  }
+  function stepCount(sol) {
+    return sol.status === "proved" && sol.view && sol.view.proof ? (sol.view.proof.steps || []).length : 0;
+  }
+  function methodText(sol) {
+    if (sol.method === "euclidean") return t("meta.method.euclid");
+    var n = (sol.aux_constructions || []).length;
+    return n ? tp("meta.method.aux", n) : t("meta.method.ddar");
+  }
+  function counterText(c) {
+    if (!c) return "";
+    var n = window.i18n.fmtNum;
+    var digits = c.kind === "values" || c.kind === "length" ? 4 : 1;
+    var L = c.labels || [];
+    return t("counter." + c.kind, { a: L[0] || "", b: L[1] || "", lhs: n(c.lhs, digits), rhs: n(c.rhs, digits) });
+  }
+
+  function renderVerdict(sol) {
+    var m = verdictModel(sol), v = sol.view || {};
+    var meta = ['<span>' + esc(methodText(sol)) + "</span>", "<span>" + esc(GS.fmtSecs(sol.elapsed_secs)) + "</span>"];
+    var nSteps = stepCount(sol);
+    if (nSteps) meta.push("<span>" + esc(tp("meta.steps", nSteps)) + "</span>");
+    if (sol.status === "holds-numerically" && sol.numeric_samples) meta.push("<span>" + esc(tp("meta.samples", sol.numeric_samples)) + "</span>");
+    var counter = v.counterexample ? '<p class="counter"><strong>' + esc(t("counter.title")) + ".</strong> " + GS.math(counterText(v.counterexample), true) + "</p>" : "";
+    var actions = '<div class="verdict-actions">' +
+      (sol.status === "proved" ? '<button type="button" class="btn btn-secondary btn-sm" id="copy-proof">' + icons.copy + "<span>" + esc(t("action.copy_proof")) + "</span></button>" : "") +
+      '<button type="button" class="btn btn-secondary btn-sm" id="copy-geo">' + icons.code + "<span>" + esc(t("action.copy_geo")) + "</span></button>" +
+      '<div class="menu-wrap"><button type="button" class="btn btn-secondary btn-sm" id="export-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu">' + icons.download + "<span>" + esc(t("action.export")) + "</span>" + icons.chevron + "</button>" +
+      '<div class="menu" id="export-menu" role="menu" aria-labelledby="export-btn" hidden>' +
+      '<button type="button" role="menuitem" data-export="pdf">' + icons.file + "<span>" + esc(t("export.pdf")) + "</span></button>" +
+      '<button type="button" role="menuitem" data-export="png">' + icons.image + "<span>" + esc(t("export.png")) + "</span></button>" +
+      '<button type="button" role="menuitem" data-export="svg">' + icons.download + "<span>" + esc(t("export.svg")) + "</span></button>" +
+      "</div></div></div>";
+    var box = $("verdict");
+    box.className = "verdict card tone-" + m.tone;
+    box.innerHTML = '<div class="verdict-main"><span class="verdict-icon">' + icons[m.icon] + "</span><div class=\"grow\">" +
+      '<p class="verdict-head" id="verdict-head" tabindex="-1">' + esc(m.head) + "</p>" +
+      '<p class="verdict-text">' + esc(m.text) + "</p>" + counter +
+      '<p class="verdict-meta">' + meta.join('<span aria-hidden="true">·</span>') + "</p>" +
+      '<p class="refine" id="refine" hidden></p>' +
+      "</div></div>" + actions;
+    show("verdict");
+    wireVerdictActions();
+    return m;
+  }
+
+  function wireVerdictActions() {
+    var cp = $("copy-proof");
+    if (cp) cp.addEventListener("click", function () { copyText(proofText()); });
+    $("copy-geo").addEventListener("click", function () { copyText(S.sol ? S.sol.input : editor.get()); });
+    var btn = $("export-btn"), menu = $("export-menu");
+    function close(focus) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (focus) btn.focus(); }
+    btn.addEventListener("click", function () {
+      var open = menu.hidden;
+      menu.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) menu.querySelector("[role=menuitem]").focus();
+    });
+    menu.addEventListener("keydown", function (e) {
+      var items = Array.prototype.slice.call(menu.querySelectorAll("[role=menuitem]"));
+      var i = items.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === "Escape") close(true);
+      else if (e.key === "Tab") close();
+    });
+    menu.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-export]");
+      if (!b) return;
+      close();
+      exportAs(b.getAttribute("data-export"));
+    });
+    document.addEventListener("click", function (e) { if (!menu.hidden && !e.target.closest(".verdict .menu-wrap")) close(); });
+  }
+
+  // -------------------------------------------------------------- solution --
+  function renderSolution(sol, opts) {
+    opts = opts || {};
+    S.sol = sol;
+    S.geo = sol.input;
+    var v = sol.view || {};
+    var m = renderVerdict(sol);
+    renderStatement(sol);
+    renderProof(sol);
+    renderDetails(sol);
+    renderFigure(sol);
+    $("proof-area").hidden = false;
+    document.body.classList.add("has-result");
+    if (opts.announce) announce(m.head + ". " + m.text);
+    if (opts.focus && window.matchMedia("(max-width: 1199px)").matches) {
+      scrollToStatus();
+      var h = $("verdict-head");
+      if (h) h.focus({ preventScroll: true });
+    }
+    void v;
+  }
+
+  function renderStatement(sol) {
+    var v = sol.view || {};
+    var given = (v.given || []).map(function (f) { return '<li class="math" data-points="' + esc((f.points || []).join(" ")) + '">' + GS.fact(f) + "</li>"; }).join("");
+    var aux = (v.aux || []).map(function (a) {
+      return '<li class="math" data-points="' + esc(a.name) + '"><i>' + esc(a.name) + "</i>: " + GS.math(auxText(a)) + "</li>";
+    }).join("");
+    var html = "";
+    if (sol.title) html += '<h3 class="st-title">' + esc(sol.title) + "</h3>";
+    if (given) html += '<div class="st-block"><h3 class="label">' + esc(t("st.given")) + '</h3><ul class="facts">' + given + "</ul></div>";
+    if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
+    if (aux) html += '<div class="st-block st-aux"><h3 class="label">' + esc(t("st.aux")) + '</h3><ul class="facts">' + aux + '</ul><p class="hint">' + esc(t("st.aux.hint")) + "</p></div>";
+    var box = $("statement");
+    box.innerHTML = html;
+    box.hidden = !html;
+    box.querySelectorAll("[data-points]").forEach(function (el) {
+      var pts = el.getAttribute("data-points").split(" ");
+      el.addEventListener("mouseenter", function () { viewer.highlight(pts); });
+      el.addEventListener("mouseleave", function () { viewer.highlight(null); });
+    });
+  }
+
+  function auxText(a) {
+    var key = "aux." + a.kind;
+    var args = (a.args || []).map(function (x) {
+      var mm = /^(circumcircle|circle)\((.*)\)$/.exec(x);
+      if (mm) {
+        var parts = mm[2].split(",").map(function (s) { return s.trim(); });
+        var k2 = "aux." + mm[1];
+        var s2 = t(k2);
+        parts.forEach(function (p, i) { s2 = s2.split("{" + i + "}").join(p); });
+        return s2;
+      }
+      return x;
+    });
+    if (!window.i18n.has(key)) return a.text;
+    var s = t(key);
+    if (a.kind === "midpoint" || a.kind === "circumcenter" || a.kind === "orthocenter" || a.kind === "parallelogram") {
+      var flat = args.join(",").split(",").map(function (x) { return x.trim(); });
+      flat.forEach(function (p, i) { s = s.split("{" + i + "}").join(p); });
+    } else {
+      args.forEach(function (p, i) { s = s.split("{" + i + "}").join(p); });
+    }
+    return /\{\d\}/.test(s) ? a.text : s;
+  }
+
+  var stepsApi = null;
+  function renderProof(sol) {
+    var v = sol.view || {};
+    var proved = sol.status === "proved" && v.proof && v.proof.steps && v.proof.steps.length;
+    $("steps").hidden = !proved;
+    $("steps-none").hidden = !!proved;
+    $("steps-none").textContent = t("proof.none");
+    var proofCard = $("steps").closest(".proof");
+    proofCard.hidden = !proved;
+    if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts) { viewer.highlight(pts); } });
+    else { $("steps").innerHTML = ""; stepsApi = null; }
+    var aiOK = proved && S.status && S.status.translate_logged_in && S.status.translate_installed;
+    $("proof-tabs").hidden = !aiOK;
+    selectProofTab("steps");
+  }
+
+  function selectProofTab(which) {
+    var steps = which === "steps";
+    $("ptab-steps").setAttribute("aria-selected", steps ? "true" : "false");
+    $("ptab-ai").setAttribute("aria-selected", steps ? "false" : "true");
+    $("ptab-steps").tabIndex = steps ? 0 : -1;
+    $("ptab-ai").tabIndex = steps ? -1 : 0;
+    $("proof-steps-panel").hidden = !steps;
+    $("proof-ai-panel").hidden = steps;
+    if (!steps) loadAi(false);
+  }
+
+  function proofText() {
+    var sol = S.sol;
+    if (!sol || !sol.view) return "";
+    var v = sol.view, out = [];
+    if (sol.title) out.push(sol.title, "");
+    if (v.given && v.given.length) { out.push(t("st.given") + ":"); v.given.forEach(function (f) { out.push("- " + GS.factText(f)); }); out.push(""); }
+    if (v.goal) out.push(t("st.prove") + ": " + GS.factText(v.goal), "");
+    if (v.aux && v.aux.length) { out.push(t("st.aux") + ":"); v.aux.forEach(function (a) { out.push("- " + a.name + ": " + auxText(a)); }); out.push(""); }
+    out.push(t("proof.title") + ":");
+    (v.proof.steps || []).forEach(function (s) {
+      out.push(s.n + ". " + GS.factText(s.fact) + " — " + GS.ruleLabel(s) + (s.deps && s.deps.length ? " [" + s.deps.join(", ") + "]" : ""));
+    });
+    if (v.proof.conclusion) out.push("∎ " + GS.factText(v.proof.conclusion));
+    return out.join("\n");
+  }
+
+  function englishProof() {
+    var v = S.sol.view, lines = [];
+    (v.proof.steps || []).forEach(function (s) {
+      lines.push(s.n + ". " + GS.factText(s.fact) + " (" + GS.ruleLabel(s) + (s.deps && s.deps.length ? "; from " + s.deps.join(", ") : "") + ")");
+    });
+    if (v.proof.conclusion) lines.push("QED: " + GS.factText(v.proof.conclusion));
+    return lines.join("\n");
+  }
+
+  function loadAi(force) {
+    var sol = S.sol;
+    if (!sol) return;
+    var lang = window.i18n.current();
+    var key = (sol.id || sol.input) + "|" + lang;
+    var box = $("ai-text");
+    if (!force && S.aiCache[key]) { box.innerHTML = S.aiCache[key]; return; }
+    var seq = ++S.aiSeq;
+    box.innerHTML = '<p class="ai-loading"><span class="spinner" aria-hidden="true"></span>' + esc(t("proof.ai.loading")) + "</p>";
+    var v = sol.view;
+    var problem = ["Given: " + (v.given || []).map(GS.factText).join("; "), v.goal ? "Prove: " + GS.factText(v.goal) : ""].join("\n");
+    var aux = (v.aux || []).map(function (a) { return a.name + " = " + a.text; });
+    api("/api/humanize", { method: "POST", body: { problem: problem, proof: englishProof(), aux: aux, lang: lang } }).then(function (r) {
+      if (seq !== S.aiSeq) return;
+      if (!r.ok || !r.data.proof) throw new Error("ai");
+      var html = markdown(r.data.proof);
+      S.aiCache[key] = html;
+      box.innerHTML = html;
+    }).catch(function () {
+      if (seq !== S.aiSeq) return;
+      box.innerHTML = '<p class="muted">' + esc(t("proof.ai.fail")) + "</p>";
+    });
+  }
+  function delatex(s) {
+    var map = { angle: "\u2220", perp: "\u27c2", parallel: "\u2225", triangle: "\u25b3", cdot: "\u00b7", circ: "\u00b0", sim: "\u223c", cong: "\u2245", ne: "\u2260", neq: "\u2260", le: "\u2264", ge: "\u2265", Rightarrow: "\u21d2", implies: "\u21d2", times: "\u00d7", Omega: "\u03a9", omega: "\u03c9", quad: " " };
+    return s.replace(/\$\$?([^$]+?)\$\$?/g, "$1")
+      .replace(/\^\{?\\circ\}?/g, "\u00b0")
+      .replace(/\\([A-Za-z]+)\s?/g, function (m, w) { return map[w] != null ? map[w] : w; })
+      .replace(/[{}]/g, "");
+  }
+  function markdown(md) {
+    return delatex(md || "").split(/\n{2,}/).map(function (par) {
+      var p = esc(par.trim());
+      p = p.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+      return p ? "<p>" + p + "</p>" : "";
+    }).join("");
+  }
+
+  function renderDetails(sol) {
+    var v = sol.view || {};
+    var note = v.note && v.note.raw ? '<div class="dt"><h3 class="label">' + esc(t("details.note")) + '</h3><p class="mono small">' + esc(v.note.raw) + "</p></div>" : "";
+    $("details-body").innerHTML = '<div class="dt"><h3 class="label">' + esc(t("details.geo")) + '</h3><pre class="code">' + esc(sol.input) + "</pre></div>" + note;
+  }
+
+  function figureAria(sol) {
+    var v = sol.view || {};
+    var pts = (v.points || []).map(function (p) { return p.name; }).join(", ");
+    return t("fig.aria", { pts: pts, goal: v.goal ? GS.factText(v.goal) : "—" });
+  }
+  function renderFigure(sol) {
+    if (!sol.svg) { viewer.setSvg(""); $("fig-empty").hidden = false; return; }
+    $("fig-empty").hidden = true;
+    viewer.setSvg(sol.svg, figureAria(sol));
+    $("fig-legend").hidden = false;
+    $("fig-legend").querySelector(".lg-aux").hidden = !((sol.view && sol.view.aux) || []).length;
+  }
+
+  // ------------------------------------------------------- shorter proofs --
+  function refineShorter(first) {
+    var ctl = new AbortController();
+    S.refining = ctl;
+    var el = $("refine");
+    el.hidden = false;
+    el.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>' + esc(t("shorter.searching")) + '</span> <button type="button" class="link-btn" id="refine-stop">' + esc(t("shorter.stop")) + "</button>";
+    $("refine-stop").addEventListener("click", stopRefining);
+    api("/api/solve", { method: "POST", body: { input: first.input, title: first.title, best: true, budget_secs: 20, record: false }, signal: ctl.signal }).then(function (r) {
+      if (S.refining !== ctl) return;
+      S.refining = null;
+      if (S.sol !== first) return;
+      var better = r.ok && r.data.status === "proved" && stepCount(r.data) && stepCount(r.data) < stepCount(first);
+      if (better) {
+        var msg = t("shorter.found", { n: stepCount(r.data), m: stepCount(first) });
+        renderSolution(r.data, {});
+        GS.toast(msg);
+        announce(msg);
+      } else {
+        var e2 = $("refine");
+        if (e2) { e2.innerHTML = '<span>' + esc(t("shorter.none")) + "</span>"; }
+      }
+    }).catch(function () {
+      if (S.refining === ctl) S.refining = null;
+      var e3 = $("refine");
+      if (e3) e3.hidden = true;
+    });
+  }
+  function stopRefining() {
+    if (!S.refining) return;
+    S.refining.abort();
+    S.refining = null;
+    var el = $("refine");
+    if (el) el.hidden = true;
+  }
+
+  // ---------------------------------------------------------------- export --
+  function download(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function exportAs(fmt) {
+    var sol = S.sol;
+    if (!sol) return;
+    var label = fmt.toUpperCase();
+    if (fmt === "svg") {
+      download(new Blob([sol.svg], { type: "image/svg+xml" }), "geosolver-figure.svg");
+      GS.toast(t("export.done", { fmt: "SVG" }));
+      return;
+    }
+    var btn = $("export-btn");
+    btn.disabled = true;
+    var tst = GS.toast(t("export.preparing", { fmt: label }), { ms: 60000 });
+    fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sol.id, format: fmt }) }).then(function (res) {
+      if (res.ok) return res.blob().then(function (b) {
+        download(b, "geosolver-proof." + fmt);
+        if (tst) tst.close();
+        GS.toast(t("export.done", { fmt: label }));
+      });
+      return res.json().catch(function () { return {}; }).then(function (j) {
+        if (tst) tst.close();
+        GS.toast(t("export.failed", { msg: j.error || res.statusText }), { ms: 7000 });
+      });
+    }).catch(function (e) {
+      if (tst) tst.close();
+      GS.toast(t("export.failed", { msg: e.message }), { ms: 7000 });
+    }).then(function () { btn.disabled = false; });
+  }
+  function copyText(text) {
+    var done = function () { GS.toast(t("copied")); };
+    var fail = function () { GS.toast(t("copy_fail")); };
+    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done, fail); return; }
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy") ? done() : fail(); } catch (e) { fail(); }
+    ta.remove();
+  }
+
+  // --------------------------------------------------------------- history --
+  function histTitle(r) {
+    if (r.title) return r.title;
+    if (r.goal) return t("st.prove") + ": " + GS.factText(r.goal);
+    var first = (r.input || "").split("\n").filter(function (l) { return l.trim() && l.trim()[0] !== "#"; })[0];
+    return first || t("hist.untitled");
+  }
+  function histTitleHtml(r) {
+    if (!r.title && r.goal) return esc(t("st.prove")) + ": " + GS.fact(r.goal);
+    return esc(histTitle(r));
+  }
+  function histStatus(r) {
+    if (r.status) return r.status;
+    if (r.proved && r.method === "euclidean") return "legacy";
+    return r.proved ? "proved" : "not-proved";
+  }
+  var TONE = { proved: "proved", refuted: "false", "holds-numerically": "unproved", "not-proved": "neutral", legacy: "neutral" };
+  var ICON = { proved: "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", legacy: "minus" };
+  function relTime(sec) {
+    var diff = sec - Date.now() / 1000;
+    var rtf = new Intl.RelativeTimeFormat(window.i18n.locale(), { numeric: "auto" });
+    var a = Math.abs(diff);
+    if (a < 45) return rtf.format(0, "second");
+    if (a < 3600) return rtf.format(Math.round(diff / 60), "minute");
+    if (a < 86400) return rtf.format(Math.round(diff / 3600), "hour");
+    if (a < 86400 * 7) return rtf.format(Math.round(diff / 86400), "day");
+    return new Intl.DateTimeFormat(window.i18n.locale(), { day: "numeric", month: "short", year: "numeric" }).format(new Date(sec * 1000));
+  }
+  function loadHistory() {
+    api("/api/history").then(function (r) {
+      if (!r.ok) throw new Error();
+      S.history = Array.isArray(r.data) ? r.data : [];
+      renderHistory();
+    }).catch(function () {
+      $("hist-empty").hidden = false;
+      $("hist-empty").textContent = t("hist.load_fail");
+    });
+  }
+  function renderHistory() {
+    var q = S.query.trim().toLowerCase();
+    var rows = S.history.filter(function (r) {
+      if (S.pendingDeletes.has(r.id)) return false;
+      if (S.filter !== "all" && histStatus(r) !== S.filter) return false;
+      if (!q) return true;
+      return (histTitle(r) + " " + (r.input || "")).toLowerCase().indexOf(q) >= 0;
+    });
+    var list = $("hist-list");
+    list.innerHTML = rows.map(function (r) {
+      var st = histStatus(r), title = histTitle(r);
+      return '<li class="hist-item' + (S.activeHistory === r.id ? " is-active" : "") + '" data-id="' + r.id + '">' +
+        '<button type="button" class="hist-open" data-open="' + r.id + '"' + (S.activeHistory === r.id ? ' aria-current="true"' : "") + ">" +
+        '<span class="hist-title">' + histTitleHtml(r) + "</span>" +
+        '<span class="hist-meta"><span class="chip tone-' + TONE[st] + '">' + icons[ICON[st]] + esc(t("status." + st)) + "</span>" +
+        '<time datetime="' + new Date(r.created_at * 1000).toISOString() + '">' + esc(relTime(r.created_at)) + "</time></span></button>" +
+        '<button type="button" class="icon-btn hist-del" data-del="' + r.id + '" aria-label="' + esc(t("hist.delete", { title: title })) + '" title="' + esc(t("hist.delete", { title: title })) + '">' + icons.trash + "</button></li>";
+    }).join("");
+    var empty = $("hist-empty");
+    if (!S.history.length) { empty.hidden = false; empty.textContent = t("hist.empty"); }
+    else if (!rows.length) { empty.hidden = false; empty.textContent = t("hist.none_match"); }
+    else empty.hidden = true;
+  }
+  function wireHistory() {
+    $("hist-search").addEventListener("input", function (e) { S.query = e.target.value; renderHistory(); });
+    document.querySelectorAll("#hist-filters .filter").forEach(function (b) {
+      b.addEventListener("click", function () {
+        S.filter = b.getAttribute("data-filter");
+        document.querySelectorAll("#hist-filters .filter").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+        renderHistory();
+      });
+    });
+    $("hist-list").addEventListener("click", function (e) {
+      var d = e.target.closest("[data-del]");
+      if (d) { deleteHistory(+d.getAttribute("data-del")); return; }
+      var o = e.target.closest("[data-open]");
+      if (o) openHistory(+o.getAttribute("data-open"));
+    });
+    window.addEventListener("pagehide", flushDeletes);
+    $("rail-toggle").innerHTML = icons.history;
+    $("rail-close").innerHTML = icons.close;
+    $("rail-toggle").addEventListener("click", function () { setDrawer(!document.body.classList.contains("drawer-open")); });
+    $("rail-close").addEventListener("click", function () { setDrawer(false, true); });
+    $("rail-scrim").addEventListener("click", function () { setDrawer(false); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && document.body.classList.contains("drawer-open")) setDrawer(false, true); });
+  }
+  function setDrawer(open, focusToggle) {
+    document.body.classList.toggle("drawer-open", open);
+    $("rail-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+    $("rail-scrim").hidden = !open;
+    if (open) setTimeout(function () { $("hist-search").focus(); }, 30);
+    else if (focusToggle) $("rail-toggle").focus();
+  }
+  function deleteHistory(id) {
+    var row = S.history.filter(function (r) { return r.id === id; })[0];
+    if (!row) return;
+    var timer = setTimeout(function () { commitDelete(id); }, 6000);
+    S.pendingDeletes.set(id, timer);
+    renderHistory();
+    GS.toast(t("hist.deleted", { title: histTitle(row) }), {
+      ms: 6000, action: t("undo"),
+      onAction: function () { clearTimeout(S.pendingDeletes.get(id)); S.pendingDeletes.delete(id); renderHistory(); },
+    });
+  }
+  function commitDelete(id, keepalive) {
+    if (!S.pendingDeletes.has(id)) return;
+    clearTimeout(S.pendingDeletes.get(id));
+    S.pendingDeletes.delete(id);
+    api("/api/history/" + id, { method: "DELETE", keepalive: !!keepalive }).then(function (r) {
+      if (!r.ok && r.status !== 404) { GS.toast(t("hist.del_fail")); loadHistory(); return; }
+      S.history = S.history.filter(function (x) { return x.id !== id; });
+      renderHistory();
+    }).catch(function () {});
+  }
+  function flushDeletes() { Array.from(S.pendingDeletes.keys()).forEach(function (id) { commitDelete(id, true); }); }
+  function openHistory(id) {
+    var row = S.history.filter(function (r) { return r.id === id; })[0];
+    if (!row) return;
+    S.activeHistory = id;
+    renderHistory();
+    if (document.body.classList.contains("drawer-open")) setDrawer(false);
+    setMode("geo");
+    editor.set(row.input);
+    if (S.busy) cancel();
+    api("/api/history/" + id).then(function (r) {
+      if (r.ok) { renderSolution(r.data, { announce: true, focus: true }); return; }
+      if (r.status === 410) { solveReplay(row); return; }
+      GS.toast(t("hist.open_fail"));
+    }).catch(function () { GS.toast(t("hist.open_fail")); });
+  }
+  function solveReplay(row) {
+    clearResult();
+    show("state-solving");
+    paintStepper(["solve"], 0);
+    $("solving-title").textContent = t("solving.solving");
+    startTimer(S.deadline);
+    setBusy(true);
+    var ctl = new AbortController();
+    S.abort = ctl;
+    api("/api/solve", { method: "POST", body: { input: row.input, title: row.title, record: false }, signal: ctl.signal }).then(function (r) {
+      stopTimer(); setBusy(false); S.abort = null;
+      if (!r.ok) { showError(httpError(r, "solve")); return; }
+      renderSolution(r.data, { announce: true, focus: true });
+    }).catch(function (e) {
+      stopTimer(); setBusy(false); S.abort = null;
+      if (e && e.name === "AbortError") { show("state-empty"); return; }
+      showError(networkError(e));
+    });
+  }
+
+  // ------------------------------------------------------------ the figure --
+  var viewer = new GS.Viewer({
+    frame: $("fig-frame"), viewport: $("fig-viewport"), zoomIn: $("z-in"), zoomOut: $("z-out"),
+    fit: $("z-fit"), full: $("z-full"), label: $("zoom-label"),
+  });
+  viewer.onPoint = function (name) { if (stepsApi) stepsApi.markPoint(name); };
+
+  // ------------------------------------------------------------------ init --
+  function wire() {
+    paintIcons();
+    setIcon("z-in", "plus"); setIcon("z-out", "minusSm"); setIcon("z-fit", "fit"); setIcon("z-full", "expand"); setIcon("z-svg", "download");
+    $("solve-kbd").textContent = isMac ? "⌘ ↵" : "Ctrl ↵";
+    $("solve").setAttribute("title", t("solve.shortcut", { keys: isMac ? "⌘ Enter" : "Ctrl Enter" }));
+    var coarse = matchMedia("(pointer: coarse)").matches;
+    $("fig-hint").textContent = t(coarse ? "fig.hint.coarse" : "fig.hint.fine");
+    wireTabs();
+    wireEffort();
+    wirePhoto();
+    wireExamples();
+    wireHistory();
+    paintExamples();
+    $("solve").addEventListener("click", solve);
+    $("cancel").addEventListener("click", cancel);
+    $("cancel-2").addEventListener("click", cancel);
+    $("clear").addEventListener("click", function () {
+      var before = { geo: editor.get(), text: $("describe-input").value };
+      if (!before.geo && !before.text && !S.photo) return;
+      if (S.mode === "geo") editor.set(""); else if (S.mode === "describe") { $("describe-input").value = ""; store.del("gs.draft.describe"); } else setPhoto(null);
+      GS.toast(t("cleared"), { action: t("undo"), ms: 6000, onAction: function () { editor.set(before.geo); $("describe-input").value = before.text; } });
+    });
+    $("z-svg").addEventListener("click", function () { if (S.sol) exportAs("svg"); });
+    $("ptab-steps").addEventListener("click", function () { selectProofTab("steps"); });
+    $("ptab-ai").addEventListener("click", function () { selectProofTab("ai"); });
+    [$("ptab-steps"), $("ptab-ai")].forEach(function (b) {
+      b.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); var to = b.id === "ptab-steps" ? "ai" : "steps"; selectProofTab(to); $("ptab-" + to).focus(); }
+      });
+    });
+    $("ai-regen").addEventListener("click", function () { loadAi(true); });
+    $("logout").addEventListener("click", function () {
+      flushDeletes();
+      api("/api/auth/logout", { method: "POST" }).then(function () { location.href = "/"; }, function () { location.href = "/"; });
+    });
+    var d = $("describe-input");
+    d.addEventListener("input", function () { store.set("gs.draft.describe", d.value); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        if (e.target.closest && e.target.closest("#composer")) { e.preventDefault(); solve(); }
+      }
+      if (e.key === "Escape" && S.busy) cancel();
+    });
+    var draft = store.get("gs.draft.geo");
+    editor.set(draft != null ? draft : EXAMPLES[0].src);
+    var dd = store.get("gs.draft.describe");
+    if (dd) d.value = dd;
+    setMode("geo");
+    show("state-empty");
+    GS.initTheme();
+  }
+
+  document.addEventListener("langchange", function () {
+    paintAiPill(); paintGates(); paintEffortHint(); paintExamples(); paintAccount();
+    $("fig-hint").textContent = t(matchMedia("(pointer: coarse)").matches ? "fig.hint.coarse" : "fig.hint.fine");
+    $("solve").setAttribute("title", t("solve.shortcut", { keys: isMac ? "⌘ Enter" : "Ctrl Enter" }));
+    if (S.history.length) renderHistory();
+    if (S.sol) {
+      var tab = $("ptab-ai").getAttribute("aria-selected") === "true" ? "ai" : "steps";
+      renderVerdict(S.sol); renderStatement(S.sol); renderProof(S.sol); renderDetails(S.sol);
+      viewer.svg && viewer.svg.setAttribute("aria-label", figureAria(S.sol));
+      if (tab === "ai" && !$("proof-tabs").hidden) selectProofTab("ai");
+    }
+  });
+
+  window.i18n.apply();
+  wire();
+  loadStatus(0);
+})();
