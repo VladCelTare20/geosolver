@@ -302,7 +302,7 @@ proof; `--proofs <dir>` writes every one.
 | Corpus | Budget | Proved | DDAR alone | With aux points | AG1 reference |
 | --- | ---: | ---: | ---: | ---: | --- |
 | imo_ag_30 | 120 s | **25/30** | 15 | 10 | DD+AR 14, AlphaGeometry (LM) 25 |
-| jgex_ag_231 | 30 s | **227/231** | 196 | 31 | DD+AR 198, AlphaGeometry 228 |
+| jgex_ag_231 | 30 s | **227/231** | 196 | 31 | DD+AR 198 |
 
 *(Commit 2e916c7, 4 × 3 threads for imo, 6 × 2 for jgex, on a shared
 i7-11700K. Every problem of both sets translates and its goal holds on the
