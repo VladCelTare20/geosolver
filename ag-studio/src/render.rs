@@ -174,11 +174,22 @@ fn normalize_glyphs(s: &str) -> String {
     s.replace('\u{27c2}', "\u{22a5}").replace('\u{2225}', "\u{2016}")
 }
 
-/// Greedy word wrap to at most `cols` characters per line.
+/// Greedy word wrap to at most `cols` characters per line; a word longer
+/// than a line is broken at the line length.
 fn wrap(text: &str, cols: usize) -> Vec<String> {
+    let cols = cols.max(4);
     let mut out = Vec::new();
     let mut cur = String::new();
+    let mut words: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
+        let chars: Vec<char> = word.chars().collect();
+        if chars.len() <= cols {
+            words.push(word.to_string());
+        } else {
+            words.extend(chars.chunks(cols).map(|c| c.iter().collect::<String>()));
+        }
+    }
+    for word in words.iter().map(String::as_str) {
         let need = cur.chars().count() + usize::from(!cur.is_empty()) + word.chars().count();
         if !cur.is_empty() && need > cols {
             out.push(std::mem::take(&mut cur));
@@ -221,7 +232,12 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
         "cong" | "length" | "eqangle" | "coincide" => format!("{} = {}", g(0), g(1)),
         "perp" => format!("{} \u{27c2} {}", g(0), g(1)),
         "para" => format!("{} \u{2225} {}", g(0), g(1)),
-        "eqratio" => format!("{} : {} = {} : {}", g(0), g(1), g(2), g(3)),
+        "eqratio" => a.chunks(2).map(|c| c.join(" : ")).collect::<Vec<_>>().join(" = "),
+        "para_ratio" => i18n::tf(
+            lang,
+            "fact.para_ratio",
+            &[("par", format!("{} \u{2225} {}", g(0), g(1))), ("ratio", format!("{} : {} = {} : {}", g(2), g(3), g(4), g(5)))],
+        ),
         "aconst" => format!("{} = {}\u{b0}", g(0), g(1)),
         "rconst" => format!("{} : {} = {}", g(0), g(1), g(2)),
         "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", g(0), g(1)),
@@ -419,7 +435,72 @@ const AUX_INK: &str = "#b45309";
 struct Block {
     h: f32,
     body: String,
-    keep_next: bool,
+    keep_next: usize,
+}
+
+fn fmt_int(n: u64, lang: Lang) -> String {
+    let digits = n.to_string();
+    if digits.len() <= 3 {
+        return digits;
+    }
+    let sep = if lang == Lang::Ro { '.' } else { ',' };
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(sep);
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn tpn(lang: Lang, key: &str, n: u64) -> String {
+    i18n::tp(lang, key, n, &[]).replace(&n.to_string(), &fmt_int(n, lang))
+}
+
+fn method_text(v: &Value, lang: Lang) -> Option<String> {
+    let status = v["status"].as_str().unwrap_or("");
+    let method = v["method"].as_str().unwrap_or("");
+    match status {
+        "holds-numerically" => return Some(i18n::t(lang, "report.method.numeric").to_string()),
+        "refuted" => return Some(i18n::t(lang, "report.method.counter").to_string()),
+        _ => {}
+    }
+    if method == "euclidean" {
+        return (status == "proved").then(|| i18n::t(lang, "report.method.euclid").to_string());
+    }
+    let aux = v["aux_constructions"].as_array().map_or(0, Vec::len) as u64;
+    Some(if aux > 0 {
+        tpn(lang, "report.method.aux", aux)
+    } else if method == "aux-search" {
+        i18n::t(lang, "report.method.aux_search").to_string()
+    } else {
+        i18n::t(lang, "report.method.ddar").to_string()
+    })
+}
+
+fn verdict_copy(v: &Value, lang: Lang) -> (String, String) {
+    let status = v["status"].as_str().unwrap_or("not-proved");
+    let view = &v["view"];
+    let note = view["note"]["key"].as_str().unwrap_or("");
+    let samples = v["numeric_samples"].as_u64().unwrap_or(0);
+    let secs = fmt_num(view["note"]["secs"].as_f64().unwrap_or(60.0), lang, 0);
+    let t = |k: &str| i18n::t(lang, k).to_string();
+    match status {
+        "proved" if view["as_drawn"].as_bool() == Some(true) => (t("report.verdict.as_drawn"), t("report.explain.as_drawn")),
+        "proved" => (t("report.verdict.proved"), t("report.explain.proved")),
+        "refuted" => (t("report.verdict.refuted"), t("report.explain.refuted")),
+        "holds-numerically" => (t("report.verdict.holds-numerically"), tpn(lang, "report.explain.holds-numerically", samples)),
+        _ if note == "time_limit" => (t("report.verdict.time_limit"), i18n::tf(lang, "report.explain.time_limit", &[("secs", secs)])),
+        _ => {
+            let explain = match (note, view["note"]["runs"].as_u64()) {
+                ("budget", Some(runs)) => i18n::tf(lang, "report.explain.budget", &[("runs", tpn(lang, "report.runs", runs))]),
+                ("metric_error" | "unsound" | "replay", _) => t(&format!("report.explain.{note}")),
+                _ => t("report.explain.not-proved"),
+            };
+            (t("report.verdict.not-proved"), explain)
+        }
+    }
 }
 
 struct Typeset<'a> {
@@ -494,21 +575,16 @@ fn wordmark(x: f32, y: f32) -> String {
 }
 
 fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
+    report_pages_fit(v, lang, paginate, FIG_MAX_H)
+}
+
+fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Vec<String> {
     let status = v["status"].as_str().unwrap_or("not-proved");
     let view = &v["view"];
     let time_limited = view["note"]["key"].as_str() == Some("time_limit");
     let t = tone(status, time_limited);
-    let verdict_key = if status != "proved" && time_limited { "time_limit".to_string() } else { status.to_string() };
-    let headline = i18n::t(lang, &format!("report.verdict.{verdict_key}")).to_string();
+    let (headline, explain) = verdict_copy(v, lang);
     let samples = v["numeric_samples"].as_u64().unwrap_or(0);
-    let explain = i18n::tf(
-        lang,
-        &format!("report.explain.{verdict_key}"),
-        &[
-            ("n", i18n::tp(lang, "report.samples", samples, &[])),
-            ("secs", fmt_num(view["note"]["secs"].as_f64().unwrap_or(60.0), lang, 0)),
-        ],
-    );
     let title = v["title"]
         .as_str()
         .filter(|s| !s.trim().is_empty())
@@ -530,7 +606,7 @@ fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
         y += 25.0;
     }
     y += 2.0;
-    let explain_lines = wrap(&explain, cols.saturating_sub(10));
+    let explain_lines = wrap(&explain, ((content_w - 56.0) / (10.0 * 0.5)) as usize);
     let card_h = 40.0 + explain_lines.len() as f32 * 15.0;
     head.push_str(&format!(
         "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{card_h:.1}\" rx=\"8\" fill=\"{}\" stroke=\"{}\" stroke-opacity=\"0.35\"/>\n<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"3.5\" height=\"{card_h:.1}\" fill=\"{}\"/>\n",
@@ -542,17 +618,25 @@ fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
         head.push_str(&plain(MARGIN + 42.0, y + 41.0 + i as f32 * 15.0, 10.0, 400, INK, UI, l));
     }
     y += card_h + 18.0;
-    let mut meta: Vec<String> = vec![fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang)];
+    let mut meta: Vec<String> = method_text(v, lang).into_iter().collect();
+    meta.push(fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang));
     let shown_steps = view["proof"]["steps"].as_array().map_or(0, |a| a.iter().filter(|s| s["kind"] != "given").count());
     if status == "proved" && shown_steps > 0 {
-        meta.push(i18n::tp(lang, "report.steps", shown_steps as u64, &[]));
+        meta.push(tpn(lang, "report.steps", shown_steps as u64));
+    }
+    if status == "holds-numerically" && samples > 0 {
+        meta.push(tpn(lang, "report.samples", samples));
+    }
+    if status == "proved" && view["as_drawn"].as_bool() == Some(true) {
+        meta.push(i18n::t(lang, "report.as_drawn").to_string());
     }
     head.push_str(&plain(MARGIN, y, 9.5, 400, MUTED, UI, &meta.join("  \u{b7}  ")));
     y += 12.0;
     let svg = v["svg"].as_str().unwrap_or("");
+    let mut fig_h = 0.0;
     if let Some((fw, fh)) = svg_dimensions(svg).or_else(|| viewbox_size(svg)) {
         let inner_w = content_w - 24.0;
-        let scale = (inner_w / fw).min(FIG_MAX_H / fh);
+        let scale = (inner_w / fw).min(fig_max_h / fh);
         let (w, h) = (fw * scale, fh * scale);
         let x = MARGIN + (content_w - w) / 2.0;
         let vb = viewbox_attr(svg).unwrap_or_else(|| format!("0 0 {fw} {fh}"));
@@ -563,54 +647,66 @@ fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
             strip_svg_root(svg)
         ));
         y += h + 24.0 + 10.0;
+        fig_h = h;
     }
-    blocks.push(Block { h: y, body: head, keep_next: false });
+    blocks.push(Block { h: y, body: head, keep_next: 0 });
 
-    let section = |blocks: &mut Vec<Block>, label: &str| {
+    let section = |blocks: &mut Vec<Block>, label: &str, items: usize| {
         let mut b = plain(MARGIN, 22.0, 9.0, 600, MUTED, UI, &label.to_uppercase());
         b.push_str(&format!(
             "<line x1=\"{MARGIN}\" y1=\"28\" x2=\"{:.1}\" y2=\"28\" stroke=\"{RULE}\"/>\n",
             PAGE_W - MARGIN
         ));
-        blocks.push(Block { h: 44.0, body: b, keep_next: true });
+        let keep = if items <= 3 { items } else { 2 };
+        blocks.push(Block { h: 44.0, body: b, keep_next: keep });
     };
-    let lines_block = |blocks: &mut Vec<Block>, lines: &[String], x: f32, fill: &str, weight: u32, bullet: bool, ts: &Typeset| {
+    let lines_block = |blocks: &mut Vec<Block>, lines: &[String], fill: &str, weight: u32, bullet: bool, ts: &Typeset, keep_next: usize| {
         let mut b = String::new();
         for (i, l) in lines.iter().enumerate() {
             let lead = if bullet && i == 0 { "\u{2022}  " } else if bullet { "   " } else { "" };
-            b.push_str(&txt(x, 12.0 + i as f32 * LEADING, BODY_FS, weight, fill, MATH, &format!("{}{}", escape_xml(lead), ts.spans(l))));
+            b.push_str(&txt(MARGIN, 12.0 + i as f32 * LEADING, BODY_FS, weight, fill, MATH, &format!("{}{}", escape_xml(lead), ts.spans(l))));
         }
-        blocks.push(Block { h: lines.len() as f32 * LEADING + 2.0, body: b, keep_next: false });
+        blocks.push(Block { h: lines.len() as f32 * LEADING + 2.0, body: b, keep_next });
     };
+    let penultimate = |i: usize, n: usize| usize::from(n >= 2 && i + 2 == n);
 
     let given: Vec<String> = view["given"]
         .as_array()
         .map(|a| a.iter().map(|f| fact_text(f, lang)).collect())
         .unwrap_or_default();
     if !given.is_empty() {
-        section(&mut blocks, i18n::t(lang, "report.given"));
-        for g in &given {
-            lines_block(&mut blocks, &wrap(g, cols - 4), MARGIN, INK, 400, true, &ts);
+        section(&mut blocks, i18n::t(lang, "report.given"), given.len());
+        for (i, g) in given.iter().enumerate() {
+            lines_block(&mut blocks, &wrap(g, cols - 4), INK, 400, true, &ts, penultimate(i, given.len()));
         }
     }
     if !view["goal"].is_null() {
-        section(&mut blocks, i18n::t(lang, "report.prove"));
-        lines_block(&mut blocks, &wrap(&fact_text(&view["goal"], lang), cols), MARGIN, INK, 600, false, &ts);
+        section(&mut blocks, i18n::t(lang, "report.prove"), 1);
+        lines_block(&mut blocks, &wrap(&fact_text(&view["goal"], lang), cols), INK, 600, false, &ts, 0);
     }
     if let Some(c) = view.get("counterexample").filter(|c| !c.is_null()).and_then(|c| counter_text(c, lang)) {
-        section(&mut blocks, i18n::t(lang, "report.counter"));
-        lines_block(&mut blocks, &wrap(&c, cols), MARGIN, t.ink, 400, false, &ts);
+        section(&mut blocks, i18n::t(lang, "report.counter"), 1);
+        lines_block(&mut blocks, &wrap(&c, cols), t.ink, 400, false, &ts, 0);
     }
     if let Some(aux) = view["aux"].as_array().filter(|a| !a.is_empty()) {
-        section(&mut blocks, i18n::t(lang, "report.aux"));
-        for a in aux {
-            let line = format!("{}: {}", a["name"].as_str().unwrap_or(""), aux_text(a, lang));
-            lines_block(&mut blocks, &wrap(&line, cols), MARGIN, AUX_INK, 400, false, &ts);
+        section(&mut blocks, i18n::t(lang, "report.aux"), aux.len());
+        for (i, a) in aux.iter().enumerate() {
+            let name = a["name"].as_str().unwrap_or("");
+            let lines = wrap(&format!("{name}: {}", aux_text(a, lang)), cols);
+            let mut b = String::new();
+            for (k, l) in lines.iter().enumerate() {
+                let inner = match l.strip_prefix(&format!("{name}:")).filter(|_| k == 0) {
+                    Some(rest) => format!("<tspan fill=\"{AUX_INK}\" font-weight=\"600\">{}</tspan>:{}", ts.spans(name), ts.spans(rest)),
+                    None => ts.spans(l),
+                };
+                b.push_str(&txt(MARGIN, 12.0 + k as f32 * LEADING, BODY_FS, 400, INK, MATH, &inner));
+            }
+            blocks.push(Block { h: lines.len() as f32 * LEADING + 2.0, body: b, keep_next: penultimate(i, aux.len()) });
         }
     }
     let steps = view["proof"]["steps"].as_array().cloned().unwrap_or_default();
     if status == "proved" && !steps.is_empty() {
-        section(&mut blocks, i18n::t(lang, "report.proof"));
+        section(&mut blocks, i18n::t(lang, "report.proof"), steps.len());
         let gutter = 28.0;
         let step_cols = ((content_w - gutter) / (BODY_FS * 0.5)) as usize;
         for st in &steps {
@@ -632,11 +728,14 @@ fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
             }
             let my = 12.0 + lines.len() as f32 * LEADING - 2.0;
             b.push_str(&plain(MARGIN + gutter, my, 8.5, 400, MUTED, UI, &meta));
-            blocks.push(Block { h: lines.len() as f32 * LEADING + 16.0, body: b, keep_next: false });
+            blocks.push(Block { h: lines.len() as f32 * LEADING + 16.0, body: b, keep_next: 0 });
         }
         if let Some(c) = view["proof"].get("conclusion").filter(|c| !c.is_null()) {
+            if let Some(last) = blocks.last_mut() {
+                last.keep_next = 1;
+            }
             let lines = wrap(&format!("\u{220e}  {}", fact_text(c, lang)), cols);
-            lines_block(&mut blocks, &lines, MARGIN, INK, 600, false, &ts);
+            lines_block(&mut blocks, &lines, INK, 600, false, &ts, 0);
         }
     }
 
@@ -678,8 +777,20 @@ fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
     }
 
     let bottom = PAGE_H - MARGIN - 24.0;
+    let total: f32 = blocks.iter().map(|b| b.h).sum();
+    let overflow = total - (bottom - (MARGIN - 10.0));
+    if paginate && overflow > 0.0 && overflow < 170.0 && fig_h > 0.0 && fig_max_h >= FIG_MAX_H {
+        let smaller = fig_h - overflow - 8.0;
+        if smaller >= 150.0 {
+            return report_pages_fit(v, lang, paginate, smaller);
+        }
+    }
     let running = |title: &str| {
-        let short: String = title.chars().take(70).collect();
+        let short: String = if title.chars().count() > 70 {
+            format!("{}\u{2026}", title.chars().take(69).collect::<String>().trim_end())
+        } else {
+            title.to_string()
+        };
         let mut r = plain(MARGIN, 34.0, 8.5, 500, MUTED, UI, &short);
         r.push_str(&format!(
             "<text x=\"{:.1}\" y=\"34\" font-size=\"8.5\" font-weight=\"600\" fill=\"{}\" font-family=\"{UI}\" text-anchor=\"end\">{}</text>\n<line x1=\"{MARGIN}\" y1=\"42\" x2=\"{:.1}\" y2=\"42\" stroke=\"{RULE}\"/>\n",
@@ -697,8 +808,8 @@ fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
     while i < blocks.len() {
         let b = &blocks[i];
         let mut need = b.h;
-        if b.keep_next {
-            if let Some(n) = blocks.get(i + 1) {
+        for k in 1..=b.keep_next {
+            if let Some(n) = blocks.get(i + k) {
                 need += n.h;
             }
         }
@@ -823,6 +934,29 @@ mod tests {
         assert!(pages[1].contains(" / "), "page numbers");
         let pdf = pdf_from_pages(&pages).unwrap();
         assert!(String::from_utf8_lossy(&pdf).contains(&format!("/Count {}", pages.len())));
+    }
+
+    #[test]
+    fn report_copy_matches_the_app() {
+        let refuted = serde_json::json!({"status": "refuted", "method": "ddar", "view": {"note": {"key": "false"}}});
+        assert_eq!(verdict_copy(&refuted, Lang::En).1, "A sampled figure contradicts it, so no proof can exist.");
+        assert_eq!(method_text(&refuted, Lang::En).as_deref(), Some("Numerical counterexample"));
+        let numeric = serde_json::json!({"status": "holds-numerically", "numeric_samples": 48, "view": {"note": {"key": "no_euclid"}}});
+        assert_eq!(
+            verdict_copy(&numeric, Lang::Ro).1,
+            "Adevărat în toate cele 48 de figuri eșantionate, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație."
+        );
+        let budget = serde_json::json!({"status": "not-proved", "method": "aux-search", "view": {"note": {"key": "budget", "runs": 5000}}});
+        assert!(verdict_copy(&budget, Lang::Ro).1.contains("(5.000 de rulări deductive)"), "{:?}", verdict_copy(&budget, Lang::Ro));
+        let drawn = serde_json::json!({"status": "proved", "method": "euclidean", "view": {"as_drawn": true, "note": {"key": "euclid"}}});
+        assert_eq!(verdict_copy(&drawn, Lang::En).0, "Proved for the configuration shown");
+    }
+
+    #[test]
+    fn long_words_are_broken_to_fit() {
+        let lines = wrap("Supercalifragilisticexpialidocious_reflection_of_the_orthocenter", 20);
+        assert!(lines.iter().all(|l| l.chars().count() <= 20), "{lines:?}");
+        assert_eq!(lines.concat(), "Supercalifragilisticexpialidocious_reflection_of_the_orthocenter");
     }
 
     #[test]

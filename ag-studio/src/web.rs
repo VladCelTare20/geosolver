@@ -396,13 +396,10 @@ fn valid_credentials(username: &str, password: &str, lang: i18n::Lang) -> Result
     let ok_name = (3..=32).contains(&u.chars().count())
         && u.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if !ok_name {
-        return Err(err(
-            StatusCode::BAD_REQUEST,
-            i18n::t(lang, "auth.username_rule"),
-        ));
+        return Err(err_code(StatusCode::BAD_REQUEST, "username_rule", i18n::t(lang, "auth.username_rule")));
     }
     if !(8..=128).contains(&password.chars().count()) {
-        return Err(err(StatusCode::BAD_REQUEST, i18n::t(lang, "auth.pw_len")));
+        return Err(err_code(StatusCode::BAD_REQUEST, "pw_len", i18n::t(lang, "auth.pw_len")));
     }
     Ok(u)
 }
@@ -462,7 +459,7 @@ async fn api_register(
     .await;
     match outcome {
         Ok(Ok((username, sid))) => auth_ok(&username, &sid, secure),
-        Ok(Err(RegisterErr::Taken)) => err(StatusCode::CONFLICT, i18n::t(lang, "auth.user_taken")),
+        Ok(Err(RegisterErr::Taken)) => err_code(StatusCode::CONFLICT, "user_taken", i18n::t(lang, "auth.user_taken")),
         Ok(Err(RegisterErr::Internal)) => {
             eprintln!("register failed: internal error hashing/creating the account");
             err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail"))
@@ -507,7 +504,7 @@ async fn api_login(
     .await;
     match outcome {
         Ok(Some((username, sid))) => auth_ok(&username, &sid, secure),
-        Ok(None) => err(StatusCode::UNAUTHORIZED, i18n::t(lang, "auth.bad_creds")),
+        Ok(None) => err_code(StatusCode::UNAUTHORIZED, "bad_creds", i18n::t(lang, "auth.bad_creds")),
         Err(e) => {
             eprintln!("login panicked: {e}");
             err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.login_fail"))
@@ -549,6 +546,11 @@ fn kind_of(input: &str, kind: &str) -> InputKind {
 /// A JSON `{ "error": "…" }` response with a status code.
 fn err(code: StatusCode, msg: impl Into<String>) -> Response {
     (code, Json(serde_json::json!({ "error": msg.into() }))).into_response()
+}
+
+/// [`err`] plus a machine-readable `code` the client maps to a field.
+fn err_code(status: StatusCode, code: &str, msg: impl Into<String>) -> Response {
+    (status, Json(serde_json::json!({ "error": msg.into(), "code": code }))).into_response()
 }
 
 /// A compile/parse error: a localized sentence, where it is, and the engine's
@@ -624,17 +626,129 @@ struct SolveReq {
     record: bool,
 }
 
+fn input_error_note(note: &str) -> bool {
+    let Some(m) = note.strip_prefix("metric prover: ") else { return false };
+    [
+        "bad number",
+        "trailing tokens",
+        "unexpected token",
+        "unexpected character",
+        "expected ",
+        "unknown point",
+        "unknown name",
+        "unknown construction",
+        "unknown relation",
+    ]
+    .iter()
+    .any(|p| m.starts_with(p))
+        || m.contains(" expects ")
+}
+
+fn split_args(s: &str) -> Vec<String> {
+    let (mut out, mut cur, mut depth) = (Vec::new(), String::new(), 0i32);
+    for c in s.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(cur.trim().to_string());
+                cur.clear();
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(c);
+    }
+    out.push(cur.trim().to_string());
+    out
+}
+
+/// The point a predicate goal repeats where that makes it vacuous or
+/// degenerate (`cyclic(A, B, C, A)`, `perp(A, A, B, C)`, `cong(A, B, B, A)`).
+fn degenerate_goal(input: &str) -> Option<String> {
+    let goal = present::source_goal(input)?;
+    let open = goal.find('(')?;
+    let name = goal[..open].trim();
+    let args = split_args(goal[open + 1..].trim_end().strip_suffix(')')?);
+    let is_pt = |a: &str| a.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '\'');
+    let repeated = |xs: &[String]| {
+        xs.iter().enumerate().find_map(|(i, a)| (is_pt(a) && xs[..i].contains(a)).then(|| a.clone()))
+    };
+    let pairs = |xs: &[String]| xs.chunks(2).find_map(|p| (p.len() == 2 && is_pt(&p[0]) && p[0] == p[1]).then(|| p[0].clone()));
+    let same_pairs = |xs: &[String], k: usize| {
+        let key = |c: &[String]| {
+            let mut c = c.to_vec();
+            c.sort();
+            c
+        };
+        let chunks: Vec<&[String]> = xs.chunks(k).collect();
+        (chunks.len() == 2 && chunks[0].iter().chain(chunks[1]).all(|a| is_pt(a)) && key(chunks[0]) == key(chunks[1]))
+            .then(|| chunks[0][0].clone())
+    };
+    match (name, args.len()) {
+        ("cyclic" | "coll" | "collinear" | "concyclic", _) => repeated(&args),
+        ("midp" | "midpoint", 3) => repeated(&args),
+        ("perp" | "para" | "cong", 4) => pairs(&args).or_else(|| same_pairs(&args, 2)),
+        ("eqangle" | "eqratio", 8) => pairs(&args).or_else(|| same_pairs(&args, 4)),
+        _ => None,
+    }
+}
+
+fn degenerate_goal_err(lang: i18n::Lang, input: &str, point: &str) -> Response {
+    let line = input.lines().collect::<Vec<_>>().iter().rposition(|l| l.split('#').next().unwrap_or("").trim_start().starts_with("prove"));
+    let mut d = present::Diagnosis { key: "degenerate_goal", line: 0, col: 0, len: 0, token: Some(point.to_string()), expected: None, got: None };
+    if let Some(i) = line {
+        let code: Vec<char> = input.lines().nth(i).unwrap_or("").chars().collect();
+        let p: Vec<char> = point.chars().collect();
+        let hits: Vec<usize> = (0..code.len().saturating_sub(p.len() - 1))
+            .filter(|&k| {
+                code[k..k + p.len()] == p[..]
+                    && (k == 0 || !code[k - 1].is_ascii_alphanumeric())
+                    && code.get(k + p.len()).is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '\'')
+            })
+            .collect();
+        d.line = i + 1;
+        d.col = hits.get(1).or(hits.first()).map_or(1, |k| k + 1);
+        d.len = p.len();
+    }
+    let msg = i18n::compile_message(lang, &d);
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": format!("the goal repeats point {point}") })),
+    )
+        .into_response()
+}
+
+fn caller_key(caller: &Caller, ip: Option<&axum::Extension<security::ClientIp>>) -> String {
+    match caller {
+        Caller::User(u) => format!("u{}", u.id),
+        Caller::Guest => format!("g{}", ip.map_or_else(|| "?".to_string(), |e| e.0 .0.to_string())),
+    }
+}
+
 async fn api_solve(
     State(state): State<Shared>,
     caller: Caller,
+    ip: Option<axum::Extension<security::ClientIp>>,
     headers: HeaderMap,
     ApiJson(req): ApiJson<SolveReq>,
 ) -> Response {
     if let Err(e) = check_input(&state, &headers, &req.input) {
         return e;
     }
+    if let Some(p) = degenerate_goal(&req.input) {
+        return degenerate_goal_err(i18n::lang_from_headers(&headers), &req.input, &p);
+    }
+    let Some(slot) = state.claim_caller(caller_key(&caller, ip.as_ref())) else {
+        let lang = i18n::lang_from_headers(&headers);
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": i18n::t(lang, "server.busy_self"), "code": "busy_self" })),
+        )
+            .into_response();
+    };
     let permit = match heavy_permit(&state, &headers) {
-        Ok(p) => p,
+        Ok(p) => (p, slot),
         Err(e) => return e,
     };
     let title = clean_title(req.title);
@@ -669,7 +783,7 @@ async fn api_solve(
         })
     });
     match task.await {
-        Ok(Ok(sol)) if !sol.proved && sol.note.starts_with("metric prover: bad number") => {
+        Ok(Ok(sol)) if !sol.proved && input_error_note(&sol.note) => {
             compile_err(lang, &input_for_errors, &sol.note)
         }
         Ok(Ok(sol)) => {
@@ -1174,9 +1288,8 @@ async fn api_export(
             )
                 .into_response();
         };
-        let permit = match heavy_permit(&state, &headers) {
-            Ok(p) => p,
-            Err(e) => return e,
+        let Ok(permit) = state.render.clone().try_acquire_owned() else {
+            return err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"));
         };
         let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
             let _permit = permit;
@@ -1223,6 +1336,9 @@ async fn api_export(
             engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
         })
         .map_err(|e| (true, e))?;
+        if !sol.proved && input_error_note(&sol.note) {
+            return Err((true, sol.note.clone()));
+        }
         let value = present::solution_json(&sol, title.as_deref());
         if want_pdf {
             render::report_pdf_from_json(&value, lang)
@@ -1482,6 +1598,99 @@ mod tests {
         let (_, _, rows) =
             call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
         assert_eq!(rows.as_array().map(Vec::len), Some(0), "{rows:?}");
+    }
+
+    #[tokio::test]
+    async fn malformed_metric_goals_are_compile_errors_not_verdicts() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "noether3").await;
+        let cases = [
+            ("A B C = triangle\nprove dist(A,B) = 2)", "trailing", 2, 20),
+            ("A B C = triangle\nprove dist(A,B) = 2 3", "trailing", 2, 21),
+            ("A B C = triangle\nprove dist(A,B) == 2", "unexpected_token", 2, 18),
+            ("B = free\nC = point: dist(B,C)=6\nprove dist(B,C)^x = 36", "expect_exponent", 3, 17),
+            ("A B C D = cyclic_quad\nprove dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + dist(A,D)*dist(B,C)", "unknown_shape", 1, 11),
+            ("A B C D = cyclic_quad\nprove cyclic(A, B, C, D)", "unknown_shape", 1, 11),
+        ];
+        for (input, key, line, col) in cases {
+            let (st, _, body) =
+                call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+            assert_eq!(st, StatusCode::BAD_REQUEST, "{input}: {body:?}");
+            assert_eq!(body["code"], "compile", "{input}: {body:?}");
+            assert_eq!(body["diagnosis"]["key"], key, "{input}: {body:?}");
+            assert_eq!(body["diagnosis"]["line"], line, "{input}: {body:?}");
+            assert_eq!(body["diagnosis"]["col"], col, "{input}: {body:?}");
+        }
+        let (_, _, rows) =
+            call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(rows.as_array().map(Vec::len), Some(0), "{rows:?}");
+    }
+
+    #[tokio::test]
+    async fn goals_that_repeat_a_point_are_refused_not_proved() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "noether4").await;
+        for (input, point) in [
+            ("A B C = triangle\nprove cyclic(A, B, C, A)", "A"),
+            ("A B C = triangle\nprove coll(A, B, A)", "A"),
+            ("A B C = triangle\nprove perp(A, A, B, C)", "A"),
+            ("A B C = triangle\nprove cong(A, B, B, A)", "A"),
+            ("A B C = triangle\nprove para(A, B, B, A)", "A"),
+        ] {
+            let (st, _, body) =
+                call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+            assert_eq!(st, StatusCode::BAD_REQUEST, "{input}: {body:?}");
+            assert_eq!(body["diagnosis"]["key"], "degenerate_goal", "{input}: {body:?}");
+            assert_eq!(body["diagnosis"]["token"], point, "{input}: {body:?}");
+            assert_eq!(body["diagnosis"]["line"], 2, "{input}: {body:?}");
+        }
+        for input in [
+            "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
+            "A B C = triangle\nI = incenter(A, B, C)\nprove eqangle(A, B, A, I, A, I, A, C)",
+        ] {
+            let (st, _, body) =
+                call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input, "record": false})).await;
+            assert_eq!(st, StatusCode::OK, "{input}: {body:?}");
+            assert_eq!(body["status"], "proved", "{input}: {body:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn one_caller_cannot_take_every_solver_slot() {
+        let (state, _dir) = test_state();
+        let limit = state.per_caller_limit();
+        assert!(limit < state.config.max_concurrent || state.config.max_concurrent == 1, "a caller must leave slots for others");
+        let held: Vec<_> = (0..limit).map(|_| state.claim_caller("u1".into()).expect("within the limit")).collect();
+        assert!(state.claim_caller("u1".into()).is_none(), "over the per-caller limit");
+        assert!(state.claim_caller("u2".into()).is_some(), "another caller is unaffected");
+        drop(held);
+        assert!(state.claim_caller("u1".into()).is_some(), "slots come back when the solves finish");
+    }
+
+    #[tokio::test]
+    async fn auth_errors_carry_a_field_code() {
+        let (state, _dir) = test_state();
+        let _ = register_cookie(&state, "takenname").await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            serde_json::json!({"username": "takenname", "password": "password123"}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::CONFLICT, "{body:?}");
+        assert_eq!(body["code"], "user_taken", "{body:?}");
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            serde_json::json!({"username": "newname", "password": "x".repeat(129)}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body:?}");
+        assert_eq!(body["code"], "pw_len", "{body:?}");
     }
 
     #[tokio::test]

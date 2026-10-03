@@ -73,6 +73,7 @@ fn en(key: &str) -> &'static str {
         "err.too_long" => "The input is too long. Shorten it and try again.",
         "err.too_large" => "This program is longer than the server accepts. Shorten it, or use fewer points.",
         "server.busy" => "Every solver slot is in use. Try again in a moment.",
+        "server.busy_self" => "Your earlier solves are still finishing (a cancelled solve keeps running until its time limit). Try again in a moment.",
         "rate.exceeded" => "Too many requests in a short time. Wait a minute, then try again.",
         "origin.refused" => "This request came from another site and was refused.",
         // translate (structured)
@@ -93,6 +94,10 @@ fn en(key: &str) -> &'static str {
         "compile.unknown_relation" => "“{tok}” is not a relation GeoSolver knows (try coll, perp, para, cyclic, cong or eqangle).",
         "compile.unknown_name" => "The point “{tok}” is used before it is defined.",
         "compile.unknown_construction" => "“{tok}” is not a known construction (for example midpoint, foot, circumcenter or meet).",
+        "compile.unknown_shape" => "“{tok}” is not a known construction. Several points can be introduced at once only with triangle (A B C = triangle) or segment (A B = segment); define the others one at a time.",
+        "compile.trailing" => "The equation should end before “{tok}”.",
+        "compile.trailing.eol" => "The equation has extra text at the end.",
+        "compile.degenerate_goal" => "The goal repeats the point {tok}, so it is degenerate or trivially true and proves nothing. Use distinct points.",
         "compile.arity" => "“{tok}” takes {expected}, but {got} given.",
         "compile.args.one" => "{n} argument",
         "compile.args.other" => "{n} arguments",
@@ -112,18 +117,36 @@ fn en(key: &str) -> &'static str {
         "report.verdict.not-proved" => "Not proved",
         "report.verdict.time_limit" => "Not proved — time limit reached",
         "report.explain.proved" => "Every numbered step below is machine-checked.",
-        "report.explain.refuted" => "A sampled figure contradicts the goal, so it cannot be proved.",
-        "report.explain.holds-numerically" => "The goal holds in all {n}, but no Euclidean proof was found. That is evidence, not a proof.",
+        "report.verdict.as_drawn" => "Proved for the configuration shown",
+        "report.explain.as_drawn" => "Every numbered step below is machine-checked. One step uses the order of points as drawn, so the proof covers this configuration.",
+        "report.explain.refuted" => "A sampled figure contradicts it, so no proof can exist.",
+        "report.explain.holds-numerically.one" => "True in the sampled figure, but GeoSolver found no Euclidean proof. That is evidence, not a proof.",
+        "report.explain.holds-numerically.other" => "True in all {n} sampled figures, but GeoSolver found no Euclidean proof. That is evidence, not a proof.",
         "report.explain.not-proved" => "The search ended without a proof. The statement may still be true.",
-        "report.explain.time_limit" => "The search stopped at the {secs} s time limit without finding a proof.",
+        "report.explain.budget" => "The search used its whole budget ({runs}) without finding a proof. The statement may still be true.",
+        "report.explain.metric_error" => "GeoSolver cannot handle this kind of goal yet. This says nothing about whether the statement is true.",
+        "report.explain.unsound" => "A derivation was found but rejected, because a sampled figure contradicts it (likely a degenerate figure). The statement may still be true.",
+        "report.explain.replay" => "The search reported a proof, but its constructions could not be replayed. The statement may still be true.",
+        "report.explain.time_limit" => "The search stopped at the {secs} s limit without finding a proof. The statement may still be true.",
+        "report.runs.one" => "{n} deductive run",
+        "report.runs.other" => "{n} deductive runs",
+        "report.method.ddar" => "Deductive search",
+        "report.method.aux.one" => "Deductive search + {n} auxiliary point",
+        "report.method.aux.other" => "Deductive search + {n} auxiliary points",
+        "report.method.aux_search" => "Deductive search + auxiliary-point search",
+        "report.method.euclid" => "Euclidean theorems",
+        "report.method.numeric" => "Numerical check",
+        "report.method.counter" => "Numerical counterexample",
+        "report.as_drawn" => "uses the drawn order of points",
+        "fact.para_ratio" => "{par} and {ratio}",
         "report.given" => "Given",
         "report.prove" => "Prove",
         "report.proof" => "Proof — machine-checked steps",
         "report.aux" => "Auxiliary points added by the search",
         "report.counter" => "Counterexample",
         "report.footer" => "GeoSolver · machine-checked geometry proofs",
-        "report.steps.one" => "{n} step",
-        "report.steps.other" => "{n} steps",
+        "report.steps.one" => "{n} deduction step",
+        "report.steps.other" => "{n} deduction steps",
         "report.samples.one" => "{n} sampled figure",
         "report.samples.other" => "{n} sampled figures",
         "fact.oncircle" => "{pts} lie on a circle centered at {o}",
@@ -205,6 +228,7 @@ fn ro(key: &str) -> &'static str {
         "err.too_long" => "Textul introdus este prea lung. Scurtează-l și încearcă din nou.",
         "err.too_large" => "Programul este mai lung decât acceptă serverul. Scurtează-l sau folosește mai puține puncte.",
         "server.busy" => "Toate locurile de rezolvare sunt ocupate. Încearcă din nou în câteva momente.",
+        "server.busy_self" => "Rezolvările tale anterioare încă se încheie (o rezolvare anulată continuă până la limita de timp). Încearcă din nou în câteva momente.",
         "rate.exceeded" => "Prea multe cereri într-un timp scurt. Așteaptă un minut, apoi încearcă din nou.",
         "origin.refused" => "Cererea a venit de pe alt site și a fost refuzată.",
         // translate (structured)
@@ -225,6 +249,10 @@ fn ro(key: &str) -> &'static str {
         "compile.unknown_relation" => "„{tok}” nu este o relație cunoscută (încearcă coll, perp, para, cyclic, cong sau eqangle).",
         "compile.unknown_name" => "Punctul „{tok}” este folosit înainte de a fi definit.",
         "compile.unknown_construction" => "„{tok}” nu este o construcție cunoscută (de exemplu midpoint, foot, circumcenter sau meet).",
+        "compile.unknown_shape" => "„{tok}” nu este o construcție cunoscută. Mai multe puncte pot fi introduse deodată doar cu triangle (A B C = triangle) sau segment (A B = segment); definește-le pe celelalte pe rând.",
+        "compile.trailing" => "Ecuația ar trebui să se încheie înainte de „{tok}”.",
+        "compile.trailing.eol" => "Ecuația are text în plus la final.",
+        "compile.degenerate_goal" => "Concluzia repetă punctul {tok}, deci este degenerată sau trivial adevărată și nu demonstrează nimic. Folosește puncte distincte.",
         "compile.arity" => "„{tok}” primește {expected}, dar a primit {got}.",
         "compile.args.one" => "{n} argument",
         "compile.args.few" => "{n} argumente",
@@ -243,19 +271,40 @@ fn ro(key: &str) -> &'static str {
         "report.verdict.not-proved" => "Nedemonstrat",
         "report.verdict.time_limit" => "Nedemonstrat — limita de timp a fost atinsă",
         "report.explain.proved" => "Fiecare pas numerotat de mai jos este verificat automat.",
-        "report.explain.refuted" => "O figură eșantionată contrazice concluzia, deci ea nu poate fi demonstrată.",
-        "report.explain.holds-numerically" => "Concluzia se verifică în toate cele {n}, dar nu s-a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație.",
+        "report.verdict.as_drawn" => "Demonstrat pentru configurația din figură",
+        "report.explain.as_drawn" => "Fiecare pas numerotat de mai jos este verificat automat. Un pas folosește ordinea punctelor din figură, deci demonstrația acoperă această configurație.",
+        "report.explain.refuted" => "O figură eșantionată o contrazice, deci nu poate exista o demonstrație.",
+        "report.explain.holds-numerically.one" => "Adevărat în figura eșantionată, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație.",
+        "report.explain.holds-numerically.few" => "Adevărat în toate cele {n} figuri eșantionate, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație.",
+        "report.explain.holds-numerically.other" => "Adevărat în toate cele {n} de figuri eșantionate, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație.",
         "report.explain.not-proved" => "Căutarea s-a încheiat fără demonstrație. Afirmația poate fi totuși adevărată.",
-        "report.explain.time_limit" => "Căutarea s-a oprit la limita de {secs} s fără a găsi o demonstrație.",
+        "report.explain.budget" => "Căutarea și-a folosit tot bugetul ({runs}) fără a găsi o demonstrație. Afirmația poate fi totuși adevărată.",
+        "report.explain.metric_error" => "GeoSolver nu poate trata încă acest tip de concluzie. Asta nu spune nimic despre adevărul afirmației.",
+        "report.explain.unsound" => "S-a găsit o derivare, dar a fost respinsă: o figură eșantionată o contrazice (probabil o figură degenerată). Afirmația poate fi totuși adevărată.",
+        "report.explain.replay" => "Căutarea a raportat o demonstrație ale cărei construcții nu au putut fi reconstruite. Afirmația poate fi totuși adevărată.",
+        "report.explain.time_limit" => "Căutarea s-a oprit la limita de {secs} s fără a găsi o demonstrație. Afirmația poate fi totuși adevărată.",
+        "report.runs.one" => "{n} rulare deductivă",
+        "report.runs.few" => "{n} rulări deductive",
+        "report.runs.other" => "{n} de rulări deductive",
+        "report.method.ddar" => "Căutare deductivă",
+        "report.method.aux.one" => "Căutare deductivă + {n} punct auxiliar",
+        "report.method.aux.few" => "Căutare deductivă + {n} puncte auxiliare",
+        "report.method.aux.other" => "Căutare deductivă + {n} de puncte auxiliare",
+        "report.method.aux_search" => "Căutare deductivă + căutare de puncte auxiliare",
+        "report.method.euclid" => "Teoreme euclidiene",
+        "report.method.numeric" => "Verificare numerică",
+        "report.method.counter" => "Contraexemplu numeric",
+        "report.as_drawn" => "folosește ordinea punctelor din figură",
+        "fact.para_ratio" => "{par} și {ratio}",
         "report.given" => "Ipoteze",
         "report.prove" => "De demonstrat",
         "report.proof" => "Demonstrație — pași verificați automat",
         "report.aux" => "Puncte auxiliare adăugate de căutare",
         "report.counter" => "Contraexemplu",
         "report.footer" => "GeoSolver · demonstrații de geometrie verificate automat",
-        "report.steps.one" => "{n} pas",
-        "report.steps.few" => "{n} pași",
-        "report.steps.other" => "{n} de pași",
+        "report.steps.one" => "{n} pas de deducție",
+        "report.steps.few" => "{n} pași de deducție",
+        "report.steps.other" => "{n} de pași de deducție",
         "report.samples.one" => "{n} figură eșantionată",
         "report.samples.few" => "{n} figuri eșantionate",
         "report.samples.other" => "{n} de figuri eșantionate",
@@ -342,7 +391,7 @@ pub fn tp(lang: Lang, key: &str, n: u64, vars: &[(&str, String)]) -> String {
 pub fn compile_message(lang: Lang, d: &crate::present::Diagnosis) -> String {
     let key = format!("compile.{}", d.key);
     let key = match (d.key, &d.token) {
-        ("expect_comma_paren" | "unexpected_token", None) => format!("{key}.eol"),
+        ("expect_comma_paren" | "unexpected_token" | "trailing", None) => format!("{key}.eol"),
         _ => key,
     };
     let (expected, got) = (d.expected.unwrap_or(0) as u64, d.got.unwrap_or(0) as u64);
@@ -453,6 +502,12 @@ pub fn theorem_ro(name: &str) -> Option<&'static str> {
         "geometric-mean (leg) relation" => "teorema catetei",
         "ptolemy's theorem" => "teorema lui Ptolemeu",
         "thales' theorem" => "teorema lui Thales",
+        "angle bisector theorem" => "teorema bisectoarei",
+        "angle bisector theorem (converse)" => "reciproca teoremei bisectoarei",
+        "radical axis" => "axa radicală",
+        "monge–d'alembert" => "teorema Monge–d'Alembert",
+        "homothety at a center of similitude" | "homothety at a centre of similitude" => "omotetie cu centrul într-un centru de asemănare",
+        "intercept theorem (parallel rungs)" => "teorema lui Thales (paralele)",
         _ => return None,
     })
 }
@@ -464,13 +519,14 @@ mod tests {
     #[test]
     fn plurals_follow_each_language() {
         let steps = |l, n| tp(l, "report.steps", n, &[]);
-        assert_eq!(steps(Lang::En, 1), "1 step");
-        assert_eq!(steps(Lang::En, 2), "2 steps");
-        assert_eq!(steps(Lang::Ro, 1), "1 pas");
-        assert_eq!(steps(Lang::Ro, 2), "2 pași");
-        assert_eq!(steps(Lang::Ro, 20), "20 de pași");
-        assert_eq!(steps(Lang::Ro, 21), "21 de pași");
-        assert_eq!(steps(Lang::Ro, 101), "101 pași");
+        assert_eq!(steps(Lang::En, 1), "1 deduction step");
+        assert_eq!(steps(Lang::En, 2), "2 deduction steps");
+        assert_eq!(steps(Lang::Ro, 1), "1 pas de deducție");
+        assert_eq!(steps(Lang::Ro, 2), "2 pași de deducție");
+        assert_eq!(steps(Lang::Ro, 20), "20 de pași de deducție");
+        assert_eq!(steps(Lang::Ro, 21), "21 de pași de deducție");
+        assert_eq!(steps(Lang::Ro, 101), "101 pași de deducție");
+        assert_eq!(tp(Lang::Ro, "report.runs", 5000, &[]), "5000 de rulări deductive");
         assert_eq!(tp(Lang::Ro, "report.samples", 48, &[]), "48 de figuri eșantionate");
     }
 

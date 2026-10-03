@@ -1,5 +1,5 @@
 //! The web app's figure: an SVG drawn from the solved problem, framed to its
-//! whole content (circles and labels included, never clipped), with every
+//! points, labels and every circle up to 1.5× the construction's size, with every
 //! element tagged by class and by the points it involves (`data-p`) so the
 //! page can theme it and highlight what a proof step talks about.
 
@@ -725,7 +725,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         let w = label_width(&name);
         let h = LABEL_FS * 0.9;
         let mut best: Option<(f64, Pt)> = None;
-        for ring in 0..3 {
+        let crowded = dots.iter().any(|d| {
+            let dd = len(sub(*d, p));
+            dd > 1e-6 && dd < LABEL_FS * 1.6
+        });
+        for ring in 0..if crowded { 5 } else { 3 } {
             for k in 0..16 {
                 let th = (k as f64) * std::f64::consts::PI / 8.0 + if ring == 1 { std::f64::consts::PI / 16.0 } else { 0.0 };
                 let dv = (th.cos(), th.sin());
@@ -802,11 +806,17 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         grow((c.0 + w / 2.0, c.1 + LABEL_FS * 0.55), &mut core);
     }
     let mut all = core;
+    let mut circles_in = core;
+    let core_span = (core.2 - core.0).max(core.3 - core.1).max(1.0);
     for el in &els {
         match &el.shape {
             Shape::Line(a, b) => {
                 grow(*a, &mut all);
                 grow(*b, &mut all);
+            }
+            Shape::Circle(c, r) if *r <= core_span * 1.5 => {
+                grow((c.0 - r - 2.0, c.1 - r - 2.0), &mut circles_in);
+                grow((c.0 + r + 2.0, c.1 + r + 2.0), &mut circles_in);
             }
             Shape::Circle(c, r) => {
                 grow((c.0 - r, c.1 - r), &mut all);
@@ -816,12 +826,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         }
     }
     if core.0 <= core.2 {
-        let span = (core.2 - core.0).max(core.3 - core.1).max(1.0);
-        let slack = span * 0.22;
-        bx0 = all.0.max(core.0 - slack);
-        by0 = all.1.max(core.1 - slack);
-        bx1 = all.2.min(core.2 + slack);
-        by1 = all.3.min(core.3 + slack);
+        let slack = core_span * 0.22;
+        bx0 = all.0.max(core.0 - slack).min(circles_in.0);
+        by0 = all.1.max(core.1 - slack).min(circles_in.1);
+        bx1 = all.2.min(core.2 + slack).max(circles_in.2);
+        by1 = all.3.min(core.3 + slack).max(circles_in.3);
     }
     if bx0 > bx1 {
         (bx0, by0, bx1, by1) = (0.0, 0.0, SPAN, SPAN);
@@ -881,6 +890,35 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 let _ = writeln!(s, r#"<path d="{d}" {common}/>"#);
             }
         }
+    }
+    for (_, name, p, off) in &labels {
+        let crowded = dots.iter().any(|d| {
+            let dd = len(sub(*d, *p));
+            dd > 1e-6 && dd < LABEL_FS * 1.6
+        });
+        if !crowded {
+            continue;
+        }
+        let u = unit(*off);
+        let ext = (u.0.abs() * label_width(name) / 2.0).max(u.1.abs() * LABEL_FS * 0.45) + 2.0;
+        if len(*off) < ext + DOT_R + 4.0 {
+            continue;
+        }
+        let a = add(*p, mul(u, DOT_R + 1.5));
+        let b = sub(add(*p, *off), mul(u, ext));
+        let _ = writeln!(
+            s,
+            r#"<line class="f-lead" x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{MARK}" stroke-width="0.9" vector-effect="non-scaling-stroke" data-p="{}" data-x="{:.1}" data-y="{:.1}" data-dx="{:.1}" data-dy="{:.1}" data-e="{ext:.1}"/>"#,
+            a.0,
+            a.1,
+            b.0,
+            b.1,
+            esc(name),
+            p.0,
+            p.1,
+            off.0,
+            off.1
+        );
     }
     for (i, name, p, off) in &labels {
         let aux = is_aux(*i as u32);

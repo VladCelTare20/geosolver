@@ -15,7 +15,6 @@
 <link rel="stylesheet" href="/assets/app.css">
 <style>
   .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--s5); }
-  .site-header .inner { max-width: 1120px; }
   .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: var(--s7); align-items: center; padding: var(--s7) 0 var(--s6); }
   .eyebrow { font-size: var(--fs-13); font-weight: 600; color: var(--accent); letter-spacing: 0.02em; margin-bottom: var(--s3); }
   .hero h1 { font-family: var(--font-math); font-size: clamp(2rem, 4.4vw, var(--fs-39)); font-weight: 600; line-height: 1.12; letter-spacing: -0.01em; margin-bottom: var(--s4); }
@@ -46,14 +45,15 @@
   .case-fig .sticky { position: sticky; top: calc(var(--header-h) + var(--s3)); padding: var(--s3); }
   .case-fig .fig-viewport { height: min(70vh, 560px); border-radius: var(--r-control); border: 1px solid var(--border); flex: none; }
   .case-fig .fig-tools { justify-content: flex-end; margin-top: var(--s2); }
-  .more { margin-top: var(--s3); }
+  .more { margin-top: var(--s3); white-space: normal; text-align: left; line-height: 1.3; padding-block: 6px; max-width: 100%; }
   .features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s4); }
   .feature { padding: var(--s5); display: grid; gap: var(--s2); align-content: start; }
   .feature .f-ic { width: 36px; height: 36px; border-radius: var(--r-control); display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); margin-bottom: var(--s2); }
   .feature .f-ic svg { width: 20px; height: 20px; }
   .feature h3 { font-size: var(--fs-16); font-weight: 650; }
+  @media (min-width: 1001px) { .feature h3 { min-height: 2.5em; } }
   .feature p { color: var(--text-2); font-size: var(--fs-14); }
-  .how { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); counter-reset: how; }
+  .how { list-style: none; margin: var(--s5) 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); counter-reset: how; }
   .how li { padding: var(--s5); display: grid; gap: var(--s2); align-content: start; counter-increment: how; }
   .how li::before { content: counter(how); width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: var(--fs-14); margin-bottom: var(--s2); }
   .how h3 { font-size: var(--fs-16); font-weight: 650; }
@@ -65,8 +65,7 @@
   .header-cta { display: flex; gap: var(--s2); align-items: center; }
   @media (max-width: 1000px) {
     .hero { grid-template-columns: 1fr; gap: var(--s5); padding-top: var(--s6); }
-    .hero-fig { width: 100%; }
-    .hero-fig .fig-box { aspect-ratio: 4 / 3; }
+    .hero-fig { display: none; }
     .case-body { grid-template-columns: 1fr; }
     .case-text { border-right: 0; border-bottom: 1px solid var(--border); }
     .case-fig { order: -1; border-bottom: 1px solid var(--border); }
@@ -114,7 +113,7 @@
       <div>
         <p class="eyebrow" data-i18n="hero.eyebrow">Olympiad geometry, machine-checked</p>
         <h1 id="hero-h" data-i18n="hero.h1">Geometry proofs you can check line by line.</h1>
-        <p class="lede" data-i18n="hero.lede">Write or describe a geometry problem. GeoSolver draws the labelled figure and searches for a proof in which every step cites the rule it uses, so you can verify it yourself.</p>
+        <p class="lede" data-i18n="hero.lede">Write or describe a geometry problem. GeoSolver draws the labeled figure and searches for a proof in which every step cites the rule it uses, so you can verify it yourself.</p>
         <div class="cta">
           <a class="btn btn-primary btn-lg" href="/auth?mode=register" data-i18n="hero.cta_create">Create a free account</a>
           <a class="btn btn-secondary btn-lg" href="#showcase" data-i18n="hero.cta_example">See a solved IMO problem</a>
@@ -153,7 +152,7 @@
             <div>
               <h4 class="label" style="margin:0 0 var(--s2)" data-i18n="proof.tab.steps">Verified steps</h4>
               <ol class="steps" id="steps"></ol>
-              <button type="button" class="btn btn-secondary btn-sm more" id="more" aria-expanded="false" aria-controls="steps"></button>
+              <button type="button" class="btn btn-secondary btn-sm more" id="more" aria-controls="steps"></button>
             </div>
           </div>
           <div class="case-fig">

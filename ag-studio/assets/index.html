@@ -198,9 +198,9 @@
     </div>
   </section>
 
-  <section class="proof-area" id="proof-area" aria-labelledby="proof-h" hidden>
-    <div class="statement card" id="statement"></div>
-    <div class="proof card">
+  <div class="proof-area" id="proof-area" hidden>
+    <section class="statement card" id="statement" aria-labelledby="st-h"></section>
+    <section class="proof card" aria-labelledby="proof-h">
       <div class="proof-head">
         <h2 id="proof-h" class="label" data-i18n="proof.title">Proof</h2>
         <div class="seg" role="tablist" id="proof-tabs" hidden>
@@ -217,12 +217,12 @@
         <div class="ai-text" id="ai-text" aria-live="polite"></div>
         <button type="button" class="btn btn-ghost btn-sm" id="ai-regen"><span data-icon="retry" aria-hidden="true"></span><span data-i18n="proof.ai.regen">Regenerate</span></button>
       </div>
-    </div>
+    </section>
     <details class="details card" id="details">
       <summary><span data-i18n="details.title">Details</span></summary>
       <div class="details-body" id="details-body"></div>
     </details>
-  </section>
+  </div>
 </main>
 
 <p class="sr-only" id="announce" aria-live="polite"></p>

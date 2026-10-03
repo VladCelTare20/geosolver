@@ -250,6 +250,8 @@ pub struct AppState {
     pub config: Config,
     /// Concurrency gate for the CPU/subprocess-heavy endpoints.
     pub heavy: Arc<Semaphore>,
+    pub render: Arc<Semaphore>,
+    pub inflight: Arc<Mutex<HashMap<String, usize>>>,
     /// Concurrency gate for argon2 (login/register).
     pub argon: Arc<Semaphore>,
     pub rate: Mutex<RateLimiter>,
@@ -289,6 +291,8 @@ impl AppState {
         })?;
         Ok(Arc::new(AppState {
             heavy: Arc::new(Semaphore::new(config.max_concurrent)),
+            render: Arc::new(Semaphore::new(config.max_concurrent)),
+            inflight: Arc::new(Mutex::new(HashMap::new())),
             argon: Arc::new(Semaphore::new(ARGON2_PERMITS)),
             rate: Mutex::new(RateLimiter::default()),
             db,
@@ -777,7 +781,45 @@ fn purge_expired_sessions(db: &crate::db::Db) {
 
 /// Per-IP rate limiting for `/api/*` (with a stricter bucket for translate and
 /// humanize, which both drive the same costly `claude` CLI subprocess).
-pub async fn rate_limit(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
+#[derive(Clone, Copy, Debug)]
+pub struct ClientIp(pub IpAddr);
+
+pub struct CallerSlot {
+    key: String,
+    map: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+impl Drop for CallerSlot {
+    fn drop(&mut self) {
+        let mut m = relock(&self.map);
+        if let Some(n) = m.get_mut(&self.key) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                m.remove(&self.key);
+            }
+        }
+    }
+}
+
+impl AppState {
+    pub fn per_caller_limit(&self) -> usize {
+        (self.config.max_concurrent / 2).max(1)
+    }
+
+    /// Count one more solve for `key`, or `None` when that caller already has
+    /// [`AppState::per_caller_limit`] solves (cancelled ones included) running.
+    pub fn claim_caller(&self, key: String) -> Option<CallerSlot> {
+        let mut m = relock(&self.inflight);
+        let n = m.entry(key.clone()).or_insert(0);
+        if *n >= self.per_caller_limit() {
+            return None;
+        }
+        *n += 1;
+        Some(CallerSlot { key, map: self.inflight.clone() })
+    }
+}
+
+pub async fn rate_limit(State(state): State<Shared>, mut req: Request<Body>, next: Next) -> Response {
     if sweep_due(&state) {
         let db = state.db.clone();
         tokio::task::spawn_blocking(move || purge_expired_sessions(&db));
@@ -789,6 +831,7 @@ pub async fn rate_limit(State(state): State<Shared>, req: Request<Body>, next: N
         // routes an attacker can hammer for credential stuffing / spam signups.
         let is_auth = path == "/api/auth/login" || path == "/api/auth/register";
         let ip = client_ip(&state.config, &req);
+        req.extensions_mut().insert(ClientIp(ip));
         let now = Instant::now();
         let allowed = {
             let mut r = relock(&state.rate);

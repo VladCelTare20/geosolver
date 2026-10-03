@@ -13,9 +13,7 @@
 <link rel="stylesheet" href="/assets/app.css">
 <style>
   .auth-page { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
-  .auth-top { display: flex; justify-content: flex-end; align-items: center; gap: var(--s2); padding: max(var(--s4), env(safe-area-inset-top)) var(--s5) 0; }
   .auth-main { display: grid; justify-items: center; align-content: start; padding: clamp(24px, 9vh, 96px) var(--s4) var(--s6); gap: var(--s5); }
-  .auth-main .wordmark { font-size: 1.5rem; }
   .auth-card { width: min(100%, 420px); padding: var(--s5); display: grid; gap: var(--s4); }
   .auth-card .tabs { width: 100%; }
   .auth-card .tabs > button { flex: 1; min-height: 36px; font-size: var(--fs-14); }
@@ -38,24 +36,29 @@
   .auth-submit .spinner { width: 16px; height: 16px; }
   .back { font-size: var(--fs-14); display: inline-flex; gap: 6px; align-items: center; text-decoration: none; min-height: 32px; }
   .back:hover { text-decoration: underline; }
-  @media (max-width: 480px) { .auth-card { padding: var(--s4); } .auth-top { padding-left: var(--s4); padding-right: var(--s4); } }
+  @media (max-width: 480px) { .auth-card { padding: var(--s4); } }
 </style>
 <script src="/assets/i18n.js"></script>
 </head>
 <body>
 <div class="auth-page">
-  <div class="auth-top">
-    <div class="seg lang-seg" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
-      <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
-      <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
+  <header class="site-header roomy">
+    <div class="inner">
+      <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <span>GeoSolver</span>
+      </a>
+      <div class="spacer"></div>
+      <div class="header-tools">
+        <div class="seg lang-seg" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+          <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
+          <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
+        </div>
+        <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
+      </div>
     </div>
-    <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
-  </div>
+  </header>
   <main class="auth-main" id="main">
-    <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-      <span>GeoSolver</span>
-    </a>
     <section class="auth-card card" aria-labelledby="heading">
       <div class="seg tabs" role="tablist" data-i18n-attr="aria-label:auth.tabs" aria-label="Sign in or create an account">
         <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="form" tabindex="0" data-i18n="nav.signin">Sign in</button>
@@ -69,17 +72,17 @@
         <div class="field">
           <label for="username" data-i18n="auth.username">Username</label>
           <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="32" required aria-describedby="user-msg">
-          <p class="field-msg" id="user-msg" aria-live="polite"></p>
+          <p class="field-msg" id="user-msg"></p>
         </div>
         <div class="field">
           <label for="password" data-i18n="auth.password">Password</label>
           <div class="pw-wrap">
             <input class="input" id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required aria-describedby="pass-msg">
-            <button type="button" class="icon-btn pw-toggle" id="pw-toggle" aria-pressed="false" data-i18n-attr="aria-label:auth.show;title:auth.show" aria-label="Show password"></button>
+            <button type="button" class="icon-btn pw-toggle" id="pw-toggle" aria-pressed="false" data-i18n-attr="aria-label:auth.show;title:auth.show" aria-label="Show password" aria-controls="password"></button>
           </div>
-          <p class="field-msg" id="pass-msg" aria-live="polite"></p>
+          <p class="field-msg" id="pass-msg"></p>
         </div>
-        <div class="form-msg" id="form-msg" aria-live="assertive"></div>
+        <div class="form-msg" id="form-msg"></div>
         <button type="submit" class="btn btn-primary auth-submit" id="submit">Sign in</button>
       </form>
     </section>

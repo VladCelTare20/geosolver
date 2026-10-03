@@ -26,7 +26,7 @@
       c: { en: "Simson line: the feet of the perpendiculars from a point on the circumcircle are collinear.", ro: "Dreapta lui Simson: picioarele perpendicularelor duse dintr-un punct al cercului circumscris sunt coliniare." },
       body: "A B C = triangle\nP = on_circum(A, B, C)\nX = foot(P, line(B, C))\nY = foot(P, line(C, A))\nZ = foot(P, line(A, B))\nprove coll(X, Y, Z)" },
     { id: "stewart", en: "Stewart's theorem", ro: "Teorema lui Stewart", tag: "metric",
-      c: { en: "Stewart's theorem: a cevian with BD:DC = 1:2 has AD² = 14.", ro: "Teorema lui Stewart: o ceviană cu BD:DC = 1:2 are AD² = 14." },
+      c: { en: "Stewart's theorem: in triangle ABC with AB = 5, AC = 4, BC = 6 and BD:DC = 1:2, AD² = 14.", ro: "Teorema lui Stewart: în triunghiul ABC cu AB = 5, AC = 4, BC = 6 și BD:DC = 1:2, AD² = 14." },
       body: "B = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = point: dist(A,B)=5, dist(A,C)=4\nprove dist(A,D)^2 = 14" },
     { id: "pyth", en: "Pythagorean theorem", ro: "Teorema lui Pitagora", tag: "metric",
       c: { en: "Pythagorean theorem", ro: "Teorema lui Pitagora" },
@@ -66,6 +66,20 @@
     });
   }
   function setIcon(id, name) { var e = $(id); if (e) e.innerHTML = icons[name]; }
+  var STATUSES = ["proved", "holds-numerically", "refuted", "not-proved"];
+  function validSolution(d) { return !!d && typeof d.input === "string" && STATUSES.indexOf(d.status) >= 0; }
+  function unreadable() { return { titleKey: "err.title.unreadable", bodyKey: "err.body.unreadable", retry: true }; }
+  function undoKeys() { return isMac ? "⌘Z" : "Ctrl+Z"; }
+  function placeMenu(menu, alignRight) {
+    var wrap = menu.parentElement, vw = document.documentElement.clientWidth;
+    menu.style.right = "auto";
+    menu.style.left = "-10000px";
+    menu.hidden = false;
+    var w = menu.getBoundingClientRect().width, wr = wrap.getBoundingClientRect();
+    var x = wr.left + (alignRight ? wr.width - w : 0);
+    x = Math.max(8, Math.min(x, vw - 8 - w));
+    menu.style.left = Math.round(x - wr.left) + "px";
+  }
 
   // ---------------------------------------------------------------- status --
   function api(url, opts) {
@@ -103,7 +117,12 @@
       paintEffortHint();
       if (attempt === 0) firstModeChoice();
       if (r.data.translate_checking && attempt < 20) setTimeout(function () { loadStatus(attempt + 1); }, 1500);
-      if (attempt === 0 && r.data.signed_in) { loadHistory(); }
+      if (attempt === 0 && r.data.signed_in) {
+        loadHistory();
+        var pending = store.get("gs.guest.resolve");
+        store.del("gs.guest.resolve");
+        if (pending && pending === editor.get().trim() && !S.busy && !S.sol) { setMode("geo"); solve(); }
+      }
     }).catch(function () {
       if (attempt < 3) setTimeout(function () { loadStatus(attempt + 1); }, 2000);
     });
@@ -304,7 +323,7 @@
   var menuOpen = false;
   function openMenu() {
     var m = $("examples-menu");
-    m.hidden = false; menuOpen = true;
+    placeMenu(m, true); menuOpen = true;
     $("examples-btn").setAttribute("aria-expanded", "true");
     var first = m.querySelector("[role=menuitem]");
     if (first) first.focus();
@@ -328,7 +347,7 @@
       else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
       else if (e.key === "Home") { e.preventDefault(); items[0].focus(); }
       else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus(); }
-      else if (e.key === "Escape" || e.key === "Tab") { closeMenu(e.key === "Escape"); }
+      else if (e.key === "Escape" || e.key === "Tab") { if (e.key === "Escape") e.preventDefault(); closeMenu(e.key === "Escape"); }
     });
     document.addEventListener("click", function (e) {
       if (menuOpen && !e.target.closest(".menu-wrap")) closeMenu();
@@ -431,7 +450,7 @@
 
   function setBusy(on) {
     S.busy = on;
-    $("cancel").hidden = !on;
+    $("cancel").hidden = true;
     $("clear").hidden = on;
     paintSolveEnabled();
   }
@@ -448,7 +467,15 @@
   function figTools(on) {
     ["z-out", "z-in", "z-fit", "z-full", "z-svg"].forEach(function (id) { $(id).disabled = !on; });
     $("fig-hint").hidden = !on;
-    $("fig-viewport").style.height = "";
+    var vp = $("fig-viewport");
+    vp.style.height = "";
+    vp.tabIndex = on ? 0 : -1;
+    if (on) vp.removeAttribute("aria-labelledby"); else vp.setAttribute("aria-labelledby", "fig-empty");
+    $("fig-frame").querySelector(".fig-foot").hidden = !on;
+  }
+  function paintFigHint() {
+    var coarse = matchMedia("(pointer: coarse)").matches;
+    $("fig-hint").innerHTML = coarse ? esc(t("fig.hint.coarse")) : esc(t("fig.hint.fine", { key: "\u0001" })).replace("\u0001", "<kbd>0</kbd>");
   }
   function fieldError(id, msg) {
     var el = $(id);
@@ -472,12 +499,15 @@
     editor.setError(null);
     S.lastError = null;
     if (S.activeHistory != null) { S.activeHistory = null; renderHistory(); }
+    var ae = document.activeElement;
+    var moveFocus = !ae || ae === document.body || ae === $("solve") || !!(ae.closest && ae.closest("[data-example-solve], #state-error, #verdict"));
     clearResult();
     setBusy(true);
     var ctl = new AbortController();
     S.abort = ctl;
     var stages = stagesFor(mode);
     show("state-solving");
+    if (moveFocus) $("cancel-2").focus({ preventScroll: true });
     var shortestFirst = S.effort === "shortest";
     function stage(i) {
       S.stage = { stages: stages, i: i };
@@ -506,6 +536,7 @@
       S.geo = g;
       return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
         if (!r.ok) throw httpError(r, "solve");
+        if (!validSolution(r.data)) throw unreadable();
         return r.data;
       });
     }).then(function (sol) {
@@ -514,26 +545,27 @@
       S.abort = null;
       renderSolution(sol, { announce: true, focus: true });
       if (S.status && S.status.signed_in) loadHistory();
+      else if (S.status && S.status.guest) store.set("gs.guest.resolve", sol.input);
       if (shortestFirst && sol.status === "proved" && sol.method !== "euclidean") refineShorter(sol);
     }).catch(function (e) {
       stopTimer();
+      var ae = document.activeElement;
+      var lost = !ae || ae === document.body || $("state-solving").contains(ae);
       setBusy(false);
       S.abort = null;
       if (e && e.name === "AbortError") {
         show("state-empty");
         GS.toast(t("cancelled", { s: S.deadline }), { ms: 6000 });
-        if (!document.activeElement || document.activeElement === document.body) $("solve").focus();
+        if (lost) $("solve").focus();
         return;
       }
-      showError(e && (e.title || e.titleKey) ? e : networkError(e));
+      showError(e && (e.title || e.titleKey) ? e : networkError(e), lost);
     });
   }
 
   function cancel() {
-    var had = !!S.abort;
     if (S.abort) S.abort.abort();
     if (S.refining) stopRefining();
-    if (had) setTimeout(function () { if (!document.activeElement || document.activeElement === document.body) $("solve").focus(); }, 0);
   }
   function paintStage() {
     if (!S.stage) return;
@@ -548,6 +580,7 @@
     }
     if (r.status === 401) return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true };
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
+    if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", retry: true };
     if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true };
     if (r.status === 502 || r.status === 503) return { titleKey: "err.title.unavailable", bodyKey: "err.body.unavailable", retry: true };
     if (r.status === 504) return { titleKey: "err.title.timeout", bodyKey: "err.body.timeout", retry: true };
@@ -560,7 +593,7 @@
     return { titleKey: "err.title.network", bodyKey: "err.body.network", retry: true, detail: e && e.message };
   }
 
-  function showError(e) {
+  function showError(e, focusHead) {
     S.lastError = e;
     if (e.titleKey) e.title = t(e.titleKey);
     if (e.bodyKey) e.body = t(e.bodyKey, e.vars);
@@ -569,15 +602,18 @@
     var actions = "";
     if (e.retry) actions += '<button type="button" class="btn btn-secondary btn-sm" id="err-retry">' + icons.retry + "<span>" + esc(t("err.retry")) + "</span></button>";
     if (e.signin) actions += '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("nav.signin")) + "</a>";
-    box.innerHTML = '<div class="err-head">' + icons.alert + "<div><h3>" + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
+    box.innerHTML = '<div class="err-head">' + icons.alert + '<div><h3 id="err-title" tabindex="-1">' + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
       (actions ? '<div class="err-actions">' + actions + "</div>" : "") +
       (e.detail ? '<details class="err-detail"><summary>' + icons.chevron + "<span>" + esc(t("err.details")) + "</span></summary><pre>" + esc(e.detail) + "</pre></details>" : "");
     show("state-error");
     if (!e.compile) announce(e.title + ". " + (e.body || ""));
+    else announce("");
     if (e.compile) {
       setMode("geo");
       editor.setError({ line: e.diagnosis && e.diagnosis.line, col: e.diagnosis && e.diagnosis.col, len: e.diagnosis && e.diagnosis.len, message: e.body });
     }
+    var ae = document.activeElement;
+    if (focusHead || !ae || ae === document.body) $("err-title").focus({ preventScroll: true });
     var g = $("err-goto");
     if (g) g.addEventListener("click", function () { editor.focusError(); });
     var rt = $("err-retry");
@@ -585,10 +621,12 @@
     scrollToStatus();
   }
 
+  var announceTimer = null;
   function announce(msg) {
     var a = $("announce");
+    clearTimeout(announceTimer);
     a.textContent = "";
-    setTimeout(function () { a.textContent = msg; }, 50);
+    if (msg) announceTimer = setTimeout(function () { a.textContent = msg; }, 50);
   }
   function scrollToStatus() {
     if (window.matchMedia("(max-width: 1199px)").matches) {
@@ -603,13 +641,17 @@
     var v = sol.view || {}, note = v.note || {};
     var timeLimited = note.key === "time_limit";
     switch (sol.status) {
-      case "proved": return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
+      case "proved":
+        if (v.as_drawn) return { tone: "proved", icon: "check", head: t("v.proved.drawn"), text: t("v.proved.drawn.x") };
+        return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
       case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
       case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: tp("v.numeric.x", sol.numeric_samples || (v.evidence && v.evidence.samples) || 0) };
       default:
         if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: note.secs || S.deadline }) };
-        var extra = { budget: "note.budget", metric_error: "note.metric_error", unsound: "note.unsound", replay: "note.replay" }[note.key];
-        return { tone: "neutral", icon: "minus", head: t("v.not"), text: t("v.not.x") + (extra ? " " + t(extra) : "") };
+        var text = t("v.not.x");
+        if (note.key === "budget" && note.runs != null) text = t("v.not.budget", { runs: tp("runs", note.runs) });
+        else if (["metric_error", "unsound", "replay"].indexOf(note.key) >= 0) text = t("v.not." + note.key);
+        return { tone: "neutral", icon: "minus", head: t("v.not"), text: text };
     }
   }
   function stepCount(sol) {
@@ -618,6 +660,7 @@
   }
   function methodText(sol) {
     if (sol.status === "holds-numerically") return t("meta.method.numeric");
+    if (sol.status === "refuted") return t("meta.method.counter");
     if (sol.method === "euclidean") return sol.status === "proved" ? t("meta.method.euclid") : "";
     var n = (sol.aux_constructions || []).length;
     if (n) return tp("meta.method.aux", n);
@@ -633,10 +676,16 @@
 
   function renderVerdict(sol) {
     var m = verdictModel(sol), v = sol.view || {};
-    var meta = [methodText(sol) ? "<span>" + esc(methodText(sol)) + "</span>" : "", "<span>" + esc(GS.fmtSecs(sol.elapsed_secs)) + "</span>"].filter(Boolean);
     var nSteps = stepCount(sol);
-    if (nSteps) meta.push("<span>" + esc(tp("meta.steps", nSteps)) + "</span>");
-    if (sol.status === "holds-numerically" && sol.numeric_samples) meta.push("<span>" + esc(tp("meta.samples", sol.numeric_samples)) + "</span>");
+    var meta = [
+      methodText(sol),
+      GS.fmtSecs(sol.elapsed_secs),
+      nSteps ? tp("meta.steps", nSteps) : "",
+      sol.status === "holds-numerically" && sol.numeric_samples ? tp("meta.samples", sol.numeric_samples) : "",
+      sol.status === "proved" && v.as_drawn ? t("meta.as_drawn") : "",
+    ].filter(Boolean).map(function (x) { return "<span>" + esc(x) + "</span>"; });
+    var guest = S.status && S.status.guest && !S.status.signed_in;
+    var guestNote = guest ? '<p class="hint guest-note"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t("hist.guest")) + ' <a href="/auth?mode=register">' + esc(t("nav.create")) + "</a></span></p>" : "";
     var counter = v.counterexample ? '<p class="counter"><strong>' + esc(t("counter.title")) + ".</strong> " + GS.math(counterText(v.counterexample), true) + "</p>" : "";
     var actions = '<div class="verdict-actions">' +
       (sol.status === "proved" ? '<button type="button" class="btn btn-secondary btn-sm" id="copy-proof">' + icons.copy + "<span>" + esc(t("action.copy_proof")) + "</span></button>" : "") +
@@ -653,7 +702,7 @@
       '<h3 class="verdict-head" id="verdict-head" tabindex="-1">' + esc(m.head) + "</h3>" +
       '<p class="verdict-text">' + esc(m.text) + "</p>" + counter +
       '<p class="verdict-meta">' + meta.join("") + "</p>" +
-      '<p class="refine" id="refine" hidden></p>' +
+      '<p class="refine" id="refine" hidden></p>' + guestNote +
       "</div></div>" + actions;
     show("verdict");
     wireVerdictActions();
@@ -668,7 +717,7 @@
     function close(focus) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (focus) btn.focus(); }
     btn.addEventListener("click", function () {
       var open = menu.hidden;
-      menu.hidden = !open;
+      if (open) placeMenu(menu, false); else menu.hidden = true;
       btn.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) menu.querySelector("[role=menuitem]").focus();
     });
@@ -677,7 +726,7 @@
       var i = items.indexOf(document.activeElement);
       if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
       else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
-      else if (e.key === "Escape") close(true);
+      else if (e.key === "Escape") { e.preventDefault(); close(true); }
       else if (e.key === "Tab") close();
     });
     menu.addEventListener("click", function (e) {
@@ -703,34 +752,50 @@
     renderFigure(sol);
     $("proof-area").hidden = false;
     if (opts.announce) announce(m.head + ". " + m.text);
-    if (opts.focus && window.matchMedia("(max-width: 1199px)").matches) {
-      scrollToStatus();
+    if (opts.focus) {
+      var narrow = window.matchMedia("(max-width: 1199px)").matches;
+      if (narrow) scrollToStatus();
+      var ae = document.activeElement;
       var h = $("verdict-head");
-      if (h) h.focus({ preventScroll: true });
+      if (h && (narrow || !ae || ae === document.body || ae === $("solve") || $("state-solving").contains(ae))) h.focus({ preventScroll: true });
     }
     void v;
   }
 
   function renderStatement(sol) {
     var v = sol.view || {};
-    var given = (v.given || []).map(function (f) { return '<li class="math" tabindex="0" data-points="' + esc((f.points || []).join(" ")) + '">' + GS.fact(f) + "</li>"; }).join("");
+    var given = (v.given || []).map(function (f) { return '<li class="math" tabindex="-1" data-points="' + esc((f.points || []).join(" ")) + '">' + GS.fact(f) + "</li>"; }).join("");
     var aux = (v.aux || []).map(function (a) {
-      return '<li class="math" tabindex="0" data-points="' + esc(a.name) + '">' + GS.math(a.name) + ": " + GS.math(auxText(a)) + "</li>";
+      return '<li class="math" tabindex="-1" data-points="' + esc(a.name) + '"><span class="aux-name">' + GS.math(a.name) + "</span>: " + GS.math(auxText(a)) + "</li>";
     }).join("");
-    var html = "";
+    var html = '<h2 class="sr-only" id="st-h">' + esc(t("st.statement")) + "</h2>";
     if (sol.title) html += '<h3 class="st-title" title="' + esc(sol.title) + '">' + esc(sol.title) + "</h3>";
-    if (given) html += '<div class="st-block"><h3 class="label">' + esc(t("st.given")) + '</h3><ul class="facts">' + given + "</ul></div>";
-    if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" tabindex="0" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
-    if (aux) html += '<div class="st-block st-aux"><h3 class="label">' + esc(t("st.aux")) + '</h3><ul class="facts">' + aux + '</ul><p class="hint">' + esc(t("st.aux.hint")) + "</p></div>";
+    if (given) html += '<div class="st-block"><h3 class="label">' + esc(t("st.given")) + '</h3><ul class="facts" role="list">' + given + "</ul></div>";
+    if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" tabindex="-1" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
+    if (aux) html += '<div class="st-block st-aux"><h3 class="label">' + esc(t("st.aux")) + '</h3><ul class="facts" role="list">' + aux + '</ul><p class="hint">' + esc(t("st.aux.hint")) + "</p></div>";
     var box = $("statement");
     box.innerHTML = html;
-    box.hidden = !html;
-    box.querySelectorAll("[data-points]").forEach(function (el) {
+    box.hidden = !(sol.title || given || v.goal || aux);
+    var items = Array.prototype.slice.call(box.querySelectorAll("[data-points]"));
+    items.forEach(function (el, i) {
       var pts = el.getAttribute("data-points").split(" ");
+      el.tabIndex = i === 0 ? 0 : -1;
       el.addEventListener("mouseenter", function () { viewer.highlight(pts); });
       el.addEventListener("mouseleave", function () { if (document.activeElement !== el) viewer.highlight(null); });
-      el.addEventListener("focus", function () { viewer.highlight(pts); if (stepsApi) stepsApi.markPoint(pts.length === 1 ? pts[0] : null); });
+      el.addEventListener("focus", function () {
+        items.forEach(function (x) { x.tabIndex = x === el ? 0 : -1; });
+        viewer.highlight(pts);
+        if (stepsApi) stepsApi.markPoint(pts.length === 1 ? pts[0] : null);
+      });
       el.addEventListener("blur", function () { viewer.highlight(null); if (stepsApi) stepsApi.markPoint(null); });
+      el.addEventListener("keydown", function (e) {
+        var j = null;
+        if (e.key === "ArrowDown") j = Math.min(items.length - 1, i + 1);
+        else if (e.key === "ArrowUp") j = Math.max(0, i - 1);
+        else if (e.key === "Home") j = 0;
+        else if (e.key === "End") j = items.length - 1;
+        if (j != null) { e.preventDefault(); items[j].focus(); }
+      });
     });
   }
 
@@ -856,7 +921,7 @@
   function noteText(note) {
     var k = "note.sentence." + note.key;
     if (!window.i18n.has(k) && !window.i18n.has(k + ".other")) return "";
-    var vars = { secs: note.secs != null ? Math.round(note.secs) : S.deadline, runs: note.runs != null ? window.i18n.fmtNum(note.runs) : "?" };
+    var vars = { secs: note.secs != null ? Math.round(note.secs) : S.deadline, runs: note.runs != null ? tp("runs", note.runs) : "?" };
     if (note.n != null) return tp(k, note.n, vars);
     return t(k + ".other", vars) === k + ".other" ? t(k, vars) : t(k + ".other", vars);
   }
@@ -912,7 +977,7 @@
       if (S.sol !== first) return;
       var better = r.ok && r.data.status === "proved" && stepCount(r.data) && stepCount(r.data) < stepCount(first);
       if (better) {
-        var msg = t("shorter.found", { n: stepCount(r.data), m: stepCount(first) });
+        var msg = t("shorter.found", { n: tp("meta.steps", stepCount(r.data)), m: tp("meta.steps", stepCount(first)) });
         renderSolution(r.data, {});
         GS.toast(msg);
         if (first.history_id && r.data.id) {
@@ -1068,7 +1133,9 @@
     $("rail-toggle").addEventListener("click", function () { setDrawer(!document.body.classList.contains("drawer-open")); });
     $("rail-close").addEventListener("click", function () { setDrawer(false, true); });
     $("rail-scrim").addEventListener("click", function () { setDrawer(false); });
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && document.body.classList.contains("drawer-open")) setDrawer(false, true); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !e.defaultPrevented && document.body.classList.contains("drawer-open")) { e.preventDefault(); setDrawer(false, true); }
+    });
   }
   function setDrawer(open, focusToggle) {
     var was = document.body.classList.contains("drawer-open");
@@ -1089,15 +1156,21 @@
     var timer = setTimeout(function () { commitDelete(id); }, 6000);
     S.pendingDeletes.set(id, timer);
     renderHistory();
-    var undo = function () { clearTimeout(S.pendingDeletes.get(id)); S.pendingDeletes.delete(id); renderHistory(); };
-    var tst = GS.toast(t("hist.deleted", { title: untitledEnd(histTitle(row)) }), { ms: 6000, action: t("undo"), onAction: undo });
+    var undo = function () {
+      clearTimeout(S.pendingDeletes.get(id)); S.pendingDeletes.delete(id); renderHistory();
+      var back = $("hist-list").querySelector('[data-open="' + id + '"]');
+      if (back && $("rail").contains(document.activeElement)) back.focus();
+    };
+    var tst = GS.toast(t("hist.deleted", { title: untitledEnd(histTitle(row)), keys: undoKeys() }), { ms: 6000, action: t("undo"), onAction: undo });
+    var input = null;
     if (hadFocus) {
       var rows = $("hist-list").querySelectorAll(".hist-open");
       var next = rows[Math.min(Math.max(at, 0), rows.length - 1)];
+      if (!next) input = $("hist-search");
       (next || $("hist-search")).focus();
     }
     if (tst && tst.button) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
-    S.lastUndo = { run: undo, toast: tst, until: Date.now() + 6000 };
+    S.lastUndo = { run: undo, toast: tst, until: Date.now() + 6000, input: input, inputValue: input ? input.value : null };
   }
   function commitDelete(id, keepalive) {
     if (!S.pendingDeletes.has(id)) return;
@@ -1113,18 +1186,37 @@
   function openHistory(id) {
     var row = S.history.filter(function (r) { return r.id === id; })[0];
     if (!row) return;
-    S.activeHistory = id;
-    renderHistory();
-    if (document.body.classList.contains("drawer-open")) setDrawer(false);
-    setMode("geo");
-    editor.set(row.input);
     if (S.busy) cancel();
+    if (S.refining) stopRefining();
+    if (document.body.classList.contains("drawer-open")) setDrawer(false);
+    var seq = S.openSeq = (S.openSeq || 0) + 1;
+    S.lastError = null;
+    clearResult();
+    show("state-empty");
+    function adopt() {
+      S.activeHistory = id;
+      renderHistory();
+      setMode("geo");
+      editor.set(row.input);
+    }
+    function gone(msg) {
+      if (S.activeHistory === id) S.activeHistory = null;
+      renderHistory();
+      GS.toast(msg);
+    }
     api("/api/history/" + id).then(function (r) {
-      if (r.ok) { r.data.history_id = id; renderSolution(r.data, { announce: true, focus: true }); return; }
-      if (r.status === 410) { solveReplay(row); return; }
+      if (seq !== S.openSeq) return;
+      if (r.ok && validSolution(r.data)) { adopt(); r.data.history_id = id; renderSolution(r.data, { announce: true, focus: true }); return; }
+      if (r.ok) { showError(unreadable()); return; }
+      if (r.status === 410) { adopt(); solveReplay(row); return; }
       if (r.status === 401) { showError(httpError(r)); return; }
-      GS.toast(t("hist.open_fail"));
-    }).catch(function () { GS.toast(t("hist.open_fail")); });
+      if (r.status === 404) {
+        S.history = S.history.filter(function (x) { return x.id !== id; });
+        gone(t("hist.gone"));
+        return;
+      }
+      gone(t("hist.open_fail"));
+    }).catch(function () { if (seq === S.openSeq) gone(t("hist.open_fail")); });
   }
   function solveReplay(row) {
     clearResult();
@@ -1138,11 +1230,13 @@
     api("/api/solve", { method: "POST", body: { input: row.input, title: row.title, record: false }, signal: ctl.signal }).then(function (r) {
       stopTimer(); setBusy(false); S.abort = null;
       if (!r.ok) { showError(httpError(r, "solve")); return; }
+      if (!validSolution(r.data)) { showError(unreadable()); return; }
       renderSolution(r.data, { announce: true, focus: true });
     }).catch(function (e) {
+      var ae = document.activeElement, lost = !ae || ae === document.body || $("state-solving").contains(ae);
       stopTimer(); setBusy(false); S.abort = null;
-      if (e && e.name === "AbortError") { show("state-empty"); return; }
-      showError(networkError(e));
+      if (e && e.name === "AbortError") { show("state-empty"); if (lost) $("solve").focus(); return; }
+      showError(networkError(e), lost);
     });
   }
 
@@ -1151,7 +1245,10 @@
     frame: $("fig-frame"), viewport: $("fig-viewport"), zoomIn: $("z-in"), zoomOut: $("z-out"),
     fit: $("z-fit"), full: $("z-full"), label: $("zoom-label"),
   });
-  viewer.onPoint = function (name) { if (stepsApi) stepsApi.markPoint(name); };
+  viewer.onPoint = function (name) { return stepsApi ? stepsApi.markPoint(name) : []; };
+  viewer.onPointAnnounce = function (name, used) {
+    announce(used.length ? t("fig.point", { p: name, steps: used.join(", ") }) : t("fig.point.none", { p: name }));
+  };
 
   // ------------------------------------------------------------------ init --
   function wire() {
@@ -1159,8 +1256,7 @@
     setIcon("z-in", "plus"); setIcon("z-out", "minusSm"); setIcon("z-fit", "fit"); setIcon("z-full", "expand"); setIcon("z-svg", "download");
     $("solve-kbd").textContent = isMac ? "⌘ ↵" : "Ctrl ↵";
     $("solve").setAttribute("title", t("solve.shortcut", { keys: isMac ? "⌘ Enter" : "Ctrl Enter" }));
-    var coarse = matchMedia("(pointer: coarse)").matches;
-    $("fig-hint").textContent = t(coarse ? "fig.hint.coarse" : "fig.hint.fine");
+    paintFigHint();
     wireTabs();
     wireEffort();
     wirePhoto();
@@ -1171,10 +1267,22 @@
     $("cancel").addEventListener("click", cancel);
     $("cancel-2").addEventListener("click", cancel);
     $("clear").addEventListener("click", function () {
-      var before = { geo: editor.get(), text: $("describe-input").value };
+      var before = { geo: editor.get(), text: $("describe-input").value, mode: S.mode };
       if (!before.geo && !before.text && !S.photo) return;
-      if (S.mode === "geo") editor.set(""); else if (S.mode === "describe") { $("describe-input").value = ""; store.del("gs.draft.describe"); } else setPhoto(null);
-      GS.toast(t("cleared"), { action: t("undo"), ms: 6000, onAction: function () { editor.set(before.geo); $("describe-input").value = before.text; } });
+      var input = null;
+      if (S.mode === "geo") { editor.set(""); input = $("geo-input"); }
+      else if (S.mode === "describe") { $("describe-input").value = ""; store.del("gs.draft.describe"); input = $("describe-input"); }
+      else setPhoto(null);
+      var restore = function () {
+        editor.set(before.geo);
+        $("describe-input").value = before.text;
+        if (before.text) store.set("gs.draft.describe", before.text);
+        if (input && document.activeElement !== input) input.focus();
+      };
+      var tst = GS.toast(t("cleared", { keys: undoKeys() }), { action: t("undo"), ms: 6000, onAction: restore });
+      if (tst && tst.button) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
+      S.lastUndo = { run: restore, toast: tst, until: Date.now() + 6000, input: input, inputValue: "" };
+      if (input) input.focus();
     });
     $("z-svg").addEventListener("click", function () { if (S.sol) exportAs("svg"); });
     $("ptab-steps").addEventListener("click", function () { selectProofTab("steps"); });
@@ -1193,8 +1301,10 @@
     var d = $("describe-input");
     d.addEventListener("input", function () { store.set("gs.draft.describe", d.value); });
     document.addEventListener("keydown", function (e) {
-      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !e.shiftKey && S.lastUndo && Date.now() < S.lastUndo.until &&
-          !(e.target.closest && e.target.closest("textarea, input"))) {
+      var u0 = S.lastUndo;
+      var inField = e.target.closest && e.target.closest("textarea, input");
+      var fieldOk = !inField || (u0 && u0.input === e.target && e.target.value === u0.inputValue);
+      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !e.shiftKey && u0 && Date.now() < u0.until && fieldOk) {
         e.preventDefault();
         var u = S.lastUndo; S.lastUndo = null;
         if (u.toast) u.toast.close();
@@ -1204,10 +1314,13 @@
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         if (e.target.closest && e.target.closest("#composer")) { e.preventDefault(); solve(); }
       }
-      if (e.key === "Escape" && S.busy) cancel();
+      if (e.key === "Escape" && S.busy && !e.defaultPrevented && !menuOpen && !viewer.isFull() &&
+          !document.body.classList.contains("drawer-open") && !document.querySelector(".verdict .menu:not([hidden])")) cancel();
     });
     var draft = store.get("gs.draft.geo");
     editor.set(draft != null ? draft : exampleSrc(EXAMPLES[0]));
+    var exDraft = exampleOf(editor.get());
+    if (exDraft && editor.get() !== exampleSrc(exDraft)) editor.set(exampleSrc(exDraft));
     figTools(false);
     $("hl").tabIndex = -1;
     var dd = store.get("gs.draft.describe");
@@ -1230,7 +1343,7 @@
       } else showError(S.lastError);
     }
     if (S.lastFieldErr) fieldError(S.lastFieldErr, t(S.lastFieldErr === "describe-err" ? "err.empty_describe" : "err.empty_photo"));
-    $("fig-hint").textContent = t(matchMedia("(pointer: coarse)").matches ? "fig.hint.coarse" : "fig.hint.fine");
+    paintFigHint();
     $("solve").setAttribute("title", t("solve.shortcut", { keys: isMac ? "⌘ Enter" : "Ctrl Enter" }));
     if (S.history.length) renderHistory();
     if (S.sol) {

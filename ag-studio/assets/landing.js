@@ -21,8 +21,7 @@
     });
     var more = $("more");
     more.hidden = proof.steps.length <= FIRST;
-    more.textContent = expanded ? t("show.fewer") : t("show.steps", { n: proof.steps.length });
-    more.setAttribute("aria-expanded", expanded ? "true" : "false");
+    more.textContent = expanded ? t("show.fewer") : t("show.steps", { lines: window.i18n.tp("show.lines", proof.steps.length) });
   }
 
   function derived() {

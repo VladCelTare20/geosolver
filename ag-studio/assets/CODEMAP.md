@@ -26,4 +26,13 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `app.js:showError` — errors keep their i18n keys so a language switch repaints them; a compile error is re-requested in the new language.
 - `app.js:deleteHistory` — focus moves to the next row (or the search box); Ctrl/⌘+Z undoes within the 6 s window.
 - `app.js:fitViewportToFigure` — on phones the figure panel's height follows the figure's aspect ratio (clamped 0.6–1.25, ≤ 70 % of the screen).
+- `app.js:validSolution` — a 2xx answer without an `input` and a known `status` is an "unreadable answer" error; no verdict is ever inferred from a malformed body.
+- `app.js` Escape — menus, the drawer and full screen `preventDefault` the Escape they consume; the global handler cancels a solve only for an unconsumed Escape with no layer open.
+- `app.js:placeMenu` — menus are laid out off-screen to the left first, then placed inside the viewport (8 px margin); laying them out at an overflowing position first widened the phone layout viewport.
+- `app.js:openHistory` — the previous result is cleared before the fetch and the editor changes only on success; a 404 removes the row.
+- `app.js` undo — Clear and history deletes set `S.lastUndo`; Ctrl/⌘+Z works from the field focus was moved to while it is still untouched.
+- `site.js:fact` — relation symbols get screen-reader words (`sr.*` keys); `factText` (copy) keeps the symbols.
+- `site.js:Viewer.stepPoint` — P / Shift+P in the focused figure walk the points in name order, highlight the steps using each and announce them.
+- `site.js:toggleFull` — the figure panel gets `has-full` (z-index above the sticky header) while full screen.
+- `auth.js` — server errors carry a `code`; field codes (`user_taken`, `username_rule`, `pw_len`) mark the field instead of a banner and are repainted on a language switch. Field hints are not live regions.
 - `landing.js` — stats and the showcase blurb come from `showcase.json` (`first_secs`, `budget_secs`); the step count excludes restated hypotheses.

@@ -309,7 +309,8 @@ impl Fact {
             "perp" => format!("{} \u{27c2} {}", a(0), a(1)),
             "para" => format!("{} \u{2225} {}", a(0), a(1)),
             "eqangle" => format!("{} = {}", a(0), a(1)),
-            "eqratio" => format!("{} : {} = {} : {}", a(0), a(1), a(2), a(3)),
+            "eqratio" => self.args.chunks(2).map(|c| c.join(" : ")).collect::<Vec<_>>().join(" = "),
+            "para_ratio" => format!("{} \u{2225} {}, {} : {} = {} : {}", a(0), a(1), a(2), a(3), a(4), a(5)),
             "aconst" => format!("{} = {}\u{b0}", a(0), a(1)),
             "rconst" => format!("{} : {} = {}", a(0), a(1), a(2)),
             "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", a(0), a(1)),
@@ -795,12 +796,8 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
                 }
                 other => {
                     let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
-                    (
-                        "step",
-                        "theorem",
-                        Some(other.to_string()),
-                        Fact::new("points", v.clone(), v),
-                    )
+                    let fact = theorem_fact(other, &v).unwrap_or_else(|| Fact::new("points", v.clone(), v));
+                    ("step", "theorem", Some(crate::i18n::prose_en(other)), fact)
                 }
             }
         } else {
@@ -810,6 +807,33 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
         steps.push(Step { n, kind, rule, rule_name, rule_name_ro, fact, deps });
     }
     ProofView { steps: drop_restatements(steps), conclusion, style: "ddar" }
+}
+
+fn theorem_fact(name: &str, p: &[String]) -> Option<Fact> {
+    let seg = |a: usize, b: usize| format!("{}{}", p[a], p[b]);
+    let pts = |idx: &[usize]| idx.iter().map(|&i| p[i].clone()).collect::<Vec<_>>();
+    Some(match (name, p.len()) {
+        ("angle bisector theorem", 4) => {
+            Fact::new("eqratio", vec![seg(1, 2), seg(1, 3), seg(0, 2), seg(0, 3)], pts(&[0, 1, 2, 3]))
+        }
+        ("angle bisector theorem (converse)", 4) => Fact::new(
+            "eqangle",
+            vec![format!("\u{2220}{}{}{}", p[2], p[0], p[1]), format!("\u{2220}{}{}{}", p[1], p[0], p[3])],
+            pts(&[0, 1, 2, 3]),
+        ),
+        ("radical axis" | "Monge–d'Alembert", 3) => Fact::new("coll", p.to_vec(), p.to_vec()),
+        ("homothety at a centre of similitude", 5) => Fact::new(
+            "para_ratio",
+            vec![seg(3, 1), seg(4, 2), seg(0, 1), seg(0, 2), seg(0, 3), seg(0, 4)],
+            p.to_vec(),
+        ),
+        ("intercept theorem (parallel rungs)", 6) => Fact::new(
+            "eqratio",
+            vec![seg(0, 2), seg(1, 3), seg(2, 4), seg(3, 5), seg(0, 4), seg(1, 5)],
+            p.to_vec(),
+        ),
+        _ => return None,
+    })
 }
 
 fn coord(problem: &Problem, raw: &str) -> Option<Pt> {
@@ -976,6 +1000,34 @@ fn drop_value_echo(s: &str) -> String {
     }
 }
 
+fn fractions(s: &str) -> String {
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        let digit_before = i > 0 && c[i - 1].is_ascii_digit();
+        let digit_after = i + 1 < c.len() && c[i + 1].is_ascii_digit();
+        let run_start = (0..i).rev().take_while(|&k| c[k].is_ascii_digit()).last().unwrap_or(i);
+        let lone = run_start == 0 || !matches!(c[run_start - 1], '/' | '.' | ',');
+        if c[i] == '/' && digit_before && digit_after && lone {
+            out.push('\u{2044}');
+            i += 1;
+            while i < c.len() && c[i].is_ascii_digit() {
+                out.push(c[i]);
+                i += 1;
+            }
+            if i < c.len() && c[i] == '\u{b7}' {
+                out.push_str("\u{2009}\u{b7}\u{2009}");
+                i += 1;
+            }
+            continue;
+        }
+        out.push(c[i]);
+        i += 1;
+    }
+    out
+}
+
 fn as_drawn(s: &str) -> String {
     match (s.find(" lies on "), s.find(", and ")) {
         (Some(a), Some(b)) if a < b && s[a..b].contains(" between ") => {
@@ -992,7 +1044,7 @@ fn parse_euclid_proof(text: &str, names: &Names) -> ProofView {
         let t = line.trim();
         let digits: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
         let prose = |s: &str| {
-            let typeset = pretty_metric_inline(&as_drawn(s), names);
+            let typeset = fractions(&pretty_metric_inline(&as_drawn(s), names));
             let shown = names.rename_text(&typeset, true);
             let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&shown)], names.disp_all(&names.mentioned(s, true)));
             f.ro = Some(vec![crate::i18n::prose_ro(&shown)]);
@@ -1424,6 +1476,8 @@ pub struct View {
     /// The interactive figure (classes + `data-p` point lists; light colours
     /// as attributes, so it also renders standalone and in exports).
     pub svg: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub as_drawn: bool,
 }
 
 pub fn build(sol: &Solution) -> View {
@@ -1507,7 +1561,13 @@ pub fn build(sol: &Solution) -> View {
         figure::render(&fig, aux_from, &names, &extras)
     };
 
+    let as_drawn = sol.proved
+        && proof
+            .steps
+            .iter()
+            .any(|st| st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)")));
     View {
+        as_drawn,
         points,
         given,
         goal,
@@ -1544,8 +1604,14 @@ fn backticked(msg: &str) -> Option<String> {
     Some(msg[a + 1..b].to_string())
 }
 
+fn quoted(msg: &str) -> Option<String> {
+    let a = msg.find('\'')?;
+    let b = msg[a + 1..].find('\'')? + a + 1;
+    Some(msg[a + 1..b].to_string())
+}
+
 fn found_token(msg: &str) -> Option<Option<String>> {
-    let at = msg.find("found ")? + 6;
+    let at = msg.find("found ").map(|i| i + 6).or_else(|| msg.find("unexpected token ").map(|i| i + 17))?;
     let rest = &msg[at..];
     if rest.starts_with("None") {
         return Some(None);
@@ -1607,7 +1673,7 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "expect_def"
     } else if starts("expected expression") || starts("expected a metric expression") {
         "expect_expr"
-    } else if starts("expected a numeric exponent") {
+    } else if starts("expected a numeric exponent") || starts("expected numeric exponent") {
         "expect_exponent"
     } else if starts("unexpected token") || starts("expected ") {
         "unexpected_token"
@@ -1615,7 +1681,9 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "bad_char"
     } else if starts("unknown relation") {
         "unknown_relation"
-    } else if starts("unknown name") {
+    } else if starts("trailing tokens") {
+        "trailing"
+    } else if starts("unknown name") || starts("unknown point") {
         "unknown_name"
     } else if starts("unknown construction") {
         "unknown_construction"
@@ -1642,12 +1710,22 @@ fn diagnosis_key(msg: &str) -> &'static str {
 
 /// Locate a compile error in `input` and pick the sentence that explains it.
 pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
+    let metric = msg.starts_with("metric prover: ");
     let msg = msg
         .trim_start_matches("compile error: ")
         .trim_start_matches("parse error: ")
         .trim_start_matches("metric prover: ")
         .trim();
-    let key = diagnosis_key(msg);
+    let mut key = diagnosis_key(msg);
+    let named = backticked(msg).or_else(|| quoted(msg));
+    if key == "unknown_name" && named.as_deref().is_some_and(|t| t.starts_with(|c: char| c.is_ascii_lowercase())) {
+        let t = named.clone().unwrap_or_default();
+        let whole_rhs = input.lines().any(|l| {
+            let code = l.split('#').next().unwrap_or("");
+            code.split_once('=').is_some_and(|(lhs, rhs)| !lhs.contains('(') && rhs.trim() == t)
+        });
+        key = if whole_rhs { "unknown_shape" } else { "unknown_construction" };
+    }
     let mut d = Diagnosis { key, line: 0, col: 0, len: 0, token: None, expected: None, got: None };
     if key == "arity" {
         let nums: Vec<usize> = msg
@@ -1659,13 +1737,46 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     }
     let by_name = matches!(
         key,
-        "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "arity" | "redefined" | "bad_number"
+        "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "unknown_shape" | "arity" | "redefined" | "bad_number"
     );
-    d.token = if by_name { backticked(msg) } else { found_token(msg).flatten() };
+    d.token = if by_name { named } else { found_token(msg).flatten() };
     let lines: Vec<&str> = input.lines().collect();
     let code_of = |l: &str| l.split('#').next().unwrap_or("").to_string();
+    let goal_line = || lines.iter().rposition(|l| code_of(l).trim_start().starts_with("prove"));
     let line_idx: Option<usize> = match key {
         "degenerate" | "empty" | "no_goal" | "other" => None,
+        "trailing" => {
+            let i = goal_line();
+            if let Some(i) = i {
+                let code = code_of(lines[i]);
+                let (start, rhs) = match code.find('=') {
+                    Some(eq) if msg.contains("right") => (eq + 1, &code[eq + 1..]),
+                    _ => (0, code.split('=').next().unwrap_or("")),
+                };
+                let mut depth = 0i32;
+                let mut at = None;
+                for (k, c) in rhs.char_indices() {
+                    match c {
+                        '(' => depth += 1,
+                        ')' if depth == 0 => {
+                            at = Some(start + k);
+                            break;
+                        }
+                        ')' => depth -= 1,
+                        _ => {}
+                    }
+                }
+                let at = at.unwrap_or_else(|| start + rhs.trim_end().rfind(' ').map_or(0, |k| k + 1));
+                d.token = code[at..].split_whitespace().next().map(|w| w.chars().take(if w.starts_with(')') { 1 } else { w.len() }).collect());
+            }
+            i
+        }
+        _ if metric && by_name => d
+            .token
+            .as_ref()
+            .and_then(|t| lines.iter().position(|l| !word_positions(&code_of(l), t).is_empty()))
+            .or_else(goal_line),
+        _ if metric => goal_line(),
         "redefined" => d.token.as_ref().and_then(|t| {
             let defs: Vec<usize> = lines
                 .iter()
@@ -1720,7 +1831,9 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
                     }
                     k > 0 && k < p && (is_name_char(chars[k - 1]) || chars[k - 1] == ')')
                 };
-                let pick = if matches!(key, "expect_comma_paren" | "unexpected_token") {
+                let pick = if key == "trailing" || (metric && !by_name) {
+                    pos.last().copied()
+                } else if matches!(key, "expect_comma_paren" | "unexpected_token") {
                     pos.iter().copied().find(|&p| after_operand(p)).or_else(|| pos.last().copied())
                 } else {
                     pos.first().copied()
@@ -1828,6 +1941,36 @@ mod tests {
         assert_eq!(v.goal.unwrap().args, vec!["AD\u{b2} = 14"]);
         assert_eq!(v.proof.style, "euclidean");
         assert!(v.proof.steps.iter().any(|s| s.rule_name.as_deref() == Some("Stewart's theorem")));
+        assert!(v.as_drawn, "the Stewart step reads betweenness off the figure");
+        let stewart = v.proof.steps.iter().find(|s| s.rule_name.as_deref() == Some("Stewart's theorem")).unwrap();
+        assert!(stewart.fact.args[0].contains("2\u{2044}3\u{2009}\u{b7}\u{2009}AB\u{b2}"), "{:?}", stewart.fact.args);
+    }
+
+    #[test]
+    fn named_theorem_steps_state_what_they_derive() {
+        let (_, v) = view("A B C = triangle\nI = incenter(A, B, C)\nD = meet(line(A, I), line(B, C))\nprove eqratio(D, B, D, C, A, B, A, C)");
+        let bis: Vec<&Step> = v.proof.steps.iter().filter(|s| s.rule_name.as_deref() == Some("angle bisector theorem")).collect();
+        assert!(!bis.is_empty(), "{:?}", v.proof.steps);
+        for s in bis {
+            assert_eq!(s.fact.kind, "eqratio", "{s:?}");
+            assert_eq!(s.fact.args.len(), 4, "{s:?}");
+            assert_eq!(s.rule_name_ro.as_deref(), Some("teorema bisectoarei"));
+        }
+        assert_eq!(
+            theorem_fact("intercept theorem (parallel rungs)", &["A", "B", "M", "N", "D", "C"].map(String::from)).unwrap().plain(),
+            "AM : BN = MD : NC = AD : BC"
+        );
+        assert_eq!(theorem_fact("radical axis", &["X", "U", "V"].map(String::from)).unwrap().plain(), "X, U, V are collinear");
+    }
+
+    #[test]
+    fn an_unknown_shape_is_not_called_an_undefined_point() {
+        let d = diagnose("A B C D = cyclic_quad\nprove cyclic(A, B, C, D)", "compile error: unknown name `cyclic_quad`");
+        assert_eq!((d.key, d.line, d.col), ("unknown_shape", 1, 11));
+        let d = diagnose("A B C = triangle\nH = orthocentre2(A, B, C)\nprove perp(A, H, B, C)", "compile error: unknown name `orthocentre2`");
+        assert_eq!(d.key, "unknown_construction");
+        let d = diagnose("A B C = triangle\nprove perp(A, X, B, C)", "compile error: unknown name `X`");
+        assert_eq!(d.key, "unknown_name");
     }
 
     #[test]

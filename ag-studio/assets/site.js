@@ -58,15 +58,26 @@
     var s = String(text == null ? "" : text);
     if (!prose) return esc(s).replace(NAME_RE, nameHtml);
     return s.split(/(\s+|[(),.;:!?—–])/).map(function (tok) {
-      if (/^[A-Z][A-Z₀-₉′″]*[²³]?$/.test(tok) || /^[A-Z][₀-₉′″]+$/.test(tok))
+      if (/^[A-Z][A-Z₀-₉′″]*[²³]?$/.test(tok) || /^[A-Z][₀-₉′″]+$/.test(tok) ||
+          (/[A-Z]/.test(tok) && !/[a-zăâîșțşţ]/.test(tok) && /^[A-Z₀-₉′″²³|·⁄/+−=<>≤≥√\[\]0-9]+$/.test(tok)))
         return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
       return esc(tok);
     }).join("");
   }
 
+  var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "∠": "sr.angle" };
+  function spoken(html) {
+    return html.replace(/[⟂∥△∼≅∠]/g, function (c) {
+      return '<span aria-hidden="true">' + c + '</span><span class="sr-only">' + esc(t(SPOKEN[c])) + "</span>";
+    });
+  }
+
   /** A typed fact from the server (`{kind, args}`) as typeset, localized HTML. */
   function fact(f) {
     if (!f) return "";
+    return spoken(factHtml(f));
+  }
+  function factHtml(f) {
     var a = (f.args || []).map(function (x) { return math(x); });
     var g = function (i) { return a[i] || ""; };
     switch (f.kind) {
@@ -78,7 +89,12 @@
       case "cong": case "length": case "eqangle": case "coincide": return g(0) + " = " + g(1);
       case "perp": return g(0) + " ⟂ " + g(1);
       case "para": return g(0) + " ∥ " + g(1);
-      case "eqratio": return g(0) + " : " + g(1) + " = " + g(2) + " : " + g(3);
+      case "eqratio": {
+        var parts = [];
+        for (var k = 0; k + 1 < a.length; k += 2) parts.push(a[k] + " : " + a[k + 1]);
+        return parts.join(" = ");
+      }
+      case "para_ratio": return esc(t("fact.para_ratio", { par: "\u0001", ratio: "\u0002" })).replace("\u0001", g(0) + " ∥ " + g(1)).replace("\u0002", g(2) + " : " + g(3) + " = " + g(4) + " : " + g(5));
       case "aconst": return g(0) + " = " + g(1) + "°";
       case "rconst": return g(0) + " : " + g(1) + " = " + g(2);
       case "simtri": return "△" + g(0) + " ∼ △" + g(1);
@@ -92,7 +108,7 @@
   /** The same fact as plain text (for copying). */
   function factText(f) {
     var d = document.createElement("div");
-    d.innerHTML = fact(f);
+    d.innerHTML = factHtml(f);
     return d.textContent;
   }
 
@@ -114,7 +130,7 @@
       }).join("");
       return '<li class="step' + (s.kind === "given" ? " is-given" : "") + '" id="step-' + s.n + '" data-n="' + s.n + '" data-points="' + esc((s.fact.points || []).join(" ")) + '" tabindex="' + (i === 0 ? 0 : -1) + '">' +
         '<span class="step-n" aria-hidden="true">' + s.n + "</span>" +
-        '<div class="step-body"><div class="step-stmt math">' + fact(s.fact) + "</div>" +
+        '<div class="step-body"><div class="step-stmt math"><span class="sr-only">' + esc(t("proof.step_sr", { n: s.n })) + " </span>" + fact(s.fact) + "</div>" +
         '<div class="step-meta"><span class="rule">' + esc(ruleLabel(s)) + "</span>" +
         (cites ? '<span class="cites"><span class="sr-only">' + esc(t("proof.from")) + " </span>" + cites + "</span>" : "") +
         "</div></div></li>";
@@ -123,6 +139,7 @@
       html += '<li class="step is-conclusion" data-points="' + esc((proof.conclusion.points || []).join(" ")) + '" tabindex="-1"><span class="step-n" aria-hidden="true">∎</span><div class="step-body"><div class="step-stmt math"><span class="sr-only">' + esc(t("proof.conclusion")) + ": </span>" + fact(proof.conclusion) + "</div></div></li>";
     }
     ol.innerHTML = html;
+    ol.setAttribute("role", "list");
     var items = Array.prototype.slice.call(ol.querySelectorAll(".step"));
     function pts(li) { var p = li.getAttribute("data-points"); return p ? p.split(" ") : []; }
     function activate(li) {
@@ -170,7 +187,13 @@
     ol.addEventListener("click", ol._gsClick);
     return {
       markPoint: function (name) {
-        items.forEach(function (li) { li.classList.toggle("uses-point", !!name && pts(li).indexOf(name) >= 0); });
+        var used = [];
+        items.forEach(function (li) {
+          var on = !!name && pts(li).indexOf(name) >= 0;
+          li.classList.toggle("uses-point", on);
+          if (on && li.getAttribute("data-n")) used.push(li.getAttribute("data-n"));
+        });
+        return used;
       },
     };
   }
@@ -250,10 +273,13 @@
       else if (e.key === "ArrowUp") me.panBy(0, 40);
       else if (e.key === "ArrowDown") me.panBy(0, -40);
       else if ((e.key === "f" || e.key === "F") && me.els.full) me.toggleFull();
+      else if (e.key === "p" || e.key === "P") me.stepPoint(e.shiftKey ? -1 : 1);
+      else if (e.key === "Escape" && me.kbPoint != null) me.stepPoint(0);
       else if (e.key === "Escape" && me.isFull()) me.toggleFull(false);
       else handled = false;
       if (handled) e.preventDefault();
     });
+    vp.addEventListener("blur", function () { if (me.kbPoint != null) me.stepPoint(0); });
     vp.addEventListener("pointerover", function (e) {
       var el = e.target.closest && e.target.closest(".f-lbl, .f-dot");
       if (me.onPoint) me.onPoint(el ? el.getAttribute("data-p") : null);
@@ -264,7 +290,7 @@
     if (els.zoomOut) els.zoomOut.addEventListener("click", function () { var c = center(); me.zoomAt(c[0], c[1], 1 / 1.4); });
     if (els.fit) els.fit.addEventListener("click", function () { me.reset(); });
     if (els.full) els.full.addEventListener("click", function () { me.toggleFull(); });
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && me.isFull()) me.toggleFull(false); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && me.isFull() && !e.defaultPrevented) { e.preventDefault(); me.toggleFull(false); } });
     if (window.ResizeObserver) new ResizeObserver(function () { me.restyle(); }).observe(vp);
   }
   Viewer.prototype.setSvg = function (svgText, ariaLabel) {
@@ -273,6 +299,7 @@
     if (old) old.remove();
     if (svgText) vp.insertAdjacentHTML("beforeend", svgText);
     this.svg = vp.querySelector("svg");
+    this.kbPoint = null;
     if (!this.svg) { this.base = this.vb = null; return; }
     var b = (this.svg.getAttribute("viewBox") || "0 0 100 100").split(/\s+/).map(Number);
     this.base = { x: b[0], y: b[1], w: b[2], h: b[3] };
@@ -305,7 +332,7 @@
     if (!svg || !vb || !r.width || !r.height) return;
     var s = Math.min(r.width / vb.w, r.height / vb.h);
     var fs = Math.max(13, Math.min(17, r.width / 28));
-    var k = Math.max(0.35, Math.min(3, fs / s / 18));
+    var k = Math.max(0.35, Math.min(4.5, fs / s / 18));
     svg.style.setProperty("--lbl-fs", (18 * k).toFixed(2) + "px");
     svg.querySelectorAll(".f-lbl").forEach(function (el) {
       var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx = +el.getAttribute("data-dx"), dy = +el.getAttribute("data-dy");
@@ -315,6 +342,16 @@
     });
     var dotR = Math.max(1.2, Math.min(8, (r.width < 500 ? 3.2 : 3.8) / s));
     svg.querySelectorAll(".f-dot").forEach(function (el) { el.setAttribute("r", dotR.toFixed(2)); });
+    svg.querySelectorAll(".f-lead").forEach(function (el) {
+      var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx = +el.getAttribute("data-dx"), dy = +el.getAttribute("data-dy"), e = +el.getAttribute("data-e");
+      var L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
+      var a = dotR + 1.5 / s, b = L * k - e * k;
+      el.style.display = b - a < 3 / s ? "none" : "";
+      el.setAttribute("x1", (x + ux * a).toFixed(1));
+      el.setAttribute("y1", (y + uy * a).toFixed(1));
+      el.setAttribute("x2", (x + ux * b).toFixed(1));
+      el.setAttribute("y2", (y + uy * b).toFixed(1));
+    });
   }
   Viewer.prototype.restyle = function () {
     if (!this.svg || !this.vb) return;
@@ -326,7 +363,7 @@
     var r = this.els.viewport.getBoundingClientRect();
     if (r.width && r.height) {
       var s0 = Math.min(r.width / b0.w, r.height / b0.h);
-      var k = Math.max(0.35, Math.min(3, Math.max(13, Math.min(17, r.width / 28)) / s0 / 18));
+      var k = Math.max(0.35, Math.min(4.5, Math.max(13, Math.min(17, r.width / 28)) / s0 / 18));
       var pad = Math.max(0, (k - 1) * 32);
       this.base = { x: b0.x - pad, y: b0.y - pad, w: b0.w + 2 * pad, h: b0.h + 2 * pad };
     }
@@ -367,6 +404,22 @@
     this.clamp();
     this.apply();
   };
+  Viewer.prototype.stepPoint = function (dir) {
+    var names = [];
+    (this.labels || []).forEach(function (el) { var p = el.getAttribute("data-p"); if (p && names.indexOf(p) < 0) names.push(p); });
+    names.sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true }); });
+    if (!dir || !names.length) {
+      this.kbPoint = null;
+      this.highlight(null);
+      if (this.onPoint) this.onPoint(null);
+      return;
+    }
+    var i = this.kbPoint == null ? (dir > 0 ? 0 : names.length - 1) : (this.kbPoint + dir + names.length) % names.length;
+    this.kbPoint = i;
+    this.highlight([names[i]]);
+    var used = this.onPoint ? this.onPoint(names[i]) : null;
+    if (this.onPointAnnounce) this.onPointAnnounce(names[i], used || []);
+  };
   Viewer.prototype.isFull = function () { return this.els.frame.classList.contains("is-full"); };
   Viewer.prototype.toggleFull = function (on) {
     var f = this.els.frame;
@@ -374,14 +427,12 @@
     on = on == null ? !this.isFull() : on;
     if (on === this.isFull()) return;
     f.classList.toggle("is-full", on);
+    if (f.parentElement) f.parentElement.classList.toggle("has-full", on);
     document.documentElement.classList.toggle("no-scroll", on);
     modal(f, on, t("fig.title"));
     if (!on) this.els.full.focus({ preventScroll: true });
     if (this.els.full) {
       this.els.full.innerHTML = on ? icons.collapse : icons.expand;
-      var label = t(on ? "fig.exit_full" : "fig.full");
-      this.els.full.setAttribute("aria-label", label);
-      this.els.full.setAttribute("title", label);
       this.els.full.setAttribute("aria-pressed", on ? "true" : "false");
     }
     var me = this;
@@ -435,7 +486,7 @@
       var n = 0;
       pts.forEach(function (p) { if (S.has(p)) n++; });
       var on;
-      if (el.classList.contains("f-dot") || el.classList.contains("f-lbl")) on = S.has(pts[0]);
+      if (el.classList.contains("f-dot") || el.classList.contains("f-lbl") || el.classList.contains("f-lead")) on = S.has(pts[0]);
       else if (el.tagName === "line") on = n >= 2;
       else if (el.tagName === "circle") { var c = el.getAttribute("data-c"); on = n >= 3 || (c && S.has(c) && n >= 2); }
       else on = n === pts.length;
@@ -488,12 +539,17 @@
     opts = opts || {};
     var region = document.getElementById("toasts");
     if (!region) return null;
+    Array.prototype.forEach.call(region.querySelectorAll(".toast"), function (old) {
+      if (old.getAttribute("data-msg") === msg && old._gsClose) old._gsClose();
+    });
     var el = document.createElement("div");
     el.className = "toast";
+    el.setAttribute("data-msg", msg);
     el.innerHTML = '<div class="grow"></div>';
     el.firstChild.textContent = msg;
     var done = false;
     function close() { if (done) return; done = true; el.remove(); if (opts.onClose) opts.onClose(); }
+    el._gsClose = close;
     if (opts.action) {
       var b = document.createElement("button");
       b.type = "button";
