@@ -37,11 +37,12 @@ agstudio mcp                                  # MCP server (stdio)
 - Translation must use the Claude **subscription** (the `claude` CLI), never an
   `ANTHROPIC_API_KEY`.
 - MCP stdout is the protocol channel — never print to stdout in `mcp` mode.
-- **Euclidean only** (owner's requirement, 2026-10-03): every proof is classical
-  synthetic steps — DDAR deductions (angle/ratio/distance chasing) and cited
-  theorems. No coordinate/algebraic provers (`algebra.rs` was deleted on purpose),
-  no Wu/Groebner/complex/barycentric, no trigonometry, and a numerical check is
-  never a proof (`status: holds-numerically`). Coordinates may only propose
+- **No coordinates** (owner's requirement, 2026-10-03): every proof is classical
+  steps — DDAR deductions (angle/ratio/distance chasing), cited theorems, and
+  trigonometry (law of sines/cosines, trig Ceva — explicitly allowed). No
+  coordinate/algebraic-geometry provers (`algebra.rs` was deleted on purpose), no
+  Wu/Groebner/complex/barycentric bashing, and a numerical check is never a proof
+  (`status: holds-numerically`). Coordinates may only propose
   candidates, pick configuration branches and check non-degeneracy.
 - Measure capability with the corpus benchmark (`ddar --corpus`, results in
   `~/Projects/geosolver-bench/`), never with `--bench` alone (26 pre-selected rows).
