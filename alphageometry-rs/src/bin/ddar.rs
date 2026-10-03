@@ -71,9 +71,11 @@ Modes:
                           translation errors and numerically false goals
   --corpus-show <file> <name>  print one translated problem in low-level form
   --corpus-one <file> <name>   solve one corpus problem in-process (--proof)
-  --fuzz-false <file>     soundness fuzzer: false variants of every corpus
+  --fuzz-false <file|dir> soundness fuzzer: false variants of every corpus
                           problem (mutated goal, dropped hypothesis, degenerate
                           figure) through DDAR + aux search, one process each;
+                          a directory fuzzes the metric goals of its .geo
+                          programs through the classical provers instead;
                           exits 2 if any is proved
   --fuzz-one <cases> <name>    run one fuzz case in-process (child of --fuzz-false)
   \"<problem>\"             solve a single low-level problem string
@@ -1067,7 +1069,11 @@ fn corpus_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
 fn fuzz_false(file: Option<&String>, opts: &Opts) {
     use ddar::fuzz;
     let c = &opts.corpus;
-    let problems = load_corpus(file, c.only.as_ref());
+    let geo_dir = file.filter(|f| std::path::Path::new(f).is_dir());
+    let problems = match geo_dir {
+        Some(dir) => geo_programs(std::path::Path::new(dir)),
+        None => load_corpus(file, c.only.as_ref()),
+    };
     let file = file.expect("checked by load_corpus");
     let budget = if c.budget_given { c.budget } else { 15.0 };
     let out = c
@@ -1082,7 +1088,11 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
         seed: c.seed,
         samples: c.samples,
     };
-    let gen = fuzz::generate(&problems, &cfg);
+    let gen = if geo_dir.is_some() {
+        fuzz::generate_geo(&problems, &cfg)
+    } else {
+        fuzz::generate(&problems, &cfg)
+    };
     let by_kind: Vec<String> = fuzz::Kind::ALL
         .iter()
         .map(|k| format!("{} {}", k.tag(), gen.cases.iter().filter(|x| x.kind == *k).count()))
@@ -1165,6 +1175,26 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
     if crashes > 0 {
         std::process::exit(1);
     }
+}
+
+fn geo_programs(dir: &std::path::Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().and_then(|x| x.to_str()) == Some("geo") {
+                if let Ok(src) = std::fs::read_to_string(&p) {
+                    out.push((p.display().to_string(), src));
+                }
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 fn fuzz_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {

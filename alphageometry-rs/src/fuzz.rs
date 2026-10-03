@@ -488,6 +488,342 @@ pub fn generate(problems: &[(String, String)], cfg: &Config) -> Generated {
     out
 }
 
+/// Prefix of a case text that is a `.geo` metric program rather than corpus text.
+pub const GEO_PREFIX: &str = "geo: ";
+
+const OBJECT_CONSTRUCTORS: &[&str] = &[
+    "line(",
+    "circle(",
+    "circumcircle(",
+    "bisector(",
+    "perp_bisector(",
+    "perp_line(",
+    "para_line(",
+];
+
+/// Split a `.geo` program into its statements and its `prove` goal.
+pub fn split_geo(src: &str) -> Option<(Vec<String>, String)> {
+    let mut stmts = Vec::new();
+    let mut goal = None;
+    for raw in src.lines() {
+        let line = raw.split('#').next().unwrap_or("");
+        for stmt in line.split(';') {
+            let s = stmt.trim();
+            if s.is_empty() {
+                continue;
+            }
+            match s
+                .strip_prefix("prove ")
+                .or_else(|| s.strip_prefix("goal:"))
+                .or_else(|| s.strip_prefix('?'))
+            {
+                Some(g) => goal = Some(g.trim().to_string()),
+                None => stmts.push(s.to_string()),
+            }
+        }
+    }
+    Some((stmts, goal?))
+}
+
+fn geo_points(stmts: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for s in stmts {
+        let Some((lhs, rhs)) = s.split_once('=') else { continue };
+        if lhs.trim_start().starts_with("assume") {
+            continue;
+        }
+        let rhs = rhs.trim_start();
+        if OBJECT_CONSTRUCTORS.iter().any(|c| rhs.starts_with(c)) {
+            continue;
+        }
+        out.extend(
+            lhs.split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|n| !n.is_empty())
+                .map(str::to_string),
+        );
+    }
+    out
+}
+
+fn geo_tokens(s: &str) -> Vec<String> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let start = i;
+        if c.is_ascii_alphabetic() || c == '_' {
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+        } else if c.is_ascii_digit() {
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+        out.push(chars[start..i].iter().collect());
+    }
+    out
+}
+
+fn mutate_equation(goal: &str, points: &[String], rng: &mut Rng) -> Option<(String, String)> {
+    let mut toks = geo_tokens(goal);
+    let pts: Vec<usize> = (0..toks.len()).filter(|&i| points.contains(&toks[i])).collect();
+    let nums: Vec<usize> = (0..toks.len())
+        .filter(|&i| toks[i].parse::<f64>().is_ok())
+        .collect();
+    let how = match rng.below(4) {
+        0 if !pts.is_empty() => {
+            let i = *rng.pick(&pts);
+            let new = rng.pick(points).clone();
+            if new == toks[i] {
+                return None;
+            }
+            let how = format!("swap point {} -> {new}", toks[i]);
+            toks[i] = new;
+            how
+        }
+        1 if pts.len() >= 2 => {
+            let (i, j) = (*rng.pick(&pts), *rng.pick(&pts));
+            if toks[i] == toks[j] {
+                return None;
+            }
+            let how = format!("transpose {} <-> {}", toks[i], toks[j]);
+            toks.swap(i, j);
+            how
+        }
+        2 if !nums.is_empty() => {
+            let i = *rng.pick(&nums);
+            let v: f64 = toks[i].parse().ok()?;
+            let new = if rng.below(2) == 0 { v + 1.0 } else { v * 2.0 };
+            let how = format!("constant {} -> {new}", toks[i]);
+            toks[i] = format!("{new}");
+            how
+        }
+        _ => {
+            let (l, r) = goal.split_once('=')?;
+            let k = *rng.pick(&["2", "3", "1/2"]);
+            return Some((format!("{} = {k} * ({})", l.trim(), r.trim()), format!("scale right side by {k}")));
+        }
+    };
+    Some((toks.concat(), how))
+}
+
+fn geo_weakenings(stmts: &[String]) -> Vec<(Vec<String>, String)> {
+    let mut out = Vec::new();
+    for (i, s) in stmts.iter().enumerate() {
+        if s.trim_start().starts_with("assume") {
+            let mut w = stmts.to_vec();
+            w.remove(i);
+            out.push((w, format!("drop `{s}`")));
+            continue;
+        }
+        let Some((lhs, rhs)) = s.split_once('=') else { continue };
+        let (lhs, rhs) = (lhs.trim(), rhs.trim());
+        if i == 0 || lhs.contains(char::is_whitespace) || rhs == "free" {
+            continue;
+        }
+        if OBJECT_CONSTRUCTORS.iter().any(|c| rhs.starts_with(c)) {
+            continue;
+        }
+        if let Some(cons) = rhs.strip_prefix("point:") {
+            let parts = split_top_level(cons);
+            if parts.len() >= 2 {
+                for j in 0..parts.len() {
+                    let mut kept = parts.clone();
+                    let dropped = kept.remove(j);
+                    let mut w = stmts.to_vec();
+                    w[i] = format!("{lhs} = point: {}", kept.join(", "));
+                    out.push((w, format!("drop `{}` from `{lhs}`", dropped.trim())));
+                }
+                continue;
+            }
+        }
+        let mut w = stmts.to_vec();
+        w[i] = format!("{lhs} = free");
+        out.push((w, format!("replace `{s}` by `{lhs} = free`")));
+    }
+    out
+}
+
+fn split_top_level(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    for ch in s.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(cur.trim().to_string());
+                cur.clear();
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(ch);
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur.trim().to_string());
+    }
+    out
+}
+
+/// The goal's value on each of `n` re-sampled figures: `Some(true)` holds,
+/// `Some(false)` clearly fails, `None` undecided (non-finite or borderline).
+fn equation_truths(cons: &str, goal: &str, n: usize) -> Option<Vec<Option<bool>>> {
+    let (lhs, rhs) = crate::metric::parse_equation(goal).ok()?;
+    let insts = crate::geo::build_instances(cons, n).ok()?;
+    Some(
+        insts
+            .iter()
+            .map(|inst| {
+                let m: HashMap<&str, Vec2> = inst.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+                let (l, r) = (lhs.eval(&m).ok()?, rhs.eval(&m).ok()?);
+                if !(l.is_finite() && r.is_finite()) {
+                    return None;
+                }
+                let rel = (l - r).abs() / (1.0 + r.abs());
+                if rel < 1e-7 {
+                    Some(true)
+                } else if rel > 1e-4 {
+                    Some(false)
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    )
+}
+
+fn false_everywhere(cons: &str, goal: &str, n: usize) -> bool {
+    equation_truths(cons, goal, n)
+        .is_some_and(|t| t.len() >= n.min(2) && t.iter().all(|x| *x == Some(false)))
+}
+
+/// Metric-goal cases from `.geo` programs (`(name, source)`): mutated goals and
+/// dropped hypotheses, each false on every sampled figure (the classical
+/// provers' own figure included). Programs whose goal is not an equation are
+/// skipped.
+pub fn generate_geo(programs: &[(String, String)], cfg: &Config) -> Generated {
+    let mut out = Generated::default();
+    let n = cfg.samples.max(2);
+    for (name, src) in programs {
+        let mut rng = Rng::new(cfg.seed ^ fnv(name));
+        let Some((stmts, goal)) = split_geo(src) else {
+            out.skipped.push((name.clone(), "no goal".into()));
+            continue;
+        };
+        if crate::metric::parse_equation(&goal).is_err() {
+            continue;
+        }
+        let cons = stmts.join("\n");
+        if !equation_truths(&cons, &goal, n).is_some_and(|t| t.iter().all(|x| *x == Some(true))) {
+            out.skipped.push((name.clone(), "goal does not hold on every sample".into()));
+            continue;
+        }
+        let points = geo_points(&stmts);
+        let encode = |stmts: &[String], goal: &str| format!("{GEO_PREFIX}{} ? {goal}", stmts.join("; "));
+        let mut seen: HashSet<String> = HashSet::new();
+        seen.insert(goal.replace(' ', ""));
+        let mut made = 0;
+        for _ in 0..cfg.per * 30 {
+            if made >= cfg.per {
+                break;
+            }
+            let Some((g, how)) = mutate_equation(&goal, &points, &mut rng) else {
+                continue;
+            };
+            if !seen.insert(g.replace(' ', "")) {
+                continue;
+            }
+            if !false_everywhere(&cons, &g, n) {
+                out.not_false += 1;
+                continue;
+            }
+            out.cases.push(Case {
+                name: format!("{name}~g{made}"),
+                origin: name.clone(),
+                kind: Kind::Goal,
+                mutation: format!("goal `{goal}` -> `{g}` ({how})"),
+                text: encode(&stmts, &g),
+            });
+            made += 1;
+        }
+        let mut weak = geo_weakenings(&stmts);
+        rng.shuffle(&mut weak);
+        let mut made = 0;
+        for (w, how) in weak {
+            if made >= (cfg.per / 2).max(1) {
+                break;
+            }
+            if !false_everywhere(&w.join("\n"), &goal, n) {
+                out.not_false += 1;
+                continue;
+            }
+            out.cases.push(Case {
+                name: format!("{name}~hg{made}"),
+                origin: name.clone(),
+                kind: Kind::HypGeneric,
+                mutation: how,
+                text: encode(&w, &goal),
+            });
+            made += 1;
+        }
+    }
+    out
+}
+
+/// Run one metric case through the classical provers directly — the additive
+/// (`synthetic`) and the multiplicative (`ratio`) one — without
+/// `metric::solve`'s figure backstop, so a wrong derivation is seen.
+pub fn solve_geo_case(name: &str, text: &str) -> Outcome {
+    use crate::synthetic::Outcome as Proof;
+    let start = Instant::now();
+    let mut out = Outcome {
+        name: name.to_string(),
+        method: "-".into(),
+        ..Outcome::default()
+    };
+    let body = text.strip_prefix(GEO_PREFIX).unwrap_or(text);
+    let Some((cons, goal)) = body.rsplit_once(" ? ") else {
+        out.status = "parse-error".into();
+        out.detail = "no ` ? ` goal separator".into();
+        return out;
+    };
+    let cons: String = cons.split(';').map(str::trim).collect::<Vec<_>>().join("\n");
+    out.parsed = true;
+    out.goal_numeric = equation_truths(&cons, goal, 1).and_then(|t| t.first().copied().flatten());
+    let provers: [(&str, fn(&str, &str) -> Result<Proof, String>); 2] = [
+        ("synthetic", crate::synthetic::prove_euclidean),
+        ("ratio", crate::ratio::prove_ratio),
+    ];
+    let mut reasons = Vec::new();
+    for (label, prove) in provers {
+        match catch_unwind(AssertUnwindSafe(|| quiet(|| prove(&cons, goal)))) {
+            Ok(Ok(Proof::Proved(proof))) => {
+                out.proved = true;
+                out.method = label.into();
+                out.steps = Some(proof_steps(&proof));
+                out.proof = Some(proof);
+                out.status = "proved".into();
+                break;
+            }
+            Ok(Ok(Proof::Unhandled(r))) => reasons.push(format!("{label}: {r}")),
+            Ok(Err(e)) => reasons.push(format!("{label} error: {e}")),
+            Err(_) => reasons.push(format!("{label} panicked")),
+        }
+    }
+    if !out.proved {
+        out.status = "unproved".into();
+        out.detail = reasons.join("; ");
+    }
+    out.secs = start.elapsed().as_secs_f64();
+    out
+}
+
 /// The cases as a corpus file (name line, statement line).
 pub fn corpus_text(cases: &[Case]) -> String {
     let mut s = String::new();
@@ -607,6 +943,7 @@ pub fn child_main(cases_file: &std::path::Path, name: &str, budget: Duration, pr
     let text = std::fs::read_to_string(cases_file).unwrap_or_default();
     let cases = corpus::read_corpus(&text).unwrap_or_default();
     let o = match cases.iter().find(|(n, _)| n == name) {
+        Some((n, t)) if t.starts_with(GEO_PREFIX) => solve_geo_case(n, t),
         Some((n, t)) => solve_case(n, t, budget, true),
         None => Outcome {
             name: name.to_string(),

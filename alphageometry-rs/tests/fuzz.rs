@@ -107,3 +107,29 @@ fn any_proof_of_a_false_variant_is_unsound() {
     };
     assert_eq!(verdict(&case(Kind::Degenerate), &flagged), "UNSOUND");
 }
+
+#[test]
+fn metric_fuzz_smoke_no_false_proof() {
+    use ddar::fuzz::{generate_geo, solve_geo_case};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples").join("metric");
+    let programs: Vec<(String, String)> =
+        ["angle_bisector", "geometric_mean", "median_apollonius", "power_of_a_point"]
+            .iter()
+            .map(|n| (n.to_string(), std::fs::read_to_string(dir.join(format!("{n}.geo"))).unwrap()))
+            .collect();
+    let gen = generate_geo(
+        &programs,
+        &Config {
+            per: 3,
+            seed: 20261003,
+            samples: 4,
+        },
+    );
+    assert!(gen.cases.len() >= 10, "only {} cases: {:?}", gen.cases.len(), gen.skipped);
+    assert!(gen.cases.iter().any(|c| c.kind == Kind::HypGeneric));
+    for case in &gen.cases {
+        let o = solve_geo_case(&case.name, &case.text);
+        assert_eq!(o.goal_numeric, Some(false), "{}: {}", case.name, case.text);
+        assert_eq!(verdict(case, &o), "ok", "{} {}\n{}\n{:?}", case.name, case.mutation, case.text, o.proof);
+    }
+}
