@@ -3,11 +3,10 @@
 //! Opened once (from `AGSTUDIO_DB`, see `security::Config`) and shared behind a
 //! mutex — SQLite itself serializes writers, and this is login/solve-rate
 //! traffic, not a hot path. Migrations are idempotent (`CREATE ... IF NOT
-//! EXISTS`) so `open` is safe to call on every startup. Not wired into the
-//! server yet; that lands with `AppState` in a later task.
+//! EXISTS`) so `open` is safe to call on every startup.
 
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -42,23 +41,63 @@ pub struct HistoryEntry {
     pub created_at: i64,
 }
 
+/// Lock the shared connection. A panic elsewhere while holding the lock must not
+/// turn every later request into "logged out" or a 500, and no multi-statement
+/// transaction is ever left open across a panic, so poison is recovered.
+pub fn lock(db: &Db) -> MutexGuard<'_, Connection> {
+    db.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
 }
 
 /// Open (creating if absent) and migrate the database at `path`.
+///
+/// The DB holds password hashes and session tokens, so it is owner-only on
+/// disk: the main file is created 0600 *before* SQLite opens it (no window at
+/// the umask default), and SQLite creates new `-wal`/`-shm` files with the main
+/// file's mode. Sidecars left over from an earlier run with looser modes are
+/// tightened explicitly, before and after the WAL is established.
 pub fn open(path: &Path) -> rusqlite::Result<Db> {
-    let conn = Connection::open(path)?;
-    // The DB holds password hashes and session tokens — owner-only on disk.
-    // (WAL/SHM sidecars inherit the containing directory's protection; this
-    // covers the main file, which is the one that persists.)
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
+    restrict_to_owner(path).map_err(|e| {
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN),
+            Some(format!("cannot create {} owner-only: {e}", path.display())),
+        )
+    })?;
+    let conn = Connection::open(path)?;
     init(&conn)?;
+    #[cfg(unix)]
+    let _ = restrict_to_owner(path);
     Ok(Arc::new(Mutex::new(conn)))
+}
+
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut s = path.as_os_str().to_owned();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+#[cfg(unix)]
+fn restrict_to_owner(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)?;
+    let owner_only = || std::fs::Permissions::from_mode(0o600);
+    std::fs::set_permissions(path, owner_only())?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let p = sidecar(path, suffix);
+        if p.exists() {
+            std::fs::set_permissions(&p, owner_only())?;
+        }
+    }
+    Ok(())
 }
 
 /// Foreign-key enforcement is a per-connection SQLite pragma (not persisted in
@@ -103,7 +142,16 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             created_at INTEGER NOT NULL
          );
          CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, created_at DESC);",
-    )
+    )?;
+    // Usernames are case-insensitive. A DB from before that rule may already
+    // hold `Alice` and `alice`; the index then fails to build and `create_user`'s
+    // own check still prevents any new collision.
+    if let Err(e) = conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name_nocase ON users(username COLLATE NOCASE);",
+    ) {
+        eprintln!("db: case-insensitive username index not created (legacy duplicates?): {e}");
+    }
+    Ok(())
 }
 
 fn row_to_user(r: &rusqlite::Row) -> rusqlite::Result<User> {
@@ -117,6 +165,12 @@ fn row_to_user(r: &rusqlite::Row) -> rusqlite::Result<User> {
 
 /// Create a user; fails (`SQLITE_CONSTRAINT`) on a duplicate username.
 pub fn create_user(conn: &Connection, username: &str, password_hash: &str) -> rusqlite::Result<i64> {
+    if find_user_by_name(conn, username)?.is_some() {
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE),
+            Some("username taken".into()),
+        ));
+    }
     conn.execute(
         "INSERT INTO users (username, password_hash, created_at) VALUES (?1, ?2, ?3)",
         params![username, password_hash, now()],
@@ -126,7 +180,8 @@ pub fn create_user(conn: &Connection, username: &str, password_hash: &str) -> ru
 
 pub fn find_user_by_name(conn: &Connection, username: &str) -> rusqlite::Result<Option<User>> {
     conn.query_row(
-        "SELECT id, username, password_hash, created_at FROM users WHERE username = ?1",
+        "SELECT id, username, password_hash, created_at FROM users \
+         WHERE username = ?1 COLLATE NOCASE ORDER BY id LIMIT 1",
         params![username],
         row_to_user,
     )
@@ -192,13 +247,19 @@ pub fn insert_history(
     Ok(id)
 }
 
-/// A user's history, newest first.
-pub fn list_history(conn: &Connection, user_id: i64) -> rusqlite::Result<Vec<HistoryEntry>> {
+/// A page of a user's history, newest first: at most `limit` rows, strictly
+/// older than the row `before` when given (keyset pagination by id).
+pub fn list_history(
+    conn: &Connection,
+    user_id: i64,
+    limit: i64,
+    before: Option<i64>,
+) -> rusqlite::Result<Vec<HistoryEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, user_id, input, title, proved, method, created_at \
-         FROM history WHERE user_id = ?1 ORDER BY created_at DESC, id DESC",
+         FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
     )?;
-    let rows = stmt.query_map(params![user_id], |r| {
+    let rows = stmt.query_map(params![user_id, before.unwrap_or(i64::MAX), limit], |r| {
         Ok(HistoryEntry {
             id: r.get(0)?,
             user_id: r.get(1)?,
@@ -276,12 +337,12 @@ mod tests {
         insert_history(&conn, a, "p1", Some("t1"), true, Some("ddar")).unwrap();
         insert_history(&conn, a, "p2", None, false, Some("aux-search")).unwrap();
         insert_history(&conn, b, "p3", None, true, None).unwrap();
-        let hist = list_history(&conn, a).unwrap();
+        let hist = list_history(&conn, a, 1000, None).unwrap();
         assert_eq!(hist.len(), 2);
         assert_eq!(hist[0].input, "p2"); // most recent first
         assert!(!hist[0].proved);
         assert!(hist[1].proved);
-        assert_eq!(list_history(&conn, b).unwrap().len(), 1);
+        assert_eq!(list_history(&conn, b, 1000, None).unwrap().len(), 1);
     }
 
     #[test]
@@ -329,10 +390,90 @@ mod tests {
         for i in 0..(HISTORY_MAX_PER_USER + 25) {
             insert_history(&conn, uid, &format!("p{i}"), None, true, None).unwrap();
         }
-        let hist = list_history(&conn, uid).unwrap();
+        let hist = list_history(&conn, uid, 1000, None).unwrap();
         assert_eq!(hist.len(), HISTORY_MAX_PER_USER as usize);
         // The survivors are the newest rows.
         assert_eq!(hist[0].input, format!("p{}", HISTORY_MAX_PER_USER + 24));
+    }
+
+    #[cfg(unix)]
+    fn mode_of(p: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fresh_db_and_wal_sidecars_are_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.db");
+        let db = open(&path).unwrap();
+        create_user(&lock(&db), "alice", "h").unwrap();
+        assert_eq!(mode_of(&path), 0o600);
+        for suffix in ["-wal", "-shm"] {
+            let p = sidecar(&path, suffix);
+            assert!(p.exists(), "{suffix} should exist in WAL mode");
+            assert_eq!(mode_of(&p), 0o600, "{suffix}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_world_readable_db_files_are_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("b.db");
+        // A live connection keeps non-empty WAL/SHM files around; SQLite only
+        // re-chmods sidecars it finds empty, so these would stay 0644.
+        let first = open(&path).unwrap();
+        create_user(&lock(&first), "alice", "h").unwrap();
+        for p in [path.clone(), sidecar(&path, "-wal"), sidecar(&path, "-shm")] {
+            assert!(std::fs::metadata(&p).unwrap().len() > 0, "{}", p.display());
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let db = open(&path).unwrap();
+        create_user(&lock(&db), "bob", "h").unwrap();
+        for p in [path.clone(), sidecar(&path, "-wal"), sidecar(&path, "-shm")] {
+            assert_eq!(mode_of(&p), 0o600, "{}", p.display());
+        }
+    }
+
+    #[test]
+    fn lock_recovers_from_a_poisoned_mutex() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open(&dir.path().join("p.db")).unwrap();
+        let d2 = db.clone();
+        let _ = std::thread::spawn(move || {
+            let _g = d2.lock().unwrap();
+            panic!("poison the db mutex");
+        })
+        .join();
+        assert!(db.is_poisoned());
+        create_user(&lock(&db), "alice", "h").unwrap();
+        assert!(find_user_by_name(&lock(&db), "alice").unwrap().is_some());
+    }
+
+    #[test]
+    fn list_history_is_paginated() {
+        let conn = mem();
+        let uid = create_user(&conn, "alice", "h").unwrap();
+        for i in 0..10 {
+            insert_history(&conn, uid, &format!("p{i}"), None, true, None).unwrap();
+        }
+        let page = list_history(&conn, uid, 4, None).unwrap();
+        assert_eq!(page.len(), 4);
+        assert_eq!(page[0].input, "p9");
+        let next = list_history(&conn, uid, 4, Some(page[3].id)).unwrap();
+        assert_eq!(next.len(), 4);
+        assert_eq!(next[0].input, "p5");
+    }
+
+    #[test]
+    fn usernames_are_unique_and_found_case_insensitively() {
+        let conn = mem();
+        create_user(&conn, "alice", "h").unwrap();
+        assert!(create_user(&conn, "Alice", "h2").is_err());
+        assert_eq!(find_user_by_name(&conn, "ALICE").unwrap().unwrap().username, "alice");
     }
 
     #[test]
@@ -343,10 +484,10 @@ mod tests {
         let id = insert_history(&conn, alice, "prog", None, true, None).unwrap();
         // Bob cannot delete Alice's entry.
         assert!(!delete_history(&conn, bob, id).unwrap());
-        assert_eq!(list_history(&conn, alice).unwrap().len(), 1);
+        assert_eq!(list_history(&conn, alice, 1000, None).unwrap().len(), 1);
         // Alice can; a repeat delete reports nothing removed.
         assert!(delete_history(&conn, alice, id).unwrap());
-        assert!(list_history(&conn, alice).unwrap().is_empty());
+        assert!(list_history(&conn, alice, 1000, None).unwrap().is_empty());
         assert!(!delete_history(&conn, alice, id).unwrap());
     }
 }

@@ -501,7 +501,7 @@ async fn api_history(State(state): State<Shared>, headers: HeaderMap) -> Respons
     let db = state.db.clone();
     let res = tokio::task::spawn_blocking(move || {
         let conn = db.lock().map_err(|_| ())?;
-        db::list_history(&conn, user.id).map_err(|_| ())
+        db::list_history(&conn, user.id, 1000, None).map_err(|_| ())
     })
     .await;
     match res {
