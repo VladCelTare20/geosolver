@@ -98,14 +98,14 @@ fn power_of_a_point_needs_one_configuration_in_every_instance() {
 fn irrational_ratios_are_never_bridged() {
     let f = figure("A = free\nB = free\nC = eq_triangle(A, B)\nM = midpoint(A, B)");
     let (a, b, c, m) = (0, 1, 2, 3);
-    assert!(f.exact_ratio(&[latom(c, m)], &[latom(a, b)]).is_none());
-    assert_eq!(f.exact_ratio(&[latom(a, m)], &[latom(a, b)]), Some(Rat::new(1, 2)));
+    assert!(f.exact_ratio(&[latom(c, m).into()], &[latom(a, b).into()]).is_none());
+    assert_eq!(f.exact_ratio(&[latom(a, m).into()], &[latom(a, b).into()]), Some(Rat::new(1, 2)));
 }
 
 #[test]
 fn a_rational_ratio_without_a_log_proof_gets_no_bridge() {
     let mut f = figure("A = free\nB = free\nM = midpoint(A, B)");
-    let pool: BTreeSet<Mono> = [vec![latom(0, 2)], vec![latom(0, 1)]].into_iter().collect();
+    let pool: BTreeSet<Mono> = [vec![latom(0, 2).into()], vec![latom(0, 1).into()]].into_iter().collect();
     f.gather_log_bridges(&pool, &pool);
     assert!(f.psteps.is_empty());
 }
@@ -120,4 +120,19 @@ fn symmedian_proof_reads_as_a_ratio_lemma() {
     };
     assert!(p.contains("Ratio lemma in △ABC with cevian AX: BX/XC = AB·sin∠BAX / (AC·sin∠CAX)"), "{p}");
     assert!(p.contains("Multiplying the sine relations above"), "{p}");
+}
+
+#[test]
+fn area_additivity_needs_the_same_convex_order_in_every_instance() {
+    let cons = "A B C = triangle\nD = free";
+    let (sampled, insts) = sampled_instances(cons).expect("figure");
+    let (a, b, c, d) = (0usize, 1usize, 2usize, 3usize);
+    let mut convex = insts[0].clone();
+    convex[d] = (convex[a] + convex[c]) * 0.5 - (convex[b] - (convex[a] + convex[c]) * 0.5);
+    let mut inside = insts[0].clone();
+    inside[d] = (inside[a] + inside[b] + inside[c]) * (1.0 / 3.0);
+    let f = Figure::gather(&sampled, vec![convex.clone(), inside]);
+    assert!(!f.area_base_rows(&[0, 1, 2, 3]).iter().any(|r| r.text.contains("convex")));
+    let f = Figure::gather(&sampled, vec![convex.clone(), convex]);
+    assert!(f.area_base_rows(&[0, 1, 2, 3]).iter().any(|r| r.text.contains("convex")));
 }

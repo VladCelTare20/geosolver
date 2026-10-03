@@ -57,6 +57,19 @@ fn latom(a: PointId, b: PointId) -> LAtom {
 enum LKey {
     Sin(PointId, PointId, PointId),
     Len(PointId, PointId),
+    /// `[abc]` (`a < b < c`), the unsigned area; a product factor only.
+    Area(PointId, PointId, PointId),
+    /// `cos ∠pvq` (`p < q`), signed; a product factor only, never a log atom.
+    Cos(PointId, PointId, PointId),
+}
+
+impl LKey {
+    fn len(self) -> Option<LAtom> {
+        match self {
+            LKey::Len(a, b) => Some((a, b)),
+            _ => None,
+        }
+    }
 }
 
 impl From<LAtom> for LKey {
@@ -1315,6 +1328,10 @@ fn eval_numeric(e: &MExpr, fig: &Figure) -> Option<f64> {
             MExpr::Angle(a, b, c) => fig.angle(0, fig.pt(a)?, fig.pt(b)?, fig.pt(c)?).sin(),
             _ => return None,
         },
+        MExpr::Cos(x) => match &**x {
+            MExpr::Angle(a, b, c) => fig.angle(0, fig.pt(a)?, fig.pt(b)?, fig.pt(c)?).cos(),
+            _ => return None,
+        },
         _ => return None,
     })
 }
@@ -1328,9 +1345,9 @@ fn eval_numeric(e: &MExpr, fig: &Figure) -> Option<f64> {
 type PAtom = Mono;
 fn pmul(a: LAtom, b: LAtom) -> PAtom {
     if a <= b {
-        vec![a, b]
+        vec![a.into(), b.into()]
     } else {
-        vec![b, a]
+        vec![b.into(), a.into()]
     }
 }
 
@@ -1370,9 +1387,12 @@ struct PStep {
     /// Closure facts a step proved elsewhere rests on (a log bridge); merged
     /// into the lead derivation.
     facts: Vec<crate::proof::FactId>,
+    /// Bookkeeping (a substitution of equal factors, `sin² + cos² = 1`): not a
+    /// second reason next to a lone named theorem.
+    support: bool,
 }
 
-type Mono = Vec<LAtom>;
+type Mono = Vec<LKey>;
 fn mono_scale(m: &BTreeMap<Mono, Rat>, k: &Rat) -> BTreeMap<Mono, Rat> {
     m.iter().map(|(a, c)| (a.clone(), c * k)).collect()
 }
@@ -1427,7 +1447,7 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
         MExpr::Num(v) => Some(unit(vec![], rat_of(*v)?)),
         MExpr::Dist(a, b) => {
             let (a, b) = (fig.pt(a)?, fig.pt(b)?);
-            Some(unit(vec![latom(a, b)], Rat::one()))
+            Some(unit(vec![latom(a, b).into()], Rat::one()))
         }
         MExpr::Neg(x) => Some(mono_scale(&mono_lower(x, fig)?, &-Rat::one())),
         MExpr::Add(x, y) => Some(mono_add(&mono_lower(x, fig)?, &mono_lower(y, fig)?, &Rat::one())),
@@ -1443,6 +1463,21 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
                 return None;
             }
             Some(mono_scale(&mono_lower(x, fig)?, &c.recip()))
+        }
+        MExpr::Sin(x) | MExpr::Cos(x) => {
+            let MExpr::Angle(a, b, c) = &**x else { return None };
+            let (a, b, c) = (fig.pt(a)?, fig.pt(b)?, fig.pt(c)?);
+            let k = fig.sin_atom(b, a, c)?;
+            let LKey::Sin(v, p, q) = k else { return None };
+            let k = if matches!(e, MExpr::Cos(_)) { LKey::Cos(v, p, q) } else { k };
+            Some(unit(vec![k], Rat::one()))
+        }
+        MExpr::Area(a, b, c) => {
+            let (a, b, c) = (fig.pt(a)?, fig.pt(b)?, fig.pt(c)?);
+            fig.sin_atom(a, b, c)?;
+            let mut t = [a, b, c];
+            t.sort();
+            Some(unit(vec![LKey::Area(t[0], t[1], t[2])], Rat::one()))
         }
         MExpr::Pow(base, p) => {
             let n = *p;
@@ -1469,6 +1504,7 @@ impl Figure {
             premises,
             lead: false,
             facts: Vec::new(),
+            support: false,
         });
         self.psteps.len() - 1
     }
@@ -1821,11 +1857,21 @@ impl Figure {
             out.push_str(&format!("  {}. {}\n", k + 1, a));
         }
         for (k, &i) in order.iter().enumerate() {
-            let cites: Vec<String> = self.psteps[i]
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|k| k.to_string()))
-                .collect();
+            let mut cites: Vec<String> = Vec::new();
+            for p in &self.psteps[i].premises {
+                let via: Vec<usize> = if self.psteps[*p].text.is_empty() {
+                    self.psteps[*p].premises.clone()
+                } else {
+                    vec![*p]
+                };
+                for q in via {
+                    if let Some(k) = number.get(&q) {
+                        if !cites.contains(&k.to_string()) {
+                            cites.push(k.to_string());
+                        }
+                    }
+                }
+            }
             let refs = if cites.is_empty() {
                 String::new()
             } else {
@@ -1872,6 +1918,18 @@ impl Figure {
                 .collect();
             if used.len() == 1 && lone.len() == 1 {
                 rejected.insert(lone[0]);
+                continue;
+            }
+            // The same, when the lone theorem is spread over several multiples
+            // and stitched together only by bookkeeping rows.
+            let heads: BTreeSet<usize> = lone.iter().copied().collect();
+            if heads.len() == 1
+                && used.iter().any(|&i| self.psteps[i].support)
+                && used
+                    .iter()
+                    .all(|&i| self.psteps[i].support || self.psteps[i].premises.iter().any(|p| heads.contains(p)))
+            {
+                rejected.extend(heads);
                 continue;
             }
             let intros: BTreeSet<usize> = used
@@ -1960,7 +2018,7 @@ impl Figure {
         self.pending.clear();
         let mut used = None;
         if degree == 2 {
-            let goal_segs: BTreeSet<LAtom> = goal.terms.keys().flatten().copied().collect();
+            let goal_segs: BTreeSet<LAtom> = goal.terms.keys().flatten().filter_map(|k| k.len()).collect();
             self.gather_generic_similar(relevant);
             self.gather_bisector_products();
             self.gather_product_relations(&goal_segs);
@@ -1986,7 +2044,9 @@ impl Figure {
         let rm = mono_lower(rhs, self)?;
         let goal_map = mono_add(&lm, &rm, &-Rat::one());
         let degree = goal_map.keys().next()?.len();
-        if degree == 0 || !goal_map.keys().all(|m| m.len() == degree) {
+        if degree == 0
+            || !goal_map.keys().all(|m| m.len() == degree && m.iter().all(|k| matches!(k, LKey::Len(..))))
+        {
             return None;
         }
         let mut goal = PEq::default();
@@ -2343,7 +2403,7 @@ impl Figure {
         // is what the sum-of-products engine proves). Bail fast otherwise.
         let degree2 = mono_lower(lhs, self)
             .and_then(|l| mono_lower(rhs, self).map(|r| mono_add(&l, &r, &-Rat::one())))
-            .map(|g| !g.is_empty() && g.keys().all(|m| m.len() == 2))
+            .map(|g| !g.is_empty() && g.keys().all(|m| m.len() == 2 && m.iter().all(|k| matches!(k, LKey::Len(..)))))
             .unwrap_or(false);
         if !degree2 {
             return None;
@@ -2518,6 +2578,14 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     }
     //    S6: the same after one circle second meet or perpendicular foot.
     if let Some(proof) = fig.aux_search_trig(&lhs, &rhs, goal, &pts) {
+        return Ok(Outcome::Proved(proof));
+    }
+    //    S7: sine-area rows over the goal multiplied by a non-zero sine.
+    if let Some(proof) = fig.prove_by_areas(&lhs, &rhs, goal, &pts) {
+        return Ok(Outcome::Proved(proof));
+    }
+    //    S8: a cosine goal over the law-of-cosines rows.
+    if let Some(proof) = fig.prove_by_cosines(&lhs, &rhs, goal, &pts) {
         return Ok(Outcome::Proved(proof));
     }
 

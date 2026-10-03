@@ -2,6 +2,8 @@ use super::*;
 use crate::certify::pred_c;
 use crate::proof::FactId;
 
+mod area;
+mod cos;
 mod bridge;
 mod render;
 pub(super) use render::Tag;
@@ -31,6 +33,15 @@ fn sin_key(v: PointId, p: PointId, q: PointId) -> LKey {
         LKey::Sin(v, p, q)
     } else {
         LKey::Sin(v, q, p)
+    }
+}
+
+impl LKey {
+    pub(super) fn points(self) -> Vec<PointId> {
+        match self {
+            LKey::Len(a, b) => vec![a, b],
+            LKey::Sin(v, p, q) | LKey::Area(v, p, q) | LKey::Cos(v, p, q) => vec![v, p, q],
+        }
     }
 }
 
@@ -74,8 +85,9 @@ impl Figure {
 
     pub(super) fn angle_text(&self, k: LKey) -> String {
         match k {
-            LKey::Sin(v, p, q) => format!("∠{}{}{}", self.nm(p), self.nm(v), self.nm(q)),
+            LKey::Sin(v, p, q) | LKey::Cos(v, p, q) => format!("∠{}{}{}", self.nm(p), self.nm(v), self.nm(q)),
             LKey::Len(a, b) => self.seg(a, b),
+            LKey::Area(a, b, c) => format!("[{}{}{}]", self.nm(a), self.nm(b), self.nm(c)),
         }
     }
 
@@ -554,7 +566,39 @@ impl Figure {
     }
 
     /// T2: for every
-    pub(super) fn mono_text(&self, m: &[LAtom]) -> String {
+    pub(super) fn factor_val(&self, inst: usize, k: LKey) -> f64 {
+        match k {
+            LKey::Len(a, b) => self.dist(inst, a, b),
+            LKey::Sin(v, p, q) => self.sin_abs(inst, v, p, q),
+            LKey::Area(a, b, c) => {
+                let (u, w) = (
+                    self.insts[inst][b as usize] - self.insts[inst][a as usize],
+                    self.insts[inst][c as usize] - self.insts[inst][a as usize],
+                );
+                0.5 * (u.x * w.y - u.y * w.x).abs()
+            }
+            LKey::Cos(v, p, q) => self.cos_val(inst, v, p, q),
+        }
+    }
+
+    pub(super) fn cos_val(&self, inst: usize, v: PointId, p: PointId, q: PointId) -> f64 {
+        let (u, w) = (
+            self.insts[inst][p as usize] - self.insts[inst][v as usize],
+            self.insts[inst][q as usize] - self.insts[inst][v as usize],
+        );
+        u.dot(w) / (u.norm() * w.norm())
+    }
+
+    pub(super) fn factor_text(&self, k: LKey) -> String {
+        match k {
+            LKey::Len(a, b) => self.seg(a, b),
+            LKey::Sin(..) => self.sin_text(k),
+            LKey::Area(a, b, c) => format!("[{}{}{}]", self.nm(a), self.nm(b), self.nm(c)),
+            LKey::Cos(..) => format!("cos{}", self.angle_text(k)),
+        }
+    }
+
+    pub(super) fn mono_text(&self, m: &[LKey]) -> String {
         let mut parts: Vec<String> = Vec::new();
         let mut i = 0;
         while i < m.len() {
@@ -562,7 +606,7 @@ impl Figure {
             while j < m.len() && m[j] == m[i] {
                 j += 1;
             }
-            let s = self.seg(m[i].0, m[i].1);
+            let s = self.factor_text(m[i]);
             parts.push(match j - i {
                 1 => s,
                 2 => format!("{s}²"),
@@ -674,7 +718,7 @@ impl Figure {
         while qi < queue.len() {
             let m = queue[qi].clone();
             qi += 1;
-            let atoms: BTreeSet<LAtom> = m.iter().copied().collect();
+            let atoms: BTreeSet<LAtom> = m.iter().filter_map(|k| k.len()).collect();
             for s in atoms {
                 if !equal.contains_key(&s) {
                     let c = self.congruent_candidates(s);
@@ -682,8 +726,8 @@ impl Figure {
                 }
                 for s2 in equal[&s].clone() {
                     let mut m2 = m.clone();
-                    let pos = m2.iter().position(|x| *x == s).unwrap();
-                    m2[pos] = s2;
+                    let pos = m2.iter().position(|x| *x == LKey::from(s)).unwrap();
+                    m2[pos] = s2.into();
                     m2.sort();
                     let key = if m <= m2 { (m.clone(), m2.clone()) } else { (m2.clone(), m.clone()) };
                     if !rows.insert(key) {
@@ -703,7 +747,8 @@ impl Figure {
                         self.mono_text(&m),
                         self.mono_text(&m2)
                     );
-                    self.ppush(text, Some(e), vec![intro]);
+                    let row = self.ppush(text, Some(e), vec![intro]);
+                    self.psteps[row].support = true;
                     if pool.len() < MAX_POOL && pool.insert(m2.clone()) {
                         queue.push(m2);
                     }

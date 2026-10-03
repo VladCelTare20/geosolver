@@ -421,6 +421,35 @@ fn sine_goals_are_not_lone_citations_and_false_ones_fail() {
     );
 }
 
+/// TRIG_PLAN §3, item 17 and T7: an equal-or-supplementary angle pair has
+/// equal sines but cosines of opposite sign; the law of cosines does not prove
+/// its own restatement, even spread over multiples of `sin² + cos² = 1`.
+#[test]
+fn cosine_sign_trap_and_restatement() {
+    let supp = "A B C = triangle\nD = reflect(C, B)";
+    provers_reject(supp, "cos(angle(A,B,C)) = cos(angle(A,B,D))");
+    for goal in [
+        "sin(angle(A,B,C)) = sin(angle(A,B,D))",
+        "cos(angle(A,B,C)) = -cos(angle(A,B,D))",
+    ] {
+        let proof = metric::solve(supp, goal, 48).unwrap_or_else(|e| panic!("{goal}: {e}"));
+        assert!(proof.starts_with("EUCLIDEAN PROOF"), "{proof}");
+    }
+    let restated = "dist(B,C)^2 = dist(A,B)^2 + dist(A,C)^2 - 2*dist(A,B)*dist(A,C)*cos(angle(B,A,C))";
+    match metric::solve("A B C = triangle", restated, 48) {
+        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.numerically_holds(), Some(true)),
+        other => panic!("the law of cosines must not prove its own restatement: {other:?}"),
+    }
+    provers_reject(
+        "A B C = triangle",
+        "dist(B,C)^2 = dist(A,B)^2 + dist(A,C)^2 + 2*dist(A,B)*dist(A,C)*cos(angle(B,A,C))",
+    );
+    let right = "A = free\nB = free\nC = point: perp(A,B,A,C)\nH = foot(A, line(B,C))";
+    let proof = metric::solve(right, "dist(A,B)*cos(angle(A,B,C)) = dist(B,H)", 48).expect("projection is proved");
+    assert!(proof.contains("Law of cosines"), "{proof}");
+    provers_reject(right, "dist(A,B)*cos(angle(A,B,C)) = dist(C,H)");
+}
+
 /// TRIG_PLAN §3, items 7–8: false neighbours of Ptolemy's second theorem.
 #[test]
 fn ptolemy_second_false_neighbours_are_never_proved() {
@@ -435,5 +464,22 @@ fn ptolemy_second_false_neighbours_are_never_proved() {
         CYCLIC_QUAD,
         "dist(B,D)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
          dist(A,C)*(dist(A,B)*dist(A,D) + dist(B,C)*dist(C,D))",
+    );
+    // The convex general case the sine-area stage proves: its neighbours.
+    let convex = "A B C = triangle\nM = midpoint(A, C)\nD = meet(line(B, M), circumcircle(A, B, C))";
+    provers_reject(
+        convex,
+        "dist(B,D)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(A,C)*(dist(A,B)*dist(A,D) + dist(B,C)*dist(C,D))",
+    );
+    provers_reject(
+        convex,
+        "dist(A,C)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(B,D)*(dist(A,B)*dist(A,D) + 2*dist(B,C)*dist(C,D))",
+    );
+    // Ptolemy's first theorem with a minus sign.
+    provers_reject(
+        convex,
+        "dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) - dist(A,D)*dist(B,C)",
     );
 }

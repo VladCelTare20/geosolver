@@ -300,7 +300,7 @@ pub const THEOREMS: &[Theorem] = &[
     Theorem { category: "Quadrilaterals", name: "circumcentre–side distance", statement: "in a cyclic orthodiagonal quadrilateral, the distance from the circumcentre to a side is half the opposite side  [catalogued]" },
     Theorem { category: "Quadrilaterals", name: "anticentre (maltitudes)", statement: "the four maltitudes of a cyclic quadrilateral are concurrent at the anticentre  [catalogued]" },
     Theorem { category: "Quadrilaterals", name: "harmonic quadrilateral", statement: "in a cyclic quadrilateral with AB·CD = BC·DA, the tangents at A and C meet on line BD  [catalogued]" },
-    Theorem { category: "Quadrilaterals", name: "Ptolemy's second theorem", statement: "AC/BD = (AB·AD + CB·CD)/(BA·BC + DA·DC) for a cyclic quadrilateral  [catalogued]" },
+    Theorem { category: "Quadrilaterals", name: "Ptolemy's second theorem", statement: "AC/BD = (AB·AD + CB·CD)/(BA·BC + DA·DC) for a cyclic quadrilateral — DERIVED from the sine area formula and the law of sines  [ratio, derived]" },
     Theorem { category: "Quadrilaterals", name: "Fuss' theorem", statement: "a bicentric quadrilateral satisfies 1/(R+d)² + 1/(R−d)² = 1/r², d the distance between the centres  [catalogued]" },
 
     // ── Areas ─────────────────────────────────────────────────────────────────
@@ -326,12 +326,12 @@ pub const THEOREMS: &[Theorem] = &[
 
     // ── Trigonometric relations ───────────────────────────────────────────────
     Theorem { category: "Trigonometry", name: "law of sines", statement: "a/sin A = b/sin B = c/sin C; with equal sines (θ ≡ ±φ mod 180°, certified by DDAR) and the tabulated sines of 30°, 45°, 60°, 90°  [ratio]" },
-    Theorem { category: "Trigonometry", name: "law of cosines", statement: "c² = a² + b² − 2ab·cos C  [catalogued]" },
+    Theorem { category: "Trigonometry", name: "law of cosines", statement: "c² = a² + b² − 2ab·cos C; cos θ = ±cos φ for a certified equal-or-supplementary pair, the sign read from the figure; cos 90° = 0  [ratio]" },
     Theorem { category: "Trigonometry", name: "law of tangents", statement: "(a−b)/(a+b) = tan(½(A−B)) / tan(½(A+B))  [catalogued]" },
     Theorem { category: "Trigonometry", name: "projection formula", statement: "a = b·cos C + c·cos B  [catalogued]" },
     Theorem { category: "Trigonometry", name: "Mollweide's formula", statement: "(a+b)/c = cos(½(A−B)) / sin(½C)  [catalogued]" },
     Theorem { category: "Trigonometry", name: "Stewart via cosines", statement: "Stewart's theorem follows from the law of cosines on the two sub-triangles  [additive]" },
-    Theorem { category: "Trigonometry", name: "sine area formula", statement: "area of a triangle = ½·ab·sin C  [catalogued]" },
+    Theorem { category: "Trigonometry", name: "sine area formula", statement: "area of a triangle = ½·ab·sin C, with a convex quadrilateral split along either diagonal  [ratio]" },
     Theorem { category: "Trigonometry", name: "law of cotangents", statement: "cot(A/2) = (s − a)/r, uniformly over the three angles  [catalogued]" },
     Theorem { category: "Trigonometry", name: "tangent identity", statement: "in any triangle, tan A + tan B + tan C = tan A · tan B · tan C  [catalogued]" },
     Theorem { category: "Trigonometry", name: "cosine sum identity", statement: "cos A + cos B + cos C = 1 + r/R  [catalogued]" },

@@ -5,8 +5,8 @@ const MAX_TRIG_AUX: usize = 200;
 const MAX_BRIDGES: usize = 64;
 
 impl Figure {
-    fn mono_val(&self, inst: usize, m: &[LAtom]) -> f64 {
-        m.iter().map(|&(a, b)| self.dist(inst, a, b)).product()
+    fn mono_val(&self, inst: usize, m: &[LKey]) -> f64 {
+        m.iter().map(|&k| self.factor_val(inst, k)).product()
     }
 
     /// T4: power of a point with respect to a circle known by its centre.
@@ -180,7 +180,7 @@ impl Figure {
     }
 
     /// `k` with `m1 = k·m2` in every instance, `k` a small positive rational.
-    pub(in crate::ratio) fn exact_ratio(&self, m1: &[LAtom], m2: &[LAtom]) -> Option<Rat> {
+    pub(in crate::ratio) fn exact_ratio(&self, m1: &[LKey], m2: &[LKey]) -> Option<Rat> {
         let r0 = self.mono_val(0, m1) / self.mono_val(0, m2);
         let k = crate::certify::candidate_rat(r0)?;
         let kf = k.to_f64();
@@ -207,7 +207,7 @@ impl Figure {
         aux_prose: &[String],
     ) -> Option<String> {
         let goal = self.homogeneous_goal(lhs, rhs)?;
-        let goal_pts: BTreeSet<PointId> = goal.terms.keys().flatten().flat_map(|&(a, b)| [a, b]).collect();
+        let goal_pts: BTreeSet<PointId> = goal.terms.keys().flatten().flat_map(|&k| k.points()).collect();
         self.psteps.clear();
         self.pending.clear();
         self.steps.clear();
@@ -215,7 +215,7 @@ impl Figure {
         self.trig_checks = 0;
         let degree = goal.terms.keys().next()?.len();
         if degree == 2 {
-            let goal_segs: BTreeSet<LAtom> = goal.terms.keys().flatten().copied().collect();
+            let goal_segs: BTreeSet<LAtom> = goal.terms.keys().flatten().filter_map(|k| k.len()).collect();
             self.gather_generic_similar(relevant);
             self.gather_bisector_products();
             self.gather_product_relations(&goal_segs);
