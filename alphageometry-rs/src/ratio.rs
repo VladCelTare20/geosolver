@@ -207,6 +207,9 @@ struct Figure {
     /// Candidate steps of the product engine awaiting DDAR certification:
     /// `(intro step, facts it needs, is it a named-theorem citation)`.
     pending: Vec<(usize, Vec<Predicate>, bool)>,
+    /// Certification results of trig rows by step index, and DDAR checks spent.
+    trig_cache: BTreeMap<usize, Option<Vec<crate::proof::FactId>>>,
+    trig_checks: usize,
 }
 
 impl Figure {
@@ -285,6 +288,8 @@ impl Figure {
             hyps: fig.preds.len(),
             ddar: RefCell::new(Certifier::default()),
             pending: Vec::new(),
+            trig_cache: BTreeMap::new(),
+            trig_checks: 0,
         };
         for p in &fig.preds {
             let pts = &p.points;
@@ -1341,6 +1346,9 @@ struct PStep {
     premises: Vec<usize>,
     /// Printed before the other steps (the shared angle derivation).
     lead: bool,
+    /// Closure facts a step proved elsewhere rests on (a log bridge); merged
+    /// into the lead derivation.
+    facts: Vec<crate::proof::FactId>,
 }
 
 type Mono = Vec<LAtom>;
@@ -1439,6 +1447,7 @@ impl Figure {
             eq,
             premises,
             lead: false,
+            facts: Vec::new(),
         });
         self.psteps.len() - 1
     }
@@ -1873,16 +1882,20 @@ impl Figure {
                 }
             }
             if all_ok {
-                let used_intros: BTreeSet<usize> = used
+                let mut used_intros: BTreeSet<usize> = used
                     .iter()
                     .flat_map(|&i| self.psteps[i].premises.iter().copied())
                     .filter(|p| certified.contains_key(p))
                     .collect();
-                if !used_intros.is_empty() {
+                let carried: Vec<usize> =
+                    used.iter().copied().filter(|&i| !self.psteps[i].facts.is_empty()).collect();
+                if !used_intros.is_empty() || !carried.is_empty() {
                     let mut deps: Vec<crate::proof::FactId> = used_intros
                         .iter()
                         .flat_map(|i| certified[i].iter().copied())
+                        .chain(carried.iter().flat_map(|&i| self.psteps[i].facts.iter().copied()))
                         .collect();
+                    used_intros.extend(carried);
                     deps.sort_unstable();
                     deps.dedup();
                     let lines = self.ddar.borrow().lines(&deps);
@@ -2043,6 +2056,8 @@ impl Figure {
             hyps: self.hyps,
             ddar: RefCell::new(Certifier::default()),
             pending: Vec::new(),
+            trig_cache: BTreeMap::new(),
+            trig_checks: 0,
         }
     }
     fn add_fact(&mut self, f: &AuxFact) {
@@ -2473,6 +2488,16 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
         if let Some(used) = s1_fig.prove_trig_log(goal_eq, &pts, &goal_pts) {
             return Ok(Outcome::Proved(s1_fig.render(&used, goal, goal_val)));
         }
+    }
+    //    S5: products with T2 cofactors, T4 powers and T3 log bridges.
+    let mut fig = Figure::gather(&sampled, insts);
+    let all: Vec<PointId> = (0..fig.names.len() as PointId).collect();
+    if let Some(proof) = fig.prove_products_trig(&lhs, &rhs, goal, &pts, &all, &[]) {
+        return Ok(Outcome::Proved(proof));
+    }
+    //    S6: the same after one circle second meet or perpendicular foot.
+    if let Some(proof) = fig.aux_search_trig(&lhs, &rhs, goal, &pts) {
+        return Ok(Outcome::Proved(proof));
     }
 
     Ok(Outcome::Unhandled(

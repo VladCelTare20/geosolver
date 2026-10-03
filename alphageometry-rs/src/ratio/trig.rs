@@ -2,6 +2,7 @@ use super::*;
 use crate::certify::pred_c;
 use crate::proof::FactId;
 
+mod bridge;
 #[cfg(test)]
 mod tests;
 
@@ -421,48 +422,53 @@ impl Figure {
         }
     }
 
+    /// DDAR certification of one pending row, cached per figure. `None` once
+    /// the per-solve budget of checks is spent.
+    fn certify_row(&mut self, i: usize) -> Option<Option<Vec<FactId>>> {
+        if let Some(r) = self.trig_cache.get(&i) {
+            return Some(r.clone());
+        }
+        let mut got = None;
+        for alt in self.steps[i].alts.clone() {
+            self.trig_checks += 1;
+            if self.trig_checks > MAX_SIN_CERTS {
+                return None;
+            }
+            got = self.ddar.borrow_mut().derive_deps(&self.names, &self.insts[0], &self.preds, self.hyps, &alt);
+            if got.is_some() {
+                break;
+            }
+        }
+        self.trig_cache.insert(i, got.clone());
+        Some(got)
+    }
+
     /// `prove` with certification: every used row that carries premise
     /// alternatives must have one of them derived by DDAR, or it is rejected
     /// and the solve retried. Then greedy minimisation and the lone-headline
-    /// guard; the certified facts are printed once, in a lead step.
-    pub(super) fn certified_prove(&mut self, goal: &LEq, base: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
+    /// guard. Returns the rows and the closure facts they rest on.
+    pub(super) fn certified_prove_core(
+        &mut self,
+        goal: &LEq,
+        base: &BTreeSet<usize>,
+    ) -> Option<(BTreeSet<usize>, Vec<FactId>)> {
         let mut rejected: BTreeSet<usize> = BTreeSet::new();
-        let mut certified: BTreeMap<usize, Vec<FactId>> = BTreeMap::new();
-        let mut attempts = 0usize;
         for _ in 0..MAX_ROUNDS {
-            let allowed: BTreeSet<usize> = base.iter().copied().filter(|i| !rejected.contains(i)).collect();
+            let allowed: BTreeSet<usize> = base
+                .iter()
+                .copied()
+                .filter(|i| !rejected.contains(i) && !matches!(self.trig_cache.get(i), Some(None)))
+                .collect();
             let allowed = self.prune_private_atoms(goal, &allowed);
             let mut used = self.prove_with(goal, &allowed)?;
             let mut all_ok = true;
             for &i in &used {
-                if self.steps[i].alts.is_empty() || certified.contains_key(&i) {
+                if self.steps[i].alts.is_empty() {
                     continue;
                 }
-                let mut got = None;
-                for alt in self.steps[i].alts.clone() {
-                    attempts += 1;
-                    if attempts > MAX_SIN_CERTS {
-                        return None;
-                    }
-                    got = self.ddar.borrow_mut().derive_deps(
-                        &self.names,
-                        &self.insts[0],
-                        &self.preds,
-                        self.hyps,
-                        &alt,
-                    );
-                    if got.is_some() {
-                        break;
-                    }
-                }
-                match got {
-                    Some(d) => {
-                        certified.insert(i, d);
-                    }
-                    None => {
-                        rejected.insert(i);
-                        all_ok = false;
-                    }
+                if self.certify_row(i)?.is_none() {
+                    rejected.insert(i);
+                    all_ok = false;
                 }
             }
             if !all_ok {
@@ -493,33 +499,39 @@ impl Figure {
             }
             let mut deps: Vec<FactId> = used
                 .iter()
-                .filter_map(|i| certified.get(i))
+                .filter_map(|i| self.trig_cache.get(i).cloned().flatten())
                 .flatten()
-                .copied()
                 .collect();
             deps.sort_unstable();
             deps.dedup();
-            if !deps.is_empty() {
-                let lines = self.ddar.borrow().lines(&deps);
-                let lead = self.push(
-                    format!(
-                        "Facts derived from the hypotheses by the deductive closure:{}",
-                        derivation_block(&lines)
-                    ),
-                    None,
-                    vec![],
-                    false,
-                );
-                self.steps[lead].lead = true;
-                for &i in &used {
-                    if certified.contains_key(&i) {
-                        self.steps[i].premises.push(lead);
-                    }
-                }
-            }
-            return Some(used);
+            return Some((used, deps));
         }
         None
+    }
+
+    /// [`Figure::certified_prove_core`], with the certified facts printed once
+    /// in a lead step that every certified row cites.
+    pub(super) fn certified_prove(&mut self, goal: &LEq, base: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
+        let (used, deps) = self.certified_prove_core(goal, base)?;
+        if !deps.is_empty() {
+            let lines = self.ddar.borrow().lines(&deps);
+            let lead = self.push(
+                format!(
+                    "Facts derived from the hypotheses by the deductive closure:{}",
+                    derivation_block(&lines)
+                ),
+                None,
+                vec![],
+                false,
+            );
+            self.steps[lead].lead = true;
+            for &i in &used {
+                if !self.steps[i].alts.is_empty() {
+                    self.steps[i].premises.push(lead);
+                }
+            }
+        }
+        Some(used)
     }
 
     /// Stage S2: the monomial goal over the S1 figure plus the trig rows.
@@ -624,10 +636,14 @@ impl Figure {
                     let cand = self.build_cand(
                         "K".to_string(),
                         format!(
-                            "Let K be the second meet of line {} with the circle ({}) through {}.",
+                            "Let K be the second meet of line {} with the circle ({}){}.",
                             self.seg(v, r),
                             self.nm(o),
-                            on.iter().map(|&p| self.nm(p)).collect::<String>()
+                            if on.iter().any(|&p| self.nm(p).starts_with('_')) {
+                                String::new()
+                            } else {
+                                format!(" through {}", on.iter().map(|&p| self.nm(p)).collect::<String>())
+                            }
                         ),
                         vec![AuxFact::Coll(v, r, kid), AuxFact::Cong([o, a, o, kid])],
                         move |i| {

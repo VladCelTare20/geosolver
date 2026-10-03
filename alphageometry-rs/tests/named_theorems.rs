@@ -49,9 +49,7 @@ fn split_goal(src: &str) -> (String, String) {
 
 /// Metric goals with no Euclidean proof yet: true in every sampled figure,
 /// reported as unproved. Moving one out of this list needs a real proof.
-const NUMERIC_ONLY: &[&str] = &[
-    "euler_formula_oi.geo",
-];
+const NUMERIC_ONLY: &[&str] = &[];
 
 #[test]
 fn named_theorem_corpus_proves() {

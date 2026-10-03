@@ -76,3 +76,36 @@ fn law_of_sines_alone_does_not_prove_its_restatement() {
     goal.add_term(sin_key(1, 0, 2), Rat::one());
     assert!(f.certified_prove(&goal, &base).is_none());
 }
+
+#[test]
+fn power_of_a_point_needs_one_configuration_in_every_instance() {
+    let cons = "O = free\nA = free\nX = on_circle(O, A)\nY = on_circle(O, A)\nP = on_line(X, Y)";
+    let (sampled, insts) = sampled_instances(cons).expect("figure");
+    let (x, y, p) = (2usize, 3usize, 4usize);
+    let mut inside = insts[0].clone();
+    inside[p] = (inside[x] + inside[y]) * 0.5;
+    let mut outside = insts[0].clone();
+    outside[p] = outside[x] + (outside[y] - outside[x]) * 2.0;
+    let mut f = Figure::gather(&sampled, vec![inside.clone(), outside]);
+    f.gather_center_power(&[0, 1, 2, 3, 4]);
+    assert!(f.psteps.is_empty(), "a power row was emitted with the inside/outside branch varying");
+    let mut f = Figure::gather(&sampled, vec![inside.clone(), inside]);
+    f.gather_center_power(&[0, 1, 2, 3, 4]);
+    assert!(!f.psteps.is_empty(), "the consistent inside configuration gets its row");
+}
+
+#[test]
+fn irrational_ratios_are_never_bridged() {
+    let f = figure("A = free\nB = free\nC = eq_triangle(A, B)\nM = midpoint(A, B)");
+    let (a, b, c, m) = (0, 1, 2, 3);
+    assert!(f.exact_ratio(&[latom(c, m)], &[latom(a, b)]).is_none());
+    assert_eq!(f.exact_ratio(&[latom(a, m)], &[latom(a, b)]), Some(Rat::new(1, 2)));
+}
+
+#[test]
+fn a_rational_ratio_without_a_log_proof_gets_no_bridge() {
+    let mut f = figure("A = free\nB = free\nM = midpoint(A, B)");
+    let pool: BTreeSet<Mono> = [vec![latom(0, 2)], vec![latom(0, 1)]].into_iter().collect();
+    f.gather_log_bridges(&pool, &pool);
+    assert!(f.psteps.is_empty());
+}

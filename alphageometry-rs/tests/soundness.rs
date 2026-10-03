@@ -351,8 +351,8 @@ fn provers_reject(cons: &str, goal: &str) {
     if let Ok(Outcome::Proved(p)) = ddar::ratio::prove_ratio(cons, goal) {
         panic!("ratio prover proved a false statement:\n{goal}\n{p}");
     }
-    match metric::solve(cons, goal, 48) {
-        Ok(proof) => panic!("a false statement was proved:\n{goal}\n{proof}"),
+    match metric::check_numerically(cons, goal, 48) {
+        Ok(ev) => panic!("{goal}: expected a false statement, it holds numerically: {}", ev.report),
         Err(e) => assert!(e.is_refuted(), "{goal}: expected a refutation, got {e}"),
     }
 }
@@ -370,6 +370,32 @@ fn symmedian_false_neighbours_are_never_proved() {
         "A B C = triangle\nX = midpoint(B, C)",
         "dist(B,X)*dist(A,C)^2 = dist(X,C)*dist(A,B)^2",
     );
+}
+
+const EULER: &str = "A B C = triangle\nO = circumcenter(A, B, C)\nI = incenter(A, B, C)\n\
+     T = foot(I, line(B, C))";
+
+/// TRIG_PLAN §3, items 4–6: false neighbours of Euler's OI² = R² − 2Rr.
+#[test]
+fn euler_false_neighbours_are_never_proved() {
+    provers_reject(EULER, "dist(O,I)^2 = dist(O,A)^2 + 2*dist(O,A)*dist(I,T)");
+    provers_reject(EULER, "dist(O,I)^2 = dist(O,A)^2 - dist(O,A)*dist(I,T)");
+    provers_reject(
+        &format!("{EULER}\nN = meet(line(B, I), circumcircle(A, B, C))"),
+        "dist(I,B)*dist(N,C) = 3*dist(O,A)*dist(I,T)",
+    );
+}
+
+/// TRIG_PLAN §3, item 9: power of a point outside the circle with the sign of
+/// the inside case. The correct sign is proved.
+#[test]
+fn power_of_a_point_sign_is_read_from_the_configuration() {
+    let cons = "O = free\nA = free\nP = point: dist(O,P) = 2*dist(O,A)\nX = on_circle(O, A)\n\
+                Y = meet(line(P, X), circle(O, A))";
+    provers_reject(cons, "dist(P,X)*dist(P,Y) = dist(O,A)^2 - dist(O,P)^2");
+    let proof = metric::solve(cons, "dist(P,X)*dist(P,Y) = dist(O,P)^2 - dist(O,A)^2", 48)
+        .expect("the outside power of a point is proved");
+    assert!(proof.starts_with("EUCLIDEAN PROOF"), "{proof}");
 }
 
 /// TRIG_PLAN §3, items 7–8: false neighbours of Ptolemy's second theorem.
