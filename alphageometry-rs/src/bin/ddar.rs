@@ -46,6 +46,54 @@ use ddar::Problem;
 
 const DATASET: &str = include_str!("../../problems.tsv");
 
+const USAGE: &str = "\
+usage: ddar [mode] [options] [<problem|program|file>]
+
+Modes:
+  --bench                 solve the bundled IMO set with timings (default)
+  --max <prog|file>       universal solver: DDAR, else the aux search at max effort
+  --geo <prog|file>       compile a high-level .geo program and solve it
+  --metric <prog|file>    prove a metric (length) goal with a Euclidean proof
+  --geo-show <prog|file>  compile and print the low-level form
+  --constructions         list the high-level language vocabulary
+  --theorems              list the classical-theorem proof library
+  --aux \"<problem>\"       solve a low-level problem with the aux search
+  --explore               report which bundled aux points are load-bearing
+  --batch [dir]           run the universal solver on every problem in dir
+  --bench-aux             leave-one-out aux rediscovery benchmark
+  --verify-warm           check warm-start == full solve over the corpus
+  \"<problem>\"             solve a single low-level problem string
+
+Options:
+  --proof                 print a numbered proof after solving
+  --svg <file>            write an SVG figure
+  --theme dark|light      figure color scheme (default dark)
+  --title <text>          title atop the figure's construction panel
+  -h, --help              print this help
+";
+
+const MODES: &[&str] = &[
+    "--bench", "--geo", "--geo-show", "--aux", "--explore", "--constructions", "--bench-aux",
+    "--verify-warm", "--metric", "--batch", "--max", "--theorems",
+];
+
+enum ArgKind {
+    Help,
+    Mode,
+    Unknown,
+    Positional,
+}
+
+/// Classify an argument that is not an option's value.
+fn classify_arg(arg: &str) -> ArgKind {
+    match arg {
+        "-h" | "--help" => ArgKind::Help,
+        a if MODES.contains(&a) => ArgKind::Mode,
+        a if a.starts_with("--") || (a.starts_with('-') && a.len() == 2) => ArgKind::Unknown,
+        _ => ArgKind::Positional,
+    }
+}
+
 struct Opts {
     proof: bool,
     svg_path: Option<String>,
@@ -80,11 +128,15 @@ fn main() {
                 }
             }
             "--title" => opts.title = Some(it.next().unwrap_or_else(|| fail("--title needs text"))),
-            "--bench" | "--geo" | "--geo-show" | "--aux" | "--explore" | "--constructions"
-            | "--bench-aux" | "--verify-warm" | "--metric" | "--batch" | "--max" | "--theorems" => {
-                mode = Some(arg)
-            }
-            other => positional.push(other.to_string()),
+            other => match classify_arg(other) {
+                ArgKind::Help => {
+                    print!("{USAGE}");
+                    return;
+                }
+                ArgKind::Mode => mode = Some(arg),
+                ArgKind::Unknown => fail(&format!("unknown option {other} (see ddar --help)")),
+                ArgKind::Positional => positional.push(arg),
+            },
         }
     }
 
@@ -285,12 +337,23 @@ fn metric_solve(src: &str) {
     let start = Instant::now();
     match metric::solve(&cons.join("\n"), &goal, 48) {
         Ok(report) => println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64()),
-        Err(e) => fail(&e),
+        Err(metric::MetricError::Refuted(report)) => {
+            println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64());
+            std::process::exit(1);
+        }
+        Err(e) => fail(e.message()),
     }
 }
 
 fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
-    let compiled = geo::compile(src).unwrap_or_else(|e| fail(&e));
+    let compiled = match geo::compile(src) {
+        Ok(c) => c,
+        Err(e) if e.is_metric_goal() && !show_only => {
+            println!("Metric goal (not a DDAR predicate) — using the metric prover.");
+            return metric_solve(src);
+        }
+        Err(e) => fail(e.message()),
+    };
 
     if show_only {
         println!("{}", compiled.problem.to_ag_string());
@@ -368,6 +431,12 @@ struct BatchResult {
 /// gets the same maximum effort — nothing is assumed easy or hard. Reports
 /// per-problem timing and the wall-clock vs. summed-CPU speedup.
 fn batch(dir: &str) {
+    // Mute panic noise from degenerate candidate constructions across all
+    // worker threads for the duration of the batch.
+    ddar::quiet_panic::quiet(|| batch_quiet(dir))
+}
+
+fn batch_quiet(dir: &str) {
     use rayon::prelude::*;
     let mut paths: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
         Ok(rd) => rd
@@ -382,14 +451,6 @@ fn batch(dir: &str) {
         fail(&format!("no .geo problems found in {dir}"));
     }
 
-    // Suppress panic noise from degenerate candidate constructions across all
-    // worker threads for the duration of the batch.
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
 
     println!(
         "Universal MAX solve: {} problem(s), across {} cores.\n",
@@ -400,7 +461,6 @@ fn batch(dir: &str) {
     let wall = Instant::now();
     let mut results: Vec<BatchResult> = paths.par_iter().map(|p| solve_file(p)).collect();
     let wall = wall.elapsed().as_secs_f64();
-    std::panic::set_hook(prev);
 
     results.sort_by(|a, b| a.name.cmp(&b.name));
     let (mut solved, mut cpu) = (0usize, 0.0f64);
@@ -641,12 +701,10 @@ fn bench_aux() {
 /// candidate of the bundled + example problems. Warm-start is only sound to
 /// enable if this reports zero mismatches.
 fn verify_warm() {
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
+    ddar::quiet_panic::quiet(verify_warm_quiet)
+}
+
+fn verify_warm_quiet() {
     let mut examples: Vec<Problem> = Vec::new();
     for e in parse_dataset(DATASET) {
         if let Ok(p) = Problem::parse(e.problem) {
@@ -707,7 +765,6 @@ fn verify_warm() {
         }
         eprint!("\r{checked} checks, {mism} mismatches, {warm_solves} warm-solves   ");
     }
-    std::panic::set_hook(prev);
     println!(
         "\nverify-warm: {checked} candidate checks, {mism} mismatches ({} agreement)",
         if mism == 0 {
@@ -760,5 +817,25 @@ fn explore(opts: &Opts) {
         if !load_bearing.is_empty() {
             println!("{:<10} load-bearing: {}", e.name, load_bearing.join(", "));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_flags_are_recognised() {
+        for h in ["--help", "-h"] {
+            assert!(matches!(classify_arg(h), ArgKind::Help), "{h}");
+        }
+        assert!(USAGE.contains("--geo <prog|file>") && USAGE.contains("-h, --help"));
+    }
+
+    #[test]
+    fn unknown_options_are_rejected_not_parsed_as_problems() {
+        assert!(matches!(classify_arg("--bogus"), ArgKind::Unknown));
+        assert!(matches!(classify_arg("a b c = triangle a b c ? perp a b a c"), ArgKind::Positional));
+        assert!(matches!(classify_arg("--geo"), ArgKind::Mode));
     }
 }

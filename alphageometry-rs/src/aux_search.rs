@@ -1542,19 +1542,13 @@ pub fn solve_with_aux_opts(
         return (None, SearchStats { runs: 0 });
     }
 
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
     let mut runs = 0usize;
     // Candidate runs are individually panic-caught inside `try_solve`; this
     // outer catch guards the search *machinery* itself (candidate generation,
     // warm-start bookkeeping, parallel harness). A machinery panic must not
     // kill a long-running search process — degrade to "no proof found".
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        try_solve(problem, max_depth, &mut runs, max_runs, full, verbose)
+        crate::quiet_panic::quiet(|| try_solve(problem, max_depth, &mut runs, max_runs, full, verbose))
     }))
     .unwrap_or_else(|_| {
         eprintln!(
@@ -1563,7 +1557,6 @@ pub fn solve_with_aux_opts(
         );
         None
     });
-    std::panic::set_hook(prev_hook);
 
     (
         result.map(|constructions| AuxProof { constructions }),

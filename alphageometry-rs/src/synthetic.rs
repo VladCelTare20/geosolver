@@ -521,7 +521,9 @@ struct Figure {
 }
 
 pub(crate) fn rat_of(v: f64) -> Option<Rat> {
-    if !v.is_finite() {
+    // Beyond 2^53 an f64 is no longer an exact integer, and `as i64` would
+    // saturate distinct values onto i64::MAX.
+    if !v.is_finite() || v.abs() >= 9.0e15 {
         return None;
     }
     if (v - v.round()).abs() < 1e-9 {
@@ -1021,6 +1023,11 @@ impl Figure {
                         if !(self.has_para(a, b, d, c) && self.has_para(a, d, b, c)) {
                             continue;
                         }
+                        // Segments of one line are trivially "parallel"; four
+                        // collinear points are no parallelogram.
+                        if self.numerically_collinear(a, b, c) || self.numerically_collinear(a, b, d) {
+                            continue;
+                        }
                         let key = {
                             let (x, y) = (atom(a, c), atom(b, d));
                             if x <= y { (x, y) } else { (y, x) }
@@ -1036,9 +1043,10 @@ impl Figure {
     }
 
     /// Rectangles `ABCD` (cyclic order): right angles at two adjacent vertices
-    /// plus the connecting opposite sides parallel (or a third right angle) — a
-    /// characterisation that fires for the `square` construction and for figures
-    /// with three asserted right angles. Deduplicated by the diagonal pair.
+    /// plus the remaining pair of opposite sides parallel (or a third right
+    /// angle) — a characterisation that fires for the `square` construction and
+    /// for figures with three asserted right angles. Deduplicated by the
+    /// diagonal pair.
     fn find_rectangles(&self) -> Vec<[PointId; 4]> {
         let n = self.coords.len() as PointId;
         let mut seen: BTreeSet<(Atom, Atom)> = BTreeSet::new();
@@ -1055,7 +1063,13 @@ impl Figure {
                         if !(right_b && right_c) {
                             continue;
                         }
-                        let closes = self.has_para(a, b, d, c) || self.has_perp(c, d, d, a);
+                        // The right angles at B and C already force AB ∥ DC, so
+                        // that parallel says nothing more (a right trapezoid has
+                        // it). Closing needs the *other* pair of sides parallel
+                        // or a third right angle.
+                        let closes = self.has_para(a, d, b, c)
+                            || self.has_perp(c, d, d, a)
+                            || self.has_perp(d, a, a, b);
                         if !closes {
                             continue;
                         }

@@ -46,14 +46,43 @@ pub fn parse_svg(svg: &str) -> Result<usvg::Tree> {
     usvg::Tree::from_str(svg, &usvg_options()).map_err(|e| anyhow!("SVG parse error: {e}"))
 }
 
-/// Render a parsed tree to PNG bytes at the given scale (1.0 = native size;
-/// 2.0 = retina/high-DPI).
-pub fn png_bytes(tree: &usvg::Tree, scale: f32) -> Result<Vec<u8>> {
+/// Pixel budget for one raster (4 bytes each, so ~160 MB).
+const MAX_PIXELS: u64 = 40_000_000;
+/// Below this the text of a long proof is no longer legible; refuse instead.
+const MIN_SCALE: f32 = 0.1;
+/// Largest page edge, in points, that common PDF viewers accept (200 in).
+const MAX_PDF_PAGE_PT: f32 = 14_400.0;
+/// Refuse SVGs taller/wider than this (CSS px) outright.
+const MAX_SVG_EDGE: f32 = 4_000_000.0;
+
+fn check_svg_size(tree: &usvg::Tree) -> Result<()> {
     let size = tree.size();
+    let (w, h) = (size.width(), size.height());
+    if !(w.is_finite() && h.is_finite()) || w > MAX_SVG_EDGE || h > MAX_SVG_EDGE {
+        return Err(anyhow!("document too large to export ({w:.0}x{h:.0} px)"));
+    }
+    Ok(())
+}
+
+/// Render a parsed tree to PNG bytes at the given scale (1.0 = native size;
+/// 2.0 = retina/high-DPI). A raster that would exceed the pixel budget (a long
+/// proof) is rendered at a reduced scale that fits, rather than failing.
+pub fn png_bytes(tree: &usvg::Tree, scale: f32) -> Result<Vec<u8>> {
+    check_svg_size(tree)?;
+    let size = tree.size();
+    let area = (size.width() as f64) * (size.height() as f64) * (scale as f64).powi(2);
+    let scale = if area > MAX_PIXELS as f64 {
+        // Shave a little extra so ceil() rounding cannot overshoot the budget.
+        scale * ((MAX_PIXELS as f64 / area).sqrt() * 0.999) as f32
+    } else {
+        scale
+    };
+    if scale < MIN_SCALE {
+        return Err(anyhow!("figure too large to rasterise legibly"));
+    }
     let w = ((size.width() * scale).ceil() as u32).max(1);
     let h = ((size.height() * scale).ceil() as u32).max(1);
-    // Guard against a pathological allocation (each pixel is 4 bytes).
-    if (w as u64) * (h as u64) > 40_000_000 {
+    if (w as u64) * (h as u64) > MAX_PIXELS {
         return Err(anyhow!("figure too large to rasterise"));
     }
     let mut pixmap = tiny_skia::Pixmap::new(w, h).ok_or_else(|| anyhow!("pixmap allocation failed"))?;
@@ -65,13 +94,17 @@ pub fn png_bytes(tree: &usvg::Tree, scale: f32) -> Result<Vec<u8>> {
     pixmap.encode_png().map_err(|e| anyhow!("PNG encode error: {e}"))
 }
 
-/// Export a parsed tree to a single-page PDF.
+/// Export a parsed tree to a single-page PDF. A very tall page (a long proof)
+/// is scaled down, via the DPI, so neither edge exceeds what viewers accept.
 pub fn pdf_bytes(tree: &usvg::Tree) -> Result<Vec<u8>> {
-    svg2pdf::to_pdf(
-        tree,
-        svg2pdf::ConversionOptions::default(),
-        svg2pdf::PageOptions::default(),
-    )
+    check_svg_size(tree)?;
+    let size = tree.size();
+    let longest = size.width().max(size.height());
+    let mut page = svg2pdf::PageOptions::default();
+    if longest > MAX_PDF_PAGE_PT {
+        page.dpi = 72.0 * longest / MAX_PDF_PAGE_PT * 1.001;
+    }
+    svg2pdf::to_pdf(tree, svg2pdf::ConversionOptions::default(), page)
     .map_err(|e| anyhow!("PDF conversion error: {e}"))
 }
 
@@ -339,5 +372,67 @@ fn truncate(s: &str, n: usize) -> String {
     } else {
         let cut: String = one_line.chars().take(n).collect();
         format!("{cut}…")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::{solve, SolveOptions};
+
+    fn long_report(lines: usize) -> String {
+        let mut sol = solve("A B C = triangle\nprove coll(A, B, A)", &SolveOptions::default())
+            .expect("solve");
+        let proof: Vec<String> = (1..=lines)
+            .map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1)))
+            .collect();
+        sol.proof = Some(proof.join("\n"));
+        report_svg(&sol, Some("long"), true)
+    }
+
+    fn png_dims(png: &[u8]) -> (u32, u32) {
+        let be = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+        (be(&png[16..20]), be(&png[20..24]))
+    }
+
+    #[test]
+    fn long_proofs_still_rasterise_at_a_reduced_scale() {
+        let svg = long_report(3000);
+        let png = svg_to_png(&svg, 2.0).expect("a long proof must still export to PNG");
+        let (w, h) = png_dims(&png);
+        assert!((w as u64) * (h as u64) <= MAX_PIXELS, "{w}x{h}");
+        assert!(h > w, "scaled, not cropped: {w}x{h}");
+    }
+
+    #[test]
+    fn short_reports_keep_the_requested_scale() {
+        let tree = parse_svg(&long_report(5)).unwrap();
+        let png = png_bytes(&tree, 2.0).unwrap();
+        let (w, _) = png_dims(&png);
+        assert_eq!(w, (tree.size().width() * 2.0).ceil() as u32);
+    }
+
+    #[test]
+    fn long_proof_pdf_pages_stay_within_viewer_limits() {
+        let pdf = svg_to_pdf(&long_report(3000)).expect("pdf");
+        let text = String::from_utf8_lossy(&pdf);
+        let at = text.find("/MediaBox").expect("MediaBox");
+        let nums: Vec<f32> = text[at + 9..]
+            .trim_start_matches([' ', '['])
+            .split(']')
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .filter_map(|n| n.parse().ok())
+            .collect();
+        assert_eq!(nums.len(), 4, "{nums:?}");
+        assert!(nums[3] - nums[1] <= MAX_PDF_PAGE_PT + 1.0, "{nums:?}");
+    }
+
+    #[test]
+    fn absurd_svgs_are_refused() {
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"90000000\"/>";
+        assert!(svg_to_pdf(svg).is_err());
+        assert!(svg_to_png(svg, 1.0).is_err());
     }
 }
