@@ -338,3 +338,38 @@ fn certified_facts_do_not_prove_false_neighbours() {
         }
     }
 }
+
+const TRAPEZOID: &str = "A B C = triangle\nD = reflect(C, perp_bisector(A, B))";
+const CYCLIC_QUAD: &str = "A B C = triangle\nO = circumcenter(A, B, C)\nD = on_circle(O, A)";
+
+/// Neither prover may return a proof of `goal`; checked directly, because the
+/// `checked_proof` backstop in `metric::solve` would hide an unsound derivation.
+fn provers_reject(cons: &str, goal: &str) {
+    if let Ok(Outcome::Proved(p)) = prove_euclidean(cons, goal) {
+        panic!("additive prover proved a false statement:\n{goal}\n{p}");
+    }
+    if let Ok(Outcome::Proved(p)) = ddar::ratio::prove_ratio(cons, goal) {
+        panic!("ratio prover proved a false statement:\n{goal}\n{p}");
+    }
+    match metric::solve(cons, goal, 48) {
+        Ok(proof) => panic!("a false statement was proved:\n{goal}\n{proof}"),
+        Err(e) => assert!(e.is_refuted(), "{goal}: expected a refutation, got {e}"),
+    }
+}
+
+/// TRIG_PLAN §3, items 7–8: false neighbours of Ptolemy's second theorem.
+#[test]
+fn ptolemy_second_false_neighbours_are_never_proved() {
+    provers_reject(
+        TRAPEZOID,
+        "dist(A,C)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(B,D)*(dist(A,B)*dist(A,D) + 2*dist(B,C)*dist(C,D))",
+    );
+    // In the isosceles trapezoid the diagonals are equal, so the swap is only
+    // false on a general cyclic quadrilateral.
+    provers_reject(
+        CYCLIC_QUAD,
+        "dist(B,D)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(A,C)*(dist(A,B)*dist(A,D) + dist(B,C)*dist(C,D))",
+    );
+}

@@ -10,6 +10,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `aux_search.rs` — LM-free auxiliary-point search over DDAR.
 - `metric.rs` — metric goals: `solve` is `Ok` only for a Euclidean proof; otherwise `MetricError::{Refuted, NoProof{evidence}, Failed}`. `check_numerically` is evidence, never a proof.
 - `synthetic.rs`, `ratio.rs` — classical theorem-citing proofs for length / ratio goals.
+- `ratio/trig.rs` — child module of `ratio.rs` (reaches `Figure`'s private items): cofactor substitution (T2), the centred-circle second-meet aux family (T5) and the trigonometric layer.
 - `certify.rs` — `Certifier`: derives a proposed fact with the DDAR closure and returns the numbered derivation.
 - `proof.rs` — provenance and readable proof text.
 - `numerics.rs` — f64 geometry oracle.
@@ -29,6 +30,8 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `synthetic.rs`, `ratio.rs` — coordinates only propose candidates and read configuration (order, orientation, inside/outside); every cited fact is symbolic or DDAR-certified (`certify.rs`): generic similar triangles (`ratio.rs:certified_products`), the intercept parallel, the bisector, Stewart's ratio (`synthetic.rs:derived_ratio`). Circles come from symbolic equal-radius classes (`synthetic.rs:equal_radius_circles`).
 - `synthetic.rs:prove_euclidean` — before the theorem rules, DDAR-certified right angles, midpoints and (aux pass) equal lengths are added; the aux pass also introduces intersections of goal segments and the centres of quadrilaterals on the goal points. All certified steps share one printed derivation (`render`).
 - `ratio.rs:prove_ratio` — the product engine runs on a fresh figure, so the monomial engine's perpendicular feet never leak into its derivations. Its candidates (similar triangles, collinear splits, the bisector theorem) wait in `pending` until certified; a lone named-theorem citation is rejected as circular.
+- `ratio.rs:prove_products` — any homogeneous degree. Degree 2 runs the original gathers first, unchanged; only when that fails (and only with `t2`, i.e. not inside the old `aux_search`) are the T2 cofactor rows `m − m[s1→s2]` added, each congruence a pending `cong` certified by DDAR. Golden proof text: `tests/metric_golden.rs`.
+- `ratio/trig.rs:centred_second_meets` — appended after every older aux family (existing candidate order unchanged); facts `Coll(v,r,K)`, `Cong(o,a,o,K)`. Only circles with exactly three points not already in a `concyclic` set.
 - `engine.rs:search_radical_axis` — the inside/outside branch is read from chord-end order, not from the conclusion.
 - `synthetic.rs` rectangle detection needs `AD ∥ BC` or a third right angle; `AB ∥ DC` is implied by two right angles and proves nothing.
 

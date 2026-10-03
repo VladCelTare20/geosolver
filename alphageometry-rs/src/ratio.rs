@@ -38,6 +38,8 @@ use crate::predicate::{PointId, Predicate};
 use crate::rational::Rat;
 use crate::synthetic::{equal_radius_circles, rat_of, Outcome};
 
+mod trig;
+
 /// A log-length unknown `ln|ab|`, keyed by the unordered pair.
 type LAtom = (PointId, PointId);
 
@@ -49,6 +51,20 @@ fn latom(a: PointId, b: PointId) -> LAtom {
     }
 }
 
+/// A log unknown: `Sin(v, p, q)` is `ln|sin ∠pvq|` (`p < q`), `Len(a, b)` is
+/// `ln|ab|` (`a < b`). Sines sort first, so elimination pivots them out first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum LKey {
+    Sin(PointId, PointId, PointId),
+    Len(PointId, PointId),
+}
+
+impl From<LAtom> for LKey {
+    fn from(a: LAtom) -> LKey {
+        LKey::Len(a.0, a.1)
+    }
+}
+
 // ===========================================================================
 // Linear equations over log-lengths (constant carried as Σ eₚ·ln p)
 // ===========================================================================
@@ -56,7 +72,7 @@ fn latom(a: PointId, b: PointId) -> LAtom {
 /// `Σ coeff·ln|atom| + Σ eₚ·ln(p) = 0`.
 #[derive(Clone, Debug, Default)]
 struct LEq {
-    terms: BTreeMap<LAtom, Rat>,
+    terms: BTreeMap<LKey, Rat>,
     primes: BTreeMap<i64, Rat>,
 }
 
@@ -64,7 +80,8 @@ impl LEq {
     fn is_zero(&self) -> bool {
         self.terms.values().all(Rat::is_zero) && self.primes.values().all(Rat::is_zero)
     }
-    fn add_term(&mut self, a: LAtom, c: Rat) {
+    fn add_term(&mut self, a: impl Into<LKey>, c: Rat) {
+        let a = a.into();
         let cur = self.terms.get(&a).cloned().unwrap_or_else(Rat::zero);
         let s = &cur + &c;
         if s.is_zero() {
@@ -91,7 +108,7 @@ impl LEq {
             self.add_prime(*p, -&(c * factor));
         }
     }
-    fn first_atom(&self) -> Option<LAtom> {
+    fn first_atom(&self) -> Option<LKey> {
         self.terms.iter().find(|(_, c)| !c.is_zero()).map(|(a, _)| *a)
     }
 }
@@ -1052,7 +1069,7 @@ impl Figure {
     // === solving ===========================================================
 
     fn prove_with(&self, goal: &LEq, allowed: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
-        let mut rows: Vec<(LEq, LAtom, BTreeSet<usize>)> = Vec::new();
+        let mut rows: Vec<(LEq, LKey, BTreeSet<usize>)> = Vec::new();
         for (i, step) in self.steps.iter().enumerate() {
             if !allowed.contains(&i) {
                 continue;
@@ -1158,7 +1175,7 @@ fn subscript(n: usize) -> String {
         .collect()
 }
 
-fn reduce(eq: &mut LEq, rows: &[(LEq, LAtom, BTreeSet<usize>)], deps: &mut BTreeSet<usize>) {
+fn reduce(eq: &mut LEq, rows: &[(LEq, LKey, BTreeSet<usize>)], deps: &mut BTreeSet<usize>) {
     for (req, pivot, rdeps) in rows {
         if let Some(c) = eq.terms.get(pivot).cloned() {
             if c.is_zero() {
@@ -1244,6 +1261,13 @@ fn eval_numeric(e: &MExpr, fig: &Figure) -> Option<f64> {
         MExpr::Div(x, y) => eval_numeric(x, fig)? / eval_numeric(y, fig)?,
         MExpr::Pow(b, p) => eval_numeric(b, fig)?.powf(*p),
         MExpr::Sqrt(x) => eval_numeric(x, fig)?.max(0.0).sqrt(),
+        MExpr::Add(x, y) => eval_numeric(x, fig)? + eval_numeric(y, fig)?,
+        MExpr::Sub(x, y) => eval_numeric(x, fig)? - eval_numeric(y, fig)?,
+        MExpr::Neg(x) => -eval_numeric(x, fig)?,
+        MExpr::Sin(x) => match &**x {
+            MExpr::Angle(a, b, c) => fig.angle(0, fig.pt(a)?, fig.pt(b)?, fig.pt(c)?).sin(),
+            _ => return None,
+        },
         _ => return None,
     })
 }
@@ -1254,18 +1278,18 @@ fn eval_numeric(e: &MExpr, fig: &Figure) -> Option<f64> {
 // sums + congruences, and by the auxiliary-point search below.
 // ===========================================================================
 
-type PAtom = (LAtom, LAtom);
+type PAtom = Mono;
 fn pmul(a: LAtom, b: LAtom) -> PAtom {
     if a <= b {
-        (a, b)
+        vec![a, b]
     } else {
-        (b, a)
+        vec![b, a]
     }
 }
 
 #[derive(Clone, Default)]
 struct PEq {
-    terms: BTreeMap<PAtom, Rat>,
+    terms: BTreeMap<Mono, Rat>,
 }
 impl PEq {
     fn is_zero(&self) -> bool {
@@ -1282,11 +1306,11 @@ impl PEq {
     }
     fn sub_scaled(&mut self, o: &PEq, f: &Rat) {
         for (a, c) in &o.terms {
-            self.add(*a, -&(c * f));
+            self.add(a.clone(), -&(c * f));
         }
     }
     fn first(&self) -> Option<PAtom> {
-        self.terms.iter().find(|(_, c)| !c.is_zero()).map(|(a, _)| *a)
+        self.terms.iter().find(|(_, c)| !c.is_zero()).map(|(a, _)| a.clone())
     }
 }
 
@@ -1870,31 +1894,51 @@ impl Figure {
         goal_text: &str,
         relevant: &[PointId],
         aux_prose: &[String],
+        t2: bool,
     ) -> Option<String> {
-        let lm = mono_lower(lhs, self)?;
-        let rm = mono_lower(rhs, self)?;
-        let goal_map = mono_add(&lm, &rm, &-Rat::one());
-        if goal_map.is_empty() || !goal_map.keys().all(|m| m.len() == 2) {
+        let goal = self.homogeneous_goal(lhs, rhs)?;
+        let degree = goal.terms.keys().next()?.len();
+        if degree != 2 && !t2 {
             return None;
-        }
-        let mut goal = PEq::default();
-        let mut goal_segs: BTreeSet<LAtom> = BTreeSet::new();
-        for (m, c) in &goal_map {
-            goal.add(pmul(m[0], m[1]), c.clone());
-            goal_segs.insert(m[0]);
-            goal_segs.insert(m[1]);
         }
         self.psteps.clear();
         self.pending.clear();
-        self.gather_generic_similar(relevant);
-        self.gather_bisector_products();
-        self.gather_product_relations(&goal_segs);
-        let used = self.certified_products(&goal)?;
+        let mut used = None;
+        if degree == 2 {
+            let goal_segs: BTreeSet<LAtom> = goal.terms.keys().flatten().copied().collect();
+            self.gather_generic_similar(relevant);
+            self.gather_bisector_products();
+            self.gather_product_relations(&goal_segs);
+            used = self.certified_products(&goal);
+        }
+        if used.is_none() && t2 {
+            let mut pool: BTreeSet<Mono> = goal.terms.keys().cloned().collect();
+            self.gather_cofactor_substitutions(&mut pool);
+            used = self.certified_products(&goal);
+        }
+        let used = used?;
         if used.is_empty() {
             return None;
         }
         let val = eval_numeric(lhs, self).unwrap_or(f64::NAN);
         Some(self.prender(&used, goal_text, val, aux_prose))
+    }
+
+    /// `lhs − rhs` as a product equation when every monomial has the same
+    /// positive degree.
+    fn homogeneous_goal(&self, lhs: &MExpr, rhs: &MExpr) -> Option<PEq> {
+        let lm = mono_lower(lhs, self)?;
+        let rm = mono_lower(rhs, self)?;
+        let goal_map = mono_add(&lm, &rm, &-Rat::one());
+        let degree = goal_map.keys().next()?.len();
+        if degree == 0 || !goal_map.keys().all(|m| m.len() == degree) {
+            return None;
+        }
+        let mut goal = PEq::default();
+        for (m, c) in goal_map {
+            goal.add(m, c);
+        }
+        Some(goal)
     }
 }
 
@@ -2182,6 +2226,9 @@ impl Figure {
                 }
             }
         }
+        for cand in self.centred_second_meets(g) {
+            push!(Some(cand));
+        }
         out
     }
 
@@ -2246,7 +2293,7 @@ impl Figure {
             let mut rel = gpts.clone();
             rel.push(kid);
             let intro = cand.intro.replace('K', &cand.name);
-            if let Some(p) = f.prove_products(lhs, rhs, goal, &rel, std::slice::from_ref(&intro)) {
+            if let Some(p) = f.prove_products(lhs, rhs, goal, &rel, std::slice::from_ref(&intro), false) {
                 return Some(p);
             }
         }
@@ -2369,7 +2416,7 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     //    this proof, so they must not reach its facts or its derivations.
     let mut fig = Figure::gather(&sampled, insts);
     let relevant: Vec<PointId> = (0..fig.names.len() as PointId).collect();
-    if let Some(proof) = fig.prove_products(&lhs, &rhs, goal, &relevant, &[]) {
+    if let Some(proof) = fig.prove_products(&lhs, &rhs, goal, &relevant, &[], true) {
         return Ok(Outcome::Proved(proof));
     }
     if let Some(proof) = fig.aux_search(&lhs, &rhs, goal) {

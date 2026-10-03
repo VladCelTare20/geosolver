@@ -51,7 +51,6 @@ fn split_goal(src: &str) -> (String, String) {
 /// reported as unproved. Moving one out of this list needs a real proof.
 const NUMERIC_ONLY: &[&str] = &[
     "euler_formula_oi.geo",
-    "ptolemy_second_theorem.geo",
     "symmedian_ratio.geo",
 ];
 
