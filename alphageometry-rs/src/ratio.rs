@@ -1209,7 +1209,15 @@ fn mono_add(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>, f: &Rat) -> BTreeM
     }
     out
 }
-fn mono_mul(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>) -> BTreeMap<Mono, Rat> {
+/// Expansion budget for [`mono_mul`]: a product of long sums (or a high power
+/// of one) multiplies term counts, so cap the work per product and give up
+/// (`None` — the goal is then simply not handled here) beyond it.
+const MAX_MONO_PRODUCT: usize = 1 << 14;
+
+fn mono_mul(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>) -> Option<BTreeMap<Mono, Rat>> {
+    if a.len().saturating_mul(b.len()) > MAX_MONO_PRODUCT {
+        return None;
+    }
     let mut out: BTreeMap<Mono, Rat> = BTreeMap::new();
     for (ma, ca) in a {
         for (mb, cb) in b {
@@ -1225,7 +1233,7 @@ fn mono_mul(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>) -> BTreeMap<Mono, 
             }
         }
     }
-    out
+    Some(out)
 }
 fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
     let unit = |m: Mono, c: Rat| {
@@ -1244,7 +1252,7 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
         MExpr::Neg(x) => Some(mono_scale(&mono_lower(x, fig)?, &-Rat::one())),
         MExpr::Add(x, y) => Some(mono_add(&mono_lower(x, fig)?, &mono_lower(y, fig)?, &Rat::one())),
         MExpr::Sub(x, y) => Some(mono_add(&mono_lower(x, fig)?, &mono_lower(y, fig)?, &-Rat::one())),
-        MExpr::Mul(x, y) => Some(mono_mul(&mono_lower(x, fig)?, &mono_lower(y, fig)?)),
+        MExpr::Mul(x, y) => mono_mul(&mono_lower(x, fig)?, &mono_lower(y, fig)?),
         MExpr::Div(x, y) => {
             let b = mono_lower(y, fig)?;
             if b.len() != 1 {
@@ -1258,14 +1266,14 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
         }
         MExpr::Pow(base, p) => {
             let n = *p;
-            if n < 0.0 || (n - n.round()).abs() > 1e-9 {
+            if !(0.0..=crate::metric::MAX_EXPONENT).contains(&n) || (n - n.round()).abs() > 1e-9 {
                 return None;
             }
             let n = n.round() as u32;
             let b = mono_lower(base, fig)?;
             let mut acc = unit(vec![], Rat::one());
             for _ in 0..n {
-                acc = mono_mul(&acc, &b);
+                acc = mono_mul(&acc, &b)?;
             }
             Some(acc)
         }
@@ -1662,15 +1670,25 @@ impl Figure {
     }
 
     /// The library of candidate auxiliary points, built around the goal points.
+    /// Generation stops at [`MAX_AUX_CANDIDATES`] usable candidates (the
+    /// search never looks past them) or [`MAX_AUX_ATTEMPTS`] tries — the
+    /// angle-copy family alone is O(g⁶) in the goal's point count.
     fn aux_candidates(&self, g: &[PointId]) -> Vec<AuxCand> {
         let mut out = Vec::new();
+        let mut tried = 0usize;
         let nm = |p: PointId| self.names[p as usize].clone();
         let seg = |a: PointId, b: PointId| format!("{}{}", nm(a), nm(b));
-        let mut push = |c: Option<AuxCand>| {
-            if let Some(c) = c {
-                out.push(c);
-            }
-        };
+        macro_rules! push {
+            ($cand:expr) => {{
+                tried += 1;
+                if let Some(c) = $cand {
+                    out.push(c);
+                }
+                if out.len() >= MAX_AUX_CANDIDATES || tried >= MAX_AUX_ATTEMPTS {
+                    return out;
+                }
+            }};
+        }
         // Only one auxiliary point is ever added at a time, so every candidate is
         // simply named "K".
         let kid = self.names.len() as PointId;
@@ -1680,7 +1698,7 @@ impl Figure {
                 if p == o {
                     continue;
                 }
-                push(self.build_cand(
+                push!(self.build_cand(
                     "K".to_string(),
                     format!("Let {} be the reflection of {} in {}.", "K", nm(p), nm(o)),
                     vec![AuxFact::Coll(p, o, kid), AuxFact::Cong([o, p, o, kid])],
@@ -1691,7 +1709,7 @@ impl Figure {
         // midpoint of a goal pair  →  Coll(a,K,b), Cong(K,a,K,b)
         for (ai, &a) in g.iter().enumerate() {
             for &b in &g[ai + 1..] {
-                push(self.build_cand(
+                push!(self.build_cand(
                     "K".to_string(),
                     format!("Let {} be the midpoint of {}.", "K", seg(a, b)),
                     vec![AuxFact::Coll(a, kid, b), AuxFact::Cong([kid, a, kid, b])],
@@ -1706,7 +1724,7 @@ impl Figure {
                     if p == a || p == b {
                         continue;
                     }
-                    push(self.build_cand(
+                    push!(self.build_cand(
                         "K".to_string(),
                         format!("Let {} be the foot of the perpendicular from {} to {}.", "K", nm(p), seg(a, b)),
                         vec![AuxFact::Coll(a, kid, b), AuxFact::Perp([p, kid, a, b])],
@@ -1724,7 +1742,7 @@ impl Figure {
         for (ai, &a) in g.iter().enumerate() {
             for (bi, &b) in g.iter().enumerate().skip(ai + 1) {
                 for &c in &g[bi + 1..] {
-                    push(self.build_cand(
+                    push!(self.build_cand(
                         "K".to_string(),
                         format!("Let {} be the circumcentre of {}{}{}.", "K", nm(a), nm(b), nm(c)),
                         vec![AuxFact::Cong([kid, a, kid, b]), AuxFact::Cong([kid, b, kid, c])],
@@ -1741,7 +1759,7 @@ impl Figure {
                         if [a, b].contains(&c) || [a, b].contains(&d) {
                             continue;
                         }
-                        push(self.build_cand(
+                        push!(self.build_cand(
                             "K".to_string(),
                             format!("Let {} be the intersection of {} and {}.", "K", seg(a, b), seg(c, d)),
                             vec![AuxFact::Coll(a, kid, b), AuxFact::Coll(c, kid, d)],
@@ -1770,7 +1788,7 @@ impl Figure {
                     }
                     let mut cyc: Vec<PointId> = on.clone();
                     cyc.push(kid);
-                    push(self.build_cand(
+                    push!(self.build_cand(
                         "K".to_string(),
                         format!("Let {} be the second meet of line {} with the circle.", "K", seg(v, r)),
                         vec![AuxFact::Coll(v, r, kid), AuxFact::Cyclic(cyc)],
@@ -1800,7 +1818,7 @@ impl Figure {
                                     continue;
                                 }
                                 for sgn in [1.0f64, -1.0] {
-                                    push(self.build_cand(
+                                    push!(self.build_cand(
                                         "K".to_string(),
                                         format!(
                                             "Let {} be the point on {} with ∠{}{}{} = ∠{}{}{}.",
@@ -1839,7 +1857,7 @@ impl Figure {
         }
         let kid = self.names.len() as PointId;
         let mut candidates = self.aux_candidates(&gpts);
-        candidates.truncate(4000); // keep the search bounded
+        candidates.truncate(MAX_AUX_CANDIDATES); // keep the search bounded
         for cand in candidates {
             let mut f = self.lean_clone();
             f.names.push(cand.name.clone());
@@ -1859,6 +1877,9 @@ impl Figure {
         None
     }
 }
+
+const MAX_AUX_CANDIDATES: usize = 4000;
+const MAX_AUX_ATTEMPTS: usize = 200_000;
 
 /// The second intersection of line `ab` with the circle `(o, r)`, avoiding the
 /// point `known` (one intersection we already have).
@@ -2000,6 +2021,18 @@ mod tests {
                 false
             }
         }
+    }
+
+    #[test]
+    fn aux_candidate_generation_is_bounded() {
+        // Ten goal points: the angle-copy family alone would be ~580k candidates.
+        let names: Vec<String> = (0..10).map(|i| format!("P{i}")).collect();
+        let cons: String = names.iter().map(|n| format!("{n} = free\n")).collect();
+        let algfig = crate::geo::build_algebraic(&cons).expect("build");
+        let fig = Figure::gather(&algfig, vec![algfig.coords.clone()]);
+        let g: Vec<PointId> = (0..names.len() as PointId).collect();
+        let cands = fig.aux_candidates(&g);
+        assert!(cands.len() <= MAX_AUX_CANDIDATES, "{} candidates", cands.len());
     }
 
     #[test]

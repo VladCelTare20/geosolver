@@ -456,7 +456,9 @@ fn concyclic4(a: PointId, b: PointId, c: PointId, d: PointId) -> Poly {
 /// Convert a float to an exact rational if it is "nice" (integer or a fraction
 /// with a small denominator); `None` otherwise.
 fn rat_of(v: f64) -> Option<Rat> {
-    if !v.is_finite() {
+    // Beyond 2^53 an f64 is no longer an exact integer, and `as i64` would
+    // saturate distinct values onto i64::MAX.
+    if !v.is_finite() || v.abs() >= 9.0e15 {
         return None;
     }
     if (v - v.round()).abs() < 1e-9 {
@@ -995,7 +997,7 @@ impl<'a> GoalLowerer<'a> {
         if (p - 0.5).abs() < 1e-12 {
             return self.lower(&MExpr::Sqrt(Box::new(base.clone())));
         }
-        if p < 0.0 || (p - p.round()).abs() > 1e-9 {
+        if !(0.0..=crate::metric::MAX_EXPONENT).contains(&p) || (p - p.round()).abs() > 1e-9 {
             return Err(format!("unsupported exponent {p}"));
         }
         let k = p.round() as u32;

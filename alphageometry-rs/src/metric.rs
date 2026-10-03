@@ -155,9 +155,41 @@ struct P {
     /// Same guard as `geo::Parser::depth` — bounds recursive-descent nesting
     /// so adversarial input parse-errors instead of stack-overflowing.
     depth: u32,
+    /// Binary operators built so far (see [`MAX_EXPR_OPS`]).
+    ops: u32,
 }
 
 const MAX_PARSE_DEPTH: u32 = 200;
+
+/// Binary operators allowed in one metric relation. `a+b+c+…` parses
+/// iteratively but builds a tree as deep as it is long, and every consumer
+/// (evaluation, lowering, drop) recurses over it — an unbounded chain is a
+/// stack overflow that aborts the whole process. Real goals use a few dozen.
+pub(crate) const MAX_EXPR_OPS: u32 = 256;
+
+/// Largest exponent magnitude accepted after `^`. The provers expand powers
+/// by repeated multiplication; real problems stay in the teens
+/// (`examples/metric/universal_imposed_ratio.geo` uses 19).
+pub(crate) const MAX_EXPONENT: f64 = 32.0;
+
+/// Validate an exponent read after `^`.
+pub(crate) fn check_exponent(p: f64) -> Result<f64, String> {
+    if p.is_finite() && p.abs() <= MAX_EXPONENT {
+        Ok(p)
+    } else {
+        Err(format!("exponent {p} is out of range (|exponent| ≤ {MAX_EXPONENT})"))
+    }
+}
+
+/// Count one binary operator against [`MAX_EXPR_OPS`].
+pub(crate) fn count_op(ops: &mut u32) -> Result<(), String> {
+    *ops += 1;
+    if *ops > MAX_EXPR_OPS {
+        Err(format!("expression too long (max {MAX_EXPR_OPS} operators)"))
+    } else {
+        Ok(())
+    }
+}
 
 impl P {
     fn peek(&self) -> Option<&Tok> {
@@ -181,6 +213,7 @@ impl P {
         let mut e = self.term()?;
         while let Some(Tok::Op(o @ ('+' | '-'))) = self.peek().cloned() {
             self.i += 1;
+            count_op(&mut self.ops)?;
             let r = self.term()?;
             e = if o == '+' {
                 MExpr::Add(Box::new(e), Box::new(r))
@@ -194,6 +227,7 @@ impl P {
         let mut e = self.power()?;
         while let Some(Tok::Op(o @ ('*' | '/'))) = self.peek().cloned() {
             self.i += 1;
+            count_op(&mut self.ops)?;
             let r = self.power()?;
             e = if o == '*' {
                 MExpr::Mul(Box::new(e), Box::new(r))
@@ -208,7 +242,10 @@ impl P {
         if self.peek() == Some(&Tok::Op('^')) {
             self.i += 1;
             match self.next() {
-                Some(Tok::Num(p)) => Ok(MExpr::Pow(Box::new(base), p)),
+                Some(Tok::Num(p)) => {
+                    count_op(&mut self.ops)?;
+                    Ok(MExpr::Pow(Box::new(base), check_exponent(p)?))
+                }
                 other => Err(format!("expected numeric exponent, found {other:?}")),
             }
         } else {
@@ -311,6 +348,7 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
         t: toks[..eq].to_vec(),
         i: 0,
         depth: 0,
+        ops: 0,
     };
     let lhs = lp.expr()?;
     if lp.i != lp.t.len() {
@@ -320,6 +358,7 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
         t: toks[eq + 1..].to_vec(),
         i: 0,
         depth: 0,
+        ops: 0,
     };
     let rhs = rp.expr()?;
     if rp.i != rp.t.len() {
@@ -332,6 +371,45 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
 // Solving: classical Euclidean proof first, numerical certificate as a fallback
 // ---------------------------------------------------------------------------
 
+/// Why [`solve`] / [`verify`] did not establish a goal. Any `Err` means "not
+/// proved"; an `Ok` is always a proof or a passing numerical certificate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MetricError {
+    /// The goal was checked numerically and does not hold (or evaluates to a
+    /// non-finite value) in some valid instance. Carries the full report,
+    /// including the counterexample.
+    Refuted(String),
+    /// The goal or construction could not be processed (parse error, no
+    /// valid instance, unsupported form, …).
+    Failed(String),
+}
+
+impl MetricError {
+    pub fn is_refuted(&self) -> bool {
+        matches!(self, MetricError::Refuted(_))
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            MetricError::Refuted(m) | MetricError::Failed(m) => m,
+        }
+    }
+}
+
+impl std::fmt::Display for MetricError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl std::error::Error for MetricError {}
+
+impl From<String> for MetricError {
+    fn from(m: String) -> Self {
+        MetricError::Failed(m)
+    }
+}
+
 /// Solve a metric (length) goal about a coordinate-free construction.
 ///
 /// First tries a **classical Euclidean proof** — a numbered synthetic deduction
@@ -342,30 +420,60 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
 /// unsquared lengths, an area, a transcendental angle sum), it falls back to the
 /// numerical certificate over `n` re-sampled instances (see [`verify`]), clearly
 /// labelled as such. Coordinate/Wu proofs are never presented as the answer.
-pub fn solve(cons_src: &str, goal: &str, n: usize) -> Result<String, String> {
+///
+/// Contract: `Ok(report)` only when the goal is proved or numerically
+/// verified. A goal that fails numerically is `Err(MetricError::Refuted)` —
+/// including a proof whose goal does not hold in its own figure; anything that
+/// could not be decided is `Err(MetricError::Failed)`.
+pub fn solve(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricError> {
     use crate::synthetic::Outcome;
     // 1. Additive (squared-length) Euclidean prover.
     let reason = match crate::synthetic::prove_euclidean(cons_src, goal) {
-        Ok(Outcome::Proved(proof)) => return Ok(proof),
+        Ok(Outcome::Proved(proof)) => return checked_proof(cons_src, goal, proof),
         Ok(Outcome::Unhandled(reason)) => reason,
-        Err(e) => return Err(e),
+        Err(e) => return Err(e.into()),
     };
     // 2. Multiplicative (ratio/product) Euclidean prover — includes the
     //    sum-of-products cases (Ptolemy) via auxiliary constructions.
     match crate::ratio::prove_ratio(cons_src, goal) {
-        Ok(Outcome::Proved(proof)) => return Ok(proof),
+        Ok(Outcome::Proved(proof)) => return checked_proof(cons_src, goal, proof),
         Ok(Outcome::Unhandled(_)) => {}
-        Err(e) => return Err(e),
+        Err(e) => return Err(e.into()),
     }
     // 3. Sound numerical certificate, clearly labelled (last resort). Coordinate
     //    / algebraic proofs are deliberately NOT used — only synthetic Euclidean
-    //    proofs are ever presented.
-    let mut report = verify(cons_src, goal, n)?;
-    report.push_str(&format!(
-        "\n\n(No classical Euclidean proof was produced — {reason}. \
+    //    proofs are ever presented. A failing goal is `Err(Refuted)`.
+    let certificate = verify(cons_src, goal, n)?;
+    Ok(format!(
+        "{certificate}\n\n(No classical Euclidean proof was produced — {reason}. \
          The result above is a numerical certificate.)"
-    ));
-    Ok(report)
+    ))
+}
+
+/// Backstop for the theorem provers: a derivation is only accepted if the goal
+/// actually holds in the figure it was derived on (the first valid instance,
+/// which `build_algebraic` also uses). Proofs are configuration-relative —
+/// Ptolemy's equality, say, needs the drawn convex order — so this checks that
+/// one figure, not every re-sampled instance.
+fn checked_proof(cons_src: &str, goal: &str, proof: String) -> Result<String, MetricError> {
+    let (lhs, rhs) = parse_equation(goal)?;
+    let fig = crate::geo::build_algebraic(cons_src)?;
+    let map: Coords = fig
+        .names
+        .iter()
+        .map(String::as_str)
+        .zip(fig.coords.iter().copied())
+        .collect();
+    let (l, r) = (lhs.eval(&map)?, rhs.eval(&map)?);
+    if l.is_finite() && r.is_finite() && (l - r).abs() / (1.0 + r.abs()) < 1e-6 {
+        return Ok(proof);
+    }
+    Err(MetricError::Refuted(format!(
+        "NOT VERIFIED — the equation fails in the figure itself\n  {goal}\n  \
+         LHS = {} , RHS = {}  (a derivation was found but rejected: it cannot be sound)",
+        fmt(l),
+        fmt(r)
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -374,8 +482,10 @@ pub fn solve(cons_src: &str, goal: &str, n: usize) -> Result<String, String> {
 
 /// Verify the metric equation `goal` over the figure described by `cons_src`
 /// (a coordinate-free construction program), across up to `n` re-sampled
-/// instances. Returns a human-readable report.
-pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, String> {
+/// instances. `Ok` carries the certificate; a goal that fails — or evaluates
+/// to a non-finite value — in any instance is `Err(MetricError::Refuted)`
+/// with the counterexample report.
+pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricError> {
     let (lhs, rhs) = parse_equation(goal)?;
     let instances = crate::geo::build_instances(cons_src, n)?;
 
@@ -386,8 +496,14 @@ pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, String> {
         let l = lhs.eval(&map)?;
         let r = rhs.eval(&map)?;
         lhs_vals.push(l);
-        let rel = (l - r).abs() / (1.0 + r.abs());
-        if rel > worst_rel {
+        // NaN compares false with everything, so test for "not held" rather
+        // than "worse than the worst so far".
+        let rel = if l.is_finite() && r.is_finite() {
+            (l - r).abs() / (1.0 + r.abs())
+        } else {
+            f64::INFINITY
+        };
+        if worst.is_none() || rel > worst_rel {
             worst_rel = rel;
             worst = Some((l, r));
         }
@@ -395,36 +511,9 @@ pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, String> {
 
     let held = worst_rel < 1e-6;
     let n = instances.len();
-    let mean_lhs = lhs_vals.iter().sum::<f64>() / n as f64;
-    // spread of the LHS across instances — tells the reader whether the quantity
-    // genuinely varied (a strong test) or was fixed by the construction.
-    let spread = lhs_vals
-        .iter()
-        .fold(0.0f64, |m, &v| m.max((v - mean_lhs).abs()));
-
     let mut out = String::new();
-    if held {
-        out.push_str(&format!(
-            "VERIFIED (numerically, over {n} independently re-sampled instances)\n"
-        ));
-        out.push_str(&format!("  {goal}\n"));
-        out.push_str(&format!(
-            "  value: {} ≈ {}   (max relative error {:.1e}",
-            fmt(mean_lhs),
-            pretty(mean_lhs),
-            worst_rel
-        ));
-        if spread > 1e-6 {
-            out.push_str(&format!(
-                ", LHS varied over {:.3}..{:.3} across instances — a genuine identity)",
-                lhs_vals.iter().cloned().fold(f64::INFINITY, f64::min),
-                lhs_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
-            ));
-        } else {
-            out.push_str(", quantity fixed by the construction)");
-        }
-    } else {
-        let (l, r) = worst.unwrap();
+    if !held {
+        let (l, r) = worst.unwrap_or((f64::NAN, f64::NAN));
         out.push_str(&format!("NOT VERIFIED — the equation fails\n  {goal}\n"));
         out.push_str(&format!(
             "  counterexample instance: LHS = {} , RHS = {}  (relative error {:.1e})",
@@ -432,6 +521,32 @@ pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, String> {
             fmt(r),
             worst_rel
         ));
+        return Err(MetricError::Refuted(out));
+    }
+    let mean_lhs = lhs_vals.iter().sum::<f64>() / n as f64;
+    // spread of the LHS across instances — tells the reader whether the quantity
+    // genuinely varied (a strong test) or was fixed by the construction.
+    let spread = lhs_vals
+        .iter()
+        .fold(0.0f64, |m, &v| m.max((v - mean_lhs).abs()));
+    out.push_str(&format!(
+        "VERIFIED (numerically, over {n} independently re-sampled instances)\n"
+    ));
+    out.push_str(&format!("  {goal}\n"));
+    out.push_str(&format!(
+        "  value: {} ≈ {}   (max relative error {:.1e}",
+        fmt(mean_lhs),
+        pretty(mean_lhs),
+        worst_rel
+    ));
+    if spread > 1e-6 {
+        out.push_str(&format!(
+            ", LHS varied over {:.3}..{:.3} across instances — a genuine identity)",
+            lhs_vals.iter().cloned().fold(f64::INFINITY, f64::min),
+            lhs_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        ));
+    } else {
+        out.push_str(", quantity fixed by the construction)");
     }
     Ok(out)
 }

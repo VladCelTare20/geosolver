@@ -28,6 +28,7 @@ pub mod metric;
 pub mod numerics;
 pub mod predicate;
 pub mod proof;
+pub mod quiet_panic;
 pub mod rational;
 pub mod ratio;
 pub mod runner;

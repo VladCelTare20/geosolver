@@ -285,12 +285,23 @@ fn metric_solve(src: &str) {
     let start = Instant::now();
     match metric::solve(&cons.join("\n"), &goal, 48) {
         Ok(report) => println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64()),
-        Err(e) => fail(&e),
+        Err(metric::MetricError::Refuted(report)) => {
+            println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64());
+            std::process::exit(1);
+        }
+        Err(e) => fail(e.message()),
     }
 }
 
 fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
-    let compiled = geo::compile(src).unwrap_or_else(|e| fail(&e));
+    let compiled = match geo::compile(src) {
+        Ok(c) => c,
+        Err(e) if e.is_metric_goal() && !show_only => {
+            println!("Metric goal (not a DDAR predicate) — using the metric prover.");
+            return metric_solve(src);
+        }
+        Err(e) => fail(e.message()),
+    };
 
     if show_only {
         println!("{}", compiled.problem.to_ag_string());
@@ -368,6 +379,12 @@ struct BatchResult {
 /// gets the same maximum effort — nothing is assumed easy or hard. Reports
 /// per-problem timing and the wall-clock vs. summed-CPU speedup.
 fn batch(dir: &str) {
+    // Mute panic noise from degenerate candidate constructions across all
+    // worker threads for the duration of the batch.
+    ddar::quiet_panic::quiet(|| batch_quiet(dir))
+}
+
+fn batch_quiet(dir: &str) {
     use rayon::prelude::*;
     let mut paths: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
         Ok(rd) => rd
@@ -382,14 +399,6 @@ fn batch(dir: &str) {
         fail(&format!("no .geo problems found in {dir}"));
     }
 
-    // Suppress panic noise from degenerate candidate constructions across all
-    // worker threads for the duration of the batch.
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
 
     println!(
         "Universal MAX solve: {} problem(s), across {} cores.\n",
@@ -400,7 +409,6 @@ fn batch(dir: &str) {
     let wall = Instant::now();
     let mut results: Vec<BatchResult> = paths.par_iter().map(|p| solve_file(p)).collect();
     let wall = wall.elapsed().as_secs_f64();
-    std::panic::set_hook(prev);
 
     results.sort_by(|a, b| a.name.cmp(&b.name));
     let (mut solved, mut cpu) = (0usize, 0.0f64);
@@ -641,12 +649,10 @@ fn bench_aux() {
 /// candidate of the bundled + example problems. Warm-start is only sound to
 /// enable if this reports zero mismatches.
 fn verify_warm() {
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
+    ddar::quiet_panic::quiet(verify_warm_quiet)
+}
+
+fn verify_warm_quiet() {
     let mut examples: Vec<Problem> = Vec::new();
     for e in parse_dataset(DATASET) {
         if let Ok(p) = Problem::parse(e.problem) {
@@ -707,7 +713,6 @@ fn verify_warm() {
         }
         eprint!("\r{checked} checks, {mism} mismatches, {warm_solves} warm-solves   ");
     }
-    std::panic::set_hook(prev);
     println!(
         "\nverify-warm: {checked} candidate checks, {mism} mismatches ({} agreement)",
         if mism == 0 {
