@@ -34,7 +34,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::certify::{candidate_rat, derivation_block, pred_c, with_refs, Certifier};
+use crate::certify::{candidate_rat, derivation_block, pred, pred_c, with_refs, Certifier};
 use crate::geo::SampledFigure;
 use crate::metric::MExpr;
 use crate::numerics::Vec2;
@@ -108,6 +108,9 @@ struct Step {
     /// the goal is circular — restating the theorem — and is rejected. Elementary
     /// steps (given data, midpoint, Pythagoras, Thales) are never headlines.
     headline: bool,
+    /// For a fact derived by the DDAR closure, the closure facts it rests on;
+    /// the proof prints their derivation once, ahead of the steps.
+    derived: Option<Vec<crate::proof::FactId>>,
 }
 
 /// A named entry of the theorem library (for the catalogue / `--theorems`).
@@ -519,11 +522,16 @@ struct Figure {
     /// it cite the construction).
     aux_intro: BTreeMap<PointId, usize>,
     steps: Vec<Step>,
-    /// The construction's hypothesis predicates and its point count (auxiliary
-    /// points are appended after), for DDAR certification of candidate facts.
+    /// The construction's hypothesis predicates plus the defining facts of
+    /// every auxiliary point — what DDAR may use to certify a candidate fact.
     preds: Vec<Predicate>,
-    base_points: usize,
+    /// How many of `preds` are the problem's hypotheses (the rest construct
+    /// auxiliary points).
+    hyps: usize,
     cert: RefCell<Certifier>,
+    /// For a midpoint fact derived by DDAR (not given), the step holding its
+    /// derivation.
+    mid_src: BTreeMap<(PointId, PointId, PointId), usize>,
 }
 
 pub(crate) fn rat_of(v: f64) -> Option<Rat> {
@@ -655,7 +663,7 @@ impl Figure {
         b: PointId,
         d: PointId,
         c: PointId,
-    ) -> Option<(Rat, String, Vec<String>)> {
+    ) -> Option<(Rat, String, Vec<crate::proof::FactId>)> {
         let (bd, dc, bc) = (self.given_len(b, d), self.given_len(d, c), self.given_len(b, c));
         let pos = |r: &Rat| !r.is_zero() && !r.is_negative();
         let t = match (&bd, &dc, &bc) {
@@ -684,11 +692,12 @@ impl Figure {
 
     /// `t = BD/BC` from a ratio `|BD|:|DC|` read off the figure as a candidate
     /// and accepted only once DDAR derives it (`rconst B D D C k`).
-    fn derived_ratio(&self, b: PointId, d: PointId, c: PointId) -> Option<(Rat, String, Vec<String>)> {
-        let n = self.base_points as PointId;
-        if b >= n || d >= n || c >= n {
-            return None;
-        }
+    fn derived_ratio(
+        &self,
+        b: PointId,
+        d: PointId,
+        c: PointId,
+    ) -> Option<(Rat, String, Vec<crate::proof::FactId>)> {
         let (bd, dc) = (self.d2(b, d).sqrt(), self.d2(d, c).sqrt());
         if dc < 1e-9 {
             return None;
@@ -698,15 +707,10 @@ impl Figure {
             return None;
         }
         let goal = pred_c("rconst", &[b, d, d, c], vec![k.clone()]);
-        let lines = self.cert.borrow_mut().derive(
-            &self.names[..self.base_points],
-            &self.coords[..self.base_points],
-            &self.preds,
-            &[goal],
-        )?;
+        let deps = self.certify(&[goal])?;
         let t = &k / &(&k + &one());
         let why = format!(
-            "{} lies on {} between {} and {}, and |{}| : |{}| = {} : {} (derived below)",
+            "{} lies on {} between {} and {}, and |{}| : |{}| = {} : {} (derived from the hypotheses)",
             self.nm(d),
             self.seg(b, c),
             self.nm(b),
@@ -716,7 +720,227 @@ impl Figure {
             numer_str(&k),
             k.denom_i64().unwrap_or(1),
         );
-        Some((t, why, lines))
+        Some((t, why, deps))
+    }
+
+    /// Derive every predicate in `goals` from the hypotheses (and auxiliary
+    /// facts) with the DDAR closure; the numbered derivation, or `None`.
+    fn certify(&self, goals: &[Predicate]) -> Option<Vec<crate::proof::FactId>> {
+        self.cert
+            .borrow_mut()
+            .derive_deps(&self.names, &self.coords, &self.preds, self.hyps, goals)
+    }
+
+    /// Push a step stating a DDAR-derived fact.
+    fn push_derived(
+        &mut self,
+        text: String,
+        deps: Vec<crate::proof::FactId>,
+        premises: Vec<usize>,
+    ) -> usize {
+        let i = self.push_step(text, None, premises);
+        self.steps[i].derived = Some(deps);
+        i
+    }
+
+    /// Steps a midpoint fact rests on: the auxiliary points' introductions and,
+    /// for a derived midpoint, its derivation.
+    fn mid_prem(&self, m: PointId, a: PointId, b: PointId) -> Vec<usize> {
+        let mut prem = self.aux_prem(&[m, a, b]);
+        prem.extend(self.mid_src.get(&(m, a, b)).copied());
+        prem
+    }
+
+    /// Right angles the figure suggests and DDAR derives (e.g. at the foot of a
+    /// perpendicular, between a side and any point of the other side), each
+    /// recorded with its derivation so Pythagoras can cite it.
+    fn certify_right_angles(&mut self) {
+        let n = self.coords.len() as PointId;
+        let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
+            Vec::new();
+        for v in 0..n {
+            for x in 0..n {
+                for y in (x + 1)..n {
+                    if v == x || v == y {
+                        continue;
+                    }
+                    let (dx, dy) = (self.coord(x) - self.coord(v), self.coord(y) - self.coord(v));
+                    let (lx, ly) = (dx.norm(), dy.norm());
+                    if lx < 1e-9 || ly < 1e-9 || dx.dot(dy).abs() > 1e-9 * lx * ly {
+                        continue;
+                    }
+                    if self.has_perp(v, x, v, y) {
+                        continue;
+                    }
+                    let Some(deps) = self.certify(&[pred("perp", &[v, x, v, y])]) else {
+                        continue;
+                    };
+                    let text = format!(
+                        "∠{}{}{} = 90° (derived from the hypotheses).",
+                        self.nm(x),
+                        self.nm(v),
+                        self.nm(y),
+                    );
+                    found.push((v, x, y, text, deps));
+                }
+            }
+        }
+        for (v, x, y, text, deps) in found {
+            let prem = self.aux_prem(&[v, x, y]);
+            let st = self.push_derived(text, deps, prem);
+            self.perps.push(([v, x, v, y], st));
+        }
+    }
+
+    /// Equal lengths among `pts` the figure suggests and DDAR derives (e.g. the
+    /// diagonals of a rectangle), each a squared-length equation.
+    fn certify_equal_lengths(&mut self, pts: &[PointId]) {
+        let mut segs: Vec<Atom> = Vec::new();
+        for (i, &a) in pts.iter().enumerate() {
+            for &b in &pts[i + 1..] {
+                if a != b {
+                    segs.push(atom(a, b));
+                }
+            }
+        }
+        let len = |f: &Figure, s: Atom| (f.coord(s.0) - f.coord(s.1)).norm();
+        let mut found: Vec<(Atom, Atom, Vec<crate::proof::FactId>)> = Vec::new();
+        for (i, &s1) in segs.iter().enumerate() {
+            for &s2 in &segs[i + 1..] {
+                let (l1, l2) = (len(self, s1), len(self, s2));
+                if l1 < 1e-9 || (l1 - l2).abs() > 1e-9 * (1.0 + l1) {
+                    continue;
+                }
+                let known = self.congs.iter().any(|c| {
+                    let (x, y) = (atom(c[0], c[1]), atom(c[2], c[3]));
+                    (x, y) == (s1, s2) || (y, x) == (s1, s2)
+                });
+                if known {
+                    continue;
+                }
+                let goal = pred("cong", &[s1.0, s1.1, s2.0, s2.1]);
+                if let Some(deps) = self.certify(&[goal]) {
+                    found.push((s1, s2, deps));
+                }
+            }
+        }
+        for (s1, s2, deps) in found {
+            let mut eq = Eq::default();
+            eq.add_term(s1, one());
+            eq.add_term(s2, ri(-1));
+            let text = format!(
+                "|{}| = |{}| (derived from the hypotheses), so {} = {}.",
+                self.seg(s1.0, s1.1),
+                self.seg(s2.0, s2.1),
+                self.sq(s1.0, s1.1),
+                self.sq(s2.0, s2.1)
+            );
+            let prem = self.aux_prem(&[s1.0, s1.1, s2.0, s2.1]);
+            let st = self.push_derived(text, deps, prem);
+            self.steps[st].eq = Some(eq);
+        }
+    }
+
+    /// Midpoints the figure suggests and DDAR derives (e.g. the diagonals of a
+    /// parallelogram bisect each other), recorded with their derivation.
+    fn certify_midpoints(&mut self) {
+        let n = self.coords.len() as PointId;
+        let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
+            Vec::new();
+        for m in 0..n {
+            for a in 0..n {
+                for b in (a + 1)..n {
+                    if m == a || m == b || self.midpoints.iter().any(|&(mm, x, y)| {
+                        mm == m && atom(x, y) == atom(a, b)
+                    }) {
+                        continue;
+                    }
+                    let mid = (self.coord(a) + self.coord(b)) * 0.5;
+                    let ab = (self.coord(a) - self.coord(b)).norm();
+                    if ab < 1e-9 || (self.coord(m) - mid).norm() > 1e-9 * (1.0 + ab) {
+                        continue;
+                    }
+                    let goals = [pred("coll", &[a, m, b]), pred("cong", &[m, a, m, b])];
+                    let Some(deps) = self.certify(&goals) else {
+                        continue;
+                    };
+                    let text = format!(
+                        "{} is the midpoint of {} (derived from the hypotheses).",
+                        self.nm(m),
+                        self.seg(a, b),
+                    );
+                    found.push((m, a, b, text, deps));
+                }
+            }
+        }
+        for (m, a, b, text, deps) in found {
+            let prem = self.aux_prem(&[m, a, b]);
+            let st = self.push_derived(text, deps, prem);
+            self.midpoints.push((m, a, b));
+            self.mid_src.insert((m, a, b), st);
+        }
+    }
+
+    /// Introduce, as auxiliary points, the intersections of pairs of lines
+    /// through the goal's segments (e.g. the diagonals of a quadrilateral):
+    /// the classical point that lets the median theorem reach a sum of squares.
+    /// With `centres_only`, only intersections that bisect one of the two
+    /// segments are added (the centre of a parallelogram or rectangle).
+    fn add_segment_intersections(&mut self, segs: &[Atom], centres_only: bool) {
+        const NAMES: [&str; 8] = ["M", "N", "K", "L", "Q", "R", "U", "V"];
+        let mut jobs: Vec<(Atom, Atom, Vec2)> = Vec::new();
+        for (i, &(a, b)) in segs.iter().enumerate() {
+            for &(c, d) in &segs[i + 1..] {
+                if [a, b].contains(&c) || [a, b].contains(&d) {
+                    continue;
+                }
+                let l1 = crate::numerics::NumLine::through(self.coord(a), self.coord(b));
+                let l2 = crate::numerics::NumLine::through(self.coord(c), self.coord(d));
+                let Some(x) = crate::numerics::intersect_ll(&l1, &l2) else {
+                    continue;
+                };
+                let bisects = |p: PointId, q: PointId| {
+                    let mid = (self.coord(p) + self.coord(q)) * 0.5;
+                    (mid - x).norm() < 1e-9 * (1.0 + (self.coord(p) - self.coord(q)).norm())
+                };
+                if centres_only && !bisects(a, b) && !bisects(c, d) {
+                    continue;
+                }
+                if !x.x.is_finite() || !x.y.is_finite() {
+                    continue;
+                }
+                if self.coords.iter().any(|q| (*q - x).norm() < 1e-6)
+                    || jobs.iter().any(|(_, _, y)| (*y - x).norm() < 1e-6)
+                {
+                    continue;
+                }
+                jobs.push(((a, b), (c, d), x));
+            }
+        }
+        for ((a, b), (c, d), x) in jobs {
+            let Some(name) = NAMES
+                .iter()
+                .map(|s| s.to_string())
+                .chain((1..).map(|i| format!("X{i}")))
+                .find(|nm| !self.names.contains(nm))
+            else {
+                continue;
+            };
+            let id = self.coords.len() as PointId;
+            self.names.push(name.clone());
+            self.coords.push(x);
+            let text = format!(
+                "Let {name} be the intersection of {} and {}.",
+                self.seg(a, b),
+                self.seg(c, d)
+            );
+            let st = self.push_step(text, None, vec![]);
+            self.aux_intro.insert(id, st);
+            self.colls.push(vec![a, b, id]);
+            self.colls.push(vec![c, d, id]);
+            self.preds.push(pred("coll", &[a, b, id]));
+            self.preds.push(pred("coll", &[c, d, id]));
+        }
     }
 
     fn push_step(&mut self, text: String, eq: Option<Eq>, premises: Vec<usize>) -> usize {
@@ -725,6 +949,7 @@ impl Figure {
             eq,
             premises,
             headline: false,
+            derived: None,
         });
         self.steps.len() - 1
     }
@@ -753,8 +978,9 @@ impl Figure {
             aux_intro: BTreeMap::new(),
             steps: Vec::new(),
             preds: fig.preds.clone(),
-            base_points: fig.names.len(),
+            hyps: fig.preds.len(),
             cert: RefCell::new(Certifier::default()),
+            mid_src: BTreeMap::new(),
         };
 
         // Predicates.
@@ -948,7 +1174,7 @@ impl Figure {
             let mut eq = Eq::default();
             eq.add_term(atom(a, m), one());
             eq.add_term(atom(a, b), Rat::new(-1, 4));
-            let prem = self.aux_prem(&[m, a, b]);
+            let prem = self.mid_prem(m, a, b);
             let text = format!(
                 "{} is the midpoint of {}, so {} = ¼·{}.",
                 self.nm(m),
@@ -979,7 +1205,8 @@ impl Figure {
                         self.seg(a, b),
                         self.nm(*o)
                     );
-                    let s = self.push_step(text, None, vec![]);
+                    let prem = self.mid_prem(m, a, b);
+                    let s = self.push_step(text, None, prem);
                     // right angle at M between O and A (and O and B)
                     self.perps.push(([*o, m, a, b], s));
                 }
@@ -1081,7 +1308,9 @@ impl Figure {
                     self.sq(a, m),
                     self.sq(b, m)
                 );
-                self.push_step(text, Some(eq), vec![]);
+                let mut prem = self.mid_prem(m, b, c);
+                prem.extend(self.aux_prem(&[a]));
+                self.push_step(text, Some(eq), prem);
             }
         }
     }
@@ -1202,7 +1431,8 @@ impl Figure {
         let n = self.coords.len() as PointId;
         // Interior division points (b, d, c) with d strictly between b and c,
         // taken from the collinear sets (symbolic evidence that d ∈ line bc).
-        let mut triples: Vec<(PointId, PointId, PointId, Rat, String, Vec<String>)> = Vec::new();
+        type Triple = (PointId, PointId, PointId, Rat, String, Vec<crate::proof::FactId>);
+        let mut triples: Vec<Triple> = Vec::new();
         for set in self.colls.clone() {
             for i in 0..set.len() {
                 for j in 0..set.len() {
@@ -1235,11 +1465,8 @@ impl Figure {
             let (lead, ratio_step) = if derivation.is_empty() {
                 (format!("{why}, so "), None)
             } else {
-                let step = self.push_step(
-                    format!("{why}.{}", derivation_block(&derivation)),
-                    None,
-                    vec![],
-                );
+                let prem = self.aux_prem(&[b, d, c]);
+                let step = self.push_derived(format!("{why}."), derivation, prem);
                 (String::new(), Some(step))
             };
             for a in 0..n {
@@ -1480,6 +1707,8 @@ impl Figure {
                 circ.on.insert(id);
             }
             self.midpoints.push((o, p, id));
+            self.preds.push(pred("coll", &[p, o, id]));
+            self.preds.push(pred("cong", &[o, p, o, id]));
         }
     }
 }
@@ -1599,25 +1828,51 @@ impl Figure {
             }
         }
         let order: Vec<usize> = keep.iter().copied().collect(); // step order == creation order
+        let mut deps: Vec<crate::proof::FactId> = order
+            .iter()
+            .filter_map(|&i| self.steps[i].derived.as_ref())
+            .flatten()
+            .copied()
+            .collect();
+        deps.sort_unstable();
+        deps.dedup();
+        // The shared derivation goes right before the first step that cites it
+        // (after any auxiliary point it mentions has been introduced).
+        let lead_at = order
+            .iter()
+            .position(|&i| self.steps[i].derived.is_some())
+            .unwrap_or(order.len());
+        let shift = |n: usize| if n >= lead_at && !deps.is_empty() { n + 2 } else { n + 1 };
+        let lead_no = lead_at + 1;
         let number: BTreeMap<usize, usize> =
-            order.iter().enumerate().map(|(n, &i)| (i, n + 1)).collect();
+            order.iter().enumerate().map(|(n, &i)| (i, shift(n))).collect();
 
         let mut out = String::new();
         out.push_str("EUCLIDEAN PROOF\n");
         out.push_str(&format!("  Goal:  {goal_text}\n\n"));
         for (n, &i) in order.iter().enumerate() {
+            if n == lead_at && !deps.is_empty() {
+                let lines = self.cert.borrow().lines(&deps);
+                out.push_str(&format!(
+                    "  {lead_no}. Facts derived from the hypotheses by the deductive closure:{}\n",
+                    derivation_block(&lines)
+                ));
+            }
             let step = &self.steps[i];
-            let cites: Vec<String> = step
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|k| k.to_string()))
-                .collect();
+            let mut nums: Vec<usize> =
+                step.premises.iter().filter_map(|p| number.get(p).copied()).collect();
+            if step.derived.is_some() {
+                nums.push(lead_no);
+            }
+            nums.sort_unstable();
+            nums.dedup();
+            let cites: Vec<String> = nums.iter().map(|k| k.to_string()).collect();
             let refs = if cites.is_empty() {
                 String::new()
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}\n", n + 1, with_refs(&step.text, &refs)));
+            out.push_str(&format!("  {}. {}\n", shift(n), with_refs(&step.text, &refs)));
         }
         out.push_str(&format!(
             "\n  Combining the equations above gives {goal_text}  (= {}). ∎\n",
@@ -1722,6 +1977,30 @@ pub enum Outcome {
     Unhandled(String),
 }
 
+/// The segments `dist(A,B)` a metric expression mentions, as atoms.
+fn collect_segments(e: &MExpr, fig: &Figure, out: &mut Vec<Atom>) {
+    match e {
+        MExpr::Dist(a, b) => {
+            if let (Some(a), Some(b)) = (fig.pt(a), fig.pt(b)) {
+                if a != b {
+                    out.push(atom(a, b));
+                }
+            }
+        }
+        MExpr::Neg(x)
+        | MExpr::Sqrt(x)
+        | MExpr::Cos(x)
+        | MExpr::Sin(x)
+        | MExpr::Tan(x)
+        | MExpr::Pow(x, _) => collect_segments(x, fig, out),
+        MExpr::Add(x, y) | MExpr::Sub(x, y) | MExpr::Mul(x, y) | MExpr::Div(x, y) => {
+            collect_segments(x, fig, out);
+            collect_segments(y, fig, out);
+        }
+        MExpr::Num(_) | MExpr::Angle(..) | MExpr::Area(..) => {}
+    }
+}
+
 /// Collect the point names appearing in a metric expression.
 fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
     match e {
@@ -1771,7 +2050,28 @@ pub fn prove_euclidean(cons_src: &str, goal: &str) -> Result<Outcome, String> {
                 }
             }
             fig.add_antipodes(&relevant);
+            let mut segs: Vec<Atom> = Vec::new();
+            collect_segments(&lhs, &fig, &mut segs);
+            collect_segments(&rhs, &fig, &mut segs);
+            segs.sort();
+            segs.dedup();
+            fig.add_segment_intersections(&segs, false);
+            let goal_pts: Vec<PointId> = names.iter().filter_map(|n| fig.pt(n)).collect();
+            let mut pairs: Vec<Atom> = Vec::new();
+            for (i, &a) in goal_pts.iter().enumerate() {
+                for &b in &goal_pts[i + 1..] {
+                    pairs.push(atom(a, b));
+                }
+            }
+            fig.add_segment_intersections(&pairs, true);
+            let mut pts = goal_pts;
+            pts.extend(fig.aux_intro.keys().copied());
+            pts.sort_unstable();
+            pts.dedup();
+            fig.certify_equal_lengths(&pts);
         }
+        fig.certify_midpoints();
+        fig.certify_right_angles();
         fig.apply_theorems();
 
         // General metric hypotheses imposed by `point:` become given equations
@@ -1952,11 +2252,19 @@ mod tests {
     #[test]
     fn parallelogram_law_is_not_circularly_proved() {
         // The parallelogram law as a *goal* must not be "proved" by citing the
-        // parallelogram law — it falls through to another route (here, none).
-        assert!(!proved(
+        // parallelogram law; it is derived from the diagonals bisecting each
+        // other and Apollonius's median theorem instead.
+        match prove_euclidean(
             "A = free\nB = free\nC = free\nD = parallelogram(A, B, C)",
-            "dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2"
-        ));
+            "dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2",
+        ) {
+            Ok(Outcome::Proved(p)) => {
+                assert!(!p.contains("parallelogram law"), "cited itself:\n{p}");
+                assert!(p.contains("median theorem"), "{p}");
+                assert!(p.contains("is the midpoint of BD"), "{p}");
+            }
+            _ => panic!("the parallelogram law should be derived"),
+        }
     }
 
     #[test]

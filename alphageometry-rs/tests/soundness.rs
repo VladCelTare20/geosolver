@@ -265,3 +265,45 @@ fn non_ascii_in_a_metric_goal_is_a_clean_error_not_a_panic() {
         assert!(res.unwrap().is_err(), "{goal:?} must be rejected");
     }
 }
+
+/// False neighbours of the theorems the DDAR-certified facts (derived
+/// midpoints, right angles, equal lengths, bisectors, collinear splits) now
+/// prove. Each must be refuted, never proved.
+#[test]
+fn certified_facts_do_not_prove_false_neighbours() {
+    let cases = [
+        // British flag needs a rectangle; a parallelogram is not one.
+        (
+            "A B C = triangle\nD = parallelogram(A, B, C)\nP = free",
+            "dist(P,A)^2 + dist(P,C)^2 = dist(P,B)^2 + dist(P,D)^2",
+        ),
+        // Wrong coefficient in the parallelogram law.
+        (
+            "A B C = triangle\nD = parallelogram(A, B, C)",
+            "dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 3*dist(B,C)^2",
+        ),
+        // Carnot with one side term swapped.
+        (
+            "A B C = triangle\nP = free\nFa = foot(P, line(B, C))\nFb = foot(P, line(C, A))\n\
+             Fc = foot(P, line(A, B))",
+            "dist(B,Fa)^2 + dist(C,Fb)^2 + dist(A,Fc)^2 = dist(Fa,C)^2 + dist(Fb,A)^2 + dist(Fc,A)^2",
+        ),
+        // The incenter ratio with the wrong side.
+        (
+            "A B C = triangle\nI = incenter(A, B, C)\nX = meet(bisector(B, A, C), line(B, C))",
+            "dist(A,I)*dist(B,C) = dist(I,X)*(dist(A,B) + dist(B,C))",
+        ),
+        // Leibniz with the wrong weight on PG² (Stewart with a wrong ratio).
+        (
+            "A B C = triangle\nG = centroid(A, B, C)\nP = free",
+            "dist(P,A)^2 + dist(P,B)^2 + dist(P,C)^2 = dist(G,A)^2 + dist(G,B)^2 + \
+             dist(G,C)^2 + 2*dist(P,G)^2",
+        ),
+    ];
+    for (cons, goal) in cases {
+        match metric::solve(cons, goal, 48) {
+            Ok(proof) => panic!("a false statement was proved:\n{cons}\n{goal}\n{proof}"),
+            Err(e) => assert!(e.is_refuted(), "{goal}: expected a refutation, got {e}"),
+        }
+    }
+}

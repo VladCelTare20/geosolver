@@ -1256,10 +1256,9 @@ mod tests {
     use super::*;
 
     const DIST_CONST_FREE: &str = "A = free\nB = free\nprove dist(A,B) = 3";
-    /// The parallelogram law as a goal: true, but the law may not cite itself
-    /// and no other chain of theorems reaches it yet.
-    const NUMERIC_ONLY: &str = "A = free\nB = free\nC = free\nD = parallelogram(A, B, C)\n\
-        prove dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2";
+    /// A median halves the area: true, but no theorem in the library speaks of
+    /// areas, so it has no Euclidean proof here.
+    const NUMERIC_ONLY: &str = "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)";
     const PYTHAGORAS_GENERIC: &str =
         "A B C = triangle\nprove dist(A,B)^2 = dist(B,C)^2 + dist(A,C)^2";
     const THALES_ANGLE: &str = "A = free\nO = free\nB = reflect(A, O)\n\

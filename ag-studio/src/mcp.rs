@@ -619,9 +619,7 @@ mod tests {
 
     #[test]
     fn numeric_only_goal_is_reported_not_proven_with_its_evidence() {
-        let r = tool_solve(&json!({"program": "A = free\nB = free\nC = free\n\
-            D = parallelogram(A, B, C)\n\
-            prove dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2"}));
+        let r = tool_solve(&json!({"program": "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)"}));
         assert_eq!(r["isError"], false, "{r}");
         let text = r["content"][0]["text"].as_str().unwrap();
         assert!(text.starts_with("NOT PROVEN — no Euclidean proof"), "{text}");

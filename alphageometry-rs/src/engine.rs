@@ -529,9 +529,19 @@ const DIST_MUL_PREDS: &[&str] = &["distmeq", "cong", "eqratio", "rconst"];
 impl Ddar {
     /// Add a predicate as an assumption.
     pub fn force_pred(&mut self, pred: &Predicate) {
-        let fact = self
-            .log
-            .add(Reason::Assumption(self.render_pred(pred)), vec![]);
+        let reason = Reason::Assumption(self.render_pred(pred));
+        self.force_pred_because(pred, reason);
+    }
+
+    /// Add the defining fact of an auxiliary point (logged as a construction,
+    /// not a hypothesis).
+    pub fn force_construction(&mut self, pred: &Predicate) {
+        let reason = Reason::Construction(self.render_pred(pred));
+        self.force_pred_because(pred, reason);
+    }
+
+    fn force_pred_because(&mut self, pred: &Predicate, reason: Reason) {
+        let fact = self.log.add(reason, vec![]);
         let pts = self.subst_points(pred);
         let name = pred.name.as_str();
         let consts = &pred.constants;

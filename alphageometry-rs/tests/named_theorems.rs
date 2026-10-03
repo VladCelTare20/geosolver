@@ -50,11 +50,7 @@ fn split_goal(src: &str) -> (String, String) {
 /// Metric goals with no Euclidean proof yet: true in every sampled figure,
 /// reported as unproved. Moving one out of this list needs a real proof.
 const NUMERIC_ONLY: &[&str] = &[
-    "british_flag_theorem.geo",
-    "carnot_perpendicularity.geo",
     "euler_formula_oi.geo",
-    "incenter_bisector_ratio.geo",
-    "parallelogram_law.geo",
     "ptolemy_second_theorem.geo",
     "symmedian_ratio.geo",
 ];
@@ -125,5 +121,5 @@ fn named_theorem_corpus_proves() {
          Euclidean proof",
         numeric_only.len()
     );
-    assert!(proven >= 89, "expected at least 89 proved corpus programs, found {proven}");
+    assert!(proven >= 93, "expected at least 93 proved corpus programs, found {proven}");
 }

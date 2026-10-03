@@ -1142,8 +1142,7 @@ mod tests {
     async fn numeric_only_metric_goal_is_not_proved_over_http() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "noether").await;
-        let input = "A = free\nB = free\nC = free\nD = parallelogram(A, B, C)\n\
-                     prove dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2";
+        let input = "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)";
         let (st, _, body) = call(
             &state,
             "POST",

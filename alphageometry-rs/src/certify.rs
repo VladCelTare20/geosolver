@@ -68,16 +68,19 @@ pub(crate) struct Certifier {
 
 impl Certifier {
     /// Derive every predicate in `goals` from `preds` over the figure
-    /// (`names`, `coords`). Returns the numbered derivation, or `None` if any
-    /// goal does not follow (or the closure could not be built).
+    /// (`names`, `coords`); the first `hyps` predicates are the problem's
+    /// hypotheses, the rest auxiliary constructions. Returns the numbered
+    /// derivation, or `None` if any goal does not follow (or the closure could
+    /// not be built).
     pub(crate) fn derive(
         &mut self,
         names: &[String],
         coords: &[Vec2],
         preds: &[Predicate],
+        hyps: usize,
         goals: &[Predicate],
     ) -> Option<Vec<String>> {
-        let deps = self.derive_deps(names, coords, preds, goals)?;
+        let deps = self.derive_deps(names, coords, preds, hyps, goals)?;
         Some(self.lines(&deps))
     }
 
@@ -96,6 +99,7 @@ impl Certifier {
         names: &[String],
         coords: &[Vec2],
         preds: &[Predicate],
+        hyps: usize,
         goals: &[Predicate],
     ) -> Option<Vec<FactId>> {
         let key = (names.len(), preds.len());
@@ -111,8 +115,12 @@ impl Certifier {
             let built = crate::quiet_panic::quiet(|| {
                 catch_unwind(AssertUnwindSafe(|| {
                     let mut d = Ddar::new_tracked(&points);
-                    for p in preds {
-                        d.force_pred(p);
+                    for (i, p) in preds.iter().enumerate() {
+                        if i < hyps {
+                            d.force_pred(p);
+                        } else {
+                            d.force_construction(p);
+                        }
                     }
                     d.deduction_closure();
                     d

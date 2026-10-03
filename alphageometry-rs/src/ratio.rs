@@ -177,11 +177,13 @@ struct Figure {
     /// The construction's hypothesis predicates plus the defining facts of every
     /// auxiliary point added since — exactly what the DDAR certifier may use.
     preds: Vec<Predicate>,
+    /// How many of `preds` are the problem's hypotheses.
+    hyps: usize,
     /// The DDAR closure over `preds`, rebuilt when points or facts are added.
     ddar: RefCell<Certifier>,
-    /// Similar-triangle steps of the product engine awaiting certification:
-    /// `(intro step, t1, t2)`.
-    sim_intros: Vec<(usize, [PointId; 3], [PointId; 3])>,
+    /// Candidate steps of the product engine awaiting DDAR certification:
+    /// `(intro step, facts it needs, is it a named-theorem citation)`.
+    pending: Vec<(usize, Vec<Predicate>, bool)>,
 }
 
 impl Figure {
@@ -254,8 +256,9 @@ impl Figure {
             psteps: Vec::new(),
             drop_group: 0,
             preds: fig.preds.clone(),
+            hyps: fig.preds.len(),
             ddar: RefCell::new(Certifier::default()),
-            sim_intros: Vec::new(),
+            pending: Vec::new(),
         };
         for p in &fig.preds {
             let pts = &p.points;
@@ -333,7 +336,7 @@ impl Figure {
     fn certify(&self, goals: &[Predicate]) -> Option<Vec<String>> {
         self.ddar
             .borrow_mut()
-            .derive(&self.names, &self.insts[0], &self.preds, goals)
+            .derive(&self.names, &self.insts[0], &self.preds, self.hyps, goals)
     }
 
     /// The directed-angle facts that make `t1 = (p,q,r) ~ t2 = (u,v,w)` (by
@@ -1403,6 +1406,9 @@ impl Figure {
         if !self.similar_in_all(t1, t2) {
             return;
         }
+        let Some(angles) = self.similarity_angles(t1, t2) else {
+            return;
+        };
         let [p, q, r] = t1;
         let [u, v, w] = t2;
         let intro = self.ppush(
@@ -1418,7 +1424,7 @@ impl Figure {
             None,
             vec![],
         );
-        self.sim_intros.push((intro, t1, t2));
+        self.pending.push((intro, angles.to_vec(), false));
         let (pq, qr, rp) = (latom(p, q), latom(q, r), latom(r, p));
         let (uv, vw, wu) = (latom(u, v), latom(v, w), latom(w, u));
         for (x, y) in [
@@ -1465,10 +1471,88 @@ impl Figure {
         }
     }
 
+    /// The angle-bisector theorem as a product relation, `BD·AC = DC·AB`, for
+    /// every bisector the figure suggests; it is used only once DDAR derives
+    /// `D` on `BC` and `∠BAD = ∠DAC`.
+    fn gather_bisector_products(&mut self) {
+        let n = self.names.len() as PointId;
+        for a in 0..n {
+            for b in 0..n {
+                for c in (b + 1)..n {
+                    if a == b || a == c {
+                        continue;
+                    }
+                    for d in 0..n {
+                        if [a, b, c].contains(&d)
+                            || !self.numerically_collinear(b, d, c)
+                            || !self.between(b, d, c)
+                        {
+                            continue;
+                        }
+                        let bisects = (0..self.insts.len()).all(|i| {
+                            let x = self.angle(i, b, a, d);
+                            let y = self.angle(i, d, a, c);
+                            x.is_finite() && y.is_finite() && (x - y).abs() < 1e-6 && x > 1e-4
+                        });
+                        if !bisects {
+                            continue;
+                        }
+                        let intro = self.ppush(
+                            format!(
+                                "{ad} bisects ∠{b}{a}{c} with {d} on {bc} (derived from the \
+                                 hypotheses), so by the angle-bisector theorem {bd}·{ac} = {dc}·{ab}.",
+                                ad = self.seg(a, d),
+                                a = self.nm(a),
+                                b = self.nm(b),
+                                c = self.nm(c),
+                                d = self.nm(d),
+                                bc = self.seg(b, c),
+                                bd = self.seg(b, d),
+                                ac = self.seg(a, c),
+                                dc = self.seg(d, c),
+                                ab = self.seg(a, b),
+                            ),
+                            None,
+                            vec![],
+                        );
+                        self.pending.push((
+                            intro,
+                            vec![
+                                pred("coll", &[b, d, c]),
+                                pred("eqangle", &[a, b, a, d, a, d, a, c]),
+                            ],
+                            true,
+                        ));
+                        let mut e = PEq::default();
+                        e.add(pmul(latom(b, d), latom(a, c)), Rat::one());
+                        e.add(pmul(latom(d, c), latom(a, b)), -Rat::one());
+                        if !e.is_zero() {
+                            self.ppush(String::new(), Some(e), vec![intro]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Collinear splits (`Y on XZ` ⇒ `XY·L + YZ·L = XZ·L` for each goal length L)
     /// and congruences (`|ab| = |cd|` ⇒ `ab·L = cd·L`).
     fn gather_product_relations(&mut self, goal_segs: &BTreeSet<LAtom>) {
         let mut splits: Vec<(PointId, PointId, PointId)> = Vec::new();
+        let mut derived_splits: Vec<(PointId, PointId, PointId)> = Vec::new();
+        let n = self.names.len() as PointId;
+        for x in 0..n {
+            for z in (x + 1)..n {
+                for y in 0..n {
+                    if y == x || y == z || self.coll(x, y, z) {
+                        continue;
+                    }
+                    if self.numerically_collinear(x, y, z) && self.between(x, y, z) {
+                        derived_splits.push((x, y, z));
+                    }
+                }
+            }
+        }
         for set in self.colls.clone() {
             for i in 0..set.len() {
                 for j in 0..set.len() {
@@ -1494,6 +1578,42 @@ impl Figure {
                         }
                     }
                 }
+            }
+        }
+        for (x, y, z) in derived_splits {
+            let intro = self.ppush(
+                format!(
+                    "{}, {}, {} are collinear (derived from the hypotheses), with {} between {} and {}.",
+                    self.nm(x),
+                    self.nm(y),
+                    self.nm(z),
+                    self.nm(y),
+                    self.nm(x),
+                    self.nm(z)
+                ),
+                None,
+                vec![],
+            );
+            self.pending.push((intro, vec![pred("coll", &[x, y, z])], false));
+            for &l in goal_segs {
+                let mut e = PEq::default();
+                e.add(pmul(latom(x, y), l), Rat::one());
+                e.add(pmul(latom(y, z), l), Rat::one());
+                e.add(pmul(latom(x, z), l), -Rat::one());
+                if e.is_zero() {
+                    continue;
+                }
+                self.ppush(
+                    format!(
+                        "So {xy} + {yz} = {xz}; times {l}: {xy}·{l} + {yz}·{l} = {xz}·{l}.",
+                        xz = self.seg(x, z),
+                        xy = self.seg(x, y),
+                        yz = self.seg(y, z),
+                        l = self.seg(l.0, l.1),
+                    ),
+                    Some(e),
+                    vec![intro],
+                );
             }
         }
         for (x, y, z) in splits {
@@ -1653,10 +1773,10 @@ impl Figure {
     /// DDAR derives its angle equalities. Uncertifiable candidates are dropped
     /// and the solve retried; certified steps get their derivation appended.
     fn certified_products(&mut self, goal: &PEq) -> Option<BTreeSet<usize>> {
-        let intro_of: BTreeMap<usize, ([PointId; 3], [PointId; 3])> = self
-            .sim_intros
+        let intro_of: BTreeMap<usize, (Vec<Predicate>, bool)> = self
+            .pending
             .iter()
-            .map(|&(i, t1, t2)| (i, (t1, t2)))
+            .map(|(i, goals, headline)| (*i, (goals.clone(), *headline)))
             .collect();
         let mut rejected: BTreeSet<usize> = BTreeSet::new();
         let mut certified: BTreeMap<usize, Vec<crate::proof::FactId>> = BTreeMap::new();
@@ -1668,6 +1788,17 @@ impl Figure {
                 })
                 .collect();
             let used = self.pprove(goal, &allowed)?;
+            // Anti-circularity: one cited named theorem standing alone merely
+            // restates the goal.
+            let lone: Vec<usize> = used
+                .iter()
+                .flat_map(|&i| self.psteps[i].premises.iter().copied())
+                .filter(|p| intro_of.get(p).is_some_and(|(_, h)| *h))
+                .collect();
+            if used.len() == 1 && lone.len() == 1 {
+                rejected.insert(lone[0]);
+                continue;
+            }
             let intros: BTreeSet<usize> = used
                 .iter()
                 .flat_map(|&i| self.psteps[i].premises.iter().copied())
@@ -1678,12 +1809,14 @@ impl Figure {
                 if certified.contains_key(&intro) {
                     continue;
                 }
-                let (t1, t2) = intro_of[&intro];
-                let why = self.similarity_angles(t1, t2).and_then(|goals| {
-                    self.ddar
-                        .borrow_mut()
-                        .derive_deps(&self.names, &self.insts[0], &self.preds, &goals)
-                });
+                let goals = &intro_of[&intro].0;
+                let why = self.ddar.borrow_mut().derive_deps(
+                    &self.names,
+                    &self.insts[0],
+                    &self.preds,
+                    self.hyps,
+                    goals,
+                );
                 match why {
                     Some(deps) => {
                         certified.insert(intro, deps);
@@ -1710,7 +1843,7 @@ impl Figure {
                     let lines = self.ddar.borrow().lines(&deps);
                     let lead = self.ppush(
                         format!(
-                            "Angle facts, derived from the hypotheses by the deductive closure:{}",
+                            "Facts derived from the hypotheses by the deductive closure:{}",
                             derivation_block(&lines)
                         ),
                         None,
@@ -1752,8 +1885,9 @@ impl Figure {
             goal_segs.insert(m[1]);
         }
         self.psteps.clear();
-        self.sim_intros.clear();
+        self.pending.clear();
         self.gather_generic_similar(relevant);
+        self.gather_bisector_products();
         self.gather_product_relations(&goal_segs);
         let used = self.certified_products(&goal)?;
         if used.is_empty() {
@@ -1828,8 +1962,9 @@ impl Figure {
             psteps: Vec::new(),
             drop_group: 0,
             preds: self.preds.clone(),
+            hyps: self.hyps,
             ddar: RefCell::new(Certifier::default()),
-            sim_intros: Vec::new(),
+            pending: Vec::new(),
         }
     }
     fn add_fact(&mut self, f: &AuxFact) {
@@ -2193,7 +2328,7 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
         }
     }
 
-    let mut fig = Figure::gather(&sampled, insts);
+    let mut fig = Figure::gather(&sampled, insts.clone());
     fig.apply();
 
     // General metric hypotheses imposed by `point:` constraints become given
@@ -2230,6 +2365,9 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
 
     // 2. General sum-of-products engine (degree-2 identities) — with the general
     //    auxiliary-point search for the aux-requiring cases (Ptolemy, …).
+    //    A fresh figure: the feet the monomial engine dropped are not part of
+    //    this proof, so they must not reach its facts or its derivations.
+    let mut fig = Figure::gather(&sampled, insts);
     let relevant: Vec<PointId> = (0..fig.names.len() as PointId).collect();
     if let Some(proof) = fig.prove_products(&lhs, &rhs, goal, &relevant, &[]) {
         return Ok(Outcome::Proved(proof));

@@ -31,6 +31,8 @@ type Triple = (PointId, PointId, PointId);
 pub enum Reason {
     /// A hypothesis of the problem, pre-rendered (they are few).
     Assumption(String),
+    /// The defining fact of an auxiliary point a prover introduced.
+    Construction(String),
     /// Two triangles matched as similar by the closure search.
     SimilarTriangles(Triple, Triple),
     /// Points found concyclic (inscribed-angle criterion / equal radii).
@@ -160,6 +162,7 @@ fn nms(names: &[String], ps: &[PointId]) -> String {
 fn render_reason(r: &Reason, names: &[String]) -> String {
     match r {
         Reason::Assumption(s) => format!("assumption: {s}"),
+        Reason::Construction(s) => format!("construction: {s}"),
         Reason::SimilarTriangles((a, b, c), (x, y, z)) => format!(
             "similar triangles: △{}{}{} ∼ △{}{}{}",
             nm(names, *a),

@@ -271,7 +271,7 @@ independently sampled figures and reported as `MetricError::NoProof` with that
 numeric evidence ("holds numerically — not a proof"), or as `Refuted` with a
 counterexample. A numeric check is never presented as a proof. `tests/` cover
 the two Romanian parts, Pythagoras, the rejection of false claims, and the
-seven named theorems that currently hold only numerically
+three named theorems that currently hold only numerically
 (`tests/named_theorems.rs`).
 
 ## Figures
