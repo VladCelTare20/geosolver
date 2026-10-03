@@ -1,17 +1,15 @@
-//! Metric goal verification: prove statements about concrete *quantities* —
+//! Metric goals: Euclidean proofs of statements about concrete *quantities* —
 //! specific lengths, angles, areas, and any algebraic combination of them
 //! (sums of squares, products, ratios, √·) — that lie outside DDAR's
 //! angle/ratio/linear-length algebra (e.g. `AC² + BD² = 144`, `AM = 3√3`,
 //! `angle(A,B,C) = 45`).
 //!
-//! Method: build the figure at many independently re-sampled valid instances
-//! (via [`crate::geo::build_instances`], which re-randomizes the free points for
-//! each seed) and evaluate the goal equation numerically in each. A polynomial
-//! identity that holds at enough generic instances holds identically
-//! (Schwartz–Zippel), so agreement across dozens of random instances is a sound
-//! certificate; a single disagreement is a concrete counterexample. This is a
-//! *numerical* certificate, clearly labelled as such — not a DDAR-style
-//! synthetic proof — but it decides the metric statements DDAR cannot express.
+//! Only a classical Euclidean proof proves a goal: numbered steps, each citing a
+//! theorem or a hypothesis, from [`crate::synthetic`] or [`crate::ratio`]. When
+//! neither prover reaches the goal it is evaluated in many independently
+//! re-sampled figures: a failure is a concrete counterexample (`Refuted`), and
+//! agreement everywhere is reported as `NoProof` carrying that numeric evidence.
+//! A numeric check is never presented as a proof.
 
 use crate::numerics::Vec2;
 use std::collections::HashMap;
@@ -369,19 +367,38 @@ pub(crate) fn parse_equation(s: &str) -> Result<(MExpr, MExpr), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Solving: classical Euclidean proof first, numerical certificate as a fallback
+// Solving: a classical Euclidean proof, or an honest "not proved"
 // ---------------------------------------------------------------------------
 
-/// Why [`solve`] / [`verify`] did not establish a goal. Any `Err` means "not
-/// proved"; an `Ok` is always a proof or a passing numerical certificate.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// How many independently re-sampled figures callers check a goal in when no
+/// Euclidean proof is found.
+pub const DEFAULT_SAMPLES: usize = 48;
+
+/// The outcome of checking a goal numerically in independently re-sampled
+/// figures. This is evidence, never a proof.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NumericEvidence {
+    /// How many independently sampled valid figures the goal was checked in.
+    pub samples: usize,
+    /// Human-readable report of the check (value, spread, worst error).
+    pub report: String,
+}
+
+/// Why [`solve`] did not return a proof. Every variant means **not proved**.
+#[derive(Clone, Debug, PartialEq)]
 pub enum MetricError {
-    /// The goal was checked numerically and does not hold (or evaluates to a
-    /// non-finite value) in some valid instance. Carries the full report,
-    /// including the counterexample.
+    /// The goal fails (or evaluates to a non-finite value) in some sampled
+    /// figure: the statement is false. Carries the counterexample report.
     Refuted(String),
-    /// The goal or construction could not be processed (parse error, no
-    /// valid instance, unsupported form, …).
+    /// No classical Euclidean proof was found, but the goal held in every one
+    /// of `evidence.samples` independently sampled figures. Not a proof.
+    NoProof {
+        /// Why the theorem-citing provers did not reach the goal.
+        reason: String,
+        evidence: NumericEvidence,
+    },
+    /// The goal or construction could not be processed (parse error, no valid
+    /// figure, unsupported form, …).
     Failed(String),
 }
 
@@ -390,16 +407,47 @@ impl MetricError {
         matches!(self, MetricError::Refuted(_))
     }
 
+    /// `Some(false)` refuted, `Some(true)` held in every sampled figure (but is
+    /// unproved), `None` not checked.
+    pub fn numerically_holds(&self) -> Option<bool> {
+        match self {
+            MetricError::Refuted(_) => Some(false),
+            MetricError::NoProof { .. } => Some(true),
+            MetricError::Failed(_) => None,
+        }
+    }
+
+    /// The numeric evidence of an unproved goal that held in every sample.
+    pub fn evidence(&self) -> Option<&NumericEvidence> {
+        match self {
+            MetricError::NoProof { evidence, .. } => Some(evidence),
+            _ => None,
+        }
+    }
+
     pub fn message(&self) -> &str {
         match self {
             MetricError::Refuted(m) | MetricError::Failed(m) => m,
+            MetricError::NoProof { reason, .. } => reason,
+        }
+    }
+
+    /// The full human-readable report: the counterexample, the numeric check of
+    /// an unproved goal (labelled as not a proof), or the failure message.
+    pub fn report(&self) -> String {
+        match self {
+            MetricError::Refuted(m) | MetricError::Failed(m) => m.clone(),
+            MetricError::NoProof { reason, evidence } => format!(
+                "NOT PROVED — no classical Euclidean proof was found ({reason}).\n\n{}",
+                evidence.report
+            ),
         }
     }
 }
 
 impl std::fmt::Display for MetricError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message())
+        f.write_str(&self.report())
     }
 }
 
@@ -411,54 +459,42 @@ impl From<String> for MetricError {
     }
 }
 
-/// Solve a metric (length) goal about a coordinate-free construction.
+/// Prove a metric goal about a coordinate-free construction, Euclidean only.
 ///
-/// First tries a **classical Euclidean proof** — a numbered synthetic deduction
-/// citing named theorems (Pythagoras, the perpendicular-from-the-centre lemma,
-/// Apollonius's median theorem, the perpendicular-chords relation, …) — via
-/// [`crate::synthetic`]. This is what a human writes, and what the user asked
-/// for. If the goal is outside the current theorem library (a product/ratio of
-/// unsquared lengths, an area, a transcendental angle sum), it falls back to the
-/// numerical certificate over `n` re-sampled instances (see [`verify`]), clearly
-/// labelled as such. Coordinate/Wu proofs are never presented as the answer.
+/// `Ok(proof)` is always a numbered classical proof in which every step cites a
+/// theorem or a hypothesis: the additive squared-length prover
+/// ([`crate::synthetic`]) first, then the multiplicative ratio/product prover
+/// ([`crate::ratio`]). Coordinates are never a proof.
 ///
-/// Contract: `Ok(report)` only when the goal is proved or numerically
-/// verified. A goal that fails numerically is `Err(MetricError::Refuted)` —
-/// including a proof whose goal does not hold in its own figure; anything that
-/// could not be decided is `Err(MetricError::Failed)`.
+/// Otherwise the goal is checked in `n` independently re-sampled figures and the
+/// result is an `Err`: [`MetricError::Refuted`] with a counterexample,
+/// [`MetricError::NoProof`] when it held in every figure but no Euclidean proof
+/// was found, or [`MetricError::Failed`] when it could not be processed. A
+/// derivation whose goal fails in its own figure is rejected as `Refuted`.
 pub fn solve(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricError> {
     use crate::synthetic::Outcome;
-    // 1. Additive (squared-length) Euclidean prover.
     let reason = match crate::synthetic::prove_euclidean(cons_src, goal) {
         Ok(Outcome::Proved(proof)) => return checked_proof(cons_src, goal, proof),
         Ok(Outcome::Unhandled(reason)) => reason,
         Err(e) => return Err(e.into()),
     };
-    // 2. Multiplicative (ratio/product) Euclidean prover — includes the
-    //    sum-of-products cases (Ptolemy) via auxiliary constructions.
-    match crate::ratio::prove_ratio(cons_src, goal) {
+    let reason = match crate::ratio::prove_ratio(cons_src, goal) {
         Ok(Outcome::Proved(proof)) => return checked_proof(cons_src, goal, proof),
-        Ok(Outcome::Unhandled(_)) => {}
+        Ok(Outcome::Unhandled(ratio_reason)) => format!("{reason}; {ratio_reason}"),
         Err(e) => return Err(e.into()),
-    }
-    // 3. Sound numerical certificate, clearly labelled (last resort). Coordinate
-    //    / algebraic proofs are deliberately NOT used — only synthetic Euclidean
-    //    proofs are ever presented. A failing goal is `Err(Refuted)`.
-    let certificate = verify(cons_src, goal, n)?;
-    Ok(format!(
-        "{certificate}\n\n(No classical Euclidean proof was produced — {reason}. \
-         The result above is a numerical certificate.)"
-    ))
+    };
+    let evidence = check_numerically(cons_src, goal, n)?;
+    Err(MetricError::NoProof { reason, evidence })
 }
 
 /// Backstop for the theorem provers: a derivation is only accepted if the goal
 /// actually holds in the figure it was derived on (the first valid instance,
-/// which `build_algebraic` also uses). Proofs are configuration-relative —
+/// which `build_sampled_figure` also uses). Proofs are configuration-relative —
 /// Ptolemy's equality, say, needs the drawn convex order — so this checks that
 /// one figure, not every re-sampled instance.
 fn checked_proof(cons_src: &str, goal: &str, proof: String) -> Result<String, MetricError> {
     let (lhs, rhs) = parse_equation(goal)?;
-    let fig = crate::geo::build_algebraic(cons_src)?;
+    let fig = crate::geo::build_sampled_figure(cons_src)?;
     let map: Coords = fig
         .names
         .iter()
@@ -470,7 +506,7 @@ fn checked_proof(cons_src: &str, goal: &str, proof: String) -> Result<String, Me
         return Ok(proof);
     }
     Err(MetricError::Refuted(format!(
-        "NOT VERIFIED — the equation fails in the figure itself\n  {goal}\n  \
+        "REFUTED — the equation fails in the figure itself\n  {goal}\n  \
          LHS = {} , RHS = {}  (a derivation was found but rejected: it cannot be sound)",
         fmt(l),
         fmt(r)
@@ -478,15 +514,19 @@ fn checked_proof(cons_src: &str, goal: &str, proof: String) -> Result<String, Me
 }
 
 // ---------------------------------------------------------------------------
-// Verification (numerical certificate)
+// Numeric check (evidence, never a proof)
 // ---------------------------------------------------------------------------
 
-/// Verify the metric equation `goal` over the figure described by `cons_src`
-/// (a coordinate-free construction program), across up to `n` re-sampled
-/// instances. `Ok` carries the certificate; a goal that fails — or evaluates
-/// to a non-finite value — in any instance is `Err(MetricError::Refuted)`
-/// with the counterexample report.
-pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricError> {
+/// Check the metric equation `goal` over the figure described by `cons_src`
+/// (a coordinate-free construction program) in up to `n` independently
+/// re-sampled figures. `Ok` is evidence that it holds — not a proof; a goal that
+/// fails, or evaluates to a non-finite value, in any figure is
+/// `Err(MetricError::Refuted)` with the counterexample.
+pub fn check_numerically(
+    cons_src: &str,
+    goal: &str,
+    n: usize,
+) -> Result<NumericEvidence, MetricError> {
     let (lhs, rhs) = parse_equation(goal)?;
     let instances = crate::geo::build_instances(cons_src, n)?;
 
@@ -515,9 +555,9 @@ pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricErro
     let mut out = String::new();
     if !held {
         let (l, r) = worst.unwrap_or((f64::NAN, f64::NAN));
-        out.push_str(&format!("NOT VERIFIED — the equation fails\n  {goal}\n"));
+        out.push_str(&format!("REFUTED — the equation fails\n  {goal}\n"));
         out.push_str(&format!(
-            "  counterexample instance: LHS = {} , RHS = {}  (relative error {:.1e})",
+            "  counterexample figure: LHS = {} , RHS = {}  (relative error {:.1e})",
             fmt(l),
             fmt(r),
             worst_rel
@@ -531,7 +571,7 @@ pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricErro
         .iter()
         .fold(0.0f64, |m, &v| m.max((v - mean_lhs).abs()));
     out.push_str(&format!(
-        "VERIFIED (numerically, over {n} independently re-sampled instances)\n"
+        "NUMERICAL CHECK (evidence, not a proof): holds in all {n} independently sampled figures\n"
     ));
     out.push_str(&format!("  {goal}\n"));
     out.push_str(&format!(
@@ -542,14 +582,17 @@ pub fn verify(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricErro
     ));
     if spread > 1e-6 {
         out.push_str(&format!(
-            ", LHS varied over {:.3}..{:.3} across instances — a genuine identity)",
+            ", LHS varied over {:.3}..{:.3} across figures)",
             lhs_vals.iter().cloned().fold(f64::INFINITY, f64::min),
             lhs_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         ));
     } else {
         out.push_str(", quantity fixed by the construction)");
     }
-    Ok(out)
+    Ok(NumericEvidence {
+        samples: n,
+        report: out,
+    })
 }
 
 fn fmt(v: f64) -> String {

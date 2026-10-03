@@ -72,9 +72,9 @@ fn metric_goals_still_work_as_hypotheses() {
 }
 
 #[test]
-fn nan_goal_is_not_verified() {
+fn nan_goal_is_not_proved() {
     let r = metric::solve("A = free\nB = free", "angle(A, A, B) = 1234", 48);
-    assert!(r.is_err(), "a NaN quantity must not verify: {r:?}");
+    assert!(r.is_err(), "a NaN quantity must not be proved: {r:?}");
 }
 
 #[test]
@@ -83,17 +83,51 @@ fn refuted_metric_goal_is_an_err() {
     let e = r.expect_err("a refuted goal must be an Err, not an Ok report");
     assert!(e.is_refuted(), "{e}");
     assert!(e.to_string().contains("counterexample"), "{e}");
-    assert!(metric::verify("A = free\nB = free", "dist(A,B) = 3", 8).is_err());
+    assert!(metric::check_numerically("A = free\nB = free", "dist(A,B) = 3", 8).is_err());
 }
 
 #[test]
-fn verified_metric_goal_is_ok() {
-    let r = metric::verify(
+fn true_metric_goal_passes_the_numeric_check() {
+    let r = metric::check_numerically(
         "A B = segment\nC = on_tline(B, A, B)",
         "dist(A,C)^2 = dist(A,B)^2 + dist(B,C)^2",
         16,
     );
-    assert!(r.is_ok(), "{r:?}");
+    let ev = r.expect("a true identity holds in every sampled figure");
+    assert!(ev.samples >= 8, "{ev:?}");
+    assert!(ev.report.contains("not a proof"), "{}", ev.report);
+}
+
+/// A numerical certificate is not a proof: a true goal that no theorem-citing
+/// prover reaches must come back as `NoProof` carrying the numeric evidence,
+/// never as an `Ok` report.
+#[test]
+fn numeric_only_goal_is_no_proof_not_ok() {
+    let r = metric::solve(
+        "A B C = triangle\nM = midpoint(B, C)",
+        "area(A,B,M) = area(A,M,C)",
+        48,
+    );
+    match r {
+        Err(e @ metric::MetricError::NoProof { .. }) => {
+            assert_eq!(e.numerically_holds(), Some(true));
+            let ev = e.evidence().expect("NoProof carries its evidence");
+            assert!(ev.samples >= 8, "{ev:?}");
+            assert!(!e.is_refuted());
+            assert!(e.report().starts_with("NOT PROVED"), "{}", e.report());
+        }
+        other => panic!("expected NoProof with numeric evidence, got {other:?}"),
+    }
+}
+
+/// The refuted, unproved and failed outcomes report distinct numeric verdicts.
+#[test]
+fn metric_errors_carry_a_typed_numeric_verdict() {
+    let refuted = metric::solve("A = free\nB = free", "dist(A,B) = 3", 16).unwrap_err();
+    assert_eq!(refuted.numerically_holds(), Some(false));
+    assert!(refuted.evidence().is_none());
+    let failed = metric::solve("A = free\nB = free", "dist(A,Z) = 3", 16).unwrap_err();
+    assert_eq!(failed.numerically_holds(), None, "{failed:?}");
 }
 
 #[test]
@@ -260,5 +294,47 @@ fn non_ascii_in_a_metric_goal_is_a_clean_error_not_a_panic() {
         let res = catch_unwind(AssertUnwindSafe(|| metric::solve("A = free\nB = free", goal, 8)));
         assert!(res.is_ok(), "metric prover panicked on {goal:?}");
         assert!(res.unwrap().is_err(), "{goal:?} must be rejected");
+    }
+}
+
+/// False neighbours of the theorems the DDAR-certified facts (derived
+/// midpoints, right angles, equal lengths, bisectors, collinear splits) now
+/// prove. Each must be refuted, never proved.
+#[test]
+fn certified_facts_do_not_prove_false_neighbours() {
+    let cases = [
+        // British flag needs a rectangle; a parallelogram is not one.
+        (
+            "A B C = triangle\nD = parallelogram(A, B, C)\nP = free",
+            "dist(P,A)^2 + dist(P,C)^2 = dist(P,B)^2 + dist(P,D)^2",
+        ),
+        // Wrong coefficient in the parallelogram law.
+        (
+            "A B C = triangle\nD = parallelogram(A, B, C)",
+            "dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 3*dist(B,C)^2",
+        ),
+        // Carnot with one side term swapped.
+        (
+            "A B C = triangle\nP = free\nFa = foot(P, line(B, C))\nFb = foot(P, line(C, A))\n\
+             Fc = foot(P, line(A, B))",
+            "dist(B,Fa)^2 + dist(C,Fb)^2 + dist(A,Fc)^2 = dist(Fa,C)^2 + dist(Fb,A)^2 + dist(Fc,A)^2",
+        ),
+        // The incenter ratio with the wrong side.
+        (
+            "A B C = triangle\nI = incenter(A, B, C)\nX = meet(bisector(B, A, C), line(B, C))",
+            "dist(A,I)*dist(B,C) = dist(I,X)*(dist(A,B) + dist(B,C))",
+        ),
+        // Leibniz with the wrong weight on PG² (Stewart with a wrong ratio).
+        (
+            "A B C = triangle\nG = centroid(A, B, C)\nP = free",
+            "dist(P,A)^2 + dist(P,B)^2 + dist(P,C)^2 = dist(G,A)^2 + dist(G,B)^2 + \
+             dist(G,C)^2 + 2*dist(P,G)^2",
+        ),
+    ];
+    for (cons, goal) in cases {
+        match metric::solve(cons, goal, 48) {
+            Ok(proof) => panic!("a false statement was proved:\n{cons}\n{goal}\n{proof}"),
+            Err(e) => assert!(e.is_refuted(), "{goal}: expected a refutation, got {e}"),
+        }
     }
 }

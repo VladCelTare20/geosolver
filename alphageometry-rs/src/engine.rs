@@ -529,9 +529,19 @@ const DIST_MUL_PREDS: &[&str] = &["distmeq", "cong", "eqratio", "rconst"];
 impl Ddar {
     /// Add a predicate as an assumption.
     pub fn force_pred(&mut self, pred: &Predicate) {
-        let fact = self
-            .log
-            .add(Reason::Assumption(self.render_pred(pred)), vec![]);
+        let reason = Reason::Assumption(self.render_pred(pred));
+        self.force_pred_because(pred, reason);
+    }
+
+    /// Add the defining fact of an auxiliary point (logged as a construction,
+    /// not a hypothesis).
+    pub fn force_construction(&mut self, pred: &Predicate) {
+        let reason = Reason::Construction(self.render_pred(pred));
+        self.force_pred_because(pred, reason);
+    }
+
+    fn force_pred_because(&mut self, pred: &Predicate, reason: Reason) {
+        let fact = self.log.add(reason, vec![]);
         let pts = self.subst_points(pred);
         let name = pred.name.as_str();
         let consts = &pred.constants;
@@ -711,6 +721,11 @@ impl Ddar {
     /// [`Self::check_pred_deps`], in the style of the original AlphaGeometry.
     pub fn proof_report(&self, deps: &[FactId], goal_text: &str) -> String {
         self.log.report(deps, goal_text, &self.names)
+    }
+
+    /// The numbered derivation lines behind `deps` (see [`ProofLog::step_lines`]).
+    pub fn proof_lines(&self, deps: &[FactId]) -> Vec<String> {
+        self.log.step_lines(deps, &self.names)
     }
 
     /// Compute a determined angle for an `acompute` goal, if any (in half-turns).
@@ -1006,9 +1021,9 @@ impl Ddar {
     /// coaxality (e.g. the radical centre step of IMO 2023 P6).
     ///
     /// Soundness: unsigned products equal signed powers only up to the
-    /// inside/outside branch, so the fact is registered only when X, U, V are
-    /// also *numerically* collinear in the working figure — the engine's usual
-    /// branch discipline.
+    /// inside/outside branch. The branch is read from the figure's
+    /// configuration — X between both chord ends (inside both circles) or
+    /// neither — and X, U, V being numerically collinear is a further guard.
     fn search_radical_axis(&mut self) -> bool {
         let mut changed = false;
         let dbg = std::env::var_os("RADAX_DEBUG").is_some_and(|v| !v.is_empty());
@@ -1101,6 +1116,16 @@ impl Ddar {
                         }
                     }
                     let Some((e1, e2)) = chord2 else { continue };
+                    // Branch: |XD₁|·|XD₂| = |XE₁|·|XE₂| equates *unsigned*
+                    // powers. They are equal as signed powers — X on the
+                    // radical axis — only if X is inside both circles or
+                    // outside both, i.e. between both chord ends or neither.
+                    let inside = |p: PointId, q: PointId| {
+                        (self.coord(p) - self.coord(x)).dot(self.coord(q) - self.coord(x)) < 0.0
+                    };
+                    if inside(d1, d2) != inside(e1, e2) {
+                        continue;
+                    }
                     let mut prem: Vec<FactId> = Vec::new();
                     prem.extend(self.deps_of_angle_expr(x, d1, x, d2));
                     prem.extend(self.deps_of_angle_expr(x, e1, x, e2));

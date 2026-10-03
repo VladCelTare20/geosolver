@@ -12,6 +12,10 @@
 //!     numbered proof citing named theorems (Pythagoras, Thales, …);
 //!   * **low-level** problems → DDAR directly.
 //!
+//! Only a Euclidean proof sets `proved`. A metric goal no prover reaches is
+//! checked numerically in many sampled figures and reported as
+//! [`Status::HoldsNumerically`] — evidence, never a proof.
+//!
 //! This is the single entry point shared by the `render` CLI, the web server,
 //! and the MCP server.
 
@@ -86,6 +90,52 @@ pub enum Method {
     Euclidean,
 }
 
+/// What a solve established. Serialized as `"proved"`, `"holds-numerically"`,
+/// `"refuted"` or `"not-proved"`; only `Proved` comes with `proved: true`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Status {
+    /// A classical Euclidean proof: a DDAR deduction or a theorem-citing
+    /// metric proof.
+    Proved,
+    /// No Euclidean proof was found, but the goal held in every one of
+    /// `numeric_samples` independently sampled figures. Evidence, not a proof.
+    HoldsNumerically,
+    /// The goal fails in a sampled figure: the statement appears to be false.
+    Refuted,
+    /// Neither proved nor refuted (search budget or time limit reached, or the
+    /// metric prover could not process the goal).
+    NotProved,
+}
+
+impl Status {
+    /// A short human label for the verdict.
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Proved => "Proven",
+            Status::HoldsNumerically => "Not proven — holds numerically",
+            Status::Refuted => "Refuted",
+            Status::NotProved => "Not proven",
+        }
+    }
+
+    /// A one-line explanation of the verdict (`samples` = sampled figures).
+    pub fn explain(self, samples: Option<usize>) -> String {
+        match self {
+            Status::Proved => "classical Euclidean proof".to_string(),
+            Status::HoldsNumerically => format!(
+                "no Euclidean proof found; the goal holds numerically in {} sampled \
+                 figures — evidence, not a proof",
+                samples.unwrap_or(0)
+            ),
+            Status::Refuted => {
+                "the goal fails in a sampled figure — the statement appears to be false".to_string()
+            }
+            Status::NotProved => "no proof found within the search budget".to_string(),
+        }
+    }
+}
+
 /// The full outcome of a solve: proof, figure, and metadata.
 #[derive(Clone, serde::Serialize)]
 pub struct Solution {
@@ -93,12 +143,22 @@ pub struct Solution {
     pub input: String,
     /// The compiled low-level AlphaGeometry form (coordinates + predicates).
     pub low_level: String,
-    /// Whether the goal was proved.
+    /// Whether the goal was proved — by a Euclidean proof, nothing else.
     pub proved: bool,
+    /// The verdict; `proved` is `status == Status::Proved`.
+    pub status: Status,
     /// Which prover path was taken.
     pub method: Method,
-    /// The numbered, citation-annotated proof (when `want_proof` and proved).
+    /// The numbered, citation-annotated proof. `Some` only when proved (and
+    /// `want_proof`).
     pub proof: Option<String>,
+    /// The numeric check of a metric goal, when one ran: a counterexample
+    /// (`Refuted`) or the agreement report (`HoldsNumerically`). Never a proof.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numeric_evidence: Option<String>,
+    /// How many independently sampled figures the numeric check used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numeric_samples: Option<usize>,
     /// The figure as a standalone SVG document.
     pub svg: String,
     /// Human-readable auxiliary constructions the search introduced, if any.
@@ -107,9 +167,9 @@ pub struct Solution {
     pub constructions: Vec<String>,
     /// The goal in natural notation.
     pub goal: Option<String>,
-    /// `Some(false)` if the goal does not hold in the sampled figure (the
-    /// statement appears to be false); `Some(true)` if it holds; `None` if not
-    /// numerically checkable.
+    /// `Some(false)` if the goal does not hold in a sampled figure (the
+    /// statement appears to be false); `Some(true)` if it holds there; `None`
+    /// if not numerically checkable. Never a proof either way.
     pub goal_holds_numerically: Option<bool>,
     /// Wall-clock solve time in seconds.
     pub elapsed_secs: f64,
@@ -210,8 +270,9 @@ fn run_until<T: Send + 'static>(
 }
 
 /// Final consistency checks applied to every solve result: a numerically
-/// refuted goal is never reported proved, and a proved result always carries
-/// some proof text when one was requested.
+/// refuted goal is never reported proved, only a proved result carries proof
+/// text (and always some, when one was requested), and `status` agrees with
+/// both.
 fn reconcile(sol: &mut Solution, want_proof: bool) {
     if sol.proved && sol.goal_holds_numerically == Some(false) {
         sol.proved = false;
@@ -234,6 +295,19 @@ fn reconcile(sol: &mut Solution, want_proof: bool) {
             sol.note
         ));
     }
+    if !sol.proved {
+        sol.proof = None;
+        sol.proof_steps = None;
+    }
+    sol.status = if sol.proved {
+        Status::Proved
+    } else if sol.goal_holds_numerically == Some(false) {
+        Status::Refuted
+    } else if sol.goal_holds_numerically == Some(true) && sol.numeric_samples.is_some() {
+        Status::HoldsNumerically
+    } else {
+        Status::NotProved
+    };
 }
 
 /// Sentinel from [`to_problem`]: the goal has no DDAR form (route it to the
@@ -329,8 +403,11 @@ fn best_deductive(
             input: input.to_string(),
             low_level: problem.to_ag_string(),
             proved,
+            status: Status::NotProved,
             method,
             proof,
+            numeric_evidence: None,
+            numeric_samples: None,
             svg: svg.clone(),
             aux_constructions: aux,
             constructions: legend_cons.clone(),
@@ -728,8 +805,11 @@ fn deductive_flow(
         input: input.to_string(),
         low_level: problem.to_ag_string(),
         proved,
+        status: Status::NotProved,
         method,
         proof,
+        numeric_evidence: None,
+        numeric_samples: None,
         svg,
         aux_constructions,
         constructions: legend_cons,
@@ -742,33 +822,6 @@ fn deductive_flow(
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
-}
-
-/// How to read a report returned by `ddar::metric::solve`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum MetricVerdict {
-    /// A classical proof or a passing numerical certificate.
-    Verified,
-    /// The numerical check found a counterexample.
-    Refuted,
-    /// The numerical check produced NaN/∞ — no verdict either way.
-    NonFinite,
-}
-
-/// Classify a metric-prover report. `metric::solve` returns `Ok` even for a
-/// failed numerical certificate ("NOT VERIFIED …"), so `Ok` alone is not a proof.
-fn metric_verdict(report: &str) -> MetricVerdict {
-    if report.contains("NOT VERIFIED") {
-        return MetricVerdict::Refuted;
-    }
-    let non_finite = report
-        .split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')' | '=' | '≈'))
-        .any(|w| matches!(w.trim_start_matches(['-', '+']), "NaN" | "nan" | "inf"));
-    if non_finite {
-        MetricVerdict::NonFinite
-    } else {
-        MetricVerdict::Verified
-    }
 }
 
 /// The classical-Euclidean path for absolute-length goals: draw the figure from
@@ -788,42 +841,38 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
         Err(_) => (String::new(), String::new(), None, Vec::new()),
     };
 
-    let result = catch_unwind(AssertUnwindSafe(|| ddar::metric::solve(&cons, &goal, 48)))
-        .map_err(|_| "metric prover panicked".to_string())?;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        ddar::metric::solve(&cons, &goal, ddar::metric::DEFAULT_SAMPLES)
+    }))
+    .map_err(|_| "metric prover panicked".to_string())?;
     let mut goal_holds = goal_holds;
+    let (mut numeric_evidence, mut numeric_samples) = (None, None);
     let (proved, proof, note) = match result {
-        Ok(report) => match metric_verdict(&report) {
-            MetricVerdict::Verified if report.starts_with("VERIFIED") => (
-                true,
-                Some(report),
-                "verified by a numerical certificate (no classical Euclidean proof)".to_string(),
-            ),
-            MetricVerdict::Verified => (
-                true,
-                Some(report),
-                "proved by the classical Euclidean prover".to_string(),
-            ),
-            MetricVerdict::Refuted => {
-                goal_holds = Some(false);
-                (
-                    false,
-                    Some(report),
-                    "not provable — the equation fails in a sampled figure (the statement \
-                     appears to be false)"
-                        .to_string(),
-                )
-            }
-            MetricVerdict::NonFinite => (
-                false,
-                Some(report),
-                "not proved — the numerical check produced non-finite values".to_string(),
-            ),
-        },
-        Err(ddar::metric::MetricError::Refuted(report)) => {
-            goal_holds = Some(false);
+        Ok(proof) => (
+            true,
+            Some(proof),
+            "proved by the classical Euclidean prover".to_string(),
+        ),
+        Err(ddar::metric::MetricError::NoProof { reason, evidence }) => {
+            goal_holds = Some(true);
+            numeric_samples = Some(evidence.samples);
+            numeric_evidence = Some(evidence.report);
             (
                 false,
-                Some(report),
+                None,
+                format!(
+                    "not proved — no classical Euclidean proof was found ({reason}); the goal \
+                     holds numerically in {} sampled figures, which is evidence, not a proof",
+                    evidence.samples
+                ),
+            )
+        }
+        Err(ddar::metric::MetricError::Refuted(report)) => {
+            goal_holds = Some(false);
+            numeric_evidence = Some(report);
+            (
+                false,
+                None,
                 "not provable — the equation fails in a sampled figure (the statement \
                  appears to be false)"
                     .to_string(),
@@ -832,17 +881,16 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
         Err(e) => (false, None, format!("metric prover: {}", e.message())),
     };
 
-    let proof_steps = proof
-        .as_deref()
-        .filter(|p| proved && !p.starts_with("VERIFIED"))
-        .map(proof_size)
-        .map(|(s, _)| s);
+    let proof_steps = proof.as_deref().map(proof_size).map(|(s, _)| s);
     let mut sol = Solution {
         input: program.to_string(),
         low_level,
         proved,
+        status: Status::NotProved,
         method: Method::Euclidean,
         proof,
+        numeric_evidence,
+        numeric_samples,
         svg,
         aux_constructions: Vec::new(),
         constructions: legend_cons,
@@ -1208,6 +1256,9 @@ mod tests {
     use super::*;
 
     const DIST_CONST_FREE: &str = "A = free\nB = free\nprove dist(A,B) = 3";
+    /// A median halves the area: true, but no theorem in the library speaks of
+    /// areas, so it has no Euclidean proof here.
+    const NUMERIC_ONLY: &str = "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)";
     const PYTHAGORAS_GENERIC: &str =
         "A B C = triangle\nprove dist(A,B)^2 = dist(B,C)^2 + dist(A,C)^2";
     const THALES_ANGLE: &str = "A = free\nO = free\nB = reflect(A, O)\n\
@@ -1223,7 +1274,7 @@ mod tests {
     fn refuted_metric_goal_is_not_proved() {
         let sol = solve(DIST_CONST_FREE, &SolveOptions::default()).unwrap();
         assert_eq!(sol.method, Method::Euclidean);
-        assert!(!sol.proved, "a NOT VERIFIED report must not count as proved: {}", sol.note);
+        assert!(!sol.proved, "a refuted goal must not count as proved: {}", sol.note);
         assert_eq!(sol.goal_holds_numerically, Some(false));
     }
 
@@ -1320,16 +1371,68 @@ mod tests {
         assert!(quiet.proof.is_none());
     }
 
+    /// A metric goal that holds in every sampled figure but has no Euclidean
+    /// proof is NOT proved: it gets its own status, the numeric evidence, and
+    /// no proof text.
     #[test]
-    fn metric_verdict_classifies_reports() {
-        assert_eq!(metric_verdict("NOT VERIFIED — the equation fails\n  x"), MetricVerdict::Refuted);
-        assert_eq!(
-            metric_verdict("VERIFIED (numerically)\n  value: NaN ≈ NaN"),
-            MetricVerdict::NonFinite
-        );
-        assert_eq!(metric_verdict("value: inf"), MetricVerdict::NonFinite);
-        assert_eq!(metric_verdict("1. By Pythagoras, ... ∎"), MetricVerdict::Verified);
-        assert_eq!(metric_verdict("information about infinity"), MetricVerdict::Verified);
+    fn numeric_only_metric_goal_is_not_proved() {
+        let sol = solve(NUMERIC_ONLY, &SolveOptions::default()).unwrap();
+        assert_eq!(sol.method, Method::Euclidean);
+        assert!(!sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::HoldsNumerically, "{}", sol.note);
+        assert_eq!(sol.goal_holds_numerically, Some(true));
+        assert!(sol.numeric_samples.is_some_and(|n| n >= 8), "{:?}", sol.numeric_samples);
+        assert!(sol.proof.is_none(), "{:?}", sol.proof);
+        assert!(sol.proof_steps.is_none());
+        let ev = sol.numeric_evidence.as_deref().unwrap_or("");
+        assert!(ev.contains("not a proof"), "{ev}");
+        assert!(sol.note.contains("not proved"), "{}", sol.note);
+
+        let json = serde_json::to_value(&sol).unwrap();
+        assert_eq!(json["proved"], false);
+        assert_eq!(json["status"], "holds-numerically");
+        assert_eq!(json["goal_holds_numerically"], true);
+        assert!(json["numeric_samples"].as_u64().is_some_and(|n| n >= 8));
+        assert!(json["proof"].is_null());
+    }
+
+    #[test]
+    fn numeric_only_metric_goal_is_not_proved_by_solve_best() {
+        let sol = solve_best(NUMERIC_ONLY, &SolveOptions::default(), Duration::from_secs(2)).unwrap();
+        assert!(!sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::HoldsNumerically);
+    }
+
+    #[test]
+    fn statuses_agree_with_proved() {
+        let proved = solve(include_str!("../../alphageometry-rs/examples/metric/stewart.geo"), &SolveOptions::default()).unwrap();
+        assert_eq!(proved.status, Status::Proved);
+        assert!(proved.numeric_evidence.is_none());
+        let refuted = solve(DIST_CONST_FREE, &SolveOptions::default()).unwrap();
+        assert_eq!(refuted.status, Status::Refuted);
+        assert!(refuted.proof.is_none());
+        assert!(refuted.numeric_evidence.as_deref().unwrap_or("").contains("counterexample"));
+        let ddar_false = solve(GENERIC_RIGHT_ANGLE, &SolveOptions::default()).unwrap();
+        assert!(!ddar_false.proved);
+        assert_ne!(ddar_false.status, Status::Proved);
+        assert_ne!(ddar_false.status, Status::HoldsNumerically);
+        let ddar_true = solve(THALES_ANGLE, &SolveOptions::default()).unwrap();
+        assert_eq!(ddar_true.status, Status::Proved);
+    }
+
+    #[test]
+    fn reconcile_strips_proof_text_from_an_unproved_result() {
+        let mut sol = blank_solution();
+        sol.proof = Some("NUMERICAL CHECK ...".into());
+        sol.proof_steps = Some(3);
+        sol.goal_holds_numerically = Some(true);
+        reconcile(&mut sol, true);
+        assert!(sol.proof.is_none());
+        assert!(sol.proof_steps.is_none());
+        assert_eq!(sol.status, Status::NotProved, "no numeric sampling ran");
+        sol.numeric_samples = Some(48);
+        reconcile(&mut sol, true);
+        assert_eq!(sol.status, Status::HoldsNumerically);
     }
 
     #[test]
@@ -1349,8 +1452,11 @@ mod tests {
             input: String::new(),
             low_level: String::new(),
             proved: false,
+            status: Status::NotProved,
             method: Method::AuxSearch,
             proof: None,
+            numeric_evidence: None,
+            numeric_samples: None,
             svg: String::new(),
             aux_constructions: Vec::new(),
             constructions: Vec::new(),

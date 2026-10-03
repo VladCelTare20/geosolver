@@ -466,7 +466,15 @@ fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, light: boo
         }
         ExitCode::SUCCESS
     } else {
-        println!("Not proven ({:.3}s)  [{}]", sol.elapsed_secs, sol.note);
+        println!(
+            "{} ({:.3}s)  [{}]",
+            sol.status.label(),
+            sol.elapsed_secs,
+            sol.note
+        );
+        if let Some(evidence) = &sol.numeric_evidence {
+            println!("\n{evidence}");
+        }
         ExitCode::from(1)
     }
 }

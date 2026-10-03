@@ -31,6 +31,8 @@ type Triple = (PointId, PointId, PointId);
 pub enum Reason {
     /// A hypothesis of the problem, pre-rendered (they are few).
     Assumption(String),
+    /// The defining fact of an auxiliary point a prover introduced.
+    Construction(String),
     /// Two triangles matched as similar by the closure search.
     SimilarTriangles(Triple, Triple),
     /// Points found concyclic (inscribed-angle criterion / equal radii).
@@ -97,37 +99,49 @@ impl ProofLog {
     /// Render a numbered proof in the spirit of the original AlphaGeometry
     /// (`001. premise & premise ⇒ conclusion`).
     pub fn report(&self, used: &[FactId], goal_text: &str, names: &[String]) -> String {
-        let steps = self.closure(used);
-        let number: std::collections::HashMap<FactId, usize> =
-            steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
-
+        let lines = self.step_lines(used, names);
         let mut out = String::new();
         out.push_str(&format!(
             "Proof of {goal_text} ({} steps, {} facts recorded in total):\n",
-            steps.len(),
+            lines.len(),
             self.facts.len()
         ));
-        for &f in &steps {
-            let fact = &self.facts[f as usize];
-            let cites: Vec<String> = fact
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|n| format!("{n:03}")))
-                .collect();
-            let arrow = if cites.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", cites.join(" & "))
-            };
-            out.push_str(&format!(
-                "{:03}. {}{}\n",
-                number[&f],
-                render_reason(&fact.reason, names),
-                arrow
-            ));
+        for line in &lines {
+            out.push_str(line);
+            out.push('\n');
         }
         out.push_str(&format!("∎ {goal_text}\n"));
         out
+    }
+
+    /// The numbered derivation lines (`001. reason [premises]`) of the backward
+    /// closure from `used`, without a header or conclusion line.
+    pub fn step_lines(&self, used: &[FactId], names: &[String]) -> Vec<String> {
+        let steps = self.closure(used);
+        let number: std::collections::HashMap<FactId, usize> =
+            steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
+        steps
+            .iter()
+            .map(|&f| {
+                let fact = &self.facts[f as usize];
+                let cites: Vec<String> = fact
+                    .premises
+                    .iter()
+                    .filter_map(|p| number.get(p).map(|n| format!("{n:03}")))
+                    .collect();
+                let arrow = if cites.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", cites.join(" & "))
+                };
+                format!(
+                    "{:03}. {}{}",
+                    number[&f],
+                    render_reason(&fact.reason, names),
+                    arrow
+                )
+            })
+            .collect()
     }
 }
 
@@ -148,6 +162,7 @@ fn nms(names: &[String], ps: &[PointId]) -> String {
 fn render_reason(r: &Reason, names: &[String]) -> String {
     match r {
         Reason::Assumption(s) => format!("assumption: {s}"),
+        Reason::Construction(s) => format!("construction: {s}"),
         Reason::SimilarTriangles((a, b, c), (x, y, z)) => format!(
             "similar triangles: △{}{}{} ∼ △{}{}{}",
             nm(names, *a),

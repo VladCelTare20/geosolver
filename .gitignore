@@ -28,3 +28,4 @@ agstudio.db
 # Local deploy secrets
 deploy/.env
 deploy/certs/
+.claude/worktrees/

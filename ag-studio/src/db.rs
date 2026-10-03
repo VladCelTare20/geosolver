@@ -40,6 +40,9 @@ pub struct HistoryEntry {
     pub title: Option<String>,
     pub proved: bool,
     pub method: Option<String>,
+    /// The solve's verdict (`proved`, `holds-numerically`, `refuted`,
+    /// `not-proved`); `None` for rows recorded before verdicts were stored.
+    pub status: Option<String>,
     pub created_at: i64,
 }
 
@@ -145,6 +148,13 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
          );
          CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, created_at DESC);",
     )?;
+    // Verdicts arrived after the history table; add the column to older DBs.
+    let has_status = conn
+        .prepare("SELECT 1 FROM pragma_table_info('history') WHERE name = 'status'")?
+        .exists([])?;
+    if !has_status {
+        conn.execute_batch("ALTER TABLE history ADD COLUMN status TEXT;")?;
+    }
     // Usernames are case-insensitive. A DB from before that rule may already
     // hold `Alice` and `alice`; the index then fails to build and `create_user`'s
     // own check still prevents any new collision.
@@ -232,11 +242,12 @@ pub fn insert_history(
     title: Option<&str>,
     proved: bool,
     method: Option<&str>,
+    status: Option<&str>,
 ) -> rusqlite::Result<i64> {
     conn.execute(
-        "INSERT INTO history (user_id, input, title, proved, method, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![user_id, input, title, proved as i64, method, now()],
+        "INSERT INTO history (user_id, input, title, proved, method, status, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![user_id, input, title, proved as i64, method, status, now()],
     )?;
     let id = conn.last_insert_rowid();
     // Bound per-user growth: drop the oldest rows past the cap.
@@ -258,7 +269,7 @@ pub fn list_history(
     before: Option<i64>,
 ) -> rusqlite::Result<Vec<HistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, input, title, proved, method, created_at \
+        "SELECT id, user_id, input, title, proved, method, created_at, status \
          FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
     )?;
     let rows = stmt.query_map(params![user_id, before.unwrap_or(i64::MAX), limit], |r| {
@@ -270,6 +281,7 @@ pub fn list_history(
             proved: r.get::<_, i64>(4)? != 0,
             method: r.get(5)?,
             created_at: r.get(6)?,
+            status: r.get(7)?,
         })
     })?;
     rows.collect()
@@ -331,19 +343,47 @@ mod tests {
         assert!(lookup_session(&conn, "sid1").unwrap().is_none());
     }
 
+    /// A database created before verdicts were stored gains the column on
+    /// open, and its old rows read back with no status.
+    #[test]
+    fn legacy_history_gains_a_status_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
+             CREATE TABLE history (id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id), input TEXT NOT NULL,
+                title TEXT, proved INTEGER NOT NULL, method TEXT, created_at INTEGER NOT NULL);
+             INSERT INTO users VALUES (1, 'old', 'h', 0);
+             INSERT INTO history VALUES (1, 1, 'p', NULL, 1, 'euclidean', 0);",
+        )
+        .unwrap();
+        init(&conn).unwrap();
+        init(&conn).unwrap(); // idempotent
+        let hist = list_history(&conn, 1, 10, None).unwrap();
+        assert_eq!(hist.len(), 1);
+        assert!(hist[0].status.is_none());
+        insert_history(&conn, 1, "q", None, false, None, Some("refuted")).unwrap();
+        let hist = list_history(&conn, 1, 10, None).unwrap();
+        assert_eq!(hist[0].status.as_deref(), Some("refuted"));
+    }
+
     #[test]
     fn history_scoped_and_ordered() {
         let conn = mem();
         let a = create_user(&conn, "alice", "h").unwrap();
         let b = create_user(&conn, "bob", "h").unwrap();
-        insert_history(&conn, a, "p1", Some("t1"), true, Some("ddar")).unwrap();
-        insert_history(&conn, a, "p2", None, false, Some("aux-search")).unwrap();
-        insert_history(&conn, b, "p3", None, true, None).unwrap();
+        insert_history(&conn, a, "p1", Some("t1"), true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(&conn, a, "p2", None, false, Some("euclidean"), Some("holds-numerically"))
+            .unwrap();
+        insert_history(&conn, b, "p3", None, true, None, None).unwrap();
         let hist = list_history(&conn, a, 1000, None).unwrap();
         assert_eq!(hist.len(), 2);
         assert_eq!(hist[0].input, "p2"); // most recent first
         assert!(!hist[0].proved);
+        assert_eq!(hist[0].status.as_deref(), Some("holds-numerically"));
         assert!(hist[1].proved);
+        assert_eq!(hist[1].status.as_deref(), Some("proved"));
         assert_eq!(list_history(&conn, b, 1000, None).unwrap().len(), 1);
     }
 
@@ -351,7 +391,7 @@ mod tests {
     fn foreign_key_violation_rejected() {
         let conn = mem();
         assert!(insert_session(&conn, "sid1", 999, 3600).is_err());
-        assert!(insert_history(&conn, 999, "p", None, true, None).is_err());
+        assert!(insert_history(&conn, 999, "p", None, true, None, None).is_err());
     }
 
     #[test]
@@ -390,7 +430,7 @@ mod tests {
         let conn = mem();
         let uid = create_user(&conn, "alice", "h").unwrap();
         for i in 0..(HISTORY_MAX_PER_USER + 25) {
-            insert_history(&conn, uid, &format!("p{i}"), None, true, None).unwrap();
+            insert_history(&conn, uid, &format!("p{i}"), None, true, None, None).unwrap();
         }
         let hist = list_history(&conn, uid, 1000, None).unwrap();
         assert_eq!(hist.len(), HISTORY_MAX_PER_USER as usize);
@@ -460,7 +500,7 @@ mod tests {
         let conn = mem();
         let uid = create_user(&conn, "alice", "h").unwrap();
         for i in 0..10 {
-            insert_history(&conn, uid, &format!("p{i}"), None, true, None).unwrap();
+            insert_history(&conn, uid, &format!("p{i}"), None, true, None, None).unwrap();
         }
         let page = list_history(&conn, uid, 4, None).unwrap();
         assert_eq!(page.len(), 4);
@@ -483,7 +523,7 @@ mod tests {
         let conn = mem();
         let alice = create_user(&conn, "alice", "h").unwrap();
         let bob = create_user(&conn, "bob", "h").unwrap();
-        let id = insert_history(&conn, alice, "prog", None, true, None).unwrap();
+        let id = insert_history(&conn, alice, "prog", None, true, None, None).unwrap();
         // Bob cannot delete Alice's entry.
         assert!(!delete_history(&conn, bob, id).unwrap());
         assert_eq!(list_history(&conn, alice, 1000, None).unwrap().len(), 1);
