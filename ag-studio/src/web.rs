@@ -148,7 +148,10 @@ fn app_router(state: Shared) -> Router {
         .route("/api/humanize", post(api_humanize))
         .route("/api/export", post(api_export))
         .route("/api/history", get(api_history))
-        .route("/api/history/{id}", axum::routing::delete(api_history_delete).get(api_history_get))
+        .route(
+            "/api/history/{id}",
+            axum::routing::delete(api_history_delete).get(api_history_get).put(api_history_replace),
+        )
         .route("/api/auth/register", post(api_register))
         .route("/api/auth/login", post(api_login))
         .route("/api/auth/logout", post(api_logout))
@@ -190,19 +193,23 @@ async fn session_user(state: &Shared, headers: &HeaderMap) -> Option<db::User> {
 /// everyone else sees the public landing page pitching the product.
 async fn index(State(state): State<Shared>, headers: HeaderMap) -> Response {
     if state.config.guest_allowed() {
-        Html(INDEX_HTML).into_response()
+        page(INDEX_HTML)
     } else if session_user(&state, &headers).await.is_some() {
         Redirect::to("/app").into_response()
     } else {
-        Html(LANDING_HTML).into_response()
+        page(LANDING_HTML)
     }
+}
+
+fn page(html: &'static str) -> Response {
+    ([(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))], Html(html)).into_response()
 }
 
 /// `/app`: the solver SPA, gated on a valid session (else 302 to `/auth`)
 /// unless guest mode lets Basic auth alone in.
 async fn app_page(State(state): State<Shared>, headers: HeaderMap) -> Response {
     if state.config.guest_allowed() || session_user(&state, &headers).await.is_some() {
-        Html(INDEX_HTML).into_response()
+        page(INDEX_HTML)
     } else {
         Redirect::to("/auth").into_response()
     }
@@ -231,8 +238,8 @@ async fn font_asset(axum::extract::Path(file): axum::extract::Path<String>) -> R
 }
 
 /// The login/register page (public — its own JS calls the `/api/auth/*` routes).
-async fn auth_page() -> Html<&'static str> {
-    Html(AUTH_HTML)
+async fn auth_page() -> Response {
+    page(AUTH_HTML)
 }
 
 /// Unauthenticated liveness probe for container / load-balancer health checks.
@@ -653,14 +660,18 @@ async fn api_solve(
             .clamp(0.5, 60.0),
     );
     let task = tokio::task::spawn_blocking(move || {
-        let _permit = permit; // hold the slot until the work actually finishes
-        if best {
-            engine::solve_best(&input, &opts, budget)
-        } else {
-            engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
-        }
+        engine::with_keepalive(std::sync::Arc::new(permit), || {
+            if best {
+                engine::solve_best(&input, &opts, budget)
+            } else {
+                engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
+            }
+        })
     });
     match task.await {
+        Ok(Ok(sol)) if !sol.proved && sol.note.starts_with("metric prover: bad number") => {
+            compile_err(lang, &input_for_errors, &sol.note)
+        }
         Ok(Ok(sol)) => {
             let value = tokio::task::spawn_blocking({
                 let sol = sol.clone();
@@ -670,10 +681,13 @@ async fn api_solve(
             .await
             .unwrap_or_default();
             let (_, value) = cache_put(value);
+            let mut out = value.as_ref().clone();
             if let (Caller::User(user), true) = (&caller, req.record) {
-                save_history(&state, user.id, &sol, history_title.as_deref(), &value).await;
+                if let Some(id) = save_history(&state, user.id, &sol, history_title.as_deref(), &value).await {
+                    out["history_id"] = serde_json::json!(id);
+                }
             }
-            Json(value.as_ref().clone()).into_response()
+            Json(out).into_response()
         }
         Ok(Err(e)) => {
             eprintln!("solve error: {e}");
@@ -714,9 +728,9 @@ async fn save_history(
     sol: &engine::Solution,
     title: Option<&str>,
     value: &serde_json::Value,
-) {
+) -> Option<i64> {
     if sol.input.len() > state.config.max_input_chars {
-        return;
+        return None;
     }
     let db = state.db.clone();
     let (input, proved, method) = (sol.input.clone(), sol.proved, method_str(sol.method));
@@ -728,7 +742,7 @@ async fn save_history(
         o.remove("id");
     }
     let solution = Some(stored.to_string()).filter(|s| s.len() <= MAX_STORED_SOLUTION_BYTES);
-    let _ = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         db::insert_history_full(
             &db::lock(&db),
             user_id,
@@ -743,7 +757,65 @@ async fn save_history(
             },
         )
     })
+    .await
+    .ok()
+    .and_then(Result::ok)
+}
+
+#[derive(Deserialize)]
+struct ReplaceReq {
+    id: String,
+}
+
+/// `PUT /api/history/{id}` `{id: <cached solution id>}`: the client swapped a
+/// shorter proof in for the one it recorded, so the entry must reopen as shown.
+async fn api_history_replace(
+    State(state): State<Shared>,
+    SessionUser(user): SessionUser,
+    axum::extract::Path(row): axum::extract::Path<i64>,
+    headers: HeaderMap,
+    ApiJson(req): ApiJson<ReplaceReq>,
+) -> Response {
+    let lang = i18n::lang_from_headers(&headers);
+    let Some(value) = cache_get(&req.id) else {
+        return err(StatusCode::GONE, i18n::t(lang, "export.expired"));
+    };
+    let mut stored = value.as_ref().clone();
+    if let Some(o) = stored.as_object_mut() {
+        o.remove("id");
+        o.remove("history_id");
+    }
+    let solution = stored.to_string();
+    if solution.len() > MAX_STORED_SOLUTION_BYTES {
+        return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(lang, "err.too_large"));
+    }
+    let s = |k: &str| stored[k].as_str().map(str::to_string);
+    let (input, title, method, status) = (s("input").unwrap_or_default(), s("title"), s("method"), s("status"));
+    let proved = stored["proved"].as_bool().unwrap_or(false);
+    let goal = stored["view"].get("goal").filter(|g| !g.is_null()).map(|g| g.to_string());
+    let db = state.db.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        db::replace_history(
+            &db::lock(&db),
+            user.id,
+            row,
+            &db::NewHistory {
+                input: &input,
+                title: title.as_deref(),
+                proved,
+                method: method.as_deref(),
+                status: status.as_deref(),
+                goal: goal.as_deref(),
+                solution: Some(&solution),
+            },
+        )
+    })
     .await;
+    match res {
+        Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(false)) => err(StatusCode::NOT_FOUND, i18n::t(lang, "history.none")),
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "history.load_fail")),
+    }
 }
 
 // -------------------------------------------------------------- history ----
@@ -759,6 +831,8 @@ struct HistoryItem {
     /// The goal as a typed fact (see `present::Fact`), when recorded.
     goal: Option<serde_json::Value>,
     has_solution: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
     created_at: i64,
 }
 
@@ -773,6 +847,7 @@ impl From<db::HistoryEntry> for HistoryItem {
             status: h.status,
             goal: h.goal.and_then(|g| serde_json::from_str(&g).ok()),
             has_solution: h.has_solution,
+            note: h.note,
             created_at: h.created_at,
         }
     }
@@ -1105,11 +1180,10 @@ async fn api_export(
         };
         let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
             let _permit = permit;
-            let report = render::report_from_json(&value, lang);
             if want_pdf {
-                render::svg_to_pdf(&report)
+                render::report_pdf_from_json(&value, lang)
             } else {
-                render::svg_to_png(&report, 2.0)
+                render::report_png_from_json(&value, lang)
             }
         })
         .await;
@@ -1145,14 +1219,15 @@ async fn api_export(
     let input_for_errors = input.clone();
 
     let res = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, (bool, String)> {
-        let _permit = permit;
-        let sol = engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE)).map_err(|e| (true, e))?;
+        let sol = engine::with_keepalive(std::sync::Arc::new(permit), || {
+            engine::solve_within(&input, &opts, Some(SOLVE_DEADLINE))
+        })
+        .map_err(|e| (true, e))?;
         let value = present::solution_json(&sol, title.as_deref());
-        let report = render::report_from_json(&value, lang);
         if want_pdf {
-            render::svg_to_pdf(&report)
+            render::report_pdf_from_json(&value, lang)
         } else {
-            render::svg_to_png(&report, 2.0)
+            render::report_png_from_json(&value, lang)
         }
         .map_err(|e| (false, e.to_string()))
     })
@@ -1349,6 +1424,17 @@ mod tests {
         assert!(body.contains("GeoSolver"));
     }
 
+    #[tokio::test]
+    async fn html_pages_are_never_cached() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "gina").await;
+        for (uri, c) in [("/", None), ("/auth", None), ("/app", Some(cookie.as_str()))] {
+            let (st, headers, _) = get_page(&state, uri, c).await;
+            assert_eq!(st, StatusCode::OK, "{uri}");
+            assert_eq!(headers.get(header::CACHE_CONTROL).map(|v| v.to_str().unwrap()), Some("no-store"), "{uri}");
+        }
+    }
+
     const ISOSCELES_GEO: &str =
         "B C = segment\nA = point: dist(A, B) = dist(A, C)\nprove eqangle(B, C, B, A, C, A, C, B)";
 
@@ -1380,6 +1466,22 @@ mod tests {
             call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
         assert_eq!(rows[0]["proved"], false);
         assert_eq!(rows[0]["status"], "holds-numerically");
+    }
+
+    #[tokio::test]
+    async fn a_malformed_number_is_a_compile_error_not_a_verdict() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "noether2").await;
+        let input = "B = free\nC = point: dist(B,C)=6.2.3\nprove dist(B,C)^2 = 36";
+        let (st, _, body) =
+            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body:?}");
+        assert_eq!(body["code"], "compile", "{body:?}");
+        assert_eq!(body["diagnosis"]["key"], "bad_number", "{body:?}");
+        assert_eq!(body["diagnosis"]["line"], 2, "{body:?}");
+        let (_, _, rows) =
+            call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(rows.as_array().map(Vec::len), Some(0), "{rows:?}");
     }
 
     #[tokio::test]
@@ -1825,7 +1927,7 @@ mod tests {
         )
         .await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(body["error"], "rate limit exceeded — please slow down");
+        assert_eq!(body["error"], i18n::t(i18n::Lang::En, "rate.exceeded"));
     }
 
     // ------------------------------------------------ public-exposure hardening --
@@ -2359,6 +2461,36 @@ mod tests {
         let (st, _, _) =
             call(&state, "GET", &format!("/api/history/{id}"), Some(&other), serde_json::Value::Null).await;
         assert_eq!(st, StatusCode::NOT_FOUND, "another user's row is invisible");
+    }
+
+    #[tokio::test]
+    async fn a_swapped_in_shorter_proof_replaces_the_history_entry() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "euler").await;
+        let (_, _, first) =
+            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        let hid = first["history_id"].as_i64().expect("a recorded solve says which row it wrote");
+        let (_, _, best) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ORTHO_REFLECTION, "best": true, "budget_secs": 2, "record": false}),
+        )
+        .await;
+        assert!(best["history_id"].is_null());
+        let body = serde_json::json!({"id": best["id"]});
+        let other = register_cookie(&state, "lagrange").await;
+        let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&other), body.clone()).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "only the owner can replace a row");
+        let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&cookie), body).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+        let (_, _, again) =
+            call(&state, "GET", &format!("/api/history/{hid}"), Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(again["view"], best["view"]);
+        assert_eq!(again["examined"], best["examined"]);
+        let (_, _, rows) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(rows.as_array().map(Vec::len), Some(1));
     }
 
     #[tokio::test]

@@ -38,8 +38,8 @@
       if (show || touched.pass) fieldMsg("pass-msg", pOk ? "ok" : (p || show ? "err" : ""), pOk ? t("auth.pass_hint") : t("auth.err_pass"));
       else fieldMsg("pass-msg", "", t("auth.pass_hint"));
     } else {
-      fieldMsg("user-msg", show && u.length < 3 ? "err" : "", show && u.length < 3 ? t("auth.err_user") : "");
-      fieldMsg("pass-msg", show && !p ? "err" : "", show && !p ? t("auth.err_pass") : "");
+      fieldMsg("user-msg", show && u.length < 3 ? "err" : "", show && u.length < 3 ? t(u ? "auth.err_user" : "auth.need_user") : "");
+      fieldMsg("pass-msg", show && !p ? "err" : "", show && !p ? t("auth.need_pass") : "");
     }
     var userBad = reg ? !uOk : u.length < 3;
     var passBad = reg ? !pOk : !p;

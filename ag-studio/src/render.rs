@@ -25,6 +25,15 @@ fn shared_fontdb() -> Arc<usvg::fontdb::Database> {
         // Bundled fonts guarantee complete, consistent glyph coverage (math
         // symbols △ ∼ ∎ ⟂ ∥ ∠ √ …) regardless of what the host has installed,
         // so figures and proofs render identically everywhere.
+        for font in [
+            &include_bytes!("../assets/fonts/inter-regular.ttf")[..],
+            &include_bytes!("../assets/fonts/inter-semibold.ttf")[..],
+            &include_bytes!("../assets/fonts/stix-two-text-regular.ttf")[..],
+            &include_bytes!("../assets/fonts/stix-two-text-semibold.ttf")[..],
+            &include_bytes!("../assets/fonts/stix-two-text-italic.ttf")[..],
+        ] {
+            db.load_font_data(font.to_vec());
+        }
         db.load_font_data(include_bytes!("../assets/fonts/DejaVuSans.ttf").to_vec());
         db.load_font_data(include_bytes!("../assets/fonts/DejaVuSansMono.ttf").to_vec());
         // Point the generic families at the bundled fonts, so figures and proofs
@@ -54,8 +63,6 @@ pub fn parse_svg(svg: &str) -> Result<usvg::Tree> {
 const MAX_PIXELS: u64 = 40_000_000;
 /// Below this the text of a long proof is no longer legible; refuse instead.
 const MIN_SCALE: f32 = 0.1;
-/// Largest page edge, in points, that common PDF viewers accept (200 in).
-const MAX_PDF_PAGE_PT: f32 = 14_400.0;
 /// Refuse SVGs taller/wider than this (CSS px) outright.
 const MAX_SVG_EDGE: f32 = 4_000_000.0;
 
@@ -98,39 +105,16 @@ pub fn png_bytes(tree: &usvg::Tree, scale: f32) -> Result<Vec<u8>> {
     pixmap.encode_png().map_err(|e| anyhow!("PNG encode error: {e}"))
 }
 
-/// Export a parsed tree to a single-page PDF. A very tall page (a long proof)
-/// is scaled down, via the DPI, so neither edge exceeds what viewers accept.
-pub fn pdf_bytes(tree: &usvg::Tree) -> Result<Vec<u8>> {
-    check_svg_size(tree)?;
-    let size = tree.size();
-    let longest = size.width().max(size.height());
-    let mut page = svg2pdf::PageOptions::default();
-    if longest > MAX_PDF_PAGE_PT {
-        page.dpi = 72.0 * longest / MAX_PDF_PAGE_PT * 1.001;
-    }
-    svg2pdf::to_pdf(tree, svg2pdf::ConversionOptions::default(), page)
-    .map_err(|e| anyhow!("PDF conversion error: {e}"))
-}
-
 /// Convenience: SVG string → PNG bytes.
 pub fn svg_to_png(svg: &str, scale: f32) -> Result<Vec<u8>> {
     png_bytes(&parse_svg(svg)?, scale)
 }
 
-/// Convenience: SVG string → PDF bytes.
-pub fn svg_to_pdf(svg: &str) -> Result<Vec<u8>> {
-    pdf_bytes(&parse_svg(svg)?)
-}
 
 // ---------------------------------------------------------------------------
 // Report page: verdict, figure, given/prove, and the machine-checked steps.
 // ---------------------------------------------------------------------------
 
-const PAGE_W: f32 = 820.0;
-const MARGIN: f32 = 48.0;
-const BODY_FS: f32 = 13.5;
-const LEADING: f32 = 20.0;
-const FIG_MAX_H: f32 = 520.0;
 
 struct Tone {
     ink: &'static str,
@@ -226,6 +210,14 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
         "cyclic" => i18n::tf(lang, "fact.cyclic", &[("pts", a.join(", "))]),
         "midp" => i18n::tf(lang, "fact.midp", &[("m", g(0)), ("seg", g(1))]),
         "circle" => i18n::tf(lang, "fact.circle", &[("o", g(0)), ("tri", g(1))]),
+        "oncircle" => i18n::tf(lang, "fact.oncircle", &[("o", g(0)), ("pts", a[1..].join(", "))]),
+        "prose" => {
+            let ro = f["ro"].as_array().and_then(|r| r.first()).and_then(Value::as_str);
+            match (lang, ro) {
+                (Lang::Ro, Some(r)) => r.to_string(),
+                _ => g(0),
+            }
+        }
         "cong" | "length" | "eqangle" | "coincide" => format!("{} = {}", g(0), g(1)),
         "perp" => format!("{} \u{27c2} {}", g(0), g(1)),
         "para" => format!("{} \u{2225} {}", g(0), g(1)),
@@ -245,7 +237,18 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
 pub fn aux_text(a: &Value, lang: Lang) -> String {
     let raw = a["text"].as_str().unwrap_or("").to_string();
     let kind = a["kind"].as_str().unwrap_or("");
-    let key = format!("aux.{kind}");
+    let mut key = format!("aux.{kind}");
+    let raw_args: Vec<&str> = a["args"].as_array().map(|v| v.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    if kind == "intersect" && raw_args.len() == 2 && raw_args[1].starts_with("circ") {
+        let on: Vec<&str> = raw_args[1]
+            .trim_end_matches(')')
+            .split_once('(')
+            .map(|(_, inner)| inner.split(',').map(str::trim).collect())
+            .unwrap_or_default();
+        if on.iter().any(|p| !p.is_empty() && raw_args[0].contains(p)) {
+            key = "aux.intersect2".to_string();
+        }
+    }
     let template = i18n::t(lang, &key);
     if template == i18n::t(lang, "aux.__none__") {
         return raw;
@@ -278,7 +281,10 @@ pub fn aux_text(a: &Value, lang: Lang) -> String {
 
 fn rule_text(step: &Value, lang: Lang) -> String {
     match (step["rule"].as_str().unwrap_or("other"), step["rule_name"].as_str()) {
-        ("theorem", Some(name)) => name.to_string(),
+        ("theorem", Some(name)) => match (lang, step["rule_name_ro"].as_str()) {
+            (Lang::Ro, Some(ro)) => ro.to_string(),
+            _ => name.to_string(),
+        },
         (key, _) => i18n::t(lang, &format!("rule.{key}")).to_string(),
     }
 }
@@ -324,23 +330,182 @@ fn counter_text(c: &Value, lang: Lang) -> Option<String> {
 }
 
 /// The export report for a solution as the web app returns it (engine fields
-/// plus `view` and `title`), on a light, print-friendly page.
+/// plus `view` and `title`), as one tall page (the PNG report).
 pub fn report_from_json(v: &Value, lang: Lang) -> String {
+    report_pages(v, lang, false).into_iter().next().unwrap_or_default()
+}
+
+/// The report as A4 pages: the figure on page 1, breaks only between blocks
+/// (never inside a step), a running header and page numbers.
+pub fn report_pdf_from_json(v: &Value, lang: Lang) -> Result<Vec<u8>> {
+    pdf_from_pages(&report_pages(v, lang, true))
+}
+
+/// The PNG report: the tall single page at print resolution.
+pub fn report_png_from_json(v: &Value, lang: Lang) -> Result<Vec<u8>> {
+    svg_to_png(&report_from_json(v, lang), 2.75)
+}
+
+/// The report for a [`Solution`] (CLI and MCP exports), in English, as one
+/// tall page.
+pub fn report_svg(sol: &Solution, title: Option<&str>, _light: bool) -> String {
+    report_from_json(&present::solution_json(sol, title), Lang::En)
+}
+
+/// [`report_svg`] as paginated A4 PDF.
+pub fn report_pdf(sol: &Solution, title: Option<&str>) -> Result<Vec<u8>> {
+    report_pdf_from_json(&present::solution_json(sol, title), Lang::En)
+}
+
+/// Assemble one PDF from page SVGs (each converted with svg2pdf and placed as
+/// a full-page form XObject).
+pub fn pdf_from_pages(pages: &[String]) -> Result<Vec<u8>> {
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
+    let mut alloc = Ref::new(1);
+    let catalog = alloc.bump();
+    let tree_id = alloc.bump();
+    let mut pdf = Pdf::new();
+    let mut kids = Vec::new();
+    let mut chunks = Vec::new();
+    let mut page_objs = Vec::new();
+    for svg in pages {
+        let tree = parse_svg(svg)?;
+        check_svg_size(&tree)?;
+        let (w, h) = (tree.size().width(), tree.size().height());
+        let (chunk, root) = svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default())
+            .map_err(|e| anyhow!("PDF conversion error: {e}"))?;
+        let mut map = std::collections::HashMap::new();
+        let chunk = chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
+        let root = *map.get(&root).ok_or_else(|| anyhow!("PDF conversion lost the page"))?;
+        let (page_id, content_id) = (alloc.bump(), alloc.bump());
+        kids.push(page_id);
+        page_objs.push((page_id, content_id, root, w, h));
+        chunks.push(chunk);
+    }
+    pdf.catalog(catalog).pages(tree_id);
+    pdf.pages(tree_id).kids(kids.iter().copied()).count(kids.len() as i32);
+    for (page_id, content_id, root, w, h) in page_objs {
+        let name = Name(b"P0");
+        let mut page = pdf.page(page_id);
+        page.media_box(Rect::new(0.0, 0.0, w, h));
+        page.parent(tree_id);
+        page.contents(content_id);
+        page.resources().x_objects().pair(name, root);
+        page.finish();
+        let mut content = Content::new();
+        content.transform([w, 0.0, 0.0, h, 0.0, 0.0]).x_object(name);
+        pdf.stream(content_id, &content.finish());
+    }
+    for c in &chunks {
+        pdf.extend(c);
+    }
+    Ok(pdf.finish())
+}
+
+const PAGE_W: f32 = 595.0;
+const PAGE_H: f32 = 842.0;
+const MARGIN: f32 = 48.0;
+const BODY_FS: f32 = 11.0;
+const LEADING: f32 = 16.0;
+const FIG_MAX_H: f32 = 330.0;
+const UI: &str = "'GeoSolver Sans', 'DejaVu Sans', sans-serif";
+const MATH: &str = "'GeoSolver Math', 'DejaVu Serif', serif";
+const INK: &str = "#16191d";
+const MUTED: &str = "#4b525a";
+const RULE: &str = "#dadcd8";
+const ACCENT: &str = "#1f4fa0";
+const AUX_INK: &str = "#b45309";
+
+struct Block {
+    h: f32,
+    body: String,
+    keep_next: bool,
+}
+
+struct Typeset<'a> {
+    names: Vec<&'a str>,
+}
+
+impl Typeset<'_> {
+    fn is_name_run(&self, tok: &str) -> bool {
+        let mut rest = tok.trim_end_matches(['²', '³']);
+        if rest.is_empty() || !rest.starts_with(|c: char| c.is_uppercase()) {
+            return false;
+        }
+        while !rest.is_empty() {
+            let Some(n) = self.names.iter().filter(|n| rest.starts_with(**n)).max_by_key(|n| n.len()) else {
+                return false;
+            };
+            rest = &rest[n.len()..];
+        }
+        true
+    }
+
+    fn spans(&self, text: &str) -> String {
+        let text = normalize_glyphs(text);
+        let mut out = String::new();
+        let mut tok = String::new();
+        let flush = |tok: &mut String, out: &mut String| {
+            if tok.is_empty() {
+                return;
+            }
+            let lead: String = tok.chars().take_while(|c| matches!(c, '△' | '∠' | '|' | '(' | '[')).collect();
+            let core = &tok[lead.len()..];
+            let trail_len = core.chars().rev().take_while(|c| matches!(c, '|' | ')' | ']' | '²' | '³')).map(char::len_utf8).sum::<usize>();
+            let (name, trail) = core.split_at(core.len() - trail_len);
+            if self.is_name_run(name) {
+                out.push_str(&escape_xml(&lead));
+                out.push_str(&format!("<tspan font-style=\"italic\">{}</tspan>", escape_xml(name)));
+                out.push_str(&escape_xml(trail));
+            } else {
+                out.push_str(&escape_xml(tok));
+            }
+            tok.clear();
+        };
+        for c in text.chars() {
+            if c.is_whitespace() || matches!(c, ',' | '.' | ';' | ':' | '=' | '+' | '−' | '·' | '∼' | '≅' | '⊥' | '‖' | '∥' | '⟂' | '/') {
+                flush(&mut tok, &mut out);
+                out.push_str(&escape_xml(&c.to_string()));
+            } else {
+                tok.push(c);
+            }
+        }
+        flush(&mut tok, &mut out);
+        out
+    }
+}
+
+fn txt(x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, inner: &str) -> String {
+    format!(
+        "<text x=\"{x:.1}\" y=\"{y:.1}\" font-size=\"{size}\" font-weight=\"{weight}\" fill=\"{fill}\" font-family=\"{family}\" xml:space=\"preserve\">{inner}</text>\n"
+    )
+}
+
+fn plain(x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, s: &str) -> String {
+    txt(x, y, size, weight, fill, family, &escape_xml(&normalize_glyphs(s)))
+}
+
+fn wordmark(x: f32, y: f32) -> String {
+    format!(
+        "<g transform=\"translate({x:.1},{:.1}) scale(0.75)\" fill=\"none\" stroke=\"{ACCENT}\" stroke-width=\"2\" stroke-linejoin=\"round\"><circle cx=\"16\" cy=\"16\" r=\"13\"/><path d=\"M16 4.6 26.2 22H5.8Z\"/></g>\n{}",
+        y - 18.0,
+        plain(x + 31.0, y, 16.0, 600, INK, MATH, "GeoSolver")
+    )
+}
+
+fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
     let status = v["status"].as_str().unwrap_or("not-proved");
     let view = &v["view"];
     let time_limited = view["note"]["key"].as_str() == Some("time_limit");
     let t = tone(status, time_limited);
-    let verdict_key = if status != "proved" && time_limited {
-        "time_limit".to_string()
-    } else {
-        status.to_string()
-    };
+    let verdict_key = if status != "proved" && time_limited { "time_limit".to_string() } else { status.to_string() };
     let headline = i18n::t(lang, &format!("report.verdict.{verdict_key}")).to_string();
+    let samples = v["numeric_samples"].as_u64().unwrap_or(0);
     let explain = i18n::tf(
         lang,
         &format!("report.explain.{verdict_key}"),
         &[
-            ("n", v["numeric_samples"].as_u64().unwrap_or(0).to_string()),
+            ("n", i18n::tp(lang, "report.samples", samples, &[])),
             ("secs", fmt_num(view["note"]["secs"].as_f64().unwrap_or(60.0), lang, 0)),
         ],
     );
@@ -349,87 +514,73 @@ pub fn report_from_json(v: &Value, lang: Lang) -> String {
         .filter(|s| !s.trim().is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| i18n::t(lang, "report.default_title").to_string());
+    let point_names: Vec<String> = view["points"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|p| p["name"].as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let ts = Typeset { names: point_names.iter().map(String::as_str).collect() };
     let content_w = PAGE_W - 2.0 * MARGIN;
-    let cols = (content_w / (BODY_FS * 0.56)) as usize;
+    let cols = (content_w / (BODY_FS * 0.5)) as usize;
+    let mut blocks: Vec<Block> = Vec::new();
 
-    let mut body = String::new();
-    let mut y = MARGIN + 6.0;
-    let text = |s: &mut String, x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, content: &str| {
-        let _ = std::fmt::Write::write_fmt(
-            s,
-            format_args!(
-                "<text x=\"{x:.1}\" y=\"{y:.1}\" font-size=\"{size}\" font-weight=\"{weight}\" fill=\"{fill}\" font-family=\"{family}\" xml:space=\"preserve\">{}</text>\n",
-                escape_xml(&normalize_glyphs(content))
-            ),
-        );
-    };
-    const SANS: &str = "'DejaVu Sans', Helvetica, Arial, sans-serif";
-    const INK: &str = "#16191d";
-    const MUTED: &str = "#4b525a";
-    const RULE: &str = "#dadcd8";
-
-    for (i, line) in wrap(&title, 46).iter().enumerate() {
-        y += if i == 0 { 22.0 } else { 30.0 };
-        text(&mut body, MARGIN, y, 25.0, 700, INK, SANS, line);
+    let mut head = wordmark(MARGIN, 18.0);
+    let mut y = 52.0;
+    for line in wrap(&title, 44) {
+        head.push_str(&plain(MARGIN, y, 19.0, 600, INK, UI, &line));
+        y += 25.0;
     }
-    y += 18.0;
-    let explain_lines = wrap(&explain, cols.saturating_sub(8));
-    let card_h = 46.0 + explain_lines.len() as f32 * 19.0;
-    let _ = std::fmt::Write::write_fmt(
-        &mut body,
-        format_args!(
-            "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{card_h:.1}\" rx=\"10\" fill=\"{}\" stroke=\"{}\" stroke-opacity=\"0.35\"/>\n",
-            t.bg, t.ink
-        ),
-    );
-    body.push_str(&verdict_icon(status, time_limited, MARGIN + 16.0, y + 13.0, t.ink));
-    text(&mut body, MARGIN + 46.0, y + 29.0, 17.0, 700, t.ink, SANS, &headline);
+    y += 2.0;
+    let explain_lines = wrap(&explain, cols.saturating_sub(10));
+    let card_h = 40.0 + explain_lines.len() as f32 * 15.0;
+    head.push_str(&format!(
+        "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{card_h:.1}\" rx=\"8\" fill=\"{}\" stroke=\"{}\" stroke-opacity=\"0.35\"/>\n<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"3.5\" height=\"{card_h:.1}\" fill=\"{}\"/>\n",
+        t.bg, t.ink, t.ink
+    ));
+    head.push_str(&verdict_icon(status, time_limited, MARGIN + 14.0, y + 10.0, t.ink));
+    head.push_str(&plain(MARGIN + 42.0, y + 24.0, 14.0, 600, t.ink, UI, &headline));
     for (i, l) in explain_lines.iter().enumerate() {
-        text(&mut body, MARGIN + 46.0, y + 50.0 + i as f32 * 19.0, BODY_FS, 400, INK, SANS, l);
+        head.push_str(&plain(MARGIN + 42.0, y + 41.0 + i as f32 * 15.0, 10.0, 400, INK, UI, l));
     }
-    y += card_h + 22.0;
-
+    y += card_h + 18.0;
     let mut meta: Vec<String> = vec![fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang)];
-    let shown_steps = view["proof"]["steps"].as_array().map_or(0, Vec::len);
+    let shown_steps = view["proof"]["steps"].as_array().map_or(0, |a| a.iter().filter(|s| s["kind"] != "given").count());
     if status == "proved" && shown_steps > 0 {
-        meta.push(i18n::tf(lang, "report.steps", &[("n", shown_steps.to_string())]));
+        meta.push(i18n::tp(lang, "report.steps", shown_steps as u64, &[]));
     }
-    text(&mut body, MARGIN, y, 12.0, 400, MUTED, SANS, &meta.join("  \u{b7}  "));
-    y += 16.0;
-
+    head.push_str(&plain(MARGIN, y, 9.5, 400, MUTED, UI, &meta.join("  \u{b7}  ")));
+    y += 12.0;
     let svg = v["svg"].as_str().unwrap_or("");
     if let Some((fw, fh)) = svg_dimensions(svg).or_else(|| viewbox_size(svg)) {
-        let scale = (content_w / fw).min(FIG_MAX_H / fh);
+        let inner_w = content_w - 24.0;
+        let scale = (inner_w / fw).min(FIG_MAX_H / fh);
         let (w, h) = (fw * scale, fh * scale);
         let x = MARGIN + (content_w - w) / 2.0;
         let vb = viewbox_attr(svg).unwrap_or_else(|| format!("0 0 {fw} {fh}"));
-        let _ = std::fmt::Write::write_fmt(
-            &mut body,
-            format_args!(
-                "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{:.1}\" rx=\"10\" fill=\"#ffffff\" stroke=\"{RULE}\"/>\n<svg x=\"{x:.1}\" y=\"{:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"xMidYMid meet\" font-family=\"'DejaVu Serif', 'DejaVu Sans', serif\">\n{}\n</svg>\n",
-                h + 24.0,
-                y + 12.0,
-                strip_svg_root(svg)
-            ),
-        );
-        y += h + 24.0 + 28.0;
-    } else {
-        y += 12.0;
+        head.push_str(&format!(
+            "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{:.1}\" rx=\"8\" fill=\"#ffffff\" stroke=\"{RULE}\"/>\n<svg x=\"{x:.1}\" y=\"{:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"xMidYMid meet\" font-family=\"{MATH}\">\n{}\n</svg>\n",
+            h + 24.0,
+            y + 12.0,
+            strip_svg_root(svg)
+        ));
+        y += h + 24.0 + 10.0;
     }
+    blocks.push(Block { h: y, body: head, keep_next: false });
 
-    let section = |body: &mut String, y: &mut f32, label: &str| {
-        *y += 8.0;
-        text(body, MARGIN, *y, 11.5, 700, MUTED, SANS, &label.to_uppercase());
-        let _ = std::fmt::Write::write_fmt(
-            body,
-            format_args!(
-                "<line x1=\"{MARGIN}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{RULE}\"/>\n",
-                *y + 7.0,
-                PAGE_W - MARGIN,
-                *y + 7.0
-            ),
-        );
-        *y += 26.0;
+    let section = |blocks: &mut Vec<Block>, label: &str| {
+        let mut b = plain(MARGIN, 22.0, 9.0, 600, MUTED, UI, &label.to_uppercase());
+        b.push_str(&format!(
+            "<line x1=\"{MARGIN}\" y1=\"28\" x2=\"{:.1}\" y2=\"28\" stroke=\"{RULE}\"/>\n",
+            PAGE_W - MARGIN
+        ));
+        blocks.push(Block { h: 44.0, body: b, keep_next: true });
+    };
+    let lines_block = |blocks: &mut Vec<Block>, lines: &[String], x: f32, fill: &str, weight: u32, bullet: bool, ts: &Typeset| {
+        let mut b = String::new();
+        for (i, l) in lines.iter().enumerate() {
+            let lead = if bullet && i == 0 { "\u{2022}  " } else if bullet { "   " } else { "" };
+            b.push_str(&txt(x, 12.0 + i as f32 * LEADING, BODY_FS, weight, fill, MATH, &format!("{}{}", escape_xml(lead), ts.spans(l))));
+        }
+        blocks.push(Block { h: lines.len() as f32 * LEADING + 2.0, body: b, keep_next: false });
     };
 
     let given: Vec<String> = view["given"]
@@ -437,93 +588,141 @@ pub fn report_from_json(v: &Value, lang: Lang) -> String {
         .map(|a| a.iter().map(|f| fact_text(f, lang)).collect())
         .unwrap_or_default();
     if !given.is_empty() {
-        section(&mut body, &mut y, i18n::t(lang, "report.given"));
+        section(&mut blocks, i18n::t(lang, "report.given"));
         for g in &given {
-            for (i, l) in wrap(g, cols - 4).iter().enumerate() {
-                text(&mut body, MARGIN + if i == 0 { 0.0 } else { 14.0 }, y, BODY_FS, 400, INK, SANS, &if i == 0 { format!("\u{2022} {l}") } else { l.clone() });
-                y += LEADING;
-            }
+            lines_block(&mut blocks, &wrap(g, cols - 4), MARGIN, INK, 400, true, &ts);
         }
-        y += 6.0;
     }
     if !view["goal"].is_null() {
-        section(&mut body, &mut y, i18n::t(lang, "report.prove"));
-        for l in wrap(&fact_text(&view["goal"], lang), cols) {
-            text(&mut body, MARGIN, y, BODY_FS + 0.5, 700, INK, SANS, &l);
-            y += LEADING;
-        }
-        y += 6.0;
+        section(&mut blocks, i18n::t(lang, "report.prove"));
+        lines_block(&mut blocks, &wrap(&fact_text(&view["goal"], lang), cols), MARGIN, INK, 600, false, &ts);
     }
     if let Some(c) = view.get("counterexample").filter(|c| !c.is_null()).and_then(|c| counter_text(c, lang)) {
-        section(&mut body, &mut y, i18n::t(lang, "report.counter"));
-        for l in wrap(&c, cols) {
-            text(&mut body, MARGIN, y, BODY_FS, 400, t.ink, SANS, &l);
-            y += LEADING;
-        }
-        y += 6.0;
+        section(&mut blocks, i18n::t(lang, "report.counter"));
+        lines_block(&mut blocks, &wrap(&c, cols), MARGIN, t.ink, 400, false, &ts);
     }
     if let Some(aux) = view["aux"].as_array().filter(|a| !a.is_empty()) {
-        section(&mut body, &mut y, i18n::t(lang, "report.aux"));
+        section(&mut blocks, i18n::t(lang, "report.aux"));
         for a in aux {
             let line = format!("{}: {}", a["name"].as_str().unwrap_or(""), aux_text(a, lang));
-            for l in wrap(&line, cols) {
-                text(&mut body, MARGIN, y, BODY_FS, 400, "#b45309", SANS, &l);
-                y += LEADING;
-            }
+            lines_block(&mut blocks, &wrap(&line, cols), MARGIN, AUX_INK, 400, false, &ts);
         }
-        y += 6.0;
     }
     let steps = view["proof"]["steps"].as_array().cloned().unwrap_or_default();
     if status == "proved" && !steps.is_empty() {
-        section(&mut body, &mut y, i18n::t(lang, "report.proof"));
-        let gutter = 34.0;
-        let step_cols = ((content_w - gutter) / (BODY_FS * 0.56)) as usize;
+        section(&mut blocks, i18n::t(lang, "report.proof"));
+        let gutter = 28.0;
+        let step_cols = ((content_w - gutter) / (BODY_FS * 0.5)) as usize;
         for st in &steps {
-            let mut line = fact_text(&st["fact"], lang);
+            let fact = fact_text(&st["fact"], lang);
             let rule = rule_text(st, lang);
             let deps: Vec<String> = st["deps"]
                 .as_array()
                 .map(|d| d.iter().filter_map(|x| x.as_u64().map(|n| n.to_string())).collect())
                 .unwrap_or_default();
-            line.push_str(&format!("   \u{2014} {rule}"));
+            let mut meta = rule;
             if !deps.is_empty() {
-                line.push_str(&format!(" [{}]", deps.join(", ")));
+                meta.push_str(&format!("  \u{2190} {}", deps.join(", ")));
             }
+            let lines = wrap(&fact, step_cols);
             let n = st["n"].as_u64().unwrap_or(0);
-            text(&mut body, MARGIN, y, BODY_FS, 700, MUTED, SANS, &format!("{n}."));
-            for l in wrap(&line, step_cols) {
-                text(&mut body, MARGIN + gutter, y, BODY_FS, 400, INK, SANS, &l);
-                y += LEADING;
+            let mut b = plain(MARGIN, 12.0, 9.5, 600, MUTED, UI, &format!("{n}."));
+            for (i, l) in lines.iter().enumerate() {
+                b.push_str(&txt(MARGIN + gutter, 12.0 + i as f32 * LEADING, BODY_FS, 400, INK, MATH, &ts.spans(l)));
             }
+            let my = 12.0 + lines.len() as f32 * LEADING - 2.0;
+            b.push_str(&plain(MARGIN + gutter, my, 8.5, 400, MUTED, UI, &meta));
+            blocks.push(Block { h: lines.len() as f32 * LEADING + 16.0, body: b, keep_next: false });
         }
         if let Some(c) = view["proof"].get("conclusion").filter(|c| !c.is_null()) {
-            y += 4.0;
-            for l in wrap(&format!("\u{220e}  {}", fact_text(c, lang)), cols) {
-                text(&mut body, MARGIN, y, BODY_FS, 700, INK, SANS, &l);
-                y += LEADING;
-            }
+            let lines = wrap(&format!("\u{220e}  {}", fact_text(c, lang)), cols);
+            lines_block(&mut blocks, &lines, MARGIN, INK, 600, false, &ts);
         }
     }
-    y += 18.0;
-    let _ = std::fmt::Write::write_fmt(
-        &mut body,
-        format_args!(
-            "<line x1=\"{MARGIN}\" y1=\"{y:.1}\" x2=\"{:.1}\" y2=\"{y:.1}\" stroke=\"{RULE}\"/>\n",
+
+    let footer_text = i18n::t(lang, "report.footer");
+    let page_svg = |body: &str, h: f32| {
+        format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{PAGE_W:.0}\" height=\"{h:.0}\" viewBox=\"0 0 {PAGE_W:.0} {h:.0}\" font-family=\"{UI}\">\n<rect width=\"{PAGE_W:.0}\" height=\"{h:.0}\" fill=\"#ffffff\"/>\n{body}</svg>\n"
+        )
+    };
+    let footer = |h: f32, page: Option<(usize, usize)>| {
+        let fy = h - 28.0;
+        let mut f = format!(
+            "<line x1=\"{MARGIN}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{RULE}\"/>\n",
+            fy - 12.0,
+            PAGE_W - MARGIN,
+            fy - 12.0
+        );
+        f.push_str(&plain(MARGIN, fy, 8.5, 400, MUTED, UI, footer_text));
+        if let Some((i, n)) = page {
+            let s = format!("{i} / {n}");
+            f.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{fy:.1}\" font-size=\"8.5\" fill=\"{MUTED}\" font-family=\"{UI}\" text-anchor=\"end\">{s}</text>\n",
+                PAGE_W - MARGIN
+            ));
+        }
+        f
+    };
+
+    if !paginate {
+        let mut body = String::new();
+        let mut y = MARGIN - 10.0;
+        for b in &blocks {
+            body.push_str(&format!("<g transform=\"translate(0,{y:.1})\">\n{}</g>\n", b.body));
+            y += b.h;
+        }
+        let h = y + 70.0;
+        body.push_str(&footer(h, None));
+        return vec![page_svg(&body, h)];
+    }
+
+    let bottom = PAGE_H - MARGIN - 24.0;
+    let running = |title: &str| {
+        let short: String = title.chars().take(70).collect();
+        let mut r = plain(MARGIN, 34.0, 8.5, 500, MUTED, UI, &short);
+        r.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"34\" font-size=\"8.5\" font-weight=\"600\" fill=\"{}\" font-family=\"{UI}\" text-anchor=\"end\">{}</text>\n<line x1=\"{MARGIN}\" y1=\"42\" x2=\"{:.1}\" y2=\"42\" stroke=\"{RULE}\"/>\n",
+            PAGE_W - MARGIN,
+            t.ink,
+            escape_xml(&headline),
             PAGE_W - MARGIN
-        ),
-    );
-    y += 22.0;
-    text(&mut body, MARGIN, y, 11.0, 400, MUTED, SANS, i18n::t(lang, "report.footer"));
-    let page_h = y + MARGIN - 12.0;
-
-    format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" viewBox=\"0 0 {PAGE_W:.0} {page_h:.0}\" font-family=\"{SANS}\">\n<rect width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" fill=\"#ffffff\"/>\n{body}</svg>\n"
-    )
-}
-
-/// The report for a [`Solution`] (CLI and MCP exports), in English.
-pub fn report_svg(sol: &Solution, title: Option<&str>, _light: bool) -> String {
-    report_from_json(&present::solution_json(sol, title), Lang::En)
+        ));
+        r
+    };
+    let mut pages: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut y = MARGIN - 10.0;
+    let mut i = 0;
+    while i < blocks.len() {
+        let b = &blocks[i];
+        let mut need = b.h;
+        if b.keep_next {
+            if let Some(n) = blocks.get(i + 1) {
+                need += n.h;
+            }
+        }
+        let top = if pages.is_empty() { MARGIN - 10.0 } else { 54.0 };
+        if y + need > bottom && y > top + 1.0 {
+            pages.push(std::mem::take(&mut cur));
+            y = 54.0;
+        }
+        cur.push_str(&format!("<g transform=\"translate(0,{y:.1})\">\n{}</g>\n", b.body));
+        y += b.h;
+        i += 1;
+    }
+    pages.push(cur);
+    let n = pages.len();
+    pages
+        .into_iter()
+        .enumerate()
+        .map(|(k, body)| {
+            let mut full = if k > 0 { running(&title) } else { String::new() };
+            full.push_str(&body);
+            full.push_str(&footer(PAGE_H, Some((k + 1, n))));
+            page_svg(&full, PAGE_H)
+        })
+        .collect()
 }
 
 /// Read the `width`/`height` attributes off an SVG document's root tag.
@@ -606,26 +805,30 @@ mod tests {
     }
 
     #[test]
-    fn long_proof_pdf_pages_stay_within_viewer_limits() {
-        let pdf = svg_to_pdf(&long_report(3000)).expect("pdf");
-        let text = String::from_utf8_lossy(&pdf);
-        let at = text.find("/MediaBox").expect("MediaBox");
-        let nums: Vec<f32> = text[at + 9..]
-            .trim_start_matches([' ', '['])
-            .split(']')
-            .next()
-            .unwrap()
-            .split_whitespace()
-            .filter_map(|n| n.parse().ok())
-            .collect();
-        assert_eq!(nums.len(), 4, "{nums:?}");
-        assert!(nums[3] - nums[1] <= MAX_PDF_PAGE_PT + 1.0, "{nums:?}");
+    fn pdf_reports_are_paginated_a4() {
+        let mut sol = solve(
+            "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
+            &SolveOptions::default(),
+        )
+        .expect("solve");
+        let short = report_pdf(&sol, Some("short")).unwrap();
+        let text = String::from_utf8_lossy(&short);
+        assert!(text.contains("/MediaBox [0 0 595 842]"), "A4 pages");
+        assert!(text.contains("/Count 1") || text.contains("/Count 2"), "a short proof fits on a page or two");
+        let proof: Vec<String> = (1..=150usize).map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1))).collect();
+        sol.proof = Some(proof.join("\n"));
+        let pages = report_pages(&present::solution_json(&sol, Some("long")), Lang::En, true);
+        assert!(pages.len() >= 3, "{} pages", pages.len());
+        assert!(pages.iter().all(|p| p.contains("height=\"842\"")));
+        assert!(pages[1].contains(" / "), "page numbers");
+        let pdf = pdf_from_pages(&pages).unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains(&format!("/Count {}", pages.len())));
     }
 
     #[test]
     fn absurd_svgs_are_refused() {
         let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"90000000\"/>";
-        assert!(svg_to_pdf(svg).is_err());
+        assert!(pdf_from_pages(&[svg.to_string()]).is_err());
         assert!(svg_to_png(svg, 1.0).is_err());
     }
 }

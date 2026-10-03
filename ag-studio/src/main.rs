@@ -428,13 +428,13 @@ fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, light: boo
     if out.exporting() {
         let report = render::report_svg(sol, title, light);
         if let Some(path) = &out.png {
-            match render::svg_to_png(&report, 2.0).and_then(|b| Ok(std::fs::write(path, b)?)) {
+            match render::svg_to_png(&report, 2.75).and_then(|b| Ok(std::fs::write(path, b)?)) {
                 Ok(()) => println!("PNG written to {path}"),
                 Err(e) => eprintln!("warning: PNG export failed: {e}"),
             }
         }
         if let Some(path) = &out.pdf {
-            match render::svg_to_pdf(&report).and_then(|b| Ok(std::fs::write(path, b)?)) {
+            match render::report_pdf(sol, title).and_then(|b| Ok(std::fs::write(path, b)?)) {
                 Ok(()) => println!("PDF written to {path}"),
                 Err(e) => eprintln!("warning: PDF export failed: {e}"),
             }

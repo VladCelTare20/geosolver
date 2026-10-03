@@ -26,10 +26,13 @@
   .pw-wrap .input { padding-right: 46px; }
   .pw-toggle { position: absolute; right: 2px; top: 2px; width: 40px; height: calc(100% - 4px); }
   .field-msg { min-height: 1.25rem; font-size: var(--fs-13); color: var(--text-2); display: flex; gap: 6px; align-items: center; }
+  .field-msg:empty { display: none; }
+  .auth-form .field { gap: 6px; }
   .field-msg.is-err { color: var(--false); }
   .field-msg.is-ok { color: var(--proved); }
   .field-msg svg { width: 14px; height: 14px; flex: none; }
-  .form-msg { min-height: 44px; }
+  .form-msg:empty { display: none; }
+  .form-msg .banner { animation: rise 160ms ease-out; }
   .form-msg .banner { margin: 0; }
   .auth-submit { width: 100%; min-height: 44px; font-size: var(--fs-16); }
   .auth-submit .spinner { width: 16px; height: 16px; }
@@ -46,7 +49,7 @@
       <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
       <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
     </div>
-    <button type="button" class="icon-btn" data-theme-toggle aria-label="Colour theme"></button>
+    <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
   </div>
   <main class="auth-main" id="main">
     <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">

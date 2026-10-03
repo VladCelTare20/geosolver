@@ -47,6 +47,8 @@ pub struct HistoryEntry {
     pub goal: Option<String>,
     /// Whether the full solution was stored, so reopening needs no re-solve.
     pub has_solution: bool,
+    /// The stored solution's note key (`time_limit`, …), when there is one.
+    pub note: Option<String>,
     pub created_at: i64,
 }
 
@@ -310,7 +312,8 @@ pub fn list_history(
 ) -> rusqlite::Result<Vec<HistoryEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, user_id, input, title, proved, method, created_at, status, goal, \
-         solution IS NOT NULL FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
+         solution IS NOT NULL, CASE WHEN json_valid(solution) THEN json_extract(solution, '$.view.note.key') END \
+         FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
     )?;
     let rows = stmt.query_map(params![user_id, before.unwrap_or(i64::MAX), limit], |r| {
         Ok(HistoryEntry {
@@ -324,6 +327,7 @@ pub fn list_history(
             status: r.get(7)?,
             goal: r.get(8)?,
             has_solution: r.get::<_, i64>(9)? != 0,
+            note: r.get::<_, Option<String>>(10).ok().flatten(),
         })
     })?;
     rows.collect()
@@ -331,6 +335,17 @@ pub fn list_history(
 
 /// The stored solution JSON of one of the user's own rows: `None` if no such
 /// row, `Some(None)` if the row predates stored solutions.
+/// Swap the stored result of one of `user_id`'s entries for `h` (same input
+/// only), keeping its id and position. False when no such row matches.
+pub fn replace_history(conn: &Connection, user_id: i64, id: i64, h: &NewHistory) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "UPDATE history SET title = ?1, proved = ?2, method = ?3, status = ?4, goal = ?5, solution = ?6 \
+         WHERE id = ?7 AND user_id = ?8 AND input = ?9",
+        params![h.title, h.proved as i64, h.method, h.status, h.goal, h.solution, id, user_id, h.input],
+    )?;
+    Ok(n > 0)
+}
+
 pub fn history_solution(conn: &Connection, user_id: i64, id: i64) -> rusqlite::Result<Option<Option<String>>> {
     conn.query_row(
         "SELECT solution FROM history WHERE id = ?1 AND user_id = ?2",
@@ -368,6 +383,27 @@ mod tests {
         assert_eq!(u.id, id);
         assert_eq!(u.password_hash, "hash1");
         assert!(find_user_by_name(&conn, "bob").unwrap().is_none());
+    }
+
+    #[test]
+    fn history_rows_carry_the_note_key() {
+        let conn = mem();
+        let uid = create_user(&conn, "tl", "h").unwrap();
+        let sol = r#"{"view":{"note":{"key":"time_limit","secs":60}}}"#;
+        let h = |s: Option<&'static str>| NewHistory {
+            input: "x",
+            title: None,
+            proved: false,
+            method: Some("aux-search"),
+            status: Some("not-proved"),
+            goal: None,
+            solution: s,
+        };
+        insert_history_full(&conn, uid, &h(Some(sol))).unwrap();
+        insert_history_full(&conn, uid, &NewHistory { input: "y", ..h(Some("not json")) }).unwrap();
+        let rows = list_history(&conn, uid, 10, None).unwrap();
+        assert_eq!(rows[1].note.as_deref(), Some("time_limit"));
+        assert_eq!(rows[0].note, None);
     }
 
     #[test]

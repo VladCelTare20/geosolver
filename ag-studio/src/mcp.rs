@@ -476,11 +476,10 @@ fn tool_export_in(args: &Value, dir: &Path) -> Value {
         Ok(s) => s,
         Err(e) => return text_result(&format!("error: {e}"), true),
     };
-    let report = render::report_svg(&sol, opts.title.as_deref(), true);
     let rendered = if format == "png" {
-        render::svg_to_png(&report, 2.0)
+        render::svg_to_png(&render::report_svg(&sol, opts.title.as_deref(), true), 2.75)
     } else {
-        render::svg_to_pdf(&report)
+        render::report_pdf(&sol, opts.title.as_deref())
     };
     let bytes = match rendered {
         Ok(b) => b,

@@ -25,11 +25,19 @@
     more.setAttribute("aria-expanded", expanded ? "true" : "false");
   }
 
+  function derived() {
+    return data.view.proof.steps.filter(function (s) { return s.kind !== "given"; }).length;
+  }
   function paintStats() {
     if (!data) return;
     var n = window.i18n.fmtNum;
-    $("st-first").textContent = n(0.9, 1) + " s";
-    $("st-steps").textContent = n(data.view.proof.steps.length);
+    $("st-first").textContent = GS.fmtSecs(data.first_secs || 0);
+    $("st-steps").textContent = n(derived());
+    $("show-sub").textContent = t("show.sub", {
+      first: GS.fmtSecs(data.first_secs || 0),
+      budget: n(data.budget_secs || 20) + " s",
+      hint: t(matchMedia("(pointer: coarse)").matches ? "show.hint.coarse" : "show.hint.fine"),
+    });
     $("st-aux").textContent = n((data.aux_constructions || []).length);
     $("st-examined").textContent = n(data.examined || 0);
   }
@@ -47,7 +55,11 @@
     hs.removeAttribute("width");
     hs.removeAttribute("height");
     hs.setAttribute("aria-hidden", "true");
-    hs.style.setProperty("--lbl-fs", "22px");
+    var b = (hs.getAttribute("viewBox") || "0 0 100 100").split(/\s+/).map(Number);
+    var heroVb = { x: b[0], y: b[1], w: b[2], h: b[3] };
+    var fit = function () { GS.fitLabels(hs, heroVb, $("hero-fig").getBoundingClientRect()); };
+    fit();
+    if (window.ResizeObserver) new ResizeObserver(fit).observe($("hero-fig"));
     viewer = new GS.Viewer({ frame: $("case-fig").parentNode, viewport: $("case-fig"), zoomIn: $("z-in"), zoomOut: $("z-out"), fit: $("z-fit") });
     viewer.setSvg(d.svg, t("case.title"));
     paintStats();

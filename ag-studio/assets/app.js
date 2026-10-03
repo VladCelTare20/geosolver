@@ -14,33 +14,50 @@
 
   var EXAMPLES = [
     { id: "ortho", en: "Orthocenter reflection", ro: "Simetricul ortocentrului", tag: "cyclic",
-      src: "# The reflection of the orthocenter in a side lies on the circumcircle.\nA B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))" },
+      c: { en: "The reflection of the orthocenter in a side lies on the circumcircle.", ro: "Simetricul ortocentrului față de o latură se află pe cercul circumscris." },
+      body: "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))" },
     { id: "euler", en: "Euler line", ro: "Dreapta lui Euler", tag: "coll",
-      src: "# Euler line: circumcenter, centroid and orthocenter are collinear.\nA B C = triangle\nO = circumcenter(A, B, C)\nG = centroid(A, B, C)\nH = orthocenter(A, B, C)\nprove coll(O, G, H)" },
+      c: { en: "Euler line: circumcenter, centroid and orthocenter are collinear.", ro: "Dreapta lui Euler: centrul cercului circumscris, centrul de greutate și ortocentrul sunt coliniare." },
+      body: "A B C = triangle\nO = circumcenter(A, B, C)\nG = centroid(A, B, C)\nH = orthocenter(A, B, C)\nprove coll(O, G, H)" },
     { id: "nine", en: "Nine-point circle", ro: "Cercul lui Euler", tag: "cyclic",
-      src: "# Nine-point circle: the side midpoints and an altitude foot are concyclic.\nA B C = triangle\nMa = midpoint(B, C)\nMb = midpoint(A, C)\nMc = midpoint(A, B)\nF = foot(A, line(B, C))\nprove cyclic(Ma, Mb, Mc, F)" },
+      c: { en: "Nine-point circle: the side midpoints and an altitude foot are concyclic.", ro: "Cercul lui Euler: mijloacele laturilor și piciorul unei înălțimi sunt conciclice." },
+      body: "A B C = triangle\nMa = midpoint(B, C)\nMb = midpoint(A, C)\nMc = midpoint(A, B)\nF = foot(A, line(B, C))\nprove cyclic(Ma, Mb, Mc, F)" },
     { id: "simson", en: "Simson line", ro: "Dreapta lui Simson", tag: "coll",
-      src: "# Simson line: the feet of the perpendiculars from a point on the circumcircle are collinear.\nA B C = triangle\nP = on_circum(A, B, C)\nX = foot(P, line(B, C))\nY = foot(P, line(C, A))\nZ = foot(P, line(A, B))\nprove coll(X, Y, Z)" },
+      c: { en: "Simson line: the feet of the perpendiculars from a point on the circumcircle are collinear.", ro: "Dreapta lui Simson: picioarele perpendicularelor duse dintr-un punct al cercului circumscris sunt coliniare." },
+      body: "A B C = triangle\nP = on_circum(A, B, C)\nX = foot(P, line(B, C))\nY = foot(P, line(C, A))\nZ = foot(P, line(A, B))\nprove coll(X, Y, Z)" },
     { id: "stewart", en: "Stewart's theorem", ro: "Teorema lui Stewart", tag: "metric",
-      src: "# Stewart's theorem: a cevian with BD:DC = 1:2 has AD² = 14.\nB = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = point: dist(A,B)=5, dist(A,C)=4\nprove dist(A,D)^2 = 14" },
+      c: { en: "Stewart's theorem: a cevian with BD:DC = 1:2 has AD² = 14.", ro: "Teorema lui Stewart: o ceviană cu BD:DC = 1:2 are AD² = 14." },
+      body: "B = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = point: dist(A,B)=5, dist(A,C)=4\nprove dist(A,D)^2 = 14" },
     { id: "pyth", en: "Pythagorean theorem", ro: "Teorema lui Pitagora", tag: "metric",
-      src: "# Pythagorean theorem\nB C = segment\nA = on_dia(B, C)\nprove dist(A, B)^2 + dist(A, C)^2 = dist(B, C)^2" },
-    { id: "imo2019", en: "IMO 2019 · Problem 2", ro: "IMO 2019 · Problema 2", tag: "IMO",
-      src: "# IMO 2019 Problem 2\nA B C = triangle\nA1 = point: coll(B, C, A1)\nB1 = point: coll(A, C, B1)\nP = point: coll(A, A1, P)\nQ = point: coll(B, B1, Q), para(P, Q, A, B)\nP1 = point: coll(B1, P, P1), eqangle(P1, P, P1, C, A, B, A, C)\nQ1 = point: coll(A1, Q, Q1), eqangle(Q1, C, Q1, Q, B, C, B, A)\nprove cyclic(P, Q, P1, Q1)" },
-    { id: "imo2023", en: "IMO 2023 · Problem 2", ro: "IMO 2023 · Problema 2", tag: "IMO",
-      src: "# IMO 2023 Problem 2\nA B C = triangle\nO = circumcenter(A, B, C)\nI = incenter(A, B, C)\nN = meet(line(A, I), circumcircle(A, B, C))\nS = meet(line(N, O), circumcircle(A, B, C))\nD = point: coll(B, S, D), perp(A, D, B, C)\nE = meet(line(A, D), circumcircle(A, B, C))\nL = point: coll(B, E, L), para(D, L, B, C)\nP = meet(circle(B, D, L), circumcircle(A, B, C))\nO1 = circumcenter(B, D, L)\nX = point: coll(B, S, X), perp(X, P, P, O1)\nprove eqangle(A, B, A, X, A, X, A, C)" },
+      c: { en: "Pythagorean theorem", ro: "Teorema lui Pitagora" },
+      body: "B C = segment\nA = on_dia(B, C)\nprove dist(A, B)^2 + dist(A, C)^2 = dist(B, C)^2" },
+    { id: "imo2019", en: "IMO 2019 · Problem 2", ro: "IMO 2019 · Problema 2", tag: "IMO",
+      c: { en: "IMO 2019 Problem 2", ro: "IMO 2019, Problema 2" },
+      body: "A B C = triangle\nA1 = point: coll(B, C, A1)\nB1 = point: coll(A, C, B1)\nP = point: coll(A, A1, P)\nQ = point: coll(B, B1, Q), para(P, Q, A, B)\nP1 = point: coll(B1, P, P1), eqangle(P1, P, P1, C, A, B, A, C)\nQ1 = point: coll(A1, Q, Q1), eqangle(Q1, C, Q1, Q, B, C, B, A)\nprove cyclic(P, Q, P1, Q1)" },
+    { id: "imo2023", en: "IMO 2023 · Problem 2", ro: "IMO 2023 · Problema 2", tag: "IMO",
+      c: { en: "IMO 2023 Problem 2", ro: "IMO 2023, Problema 2" },
+      body: "A B C = triangle\nO = circumcenter(A, B, C)\nI = incenter(A, B, C)\nN = meet(line(A, I), circumcircle(A, B, C))\nS = meet(line(N, O), circumcircle(A, B, C))\nD = point: coll(B, S, D), perp(A, D, B, C)\nE = meet(line(A, D), circumcircle(A, B, C))\nL = point: coll(B, E, L), para(D, L, B, C)\nP = meet(circle(B, D, L), circumcircle(A, B, C))\nO1 = circumcenter(B, D, L)\nX = point: coll(B, S, X), perp(X, P, P, O1)\nprove eqangle(A, B, A, X, A, X, A, C)" },
     { id: "false", en: "A false claim (median ⟂ side)", ro: "O afirmație falsă (mediana ⟂ latura)", tag: "false",
-      src: "# A false claim: the median from C is perpendicular to AB.\nA B C = triangle\nM = midpoint(A, B)\nprove perp(C, M, A, B)" },
+      c: { en: "A false claim: the median from C is perpendicular to AB.", ro: "O afirmație falsă: mediana din C este perpendiculară pe AB." },
+      body: "A B C = triangle\nM = midpoint(A, B)\nprove perp(C, M, A, B)" },
     { id: "numeric", en: "True, but only numerically", ro: "Adevărat, dar doar numeric", tag: "numeric",
-      src: "# The median splits the triangle into two triangles of equal area.\nA B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)" },
+      c: { en: "The median splits the triangle into two triangles of equal area.", ro: "Mediana împarte triunghiul în două triunghiuri de arii egale." },
+      body: "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)" },
   ];
+  function exampleSrc(ex, lang) { return "# " + ex.c[lang || window.i18n.current()] + "\n" + ex.body; }
+  function exampleOf(src) {
+    for (var i = 0; i < EXAMPLES.length; i++) {
+      if (src === exampleSrc(EXAMPLES[i], "en") || src === exampleSrc(EXAMPLES[i], "ro")) return EXAMPLES[i];
+    }
+    return null;
+  }
 
   var S = {
     status: null, mode: "geo", effort: "standard", photo: null,
     busy: false, abort: null, timer: null, started: 0, deadline: 60,
     sol: null, geo: "", title: null, steps: null,
     aiCache: {}, aiSeq: 0, history: [], filter: "all", query: "", pendingDeletes: new Map(),
-    refining: null, activeHistory: null,
+    refining: null, activeHistory: null, stage: null, lastError: null,
   };
 
   function paintIcons(root) {
@@ -58,11 +75,21 @@
     return fetch(url, init).then(function (res) {
       var ct = res.headers.get("content-type") || "";
       if (opts.raw && res.ok) return { ok: true, status: res.status, res: res };
-      return (ct.indexOf("json") >= 0 ? res.json() : res.text().then(function (x) { return { error: x || res.statusText }; }))
+      return (ct.indexOf("json") >= 0 ? res.json() : res.text().then(function (x) {
+        x = (x || "").trim();
+        return /^[^<]{1,200}$/.test(x) && ct.indexOf("html") < 0 ? { error: x } : {};
+      }))
         .catch(function () { return {}; })
         .then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
     });
   }
+
+  window.addEventListener("pageshow", function (e) {
+    if (!e.persisted) return;
+    api("/api/status").then(function (r) {
+      if (r.ok && !r.data.signed_in && !r.data.guest) location.replace("/auth");
+    });
+  });
 
   function loadStatus(attempt) {
     attempt = attempt || 0;
@@ -261,14 +288,14 @@
     var ex = EXAMPLES.filter(function (x) { return x.id === id; })[0];
     if (!ex) return;
     setMode("geo");
-    editor.set(ex.src);
+    editor.set(exampleSrc(ex));
     closeMenu();
     if (solveNow) solve();
     else $("geo-input").focus();
   }
   function paintExamples() {
     $("examples-menu").innerHTML = EXAMPLES.map(function (ex) {
-      return '<button type="button" role="menuitem" data-example="' + ex.id + '"><span>' + esc(exampleName(ex)) + '</span><span class="menu-sub">' + esc(ex.tag) + "</span></button>";
+      return '<button type="button" role="menuitem" data-example="' + ex.id + '"><span>' + esc(exampleName(ex)) + '</span><span class="menu-sub" aria-hidden="true">' + esc(t("tag." + ex.tag)) + "</span></button>";
     }).join("");
     $("example-chips").innerHTML = EXAMPLES.filter(function (x) { return ["ortho", "euler", "stewart", "imo2023", "false", "numeric"].indexOf(x.id) >= 0; }).map(function (ex) {
       return '<button type="button" class="btn btn-secondary btn-sm" data-example-solve="' + ex.id + '">' + esc(exampleName(ex)) + "</button>";
@@ -415,7 +442,20 @@
     viewer.setSvg("");
     $("fig-empty").hidden = false;
     $("fig-legend").hidden = true;
+    figTools(false);
     document.body.classList.remove("has-result");
+  }
+  function figTools(on) {
+    ["z-out", "z-in", "z-fit", "z-full", "z-svg"].forEach(function (id) { $(id).disabled = !on; });
+    $("fig-hint").hidden = !on;
+    $("fig-viewport").style.height = "";
+  }
+  function fieldError(id, msg) {
+    var el = $(id);
+    if (!el) return;
+    S.lastFieldErr = msg ? id : (S.lastFieldErr === id ? null : S.lastFieldErr);
+    el.hidden = !msg;
+    el.innerHTML = msg ? icons.alert + "<span>" + esc(msg) + "</span>" : "";
   }
 
   function solve() {
@@ -425,10 +465,13 @@
     var geo = editor.get().trim();
     var describe = $("describe-input").value.trim();
     if (mode === "geo" && !geo) { editor.setError({ message: t("err.empty_geo") }); $("geo-input").focus(); return; }
-    if (mode === "describe" && !describe) { showError({ title: t("err.title.generic"), body: t("err.empty_describe") }); $("describe-input").focus(); return; }
-    if (mode === "photo" && !S.photo) { showError({ title: t("err.title.generic"), body: t("err.empty_photo") }); $("photo-input").focus(); return; }
+    fieldError("describe-err", null); fieldError("photo-err", null);
+    if (mode === "describe" && !describe) { fieldError("describe-err", t("err.empty_describe")); $("describe-input").focus(); return; }
+    if (mode === "photo" && !S.photo) { fieldError("photo-err", t("err.empty_photo")); $("photo-input").focus(); return; }
     if (mode !== "geo" && aiBlock()) return;
     editor.setError(null);
+    S.lastError = null;
+    if (S.activeHistory != null) { S.activeHistory = null; renderHistory(); }
     clearResult();
     setBusy(true);
     var ctl = new AbortController();
@@ -437,8 +480,8 @@
     show("state-solving");
     var shortestFirst = S.effort === "shortest";
     function stage(i) {
-      paintStepper(stages, i);
-      $("solving-title").textContent = stages[i] === "translate" ? t("solving.translating") : t("solving.solving");
+      S.stage = { stages: stages, i: i };
+      paintStage();
       startTimer(stages[i] === "translate" ? 75 : S.deadline);
     }
     stage(0);
@@ -452,7 +495,7 @@
       chain = api("/api/translate", { method: "POST", body: body, signal: ctl.signal }).then(function (r) {
         if (!r.ok) throw httpError(r, "translate");
         var g = r.data.geo || "";
-        if (/cannot translate/i.test(g) || !g.trim()) throw { title: t("err.title.translate"), body: t("err.cannot_translate") };
+        if (/cannot translate/i.test(g) || !g.trim()) throw { titleKey: "err.title.translate", bodyKey: "err.cannot_translate" };
         title = r.data.title || null;
         editor.set(g);
         stage(1);
@@ -478,37 +521,49 @@
       S.abort = null;
       if (e && e.name === "AbortError") {
         show("state-empty");
-        GS.toast(t("cancelled"));
-        announce(t("cancelled"));
+        GS.toast(t("cancelled", { s: S.deadline }), { ms: 6000 });
+        if (!document.activeElement || document.activeElement === document.body) $("solve").focus();
         return;
       }
-      showError(e && e.title ? e : networkError(e));
+      showError(e && (e.title || e.titleKey) ? e : networkError(e));
     });
   }
 
   function cancel() {
+    var had = !!S.abort;
     if (S.abort) S.abort.abort();
     if (S.refining) stopRefining();
+    if (had) setTimeout(function () { if (!document.activeElement || document.activeElement === document.body) $("solve").focus(); }, 0);
+  }
+  function paintStage() {
+    if (!S.stage) return;
+    paintStepper(S.stage.stages, S.stage.i);
+    $("solving-title").textContent = S.stage.stages[S.stage.i] === "translate" ? t("solving.translating") : t("solving.solving");
   }
 
   function httpError(r, what) {
     var d = r.data || {};
     if (r.status === 400 && d.code === "compile") {
-      return { title: t("err.title.compile"), body: d.error, diagnosis: d.diagnosis, detail: d.detail, compile: true };
+      return { titleKey: "err.title.compile", body: d.error, diagnosis: d.diagnosis, detail: d.detail, compile: true };
     }
-    if (r.status === 401) return { title: t("err.title.auth"), body: t("err.body.auth"), signin: true };
-    if (r.status === 429) return { title: t("err.title.rate"), body: t("err.body.rate"), retry: true };
-    if (r.status === 503 && what !== "translate") return { title: t("err.title.busy"), body: t("err.body.busy"), retry: true };
-    if (r.status === 504) return { title: t("err.title.timeout"), body: t("err.body.timeout"), retry: true };
-    if (r.status === 413) return { title: t("err.title.too_large"), body: d.error || "" };
-    if (what === "translate") return { title: t("err.title.translate"), body: d.error || t("err.cannot_translate"), retry: r.status >= 500 };
-    return { title: t("err.title.generic"), body: d.error || ("HTTP " + r.status), retry: true };
+    if (r.status === 401) return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true };
+    if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
+    if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true };
+    if (r.status === 502 || r.status === 503) return { titleKey: "err.title.unavailable", bodyKey: "err.body.unavailable", retry: true };
+    if (r.status === 504) return { titleKey: "err.title.timeout", bodyKey: "err.body.timeout", retry: true };
+    if (r.status === 413) return { titleKey: "err.title.too_large", body: d.error || "", bodyKey: d.error ? null : "err.body.too_large" };
+    if (what === "translate") return { titleKey: "err.title.translate", body: d.error, bodyKey: d.error ? null : "err.cannot_translate", retry: r.status >= 500 };
+    if (d.error) return { titleKey: "err.title.generic", body: d.error, retry: true };
+    return { titleKey: "err.title.generic", bodyKey: "err.body.http", vars: { status: r.status }, retry: true };
   }
   function networkError(e) {
-    return { title: t("err.title.network"), body: t("err.body.network"), retry: true, detail: e && e.message };
+    return { titleKey: "err.title.network", bodyKey: "err.body.network", retry: true, detail: e && e.message };
   }
 
   function showError(e) {
+    S.lastError = e;
+    if (e.titleKey) e.title = t(e.titleKey);
+    if (e.bodyKey) e.body = t(e.bodyKey, e.vars);
     var box = $("state-error");
     var where = e.diagnosis && e.diagnosis.line ? '<p class="err-where"><button type="button" class="link-btn" id="err-goto">' + esc(t("err.where", { line: e.diagnosis.line, col: e.diagnosis.col })) + "</button></p>" : "";
     var actions = "";
@@ -516,8 +571,9 @@
     if (e.signin) actions += '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("nav.signin")) + "</a>";
     box.innerHTML = '<div class="err-head">' + icons.alert + "<div><h3>" + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
       (actions ? '<div class="err-actions">' + actions + "</div>" : "") +
-      (e.detail ? '<details class="err-detail"><summary>' + esc(t("err.details")) + "</summary><pre>" + esc(e.detail) + "</pre></details>" : "");
+      (e.detail ? '<details class="err-detail"><summary>' + icons.chevron + "<span>" + esc(t("err.details")) + "</span></summary><pre>" + esc(e.detail) + "</pre></details>" : "");
     show("state-error");
+    if (!e.compile) announce(e.title + ". " + (e.body || ""));
     if (e.compile) {
       setMode("geo");
       editor.setError({ line: e.diagnosis && e.diagnosis.line, col: e.diagnosis && e.diagnosis.col, len: e.diagnosis && e.diagnosis.len, message: e.body });
@@ -549,7 +605,7 @@
     switch (sol.status) {
       case "proved": return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
       case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
-      case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: t("v.numeric.x", { n: sol.numeric_samples || (v.evidence && v.evidence.samples) || 0 }) };
+      case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: tp("v.numeric.x", sol.numeric_samples || (v.evidence && v.evidence.samples) || 0) };
       default:
         if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: note.secs || S.deadline }) };
         var extra = { budget: "note.budget", metric_error: "note.metric_error", unsound: "note.unsound", replay: "note.replay" }[note.key];
@@ -557,12 +613,15 @@
     }
   }
   function stepCount(sol) {
-    return sol.status === "proved" && sol.view && sol.view.proof ? (sol.view.proof.steps || []).length : 0;
+    if (sol.status !== "proved" || !sol.view || !sol.view.proof) return 0;
+    return (sol.view.proof.steps || []).filter(function (s) { return s.kind !== "given"; }).length;
   }
   function methodText(sol) {
-    if (sol.method === "euclidean") return t("meta.method.euclid");
+    if (sol.status === "holds-numerically") return t("meta.method.numeric");
+    if (sol.method === "euclidean") return sol.status === "proved" ? t("meta.method.euclid") : "";
     var n = (sol.aux_constructions || []).length;
-    return n ? tp("meta.method.aux", n) : t("meta.method.ddar");
+    if (n) return tp("meta.method.aux", n);
+    return sol.method === "aux-search" ? t("meta.method.aux_search") : t("meta.method.ddar");
   }
   function counterText(c) {
     if (!c) return "";
@@ -574,7 +633,7 @@
 
   function renderVerdict(sol) {
     var m = verdictModel(sol), v = sol.view || {};
-    var meta = ['<span>' + esc(methodText(sol)) + "</span>", "<span>" + esc(GS.fmtSecs(sol.elapsed_secs)) + "</span>"];
+    var meta = [methodText(sol) ? "<span>" + esc(methodText(sol)) + "</span>" : "", "<span>" + esc(GS.fmtSecs(sol.elapsed_secs)) + "</span>"].filter(Boolean);
     var nSteps = stepCount(sol);
     if (nSteps) meta.push("<span>" + esc(tp("meta.steps", nSteps)) + "</span>");
     if (sol.status === "holds-numerically" && sol.numeric_samples) meta.push("<span>" + esc(tp("meta.samples", sol.numeric_samples)) + "</span>");
@@ -591,9 +650,9 @@
     var box = $("verdict");
     box.className = "verdict card tone-" + m.tone;
     box.innerHTML = '<div class="verdict-main"><span class="verdict-icon">' + icons[m.icon] + "</span><div class=\"grow\">" +
-      '<p class="verdict-head" id="verdict-head" tabindex="-1">' + esc(m.head) + "</p>" +
+      '<h3 class="verdict-head" id="verdict-head" tabindex="-1">' + esc(m.head) + "</h3>" +
       '<p class="verdict-text">' + esc(m.text) + "</p>" + counter +
-      '<p class="verdict-meta">' + meta.join('<span aria-hidden="true">·</span>') + "</p>" +
+      '<p class="verdict-meta">' + meta.join("") + "</p>" +
       '<p class="refine" id="refine" hidden></p>' +
       "</div></div>" + actions;
     show("verdict");
@@ -640,9 +699,9 @@
     renderStatement(sol);
     renderProof(sol);
     renderDetails(sol);
+    document.body.classList.add("has-result");
     renderFigure(sol);
     $("proof-area").hidden = false;
-    document.body.classList.add("has-result");
     if (opts.announce) announce(m.head + ". " + m.text);
     if (opts.focus && window.matchMedia("(max-width: 1199px)").matches) {
       scrollToStatus();
@@ -654,14 +713,14 @@
 
   function renderStatement(sol) {
     var v = sol.view || {};
-    var given = (v.given || []).map(function (f) { return '<li class="math" data-points="' + esc((f.points || []).join(" ")) + '">' + GS.fact(f) + "</li>"; }).join("");
+    var given = (v.given || []).map(function (f) { return '<li class="math" tabindex="0" data-points="' + esc((f.points || []).join(" ")) + '">' + GS.fact(f) + "</li>"; }).join("");
     var aux = (v.aux || []).map(function (a) {
-      return '<li class="math" data-points="' + esc(a.name) + '"><i>' + esc(a.name) + "</i>: " + GS.math(auxText(a)) + "</li>";
+      return '<li class="math" tabindex="0" data-points="' + esc(a.name) + '">' + GS.math(a.name) + ": " + GS.math(auxText(a)) + "</li>";
     }).join("");
     var html = "";
-    if (sol.title) html += '<h3 class="st-title">' + esc(sol.title) + "</h3>";
+    if (sol.title) html += '<h3 class="st-title" title="' + esc(sol.title) + '">' + esc(sol.title) + "</h3>";
     if (given) html += '<div class="st-block"><h3 class="label">' + esc(t("st.given")) + '</h3><ul class="facts">' + given + "</ul></div>";
-    if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
+    if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" tabindex="0" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
     if (aux) html += '<div class="st-block st-aux"><h3 class="label">' + esc(t("st.aux")) + '</h3><ul class="facts">' + aux + '</ul><p class="hint">' + esc(t("st.aux.hint")) + "</p></div>";
     var box = $("statement");
     box.innerHTML = html;
@@ -669,7 +728,9 @@
     box.querySelectorAll("[data-points]").forEach(function (el) {
       var pts = el.getAttribute("data-points").split(" ");
       el.addEventListener("mouseenter", function () { viewer.highlight(pts); });
-      el.addEventListener("mouseleave", function () { viewer.highlight(null); });
+      el.addEventListener("mouseleave", function () { if (document.activeElement !== el) viewer.highlight(null); });
+      el.addEventListener("focus", function () { viewer.highlight(pts); if (stepsApi) stepsApi.markPoint(pts.length === 1 ? pts[0] : null); });
+      el.addEventListener("blur", function () { viewer.highlight(null); if (stepsApi) stepsApi.markPoint(null); });
     });
   }
 
@@ -687,6 +748,11 @@
       return x;
     });
     if (!window.i18n.has(key)) return a.text;
+    if (a.kind === "intersect" && (a.args || []).length === 2 && /^circ/.test(a.args[1]) && a.args[0].indexOf(a.name) < 0) {
+      var inner = (/\((.*)\)$/.exec(a.args[1]) || [])[1] || "";
+      var on = inner.split(",").map(function (x) { return x.trim(); });
+      if (on.some(function (p) { return a.args[0].indexOf(p) >= 0; })) key = "aux.intersect2";
+    }
     var s = t(key);
     if (a.kind === "midpoint" || a.kind === "circumcenter" || a.kind === "orthocenter" || a.kind === "parallelogram") {
       var flat = args.join(",").split(",").map(function (x) { return x.trim(); });
@@ -787,9 +853,21 @@
     }).join("");
   }
 
+  function noteText(note) {
+    var k = "note.sentence." + note.key;
+    if (!window.i18n.has(k) && !window.i18n.has(k + ".other")) return "";
+    var vars = { secs: note.secs != null ? Math.round(note.secs) : S.deadline, runs: note.runs != null ? window.i18n.fmtNum(note.runs) : "?" };
+    if (note.n != null) return tp(k, note.n, vars);
+    return t(k + ".other", vars) === k + ".other" ? t(k, vars) : t(k + ".other", vars);
+  }
   function renderDetails(sol) {
     var v = sol.view || {};
-    var note = v.note && v.note.raw ? '<div class="dt"><h3 class="label">' + esc(t("details.note")) + '</h3><p class="mono small">' + esc(v.note.raw) + "</p></div>" : "";
+    var note = "";
+    if (v.note && v.note.raw) {
+      var said = noteText(v.note);
+      note = '<div class="dt"><h3 class="label">' + esc(t("details.note")) + "</h3>" + (said ? "<p>" + esc(said) + "</p>" : "") +
+        '<details class="raw-note"><summary>' + icons.chevron + "<span>" + esc(t("details.raw")) + '</span></summary><p class="mono small" lang="en">' + esc(v.note.raw) + "</p></details></div>";
+    }
     $("details-body").innerHTML = '<div class="dt"><h3 class="label">' + esc(t("details.geo")) + '</h3><pre class="code">' + esc(sol.input) + "</pre></div>" + note;
   }
 
@@ -799,11 +877,25 @@
     return t("fig.aria", { pts: pts, goal: v.goal ? GS.factText(v.goal) : "—" });
   }
   function renderFigure(sol) {
-    if (!sol.svg) { viewer.setSvg(""); $("fig-empty").hidden = false; return; }
+    if (!sol.svg) { viewer.setSvg(""); $("fig-empty").hidden = false; figTools(false); return; }
     $("fig-empty").hidden = true;
+    figTools(true);
+    fitViewportToFigure(sol.svg);
     viewer.setSvg(sol.svg, figureAria(sol));
     $("fig-legend").hidden = false;
     $("fig-legend").querySelector(".lg-aux").hidden = !((sol.view && sol.view.aux) || []).length;
+    $("fig-legend").querySelector(".lg-goal").hidden = !viewer.svg || !viewer.svg.querySelector(".f-goal");
+  }
+  function fitViewportToFigure(svg) {
+    var vp = $("fig-viewport");
+    vp.style.height = "";
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    var m = /viewBox="([^"]+)"/.exec(svg);
+    var b = m ? m[1].split(/\s+/).map(Number) : null;
+    var w = vp.getBoundingClientRect().width;
+    if (!b || !(b[2] > 0) || !(b[3] > 0) || !w) return;
+    var ratio = Math.max(0.6, Math.min(1.25, b[3] / b[2]));
+    vp.style.height = Math.round(Math.min(w * ratio, window.innerHeight * 0.7)) + "px";
   }
 
   // ------------------------------------------------------- shorter proofs --
@@ -823,7 +915,10 @@
         var msg = t("shorter.found", { n: stepCount(r.data), m: stepCount(first) });
         renderSolution(r.data, {});
         GS.toast(msg);
-        announce(msg);
+        if (first.history_id && r.data.id) {
+          r.data.history_id = first.history_id;
+          api("/api/history/" + first.history_id, { method: "PUT", body: { id: r.data.id } }).then(function () { loadHistory(); });
+        }
       } else {
         var e2 = $("refine");
         if (e2) { e2.innerHTML = '<span>' + esc(t("shorter.none")) + "</span>"; }
@@ -900,12 +995,13 @@
     return esc(histTitle(r));
   }
   function histStatus(r) {
+    if (r.status === "not-proved" && r.note === "time_limit") return "time-limit";
     if (r.status) return r.status;
     if (r.proved && r.method === "euclidean") return "legacy";
     return r.proved ? "proved" : "not-proved";
   }
-  var TONE = { proved: "proved", refuted: "false", "holds-numerically": "unproved", "not-proved": "neutral", legacy: "neutral" };
-  var ICON = { proved: "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", legacy: "minus" };
+  var TONE = { proved: "proved", refuted: "false", "holds-numerically": "unproved", "not-proved": "neutral", "time-limit": "neutral", legacy: "neutral" };
+  var ICON = { proved: "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", "time-limit": "clock", legacy: "minus" };
   function relTime(sec) {
     var diff = sec - Date.now() / 1000;
     var rtf = new Intl.RelativeTimeFormat(window.i18n.locale(), { numeric: "auto" });
@@ -930,7 +1026,8 @@
     var q = S.query.trim().toLowerCase();
     var rows = S.history.filter(function (r) {
       if (S.pendingDeletes.has(r.id)) return false;
-      if (S.filter !== "all" && histStatus(r) !== S.filter) return false;
+      var st = histStatus(r) === "time-limit" ? "not-proved" : histStatus(r);
+      if (S.filter !== "all" && st !== S.filter) return false;
       if (!q) return true;
       return (histTitle(r) + " " + (r.input || "")).toLowerCase().indexOf(q) >= 0;
     });
@@ -939,13 +1036,14 @@
       var st = histStatus(r), title = histTitle(r);
       return '<li class="hist-item' + (S.activeHistory === r.id ? " is-active" : "") + '" data-id="' + r.id + '">' +
         '<button type="button" class="hist-open" data-open="' + r.id + '"' + (S.activeHistory === r.id ? ' aria-current="true"' : "") + ">" +
-        '<span class="hist-title">' + histTitleHtml(r) + "</span>" +
+        '<span class="hist-title" title="' + esc(title) + '">' + histTitleHtml(r) + "</span>" +
         '<span class="hist-meta"><span class="chip tone-' + TONE[st] + '">' + icons[ICON[st]] + esc(t("status." + st)) + "</span>" +
         '<time datetime="' + new Date(r.created_at * 1000).toISOString() + '">' + esc(relTime(r.created_at)) + "</time></span></button>" +
         '<button type="button" class="icon-btn hist-del" data-del="' + r.id + '" aria-label="' + esc(t("hist.delete", { title: title })) + '" title="' + esc(t("hist.delete", { title: title })) + '">' + icons.trash + "</button></li>";
     }).join("");
     var empty = $("hist-empty");
-    if (!S.history.length) { empty.hidden = false; empty.textContent = t("hist.empty"); }
+    var live = S.history.filter(function (r) { return !S.pendingDeletes.has(r.id); }).length;
+    if (!live) { empty.hidden = false; empty.textContent = t("hist.empty"); }
     else if (!rows.length) { empty.hidden = false; empty.textContent = t("hist.none_match"); }
     else empty.hidden = true;
   }
@@ -973,22 +1071,33 @@
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && document.body.classList.contains("drawer-open")) setDrawer(false, true); });
   }
   function setDrawer(open, focusToggle) {
+    var was = document.body.classList.contains("drawer-open");
     document.body.classList.toggle("drawer-open", open);
     $("rail-toggle").setAttribute("aria-expanded", open ? "true" : "false");
     $("rail-scrim").hidden = !open;
+    if (open !== was) GS.modal($("rail"), open, t("hist.title"));
     if (open) setTimeout(function () { $("hist-search").focus(); }, 30);
     else if (focusToggle) $("rail-toggle").focus();
   }
+  function untitledEnd(s) { return String(s).replace(/[.!?…]+$/, ""); }
   function deleteHistory(id) {
     var row = S.history.filter(function (r) { return r.id === id; })[0];
     if (!row) return;
+    var hadFocus = document.activeElement && document.activeElement.closest && document.activeElement.closest(".hist-item");
+    var visible = Array.prototype.slice.call($("hist-list").querySelectorAll(".hist-item"));
+    var at = visible.findIndex(function (li) { return +li.getAttribute("data-id") === id; });
     var timer = setTimeout(function () { commitDelete(id); }, 6000);
     S.pendingDeletes.set(id, timer);
     renderHistory();
-    GS.toast(t("hist.deleted", { title: histTitle(row) }), {
-      ms: 6000, action: t("undo"),
-      onAction: function () { clearTimeout(S.pendingDeletes.get(id)); S.pendingDeletes.delete(id); renderHistory(); },
-    });
+    var undo = function () { clearTimeout(S.pendingDeletes.get(id)); S.pendingDeletes.delete(id); renderHistory(); };
+    var tst = GS.toast(t("hist.deleted", { title: untitledEnd(histTitle(row)) }), { ms: 6000, action: t("undo"), onAction: undo });
+    if (hadFocus) {
+      var rows = $("hist-list").querySelectorAll(".hist-open");
+      var next = rows[Math.min(Math.max(at, 0), rows.length - 1)];
+      (next || $("hist-search")).focus();
+    }
+    if (tst && tst.button) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
+    S.lastUndo = { run: undo, toast: tst, until: Date.now() + 6000 };
   }
   function commitDelete(id, keepalive) {
     if (!S.pendingDeletes.has(id)) return;
@@ -1011,8 +1120,9 @@
     editor.set(row.input);
     if (S.busy) cancel();
     api("/api/history/" + id).then(function (r) {
-      if (r.ok) { renderSolution(r.data, { announce: true, focus: true }); return; }
+      if (r.ok) { r.data.history_id = id; renderSolution(r.data, { announce: true, focus: true }); return; }
       if (r.status === 410) { solveReplay(row); return; }
+      if (r.status === 401) { showError(httpError(r)); return; }
       GS.toast(t("hist.open_fail"));
     }).catch(function () { GS.toast(t("hist.open_fail")); });
   }
@@ -1077,18 +1187,29 @@
     $("ai-regen").addEventListener("click", function () { loadAi(true); });
     $("logout").addEventListener("click", function () {
       flushDeletes();
+      store.del("gs.draft.geo"); store.del("gs.draft.describe");
       api("/api/auth/logout", { method: "POST" }).then(function () { location.href = "/"; }, function () { location.href = "/"; });
     });
     var d = $("describe-input");
     d.addEventListener("input", function () { store.set("gs.draft.describe", d.value); });
     document.addEventListener("keydown", function (e) {
+      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !e.shiftKey && S.lastUndo && Date.now() < S.lastUndo.until &&
+          !(e.target.closest && e.target.closest("textarea, input"))) {
+        e.preventDefault();
+        var u = S.lastUndo; S.lastUndo = null;
+        if (u.toast) u.toast.close();
+        u.run();
+        return;
+      }
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         if (e.target.closest && e.target.closest("#composer")) { e.preventDefault(); solve(); }
       }
       if (e.key === "Escape" && S.busy) cancel();
     });
     var draft = store.get("gs.draft.geo");
-    editor.set(draft != null ? draft : EXAMPLES[0].src);
+    editor.set(draft != null ? draft : exampleSrc(EXAMPLES[0]));
+    figTools(false);
+    $("hl").tabIndex = -1;
     var dd = store.get("gs.draft.describe");
     if (dd) d.value = dd;
     setMode("geo");
@@ -1098,6 +1219,17 @@
 
   document.addEventListener("langchange", function () {
     paintAiPill(); paintGates(); paintEffortHint(); paintExamples(); paintAccount();
+    var ex = exampleOf(editor.get());
+    if (ex && editor.get() !== exampleSrc(ex)) editor.set(exampleSrc(ex));
+    if (S.busy) paintStage();
+    if (S.lastError && !$("state-error").hidden) {
+      if (S.lastError.compile && S.geo) {
+        api("/api/solve", { method: "POST", body: { input: S.geo, record: false } }).then(function (r) {
+          if (r.status === 400 && r.data.code === "compile") showError(httpError(r));
+        });
+      } else showError(S.lastError);
+    }
+    if (S.lastFieldErr) fieldError(S.lastFieldErr, t(S.lastFieldErr === "describe-err" ? "err.empty_describe" : "err.empty_photo"));
     $("fig-hint").textContent = t(matchMedia("(pointer: coarse)").matches ? "fig.hint.coarse" : "fig.hint.fine");
     $("solve").setAttribute("title", t("solve.shortcut", { keys: isMac ? "⌘ Enter" : "Ctrl Enter" }));
     if (S.history.length) renderHistory();

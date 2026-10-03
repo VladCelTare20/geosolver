@@ -30,7 +30,7 @@
         <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
         <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
       </div>
-      <button type="button" class="icon-btn" data-theme-toggle aria-label="Colour theme"></button>
+      <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
       <div class="account" id="account" hidden>
         <span class="who"><span class="avatar" id="avatar" aria-hidden="true"></span><span id="username"></span></span>
         <button type="button" class="btn btn-ghost btn-sm" id="logout" data-i18n-attr="aria-label:app.logout;title:app.logout" aria-label="Log out"><span class="lbl-ic" data-icon="logout" aria-hidden="true"></span><span class="lbl" data-i18n="app.logout">Log out</span></button>
@@ -78,7 +78,8 @@
       <div class="ai-gate" data-gate hidden></div>
       <div class="ai-body">
         <label class="field-label" for="describe-input" data-i18n="describe.label">Describe the problem in words</label>
-        <textarea class="textarea" id="describe-input" rows="5" data-i18n-attr="placeholder:describe.ph" aria-describedby="describe-note"></textarea>
+        <textarea class="textarea" id="describe-input" rows="5" data-i18n-attr="placeholder:describe.ph" aria-describedby="describe-err describe-note"></textarea>
+        <p class="editor-error" id="describe-err" role="alert" hidden></p>
         <p class="hint" id="describe-note"><span class="hint-ic" aria-hidden="true" data-icon="sparkle"></span><span data-i18n="describe.note">An AI model turns your words into a .geo program. The proof itself is machine-checked.</span></p>
       </div>
     </div>
@@ -91,7 +92,8 @@
           <span class="dz-empty" id="dz-empty"><span class="dz-ic" aria-hidden="true" data-icon="image"></span><span><span data-i18n="photo.drop">Drop a photo here, or</span> <span class="link" data-i18n="photo.choose">choose a file</span></span></span>
           <span class="dz-full" id="dz-full" hidden><img id="photo-preview" alt=""><span class="dz-name" id="photo-name"></span></span>
         </label>
-        <input type="file" id="photo-input" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only" aria-labelledby="photo-label" aria-describedby="photo-hint">
+        <input type="file" id="photo-input" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only" aria-labelledby="photo-label" aria-describedby="photo-err photo-hint">
+        <p class="editor-error" id="photo-err" role="alert" hidden></p>
         <div class="dz-actions" id="dz-actions" hidden>
           <button type="button" class="btn btn-ghost btn-sm" id="photo-remove"><span data-i18n="photo.remove">Remove photo</span></button>
         </div>
@@ -104,10 +106,10 @@
         <label class="field-label" for="geo-input" data-i18n="geo.label">.geo program</label>
         <div class="geo-tools">
           <div class="menu-wrap">
-            <button type="button" class="btn btn-ghost btn-sm" id="examples-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="examples-menu"><span class="btn-ic" aria-hidden="true" data-icon="book"></span><span data-i18n="examples">Examples</span></button>
+            <button type="button" class="btn btn-ghost btn-sm" id="examples-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="examples-menu" data-i18n-attr="aria-label:examples"><span class="btn-ic" aria-hidden="true" data-icon="book"></span><span class="btn-txt" data-i18n="examples">Examples</span></button>
             <div class="menu examples-menu" id="examples-menu" role="menu" aria-labelledby="examples-btn" hidden></div>
           </div>
-          <button type="button" class="btn btn-ghost btn-sm" id="syntax-btn" aria-expanded="false" aria-controls="syntax-help"><span class="btn-ic" aria-hidden="true" data-icon="info"></span><span data-i18n="geo.help">Syntax</span></button>
+          <button type="button" class="btn btn-ghost btn-sm" id="syntax-btn" aria-expanded="false" aria-controls="syntax-help" data-i18n-attr="aria-label:geo.help"><span class="btn-ic" aria-hidden="true" data-icon="info"></span><span class="btn-txt" data-i18n="geo.help">Syntax</span></button>
         </div>
       </div>
       <div class="syntax-help" id="syntax-help" hidden>
@@ -117,7 +119,7 @@
       <div class="editor" id="editor">
         <div class="gutter" id="gutter" aria-hidden="true"></div>
         <div class="code">
-          <pre class="hl" id="hl" aria-hidden="true"><code id="hl-code"></code></pre>
+          <pre class="hl" id="hl" aria-hidden="true" tabindex="-1"><code id="hl-code"></code></pre>
           <textarea id="geo-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-describedby="geo-error" aria-invalid="false"></textarea>
         </div>
       </div>
@@ -142,7 +144,7 @@
   </section>
 
   <section class="status-area" id="status-area" aria-labelledby="result-h">
-    <h2 class="sr-only" id="result-h" data-i18n="proof.title">Proof</h2>
+    <h2 class="sr-only" id="result-h" data-i18n="result.title">Result</h2>
     <div id="state-empty" class="state-empty card">
       <div class="empty-art" aria-hidden="true">
         <svg viewBox="0 0 120 90"><circle cx="60" cy="46" r="34" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".45"/><path d="M60 12 90 64H30Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M60 12v52" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 3" opacity=".6"/><circle cx="60" cy="12" r="2.6" fill="currentColor"/><circle cx="90" cy="64" r="2.6" fill="currentColor"/><circle cx="30" cy="64" r="2.6" fill="currentColor"/><circle cx="60" cy="64" r="2.6" fill="currentColor"/></svg>
@@ -165,7 +167,7 @@
       <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
       <div class="skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
     </div>
-    <div id="state-error" class="state-error card tone-false" role="alert" hidden></div>
+    <div id="state-error" class="state-error card tone-false" hidden></div>
     <div id="verdict" class="verdict card" hidden></div>
   </section>
 
@@ -188,7 +190,7 @@
       <div class="fig-foot">
           <ul class="fig-legend" id="fig-legend" hidden>
             <li><span class="sw sw-given" aria-hidden="true"></span><span data-i18n="fig.legend.given">Construction</span></li>
-            <li><span class="sw sw-goal" aria-hidden="true"></span><span data-i18n="fig.legend.goal">Goal</span></li>
+            <li class="lg-goal"><span class="sw sw-goal" aria-hidden="true"></span><span data-i18n="fig.legend.goal">Goal</span></li>
             <li class="lg-aux" hidden><span class="sw sw-aux" aria-hidden="true"></span><span data-i18n="fig.legend.aux">Auxiliary</span></li>
           </ul>
         <p class="fig-hint" id="fig-hint"></p>
@@ -226,7 +228,7 @@
 <p class="sr-only" id="announce" aria-live="polite"></p>
 <div class="toast-region" id="toasts" aria-live="polite"></div>
 
-<footer class="site-footer"><p data-i18n="app.footer">GeoSolver · a from-scratch Rust implementation of the AlphaGeometry deduction engine</p></footer>
+<footer class="site-footer"><p data-i18n="footer">GeoSolver · machine-checked geometry proofs</p></footer>
 
 <script src="/assets/site.js"></script>
 <script src="/assets/app.js"></script>

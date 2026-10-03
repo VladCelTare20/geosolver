@@ -46,16 +46,20 @@
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  var NAME_RE = /[A-ZΩω][₀-₉]*[′″]*/g;
+  var NAME_RE = /[A-ZΩω][a-z]?[₀-₉]*[′″]*/g;
+  function nameHtml(m) {
+    var low = /^([A-ZΩω])([a-z])(.*)$/.exec(m);
+    return low ? "<i>" + low[1] + "<sub>" + low[2] + "</sub>" + low[3] + "</i>" : "<i>" + m + "</i>";
+  }
   /** Escape `text` and set point names (capital letters with subscripts/primes)
    * in italic math type. In `prose` mode only all-capital tokens are treated
    * as names, so ordinary words keep their roman type. */
   function math(text, prose) {
     var s = String(text == null ? "" : text);
-    if (!prose) return esc(s).replace(NAME_RE, function (m) { return "<i>" + m + "</i>"; });
+    if (!prose) return esc(s).replace(NAME_RE, nameHtml);
     return s.split(/(\s+|[(),.;:!?—–])/).map(function (tok) {
       if (/^[A-Z][A-Z₀-₉′″]*[²³]?$/.test(tok) || /^[A-Z][₀-₉′″]+$/.test(tok))
-        return esc(tok).replace(NAME_RE, function (m) { return "<i>" + m + "</i>"; });
+        return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
       return esc(tok);
     }).join("");
   }
@@ -70,6 +74,7 @@
       case "cyclic": return esc(t("fact.cyclic", { pts: "\u0001" })).replace("\u0001", a.join(", "));
       case "midp": return esc(t("fact.midp", { m: "\u0001", seg: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "circle": return esc(t("fact.circle", { o: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
+      case "oncircle": return esc(t("fact.oncircle", { o: "\u0001", pts: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", a.slice(1).join(", "));
       case "cong": case "length": case "eqangle": case "coincide": return g(0) + " = " + g(1);
       case "perp": return g(0) + " ⟂ " + g(1);
       case "para": return g(0) + " ∥ " + g(1);
@@ -80,7 +85,7 @@
       case "contri": return "△" + g(0) + " ≅ △" + g(1);
       case "eqdist": return a.join(" = ");
       case "points": return a.join(", ");
-      case "prose": return math((f.args || [])[0], true);
+      case "prose": return math(((lang() === "ro" && f.ro) || f.args || [])[0], true);
       default: return a.join(" ");
     }
   }
@@ -91,8 +96,9 @@
     return d.textContent;
   }
 
+  function lang() { return window.i18n ? window.i18n.current() : "en"; }
   function ruleLabel(step) {
-    if (step.rule === "theorem" && step.rule_name) return step.rule_name;
+    if (step.rule === "theorem" && step.rule_name) return (lang() === "ro" && step.rule_name_ro) || step.rule_name;
     var k = "rule." + step.rule;
     return window.i18n && window.i18n.has(k) ? t(k) : (step.rule_name || step.rule);
   }
@@ -104,7 +110,7 @@
     var steps = (proof && proof.steps) || [];
     var html = steps.map(function (s, i) {
       var cites = (s.deps || []).map(function (d) {
-        return '<a class="cite" href="#step-' + d + '" data-step="' + d + '" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
+        return '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
       }).join("");
       return '<li class="step' + (s.kind === "given" ? " is-given" : "") + '" id="step-' + s.n + '" data-n="' + s.n + '" data-points="' + esc((s.fact.points || []).join(" ")) + '" tabindex="' + (i === 0 ? 0 : -1) + '">' +
         '<span class="step-n" aria-hidden="true">' + s.n + "</span>" +
@@ -119,7 +125,13 @@
     ol.innerHTML = html;
     var items = Array.prototype.slice.call(ol.querySelectorAll(".step"));
     function pts(li) { var p = li.getAttribute("data-points"); return p ? p.split(" ") : []; }
-    function activate(li) { items.forEach(function (x) { x.classList.toggle("is-active", x === li); }); if (hooks.focus) hooks.focus(li ? pts(li) : null); }
+    function activate(li) {
+      items.forEach(function (x) {
+        x.classList.toggle("is-active", x === li);
+        x.querySelectorAll(".cite").forEach(function (c) { c.tabIndex = x === li ? 0 : -1; });
+      });
+      if (hooks.focus) hooks.focus(li ? pts(li) : null);
+    }
     items.forEach(function (li, i) {
       li.addEventListener("mouseenter", function () { activate(li); });
       li.addEventListener("mouseleave", function () { if (document.activeElement !== li) activate(null); });
@@ -128,7 +140,6 @@
         li.tabIndex = 0;
         activate(li);
       });
-      li.addEventListener("blur", function () { setTimeout(function () { if (!ol.contains(document.activeElement)) activate(null); }, 0); });
       li.addEventListener("keydown", function (e) {
         var j = null;
         if (e.key === "ArrowDown") j = Math.min(items.length - 1, i + 1);
@@ -138,7 +149,13 @@
         if (j != null && e.target === li) { e.preventDefault(); items[j].focus(); }
       });
     });
-    ol.addEventListener("click", function (e) {
+    if (ol._gsFocusOut) ol.removeEventListener("focusout", ol._gsFocusOut);
+    ol._gsFocusOut = function (e) {
+      if (!e.relatedTarget || !ol.contains(e.relatedTarget)) activate(null);
+    };
+    ol.addEventListener("focusout", ol._gsFocusOut);
+    if (ol._gsClick) ol.removeEventListener("click", ol._gsClick);
+    ol._gsClick = function (e) {
       var a = e.target.closest(".cite");
       if (!a) return;
       e.preventDefault();
@@ -149,7 +166,8 @@
       void target.offsetWidth;
       target.classList.add("flash");
       target.focus({ preventScroll: true });
-    });
+    };
+    ol.addEventListener("click", ol._gsClick);
     return {
       markPoint: function (name) {
         items.forEach(function (li) { li.classList.toggle("uses-point", !!name && pts(li).indexOf(name) >= 0); });
@@ -231,7 +249,7 @@
       else if (e.key === "ArrowRight") me.panBy(-40, 0);
       else if (e.key === "ArrowUp") me.panBy(0, 40);
       else if (e.key === "ArrowDown") me.panBy(0, -40);
-      else if (e.key === "f" || e.key === "F") me.toggleFull();
+      else if ((e.key === "f" || e.key === "F") && me.els.full) me.toggleFull();
       else if (e.key === "Escape" && me.isFull()) me.toggleFull(false);
       else handled = false;
       if (handled) e.preventDefault();
@@ -258,6 +276,7 @@
     if (!this.svg) { this.base = this.vb = null; return; }
     var b = (this.svg.getAttribute("viewBox") || "0 0 100 100").split(/\s+/).map(Number);
     this.base = { x: b[0], y: b[1], w: b[2], h: b[3] };
+    this.base0 = null;
     this.svg.removeAttribute("width");
     this.svg.removeAttribute("height");
     this.svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
@@ -280,25 +299,37 @@
     }
     this.restyle();
   };
-  Viewer.prototype.restyle = function () {
-    if (!this.svg || !this.vb) return;
-    var r = this.els.viewport.getBoundingClientRect();
-    if (!r.width || !r.height) return;
-    var s = Math.min(r.width / this.vb.w, r.height / this.vb.h);
+  /** Keep a figure's labels and dots a constant on-screen size while the
+   * `vb` part of it is shown in a box of size `r`. */
+  function fitLabels(svg, vb, r) {
+    if (!svg || !vb || !r.width || !r.height) return;
+    var s = Math.min(r.width / vb.w, r.height / vb.h);
     var fs = Math.max(13, Math.min(17, r.width / 28));
     var k = Math.max(0.35, Math.min(3, fs / s / 18));
-    this.svg.style.setProperty("--lbl-fs", (18 * k).toFixed(2) + "px");
-    this.labels.forEach(function (el) {
+    svg.style.setProperty("--lbl-fs", (18 * k).toFixed(2) + "px");
+    svg.querySelectorAll(".f-lbl").forEach(function (el) {
       var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx = +el.getAttribute("data-dx"), dy = +el.getAttribute("data-dy");
       el.setAttribute("x", (x + dx * k).toFixed(1));
       el.setAttribute("y", (y + dy * k + 18 * k * 0.34).toFixed(1));
-      el.setAttribute("stroke-width", (4 * k).toFixed(2));
+      el.setAttribute("stroke-width", (5 * k).toFixed(2));
     });
     var dotR = Math.max(1.2, Math.min(8, (r.width < 500 ? 3.2 : 3.8) / s));
-    this.dots.forEach(function (el) { el.setAttribute("r", dotR.toFixed(2)); });
+    svg.querySelectorAll(".f-dot").forEach(function (el) { el.setAttribute("r", dotR.toFixed(2)); });
+  }
+  Viewer.prototype.restyle = function () {
+    if (!this.svg || !this.vb) return;
+    fitLabels(this.svg, this.vb, this.els.viewport.getBoundingClientRect());
   };
   Viewer.prototype.reset = function () {
     if (!this.base) return;
+    var b0 = this.base0 || (this.base0 = { x: this.base.x, y: this.base.y, w: this.base.w, h: this.base.h });
+    var r = this.els.viewport.getBoundingClientRect();
+    if (r.width && r.height) {
+      var s0 = Math.min(r.width / b0.w, r.height / b0.h);
+      var k = Math.max(0.35, Math.min(3, Math.max(13, Math.min(17, r.width / 28)) / s0 / 18));
+      var pad = Math.max(0, (k - 1) * 32);
+      this.base = { x: b0.x - pad, y: b0.y - pad, w: b0.w + 2 * pad, h: b0.h + 2 * pad };
+    }
     this.vb = { x: this.base.x, y: this.base.y, w: this.base.w, h: this.base.h };
     this.apply();
   };
@@ -339,9 +370,13 @@
   Viewer.prototype.isFull = function () { return this.els.frame.classList.contains("is-full"); };
   Viewer.prototype.toggleFull = function (on) {
     var f = this.els.frame;
+    if (!this.els.full) return;
     on = on == null ? !this.isFull() : on;
+    if (on === this.isFull()) return;
     f.classList.toggle("is-full", on);
     document.documentElement.classList.toggle("no-scroll", on);
+    modal(f, on, t("fig.title"));
+    if (!on) this.els.full.focus({ preventScroll: true });
     if (this.els.full) {
       this.els.full.innerHTML = on ? icons.collapse : icons.expand;
       var label = t(on ? "fig.exit_full" : "fig.full");
@@ -353,6 +388,42 @@
     requestAnimationFrame(function () { me.reset(); });
     if (on) this.els.viewport.focus({ preventScroll: true });
   };
+
+  /** Make `el` modal (everything outside it inert, `el` a labelled dialog);
+   * `on` false restores exactly what was made inert. */
+  var inerted = new Map();
+  function trapTab(e) {
+    if (e.key !== "Tab") return;
+    var f = Array.prototype.filter.call(e.currentTarget.querySelectorAll("button, [href], input, textarea, select, [tabindex]"), function (x) {
+      return x.tabIndex >= 0 && !x.disabled && x.offsetParent !== null;
+    });
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  function modal(el, on, label) {
+    if (on) {
+      var list = [];
+      for (var n = el; n && n.parentElement && n !== document.body; n = n.parentElement) {
+        Array.prototype.forEach.call(n.parentElement.children, function (sib) {
+          if (sib !== n && !sib.inert && sib.tagName !== "SCRIPT" && sib.id !== "toasts" && sib.id !== "announce") { sib.inert = true; list.push(sib); }
+        });
+      }
+      inerted.set(el, list);
+      el.addEventListener("keydown", trapTab);
+      el.setAttribute("role", "dialog");
+      el.setAttribute("aria-modal", "true");
+      if (label) el.setAttribute("aria-label", label);
+    } else {
+      (inerted.get(el) || []).forEach(function (x) { x.inert = false; });
+      inerted.delete(el);
+      el.removeEventListener("keydown", trapTab);
+      el.removeAttribute("aria-modal");
+      el.removeAttribute("role");
+      el.removeAttribute("aria-label");
+    }
+  }
   /** Emphasise the elements a set of points defines; null clears. */
   Viewer.prototype.highlight = function (points) {
     if (!this.svg) return;
@@ -419,7 +490,6 @@
     if (!region) return null;
     var el = document.createElement("div");
     el.className = "toast";
-    el.setAttribute("role", "status");
     el.innerHTML = '<div class="grow"></div>';
     el.firstChild.textContent = msg;
     var done = false;
@@ -433,9 +503,18 @@
       el.appendChild(b);
     }
     region.appendChild(el);
-    setTimeout(close, opts.ms || 4000);
-    return { close: close, el: el };
+    var ms = opts.ms || 4000, timer = setTimeout(close, ms);
+    function resume() {
+      if (done || el.contains(document.activeElement) || el.matches(":hover")) return;
+      clearTimeout(timer);
+      timer = setTimeout(close, ms);
+    }
+    el.addEventListener("mouseenter", function () { clearTimeout(timer); });
+    el.addEventListener("focusin", function () { clearTimeout(timer); });
+    el.addEventListener("mouseleave", resume);
+    el.addEventListener("focusout", function () { setTimeout(resume, 0); });
+    return { close: close, el: el, button: el.querySelector("button") };
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast };
+  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast };
 })();

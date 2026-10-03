@@ -23,6 +23,7 @@ pub type Pt = (f64, f64);
 /// The engine's display convention: first letter upper-case, digits as
 /// subscripts, `'` as a prime (`a1` → `A₁`, `x'` → `X′`).
 pub fn disp(name: &str) -> String {
+    let keep_case = name.starts_with(|c: char| c.is_uppercase());
     let mut out = String::new();
     for (i, ch) in name.chars().enumerate() {
         if i == 0 {
@@ -31,6 +32,8 @@ pub fn disp(name: &str) -> String {
             out.push(char::from_u32(0x2080 + d).unwrap_or(ch));
         } else if ch == '\'' {
             out.push('\u{2032}');
+        } else if keep_case {
+            out.push(ch);
         } else {
             out.extend(ch.to_uppercase());
         }
@@ -286,11 +289,14 @@ pub struct Fact {
     pub args: Vec<String>,
     /// Display names of the points it involves (for figure highlighting).
     pub points: Vec<String>,
+    /// Romanian `args` for a `prose` fact (the engine writes English).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ro: Option<Vec<String>>,
 }
 
 impl Fact {
     fn new(kind: &'static str, args: Vec<String>, points: Vec<String>) -> Fact {
-        Fact { kind, args, points }
+        Fact { kind, args, points, ro: None }
     }
     #[cfg(test)]
     pub fn plain(&self) -> String {
@@ -685,6 +691,8 @@ pub struct Step {
     /// The engine's own rule/theorem name, when the key alone is not enough.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_name_ro: Option<String>,
     pub fact: Fact,
     /// Step numbers this step cites.
     pub deps: Vec<usize>,
@@ -768,12 +776,18 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
                     ("step", "collinear", None, Fact::new("coll", v.clone(), v))
                 }
                 "concyclic (inscribed angles)" => {
-                    let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
-                    ("step", "concyclic", None, Fact::new("cyclic", v.clone(), v))
+                    let raws: Vec<&str> = stmt.split_whitespace().collect();
+                    let v: Vec<String> = raws.iter().map(|x| names.get(x)).collect();
+                    let fact = if raws.len() == 3 {
+                        three_on_a_circle(problem, names, &raws).unwrap_or_else(|| Fact::new("cyclic", v.clone(), v))
+                    } else {
+                        Fact::new("cyclic", v.clone(), v)
+                    };
+                    ("step", "concyclic", None, fact)
                 }
                 "segment arithmetic" => {
                     let s = stmt.trim_end_matches(" (add/mul transfer)");
-                    ("step", "transfer", None, formula(s))
+                    ("step", "transfer", None, transfer_fact(problem, names, s).unwrap_or_else(|| formula(s)))
                 }
                 "equal arcs \u{21d4} equal chords" => {
                     let s = stmt.replace(" and ", ", ");
@@ -792,9 +806,90 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
         } else {
             ("step", "other", None, formula(&body))
         };
-        steps.push(Step { n, kind, rule, rule_name, fact, deps });
+        let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
+        steps.push(Step { n, kind, rule, rule_name, rule_name_ro, fact, deps });
     }
     ProofView { steps: drop_restatements(steps), conclusion, style: "ddar" }
+}
+
+fn coord(problem: &Problem, raw: &str) -> Option<Pt> {
+    let p = problem.points.iter().find(|p| p.name == raw)?;
+    let q = (p.value.x, p.value.y);
+    finite_pt(q).then_some(q)
+}
+
+fn finite_pt(p: Pt) -> bool {
+    p.0.is_finite() && p.1.is_finite()
+}
+
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1e-9)
+}
+
+fn simple_ratio(r: f64) -> Option<(u32, u32)> {
+    if !(r.is_finite() && r > 0.0) {
+        return None;
+    }
+    for q in 1..=12u32 {
+        let p = (r * q as f64).round();
+        if (1.0..=96.0).contains(&p) && near(p / q as f64, r) {
+            let (p, q) = (p as u32, q);
+            let g = (1..=p.min(q)).rev().find(|g| p % g == 0 && q % g == 0).unwrap_or(1);
+            return Some((p / g, q / g));
+        }
+    }
+    None
+}
+
+fn transfer_fact(problem: &Problem, names: &Names, s: &str) -> Option<Fact> {
+    let (l, r) = s.split_once('\u{2194}')?;
+    let seg = |t: &str| -> Option<(String, String)> {
+        let v = names.segment(t.trim().trim_matches('|'))?;
+        (v.len() == 2).then(|| (v[0].clone(), v[1].clone()))
+    };
+    let ((a, b), (c, d)) = (seg(l)?, seg(r)?);
+    let len = |x: &str, y: &str| -> Option<f64> {
+        let (p, q) = (coord(problem, x)?, coord(problem, y)?);
+        Some(((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt())
+    };
+    let (p, q) = simple_ratio(len(&a, &b)? / len(&c, &d)?)?;
+    let (s1, s2) = (format!("{}{}", names.get(&a), names.get(&b)), format!("{}{}", names.get(&c), names.get(&d)));
+    let mut pts: Vec<String> = Vec::new();
+    for x in [&a, &b, &c, &d] {
+        let n = names.get(x);
+        if !pts.contains(&n) {
+            pts.push(n);
+        }
+    }
+    Some(if p == q {
+        Fact::new("cong", vec![s1, s2], pts)
+    } else {
+        let k = if q == 1 { p.to_string() } else { format!("{p}/{q}") };
+        Fact::new("rconst", vec![s1, s2, k], pts)
+    })
+}
+
+fn three_on_a_circle(problem: &Problem, names: &Names, raws: &[&str]) -> Option<Fact> {
+    let pts: Vec<Pt> = raws.iter().map(|r| coord(problem, r)).collect::<Option<_>>()?;
+    let d = |a: Pt, b: Pt| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+    let shown: Vec<String> = raws.iter().map(|r| names.get(r)).collect();
+    for o in &problem.points {
+        if raws.contains(&o.name.as_str()) {
+            continue;
+        }
+        let c = (o.value.x, o.value.y);
+        if !finite_pt(c) {
+            continue;
+        }
+        let r = d(c, pts[0]);
+        if r > 1e-9 && near(d(c, pts[1]), r) && near(d(c, pts[2]), r) {
+            let on = names.get(&o.name);
+            let mut all = vec![on.clone()];
+            all.extend(shown.iter().cloned());
+            return Some(Fact::new("oncircle", std::iter::once(on).chain(shown.iter().cloned()).collect(), all));
+        }
+    }
+    None
 }
 
 /// Drop steps that only restate one cited step with the same points (the
@@ -871,6 +966,25 @@ fn cited_theorem(text: &str) -> Option<String> {
     None
 }
 
+fn drop_value_echo(s: &str) -> String {
+    match s.find("  (= ") {
+        Some(at) => {
+            let close = s[at..].find(')').map_or(s.len(), |c| at + c + 1);
+            format!("{}{}", &s[..at], &s[close..])
+        }
+        None => s.to_string(),
+    }
+}
+
+fn as_drawn(s: &str) -> String {
+    match (s.find(" lies on "), s.find(", and ")) {
+        (Some(a), Some(b)) if a < b && s[a..b].contains(" between ") => {
+            format!("{} (as drawn){}", &s[..b], &s[b..])
+        }
+        _ => s.to_string(),
+    }
+}
+
 fn parse_euclid_proof(text: &str, names: &Names) -> ProofView {
     let mut steps = Vec::new();
     let mut conclusion = None;
@@ -878,9 +992,11 @@ fn parse_euclid_proof(text: &str, names: &Names) -> ProofView {
         let t = line.trim();
         let digits: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
         let prose = |s: &str| {
-            let typeset = pretty_metric_inline(s, names);
+            let typeset = pretty_metric_inline(&as_drawn(s), names);
             let shown = names.rename_text(&typeset, true);
-            Fact::new("prose", vec![shown], names.disp_all(&names.mentioned(s, true)))
+            let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&shown)], names.disp_all(&names.mentioned(s, true)));
+            f.ro = Some(vec![crate::i18n::prose_ro(&shown)]);
+            f
         };
         if !digits.is_empty() && t[digits.len()..].starts_with(". ") {
             let body = &t[digits.len() + 2..];
@@ -890,16 +1006,18 @@ fn parse_euclid_proof(text: &str, names: &Names) -> ProofView {
                 (None, true) => ("given", "given"),
                 (None, false) => ("step", "algebra"),
             };
+            let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
             steps.push(Step {
                 n: digits.parse().unwrap_or(0),
                 kind,
                 rule,
                 rule_name,
+                rule_name_ro,
                 fact: prose(body),
                 deps: Vec::new(),
             });
-        } else if t.starts_with("Combining") {
-            conclusion = Some(prose(t.trim_end_matches('\u{220e}').trim()));
+        } else if ["Combining", "Adding"].iter().any(|w| t.starts_with(w)) {
+            conclusion = Some(prose(&drop_value_echo(t.trim_end_matches('\u{220e}').trim())));
         }
     }
     ProofView { steps, conclusion, style: "euclidean" }
@@ -1210,7 +1328,10 @@ pub fn source_title(src: &str) -> Option<String> {
         (true, Some(rest)) => rest.split(')').next().unwrap_or(head).trim(),
         _ => head,
     };
-    let t: String = picked.chars().take(80).collect();
+    let mut t: String = picked.chars().take(80).collect();
+    if picked.chars().count() > 80 {
+        t = t.chars().take(79).collect::<String>() + "\u{2026}";
+    }
     (!t.is_empty()).then_some(t)
 }
 
@@ -1502,13 +1623,15 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "arity"
     } else if msg.contains("is already defined") {
         "redefined"
+    } else if msg.contains("is not a metric value here") && backticked(msg).is_some() {
+        "unknown_relation"
     } else if starts("bad number") {
         "bad_number"
-    } else if starts("could not build") {
+    } else if starts("could not build") || msg == "no attempt" {
         "degenerate"
     } else if starts("empty program") {
         "empty"
-    } else if msg.contains("needs a `prove") {
+    } else if msg.contains("needs a `prove") || msg.contains("has no goal") {
         "no_goal"
     } else if msg.contains("`point:` defines exactly one point") {
         "point_one"
@@ -1522,6 +1645,7 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     let msg = msg
         .trim_start_matches("compile error: ")
         .trim_start_matches("parse error: ")
+        .trim_start_matches("metric prover: ")
         .trim();
     let key = diagnosis_key(msg);
     let mut d = Diagnosis { key, line: 0, col: 0, len: 0, token: None, expected: None, got: None };
@@ -1644,6 +1768,31 @@ mod tests {
             let d = diagnose(src, &msg);
             assert_eq!((d.key, d.line, d.col), (key, line, col), "{msg} → {d:?}");
         }
+    }
+
+    #[test]
+    fn common_mistakes_get_their_own_message() {
+        let cases = [
+            ("A B C = triangle\nH = orthocenter(A, B, C)", "no_goal", 0),
+            ("A B C = triangle\nM = midpoint(A, A)\nprove coll(A, B, M)", "degenerate", 0),
+            ("A B C = triangle\nprove collinear(A, B, C)", "unknown_relation", 2),
+        ];
+        for (src, key, line) in cases {
+            let msg = solve(src, &SolveOptions::default()).err().expect("must not compile");
+            let d = diagnose(src, &msg);
+            assert_eq!((d.key, d.line), (key, line), "{msg} → {d:?}");
+        }
+        let src = "B = free\nC = point: dist(B,C)=6.2.3\nprove dist(B,C)^2 = 36";
+        let d = diagnose(src, "metric prover: bad number `6.2.3`");
+        assert_eq!((d.key, d.line, d.col, d.token.as_deref()), ("bad_number", 2, 22, Some("6.2.3")));
+    }
+
+    #[test]
+    fn multi_letter_names_keep_their_case() {
+        assert_eq!(disp("Ma"), "Ma");
+        assert_eq!(disp("A1"), "A\u{2081}");
+        assert_eq!(disp("a1"), "A\u{2081}");
+        assert_eq!(disp("ab"), "AB");
     }
 
     fn view(src: &str) -> (Solution, View) {

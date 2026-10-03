@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f7f7f5">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="GeoSolver draws the labelled figure of a geometry problem and searches for a proof in which every step is machine-checked.">
+<meta name="description" content="GeoSolver draws the labeled figure of a geometry problem and searches for a proof in which every step is machine-checked.">
+<meta name="i18n-title" content="landing.doctitle">
 <script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);if(localStorage.getItem('lang')==='ro'){d.lang='ro';d.setAttribute('data-lang','ro');d.classList.add('i18n-pending');setTimeout(function(){d.classList.remove('i18n-pending');},800);}}catch(e){}})();</script>
 <title>GeoSolver — geometry proofs you can check</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%231f4fa0' stroke-width='2.2'/%3E%3Cpath d='M16 4.6 26.2 22H5.8Z' fill='none' stroke='%231f4fa0' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E">
@@ -20,6 +21,8 @@
   .hero h1 { font-family: var(--font-math); font-size: clamp(2rem, 4.4vw, var(--fs-39)); font-weight: 600; line-height: 1.12; letter-spacing: -0.01em; margin-bottom: var(--s4); }
   .lede { font-size: var(--fs-16); color: var(--text-2); max-width: 52ch; line-height: 1.6; margin-bottom: var(--s5); }
   .cta { display: flex; gap: var(--s3); flex-wrap: wrap; }
+  .cta .btn { flex: 1 1 auto; }
+  .nw { white-space: nowrap; }
   .trust { list-style: none; padding: 0; margin: var(--s5) 0 0; display: grid; gap: var(--s2); font-size: var(--fs-14); color: var(--text-2); }
   .trust li { display: flex; gap: var(--s2); align-items: center; }
   .trust svg { width: 18px; height: 18px; color: var(--proved); flex: none; }
@@ -62,7 +65,8 @@
   .header-cta { display: flex; gap: var(--s2); align-items: center; }
   @media (max-width: 1000px) {
     .hero { grid-template-columns: 1fr; gap: var(--s5); padding-top: var(--s6); }
-    .hero-fig { max-width: 560px; }
+    .hero-fig { width: 100%; }
+    .hero-fig .fig-box { aspect-ratio: 4 / 3; }
     .case-body { grid-template-columns: 1fr; }
     .case-text { border-right: 0; border-bottom: 1px solid var(--border); }
     .case-fig { order: -1; border-bottom: 1px solid var(--border); }
@@ -98,7 +102,7 @@
         <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
         <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
       </div>
-      <button type="button" class="icon-btn" data-theme-toggle aria-label="Colour theme"></button>
+      <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
       <a class="btn btn-secondary btn-sm" href="/auth" data-i18n="nav.signin">Sign in</a>
     </div>
   </div>
@@ -131,7 +135,7 @@
   <section class="section" id="showcase" aria-labelledby="show-h">
     <div class="wrap">
       <h2 id="show-h" data-i18n="show.title">A real IMO problem, solved and checked</h2>
-      <p class="sub" data-i18n="show.sub">IMO 2023 Problem 2.</p>
+      <p class="sub" id="show-sub"></p>
       <article class="card case">
         <div class="case-head">
           <h3 data-i18n="case.title">IMO 2023 · Problem 2</h3>
@@ -154,7 +158,7 @@
           </div>
           <div class="case-fig">
             <div class="sticky">
-              <div class="fig-viewport" id="case-fig" tabindex="0" role="group" data-i18n-attr="aria-label:fig.region" aria-label="Figure"></div>
+              <div class="fig-viewport" id="case-fig" tabindex="0" role="group" data-i18n-attr="aria-label:fig.region.nofull" aria-label="Figure"></div>
               <div class="fig-tools" role="toolbar" data-i18n-attr="aria-label:fig.title" aria-label="Figure">
                 <button type="button" class="icon-btn" id="z-out" data-i18n-attr="aria-label:fig.zoom_out;title:fig.zoom_out" aria-label="Zoom out"></button>
                 <button type="button" class="icon-btn" id="z-in" data-i18n-attr="aria-label:fig.zoom_in;title:fig.zoom_in" aria-label="Zoom in"></button>
@@ -199,7 +203,7 @@
     </section>
   </div>
 </main>
-<footer class="site-footer"><p data-i18n="footer">GeoSolver — a geometry proof assistant.</p></footer>
+<footer class="site-footer"><p data-i18n="footer">GeoSolver · machine-checked geometry proofs</p></footer>
 <script src="/assets/site.js"></script>
 <script src="/assets/landing.js"></script>
 </body>
