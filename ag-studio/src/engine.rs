@@ -924,9 +924,10 @@ fn is_metric_goal(goal: &str) -> bool {
     };
     match (MExpr::parse(lhs), MExpr::parse(rhs)) {
         (Some(l), Some(r)) => !ddar_expressible(&l, &r),
-        // An unparseable goal is left to `geo::compile`, which reports the error
-        // (and the placeholder check in `solve_within` catches what slips by).
-        _ => g.contains("sqrt") || g.contains('√') || g.contains('^'),
+        // Unparseable here (e.g. nested past MAX_GOAL_DEPTH): anything metric
+        // goes to the Euclidean prover, which reports its own error; the rest is
+        // left to `geo::compile`.
+        _ => ["dist(", "area(", "sqrt", "√", "^"].iter().any(|k| g.contains(k)),
     }
 }
 
