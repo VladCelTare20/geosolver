@@ -308,6 +308,15 @@ impl WarmBase {
         })
     }
 
+    /// Whether the closed base figure already proves the goal — the verdict
+    /// [`safe_solve`] gives on the same problem, without a second closure.
+    pub fn proves_goal(&self) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.base.clone().check_pred(&self.goal)
+        }))
+        .unwrap_or(false)
+    }
+
     /// Whether adding `cand` (one new point) makes the goal provable. Panics
     /// from degenerate constructions are caught and treated as "not solved",
     /// matching [`safe_solve`].
@@ -1471,7 +1480,18 @@ fn try_solve(
         return None;
     }
     *runs += 1;
-    if safe_solve(problem) {
+    let warm = if depth == 1 && warm_enabled() {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| WarmBase::new(problem)))
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+    let solved = match &warm {
+        Some(w) => w.proves_goal(),
+        None => safe_solve(problem),
+    };
+    if solved {
         return Some(Vec::new());
     }
     if depth == 0 || *runs >= max_runs || past(deadline) {
@@ -1503,14 +1523,6 @@ fn try_solve(
         use std::sync::atomic::{AtomicUsize, Ordering};
         let take = (max_runs - *runs).min(cands.len());
         let attempted = AtomicUsize::new(0);
-        // Close the base once; each candidate is then a cheap warm-start clone
-        // instead of a full from-scratch solve. Falls back to full solves if
-        // warm-start is disabled or the problem is goal-less.
-        let warm = if warm_enabled() {
-            WarmBase::new(problem)
-        } else {
-            None
-        };
         let found = cands[..take].par_iter().find_first(|cand| {
             if past(deadline) {
                 return false;

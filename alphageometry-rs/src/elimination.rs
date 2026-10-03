@@ -67,13 +67,18 @@ pub struct Angle(pub LinComb);
 impl Angle {
     /// Wrap a combination, normalizing the `pi` coefficient into `[0, 1)`.
     pub fn new(mut comb: LinComb) -> Angle {
-        let c = comb.get(ANGLE_UNIT);
-        if !c.is_zero() {
-            let r = c.mod_one();
-            // remove existing unit term then re-insert reduced (if nonzero)
-            comb.add_term(ANGLE_UNIT, &Rat::zero() - &c); // clear
-            if !r.is_zero() {
-                comb.add_term(ANGLE_UNIT, r);
+        let reduced = match comb.terms.first() {
+            Some((v, c)) if *v == ANGLE_UNIT => {
+                let r = c.mod_one();
+                (r != *c).then_some(r)
+            }
+            _ => None,
+        };
+        if let Some(r) = reduced {
+            if r.is_zero() {
+                comb.terms.remove(0);
+            } else {
+                comb.terms[0].1 = r;
             }
         }
         Angle(comb)
@@ -85,9 +90,7 @@ impl Angle {
     }
 
     pub fn neg(&self) -> Angle {
-        let mut c = self.0.clone();
-        c.mul_assign_scalar(&Rat::from_int(-1));
-        Angle::new(c)
+        Angle::new(self.0.negated())
     }
 
     pub fn add(&self, other: &Angle) -> Angle {
@@ -137,9 +140,7 @@ impl DistAdd {
         DistAdd(&self.0 - &other.0)
     }
     pub fn neg(&self) -> DistAdd {
-        let mut c = self.0.clone();
-        c.mul_assign_scalar(&Rat::from_int(-1));
-        DistAdd(c)
+        DistAdd(self.0.negated())
     }
     pub fn mul_scalar(&self, s: &Rat) -> DistAdd {
         let mut c = self.0.clone();

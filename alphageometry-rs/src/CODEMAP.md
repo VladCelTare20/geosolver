@@ -7,6 +7,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `predicate.rs` — the low-level AlphaGeometry predicate language and parser.
 - `engine.rs` — DDAR deductive closure.
 - `elim_core.rs`, `elimination.rs`, `lincomb.rs`, `rational.rs` — exact Gaussian elimination over rationals (angles, ratios, distances).
+- `fingerprint.rs` — linear fingerprints of `LinComb`s mod 2^61−1; can only rule an equality out.
 - `aux_search.rs` — LM-free auxiliary-point search over DDAR.
 - `metric.rs` — metric goals: `solve` is `Ok` only for a Euclidean proof; otherwise `MetricError::{Refuted, NoProof{evidence}, Failed}`. `check_numerically` is evidence, never a proof.
 - `synthetic.rs`, `ratio.rs` — classical theorem-citing proofs for length / ratio goals.
@@ -30,6 +31,12 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `synthetic.rs:prove_euclidean` — before the theorem rules, DDAR-certified right angles, midpoints and (aux pass) equal lengths are added; the aux pass also introduces intersections of goal segments and the centres of quadrilaterals on the goal points. All certified steps share one printed derivation (`render`).
 - `ratio.rs:prove_ratio` — the product engine runs on a fresh figure, so the monomial engine's perpendicular feet never leak into its derivations. Its candidates (similar triangles, collinear splits, the bisector theorem) wait in `pending` until certified; a lone named-theorem citation is rejected as circular.
 - `engine.rs:search_radical_axis` — the inside/outside branch is read from chord-end order, not from the conclusion.
+- `engine.rs:PairIds` — per-pass keys for the O(n³) searches (similar, concyclic, bisector): a triangle's angle/ratio key is a fingerprint difference of two cached pair values, O(1). A fingerprint match is acted on only after an exact comparison of interned normal forms (`ang`/`rat`, memoised in the thread-local stamped `TripleMemo`); a coefficient with no residue switches the pass to exact ids (`fp_ok`). Shared across the three searches until the next `update_cache`.
+- `engine.rs` speed work keeps the force order: bucket maps are only probed, never iterated; concyclic's group map is keyed by `&LinComb`, which hashes like the old `Angle` key. Proofs on all 252 corpus solves are byte-identical to a764596.
+- `engine.rs:search_similar` — degenerate triangles are skipped by `force_collinear`'s tolerance (`numerically_flat`) as well as `orientation`: a long base with sub-ATOM height would otherwise force a bogus ratio.
+- `engine.rs:row_already_concyclic`, `line_holds` — skip forces that `force_concyclic`/`force_collinear` would exit from as no-ops. They rely on `triple_to_circle`/`pair_line` mapping every numerically distinct triple/pair of active points to the one object holding it; `line_holds` also repeats `force_collinear`'s numeric check so a would-be panic still happens.
+- `engine.rs:force_*_with` — premises are computed lazily, after the no-op exit; nothing mutates in between, so the cited facts are unchanged.
+- `aux_search.rs:try_solve` — at depth 1 the `WarmBase` closure also answers "does the base already prove the goal" (`proves_goal`), so a branch costs one cold closure, not two.
 - `synthetic.rs` rectangle detection needs `AD ∥ BC` or a third right angle; `AB ∥ DC` is implied by two right angles and proves nothing.
 
 ## Subfolders

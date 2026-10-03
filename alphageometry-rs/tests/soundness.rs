@@ -338,3 +338,39 @@ fn certified_facts_do_not_prove_false_neighbours() {
         }
     }
 }
+
+/// The closure buckets triangles and inscribed angles by 61-bit fingerprints
+/// and acts on a match only after an exact comparison. False neighbours of
+/// true statements in figures dense with similar triangles and circles must
+/// stay unproved, by DDAR and by the auxiliary search.
+#[test]
+fn fingerprint_bucketing_does_not_prove_false_neighbours() {
+    let orthic = "A B C = triangle\nFa = foot(A, line(B, C))\nFb = foot(B, line(C, A))\n\
+                  Fc = foot(C, line(A, B))\nMa = midpoint(B, C)\n";
+    let bisector = "A B C = triangle\nX = meet(bisector(B, A, C), line(B, C))\n";
+    let excenter = "A B C = triangle\nI = incenter(A, B, C)\nIa = excenter(A, B, C)\n";
+    let truths = [
+        format!("{orthic}prove cyclic(Fa, Fb, Fc, Ma)"),
+        format!("{bisector}prove eqratio(X, B, X, C, A, B, A, C)"),
+    ];
+    for src in &truths {
+        assert!(ddar_claims_proof(src), "control case no longer proved:\n{src}");
+    }
+    let falsehoods = [
+        format!("{orthic}prove cyclic(Fa, Fb, Fc, A)"),
+        format!("{orthic}prove eqangle(Fa, Fb, Fa, Fc, A, B, A, C)"),
+        format!("{bisector}prove eqratio(X, B, X, C, A, C, A, B)"),
+        format!("{excenter}prove cyclic(A, I, C, Ia)"),
+    ];
+    for src in falsehoods {
+        assert!(!ddar_claims_proof(&src), "DDAR proved a false statement:\n{src}");
+        let problem = compile(&src).unwrap().problem;
+        let found = bounded(300, move || {
+            ddar::aux_search::solve_with_aux_opts(&problem, 1, 400, false, true).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("the aux search proved a false statement with {used:?}:\n{src}");
+        }
+    }
+}

@@ -64,54 +64,36 @@ impl LinComb {
     }
 
     /// `self += other * coef`, preserving canonical form.
-    ///
-    /// This is the hot inner loop of both simplification and constraint
-    /// insertion; it is a linear merge of two sorted term lists.
     pub fn iadd_mul(&mut self, other: &LinComb, coef: &Rat) {
         if coef.is_zero() || other.is_zero() {
             return;
         }
-        let mut result: SmallVec<[(VarId, Rat); 4]> =
-            SmallVec::with_capacity(self.terms.len() + other.terms.len());
-        let mut i = 0;
-        let mut j = 0;
-        let a = &self.terms;
-        let b = &other.terms;
-        while i < a.len() && j < b.len() {
-            match a[i].0.cmp(&b[j].0) {
-                std::cmp::Ordering::Less => {
-                    result.push(a[i].clone());
-                    i += 1;
-                }
-                std::cmp::Ordering::Greater => {
-                    let c = &b[j].1 * coef;
-                    if !c.is_zero() {
-                        result.push((b[j].0, c));
-                    }
-                    j += 1;
-                }
-                std::cmp::Ordering::Equal => {
-                    let c = &a[i].1 + &(&b[j].1 * coef);
-                    if !c.is_zero() {
-                        result.push((a[i].0, c));
-                    }
-                    i += 1;
-                    j += 1;
-                }
-            }
+        if self.is_zero() {
+            self.terms = scaled_terms(&other.terms, coef);
+            return;
         }
-        while i < a.len() {
-            result.push(a[i].clone());
-            i += 1;
+        self.terms = merge_terms(&self.terms, &other.terms, coef);
+    }
+
+    /// `a + b * coef` as a fresh combination.
+    pub fn combine(a: &LinComb, b: &LinComb, coef: &Rat) -> LinComb {
+        if coef.is_zero() || b.is_zero() {
+            return a.clone();
         }
-        while j < b.len() {
-            let c = &b[j].1 * coef;
-            if !c.is_zero() {
-                result.push((b[j].0, c));
-            }
-            j += 1;
+        if a.is_zero() {
+            return LinComb {
+                terms: scaled_terms(&b.terms, coef),
+            };
         }
-        self.terms = result;
+        LinComb {
+            terms: merge_terms(&a.terms, &b.terms, coef),
+        }
+    }
+
+    pub fn negated(&self) -> LinComb {
+        LinComb {
+            terms: self.terms.iter().map(|(v, c)| (*v, -c)).collect(),
+        }
     }
 
     /// In-place scalar multiply.
@@ -120,8 +102,11 @@ impl LinComb {
             self.terms.clear();
             return;
         }
+        if coef.is_one() {
+            return;
+        }
         for (_, c) in self.terms.iter_mut() {
-            *c = &*c * coef;
+            *c = scale(c, coef);
         }
     }
 
@@ -144,20 +129,82 @@ impl LinComb {
     }
 }
 
+type Terms = SmallVec<[(VarId, Rat); 4]>;
+
+#[inline]
+fn scale(c: &Rat, coef: &Rat) -> Rat {
+    if coef.is_one() {
+        c.clone()
+    } else if coef.is_minus_one() {
+        -c
+    } else {
+        c * coef
+    }
+}
+
+fn scaled_terms(b: &[(VarId, Rat)], coef: &Rat) -> Terms {
+    let mut out = Terms::with_capacity(b.len());
+    for (v, c) in b {
+        let x = scale(c, coef);
+        if !x.is_zero() {
+            out.push((*v, x));
+        }
+    }
+    out
+}
+
+fn merge_terms(a: &[(VarId, Rat)], b: &[(VarId, Rat)], coef: &Rat) -> Terms {
+    let mut result = Terms::with_capacity(a.len() + b.len());
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].0.cmp(&b[j].0) {
+            std::cmp::Ordering::Less => {
+                result.push(a[i].clone());
+                i += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                let c = scale(&b[j].1, coef);
+                if !c.is_zero() {
+                    result.push((b[j].0, c));
+                }
+                j += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                let c = if coef.is_one() {
+                    &a[i].1 + &b[j].1
+                } else if coef.is_minus_one() {
+                    &a[i].1 - &b[j].1
+                } else {
+                    &a[i].1 + &(&b[j].1 * coef)
+                };
+                if !c.is_zero() {
+                    result.push((a[i].0, c));
+                }
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    result.extend(a[i..].iter().cloned());
+    for (v, c) in &b[j..] {
+        let x = scale(c, coef);
+        if !x.is_zero() {
+            result.push((*v, x));
+        }
+    }
+    result
+}
+
 impl std::ops::Add for &LinComb {
     type Output = LinComb;
     fn add(self, rhs: &LinComb) -> LinComb {
-        let mut r = self.clone();
-        r.iadd_mul(rhs, &Rat::one());
-        r
+        LinComb::combine(self, rhs, &Rat::one())
     }
 }
 impl std::ops::Sub for &LinComb {
     type Output = LinComb;
     fn sub(self, rhs: &LinComb) -> LinComb {
-        let mut r = self.clone();
-        r.iadd_mul(rhs, &Rat::from_int(-1));
-        r
+        LinComb::combine(self, rhs, &Rat::from_int(-1))
     }
 }
 

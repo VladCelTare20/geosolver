@@ -22,14 +22,13 @@ num-traits = "0.2"
 rustc-hash = "2.0"
 smallvec = { version = "1.13", features = ["union", "const_generics"] }
 rayon = "1.10"
+hashbrown = { version = "0.17", default-features = false }
 
 [dev-dependencies]
 proptest = "1.5"
 
 [features]
 default = []
-# When enabled, the O(n^3) closure searches run in parallel via rayon.
-parallel = []
 trace-rules = []
 
 # NOTE: Cargo profile settings (release/bench) now live in the workspace-root
