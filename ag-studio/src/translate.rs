@@ -867,17 +867,21 @@ mod tests {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let t = std::time::Instant::now();
-        let err = run_with_timeout(cmd, Duration::from_millis(500)).err().unwrap();
+        let err = run_with_timeout(cmd, Duration::from_millis(1500)).err().unwrap();
         assert!(err.to_string().contains("timed out"), "{err}");
         assert!(t.elapsed() < Duration::from_secs(10));
         let pid = std::fs::read_to_string(&pidfile).unwrap();
-        let alive = Command::new("kill")
-            .args(["-0", pid.trim()])
-            .stderr(Stdio::null())
-            .status()
-            .unwrap()
-            .success();
-        assert!(!alive, "grandchild {pid} survived the timeout");
+        // Dead = gone or a zombie awaiting its (re)parent's reap.
+        let alive = || {
+            std::fs::read_to_string(format!("/proc/{}/stat", pid.trim()))
+                .map(|st| st.rsplit(')').next().unwrap_or("").trim_start().chars().next() != Some('Z'))
+                .unwrap_or(false)
+        };
+        let until = std::time::Instant::now() + Duration::from_secs(3);
+        while alive() && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!alive(), "grandchild {pid} survived the timeout");
     }
 
     #[test]

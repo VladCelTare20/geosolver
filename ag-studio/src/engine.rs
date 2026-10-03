@@ -159,7 +159,11 @@ pub fn solve_within(
             if extract_goal(input).map(|g| is_metric_goal(&g)).unwrap_or(false) {
                 return euclidean_flow(input, opts);
             }
-            let compiled = geo::compile(input).map_err(|e| format!("compile error: {e}"))?;
+            let compiled = match geo::compile(input) {
+                Ok(c) => c,
+                Err(e) if e.is_metric_goal() => return euclidean_flow(input, opts),
+                Err(e) => return Err(format!("compile error: {e}")),
+            };
             // Safety net: a goal the compiler lowered to a trivially-true
             // placeholder would be "proved" vacuously by DDAR.
             if compiled.problem.goal.as_ref().is_some_and(is_placeholder_goal) {
@@ -231,12 +235,22 @@ fn reconcile(sol: &mut Solution, want_proof: bool) {
     }
 }
 
+/// Sentinel from [`to_problem`]: the goal has no DDAR form (route it to the
+/// Euclidean prover).
+const METRIC_GOAL: &str = "metric goal";
+
 /// Compile a high-level `.geo` program, or parse a low-level problem, into a
 /// `Problem` plus any numeric goal check from the compiler.
 fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), String> {
     match kind {
         InputKind::Geo => {
-            let compiled = geo::compile(input).map_err(|e| format!("compile error: {e}"))?;
+            let compiled = geo::compile(input).map_err(|e| {
+                if e.is_metric_goal() {
+                    METRIC_GOAL.to_string()
+                } else {
+                    format!("compile error: {e}")
+                }
+            })?;
             Ok((compiled.problem, compiled.goal_numerically_holds))
         }
         InputKind::LowLevel => {
@@ -279,11 +293,14 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
         return euclid(opts);
     }
 
-    let (problem, goal_holds) = to_problem(input, opts.kind)?;
+    let (problem, goal_holds) = match to_problem(input, opts.kind) {
+        Err(e) if e == METRIC_GOAL => return euclid(opts),
+        other => other?,
+    };
     if opts.kind == InputKind::Geo && problem.goal.as_ref().is_some_and(is_placeholder_goal) {
         return euclid(opts);
     }
-    let mut sol = best_deductive(input, opts, budget, problem, goal_holds)?;
+    let mut sol = ddar::quiet_panic::quiet(|| best_deductive(input, opts, budget, problem, goal_holds))?;
     reconcile(&mut sol, true);
     Ok(sol)
 }
@@ -329,8 +346,6 @@ fn best_deductive(
     let mut best: Option<(Vec<Construction>, String, usize, usize)> = None;
     let mut examined = 0usize;
 
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
 
     // Depth 0: the direct proof (0 aux) is a candidate — NOT returned early, since
     // an auxiliary construction may yield a shorter proof.
@@ -342,7 +357,6 @@ fn best_deductive(
     // If the figure shows the goal is false and DDAR cannot prove it directly, no
     // auxiliary construction can either — fail fast.
     if best.is_none() && goal_holds == Some(false) {
-        std::panic::set_hook(prev_hook);
         return Ok(build(
             false,
             Method::Ddar,
@@ -413,7 +427,6 @@ fn best_deductive(
             }
         }
     }
-    std::panic::set_hook(prev_hook);
 
     if let Some((aux, proof, steps, _)) = best {
         let method = if aux.is_empty() {
@@ -805,12 +818,17 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
                 "not proved — the numerical check produced non-finite values".to_string(),
             ),
         },
-        Err(e) => {
-            if e.contains("NOT VERIFIED") || e.contains("refuted") {
-                goal_holds = Some(false);
-            }
-            (false, None, format!("metric prover: {e}"))
+        Err(ddar::metric::MetricError::Refuted(report)) => {
+            goal_holds = Some(false);
+            (
+                false,
+                Some(report),
+                "not provable — the equation fails in a sampled figure (the statement \
+                 appears to be false)"
+                    .to_string(),
+            )
         }
+        Err(e) => (false, None, format!("metric prover: {}", e.message())),
     };
 
     let proof_steps = proof
@@ -1220,6 +1238,15 @@ mod tests {
         let sol = solve_best(PYTHAGORAS_GENERIC, &SolveOptions::default(), Duration::from_secs(2))
             .unwrap();
         assert!(!sol.proved, "{}", sol.note);
+    }
+
+    #[test]
+    fn a_true_metric_theorem_is_still_proved() {
+        let src = include_str!("../../alphageometry-rs/examples/metric/stewart.geo");
+        let sol = solve(src, &SolveOptions::default()).unwrap();
+        assert_eq!(sol.method, Method::Euclidean);
+        assert!(sol.proved, "{}", sol.note);
+        assert_ne!(sol.goal_holds_numerically, Some(false));
     }
 
     #[test]
