@@ -563,6 +563,16 @@ async fn api_solve(
     }
 }
 
+/// The verdict as stored in history — the same strings the solve JSON uses.
+fn status_str(s: engine::Status) -> &'static str {
+    match s {
+        engine::Status::Proved => "proved",
+        engine::Status::HoldsNumerically => "holds-numerically",
+        engine::Status::Refuted => "refuted",
+        engine::Status::NotProved => "not-proved",
+    }
+}
+
 fn method_str(m: engine::Method) -> &'static str {
     match m {
         engine::Method::Ddar => "ddar",
@@ -581,9 +591,18 @@ async fn save_history(state: &Shared, user_id: i64, sol: &engine::Solution, titl
     }
     let db = state.db.clone();
     let (input, proved, method) = (sol.input.clone(), sol.proved, method_str(sol.method));
+    let status = status_str(sol.status);
     let title = title.map(str::to_string);
     let _ = tokio::task::spawn_blocking(move || {
-        db::insert_history(&db::lock(&db), user_id, &input, title.as_deref(), proved, Some(method))
+        db::insert_history(
+            &db::lock(&db),
+            user_id,
+            &input,
+            title.as_deref(),
+            proved,
+            Some(method),
+            Some(status),
+        )
     })
     .await;
 }
@@ -597,12 +616,21 @@ struct HistoryItem {
     title: Option<String>,
     proved: bool,
     method: Option<String>,
+    status: Option<String>,
     created_at: i64,
 }
 
 impl From<db::HistoryEntry> for HistoryItem {
     fn from(h: db::HistoryEntry) -> Self {
-        HistoryItem { id: h.id, input: h.input, title: h.title, proved: h.proved, method: h.method, created_at: h.created_at }
+        HistoryItem {
+            id: h.id,
+            input: h.input,
+            title: h.title,
+            proved: h.proved,
+            method: h.method,
+            status: h.status,
+            created_at: h.created_at,
+        }
     }
 }
 
@@ -1111,6 +1139,37 @@ mod tests {
         "B C = segment\nA = point: dist(A, B) = dist(A, C)\nprove eqangle(B, C, B, A, C, A, C, B)";
 
     #[tokio::test]
+    async fn numeric_only_metric_goal_is_not_proved_over_http() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "noether").await;
+        let input = "A = free\nB = free\nC = free\nD = parallelogram(A, B, C)\n\
+                     prove dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2";
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{body:?}");
+        assert_eq!(body["proved"], false, "{body:?}");
+        assert_eq!(body["status"], "holds-numerically", "{body:?}");
+        assert_eq!(body["goal_holds_numerically"], true, "{body:?}");
+        assert!(body["numeric_samples"].as_u64().is_some_and(|n| n >= 8), "{body:?}");
+        assert!(body["proof"].is_null(), "a numeric check is not a proof: {body:?}");
+        assert!(
+            body["numeric_evidence"].as_str().is_some_and(|e| e.contains("not a proof")),
+            "{body:?}"
+        );
+
+        let (_, _, rows) =
+            call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(rows[0]["proved"], false);
+        assert_eq!(rows[0]["status"], "holds-numerically");
+    }
+
+    #[tokio::test]
     async fn history_is_recorded_and_scoped_per_user() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "helen").await;
@@ -1136,6 +1195,7 @@ mod tests {
         assert_eq!(rows[1]["title"], "first");
         assert_eq!(rows[0]["proved"], true);
         assert_eq!(rows[0]["method"], "ddar");
+        assert_eq!(rows[0]["status"], "proved");
         // Reopening from history must restore the exact multi-line .geo program
         // (newlines, indentation, everything) the user originally submitted.
         assert_eq!(rows[0]["input"], ISOSCELES_GEO);
@@ -1680,7 +1740,7 @@ mod tests {
             let conn = db::lock(&state.db);
             let uid = db::find_user_by_name(&conn, "pam").unwrap().unwrap().id;
             for i in 0..(HISTORY_PAGE_MAX + 20) {
-                db::insert_history(&conn, uid, &format!("p{i}"), None, true, None).unwrap();
+                db::insert_history(&conn, uid, &format!("p{i}"), None, true, None, None).unwrap();
             }
         }
         let (st, _, body) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;

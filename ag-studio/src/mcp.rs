@@ -280,10 +280,18 @@ fn tool_solve(args: &Value) -> Value {
 
     // Text: verdict, method, proof, and the compiled low-level form.
     let mut text = String::new();
-    text.push_str(if sol.proved {
-        "PROVEN\n"
-    } else {
-        "NOT PROVEN (within the search budget)\n"
+    text.push_str(&match sol.status {
+        engine::Status::Proved => "PROVEN — classical Euclidean proof\n".to_string(),
+        engine::Status::HoldsNumerically => format!(
+            "NOT PROVEN — no Euclidean proof was found. The goal holds numerically in {} \
+             sampled figures; that is evidence, not a proof.\n",
+            sol.numeric_samples.unwrap_or(0)
+        ),
+        engine::Status::Refuted => {
+            "REFUTED — the goal fails in a sampled figure (the statement appears to be false)\n"
+                .to_string()
+        }
+        engine::Status::NotProved => "NOT PROVEN (within the search budget)\n".to_string(),
     });
     text.push_str(&format!(
         "method: {} | {} | {:.3}s\n",
@@ -303,6 +311,10 @@ fn tool_solve(args: &Value) -> Value {
     if let Some(proof) = &sol.proof {
         text.push('\n');
         text.push_str(proof);
+    }
+    if let Some(evidence) = &sol.numeric_evidence {
+        text.push('\n');
+        text.push_str(evidence);
     }
     text.push_str(&format!("\n\nlow-level: {}", sol.low_level));
 
@@ -492,7 +504,7 @@ fn tool_export_in(args: &Value, dir: &Path) -> Value {
                 "Wrote {} report to {} ({})",
                 format.to_uppercase(),
                 path.display(),
-                if sol.proved { "proven" } else { "not proven" }
+                sol.status.label().to_lowercase()
             ),
             false,
         ),
@@ -606,10 +618,23 @@ mod tests {
     }
 
     #[test]
+    fn numeric_only_goal_is_reported_not_proven_with_its_evidence() {
+        let r = tool_solve(&json!({"program": "A = free\nB = free\nC = free\n\
+            D = parallelogram(A, B, C)\n\
+            prove dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2"}));
+        assert_eq!(r["isError"], false, "{r}");
+        let text = r["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("NOT PROVEN — no Euclidean proof"), "{text}");
+        assert!(!text.starts_with("PROVEN"), "{text}");
+        assert!(text.contains("not a proof"), "{text}");
+    }
+
+    #[test]
     fn not_proven_is_a_result_not_a_tool_error() {
         let r = tool_solve(&json!({"program": "A B C = triangle\nprove perp(A, B, A, C)"}));
         assert_eq!(r["isError"], false, "{r}");
-        assert!(r["content"][0]["text"].as_str().unwrap().contains("NOT PROVEN"));
+        // False in the sampled figure: refuted, which is still a normal result.
+        assert!(r["content"][0]["text"].as_str().unwrap().starts_with("REFUTED"), "{r}");
         let r = tool_solve(&json!({"program": "this is not geo"}));
         assert_eq!(r["isError"], true);
     }

@@ -52,6 +52,14 @@ search. **Absolute-length goals** (a specific length, a sum of squares like
 `AC² + BD² = 144`) are proved by a **classical Euclidean** prover that writes a
 numbered, theorem-citing proof (Pythagoras, Thales, …).
 
+Every result is strictly Euclidean: **proved** means a proof whose every step
+cites a theorem or a hypothesis. A length goal no prover reaches is never
+reported as proved — it is checked in 48 independently sampled figures and
+shown as *Not proven — holds numerically* (evidence, not a proof), or as
+*Refuted* with a counterexample. The web API's solve response carries this as
+`status`: `"proved"`, `"holds-numerically"`, `"refuted"` or `"not-proved"`,
+with `proved: true` only for `"proved"`.
+
 ---
 
 ## Quick start

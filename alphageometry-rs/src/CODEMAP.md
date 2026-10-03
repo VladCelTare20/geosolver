@@ -8,9 +8,9 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `engine.rs` — DDAR deductive closure.
 - `elim_core.rs`, `elimination.rs`, `lincomb.rs`, `rational.rs` — exact Gaussian elimination over rationals (angles, ratios, distances).
 - `aux_search.rs` — LM-free auxiliary-point search over DDAR.
-- `metric.rs` — metric goals: Euclidean proof or numerical certificate; `MetricError::Refuted` on failure.
+- `metric.rs` — metric goals: `solve` is `Ok` only for a Euclidean proof; otherwise `MetricError::{Refuted, NoProof{evidence}, Failed}`. `check_numerically` is evidence, never a proof.
 - `synthetic.rs`, `ratio.rs` — classical theorem-citing proofs for length / ratio goals.
-- `algebra.rs` — coordinate proofs of metric goals. **No callers**: `prove_metric` is unused.
+- `certify.rs` — `Certifier`: derives a proposed fact with the DDAR closure and returns the numbered derivation.
 - `proof.rs` — provenance and readable proof text.
 - `numerics.rs` — f64 geometry oracle.
 - `svg.rs` — figure rendering; all text is XML-escaped here.
@@ -20,6 +20,8 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 ## Notes
 - `geo.rs:compile` — rejects metric goals with `CompileError::MetricGoal`; before this, they compiled to `cong a b a b` and were "proved" trivially.
 - Expression parsers cap exponents at 32 and binary operators at 256 per relation (stack overflow and blowup guards).
+- `synthetic.rs`, `ratio.rs` — coordinates only propose candidates and read configuration (order, orientation, inside/outside); every cited fact is symbolic or DDAR-certified (`certify.rs`): generic similar triangles (`ratio.rs:certified_products`), the intercept parallel, the bisector, Stewart's ratio (`synthetic.rs:derived_ratio`). Circles come from symbolic equal-radius classes (`synthetic.rs:equal_radius_circles`).
+- `engine.rs:search_radical_axis` — the inside/outside branch is read from chord-end order, not from the conclusion.
 - `synthetic.rs` rectangle detection needs `AD ∥ BC` or a third right angle; `AB ∥ DC` is implied by two right angles and proves nothing.
 
 ## Subfolders

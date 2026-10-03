@@ -15,7 +15,7 @@ setTimeout(function(){document.documentElement.style.visibility='';},1000);}}cat
     --paper: #f7f7f5; --card: #ffffff; --well: #f2f2ef;
     --ink: #1b1f24; --muted: #61686f; --line: #e3e4e1; --line-strong: #cfd1cd;
     --accent: #2456a6; --accent-hover: #1c4589; --accent-ink: #ffffff;
-    --ok: #1e7b34; --err: #b3261e;
+    --ok: #1e7b34; --err: #b3261e; --num: #8a6100;
     --warn-bg: #faf6e8; --warn-line: #e5d9a8; --warn-ink: #6b5c1e;
     --err-bg: #faeeed; --err-line: #e8c4c0;
     --serif: 'Charter','Bitstream Charter','Iowan Old Style',Georgia,'Times New Roman',serif;
@@ -28,7 +28,7 @@ setTimeout(function(){document.documentElement.style.visibility='';},1000);}}cat
       --paper: #16181b; --card: #1d2024; --well: #191c1f;
       --ink: #e6e8ea; --muted: #9aa2aa; --line: #2b2f34; --line-strong: #3b4046;
       --accent: #86abdd; --accent-hover: #9dbce6; --accent-ink: #10131a;
-      --ok: #63b077; --err: #e0796f;
+      --ok: #63b077; --err: #e0796f; --num: #d6b25e;
       --warn-bg: #26231a; --warn-line: #4d452a; --warn-ink: #d8c88a;
       --err-bg: #2a1d1c; --err-line: #4f302d;
     }
@@ -141,7 +141,7 @@ setTimeout(function(){document.documentElement.style.visibility='';},1000);}}cat
 
   .status { display:flex; align-items:baseline; gap:10px; font-size:14px; flex-wrap:wrap; }
   .verdict { font-family:var(--serif); font-size:19px; font-weight:600; }
-  .verdict.ok{ color:var(--ok); } .verdict.no{ color:var(--err); }
+  .verdict.ok{ color:var(--ok); } .verdict.no{ color:var(--err); } .verdict.num{ color:var(--num); }
   .meta { color:var(--muted); font-size:13px; }
 
   /* --- zoomable / fullscreen figure viewer --- */
@@ -191,6 +191,7 @@ setTimeout(function(){document.documentElement.style.visibility='';},1000);}}cat
     font-family:var(--sans); font-size:14px; }
   .proof .fallback-note { font-family:var(--sans); font-size:12.5px; color:var(--muted); margin:0 0 9px; }
   .proof.raw { font-family:var(--mono); font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
+  .proof.evidence { border-style:dashed; color:var(--muted); }
   .proof.err { color:var(--err); font-family:var(--sans); font-size:13.5px; }
   pre.code {
     background:var(--well); border:1px solid var(--line); border-radius:6px; padding:14px 16px;
@@ -203,6 +204,8 @@ setTimeout(function(){document.documentElement.style.visibility='';},1000);}}cat
   .hist-item:hover .hist-title { color:var(--accent); }
   .hist-verdict { flex:none; width:8px; height:8px; border-radius:50%; }
   .hist-verdict.ok { background:var(--ok); } .hist-verdict.no { background:var(--err); }
+  .hist-verdict.num { background:var(--num); }
+  .hist-verdict.unchecked { background:transparent; box-shadow:inset 0 0 0 1.5px var(--line-strong); }
   .hist-title { flex:1; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .hist-time { flex:none; font-size:11.5px; color:var(--muted); }
   .hist-del { flex:none; border:0; background:transparent; color:var(--muted); font-size:15px; line-height:1;
@@ -477,11 +480,25 @@ function renderHistoryList(){
     const when = new Date(r.created_at*1000).toLocaleString(loc);
     const label = r.title || (r.input||'').split('\n')[0].slice(0,44) || t('app.untitled');
     return '<div class="hist-item" data-index="'+i+'" role="button" tabindex="0" aria-label="'+escapeHtml(t('app.reopen',{label}))+'">'
-      + '<span class="hist-verdict '+(r.proved?'ok':'no')+'" title="'+(r.proved?t('app.proven'):t('app.not_proven'))+'"></span>'
+      + histDot(r)
       + '<span class="hist-title">'+escapeHtml(label)+'</span>'
       + '<span class="hist-time">'+escapeHtml(when)+'</span>'
       + '<button class="hist-del" type="button" data-id="'+r.id+'" aria-label="'+escapeHtml(t('app.delete'))+'" title="'+escapeHtml(t('app.delete'))+'">✕</button></div>';
   }).join('');
+}
+
+// The verdict dot of a history row. Rows saved before verdicts were stored
+// carry no status; a "proved" metric row from then may have been a numeric
+// check, so it is shown as unchecked rather than as a proof.
+function histDot(r){
+  let kind, label;
+  if (r.status === 'proved') { kind = 'ok'; label = t('app.proven'); }
+  else if (r.status === 'holds-numerically') { kind = 'num'; label = t('app.numeric'); }
+  else if (r.status === 'refuted') { kind = 'no'; label = t('app.refuted'); }
+  else if (r.status) { kind = 'no'; label = t('app.not_proven'); }
+  else if (r.proved && r.method === 'euclidean') { kind = 'unchecked'; label = t('app.unchecked'); }
+  else { kind = r.proved ? 'ok' : 'no'; label = r.proved ? t('app.proven') : t('app.not_proven'); }
+  return '<span class="hist-verdict '+kind+'" role="img" aria-label="'+escapeHtml(label)+'" title="'+escapeHtml(label)+'"></span>';
 }
 
 async function deleteHistory(id){
@@ -553,9 +570,17 @@ function render(sol, geo, title){
   $('empty').classList.add('hidden');
   $('result').classList.remove('hidden');
   const ok = sol.proved;
-  $('verdict').className = 'verdict '+(ok?'ok':'no');
-  $('verdict').textContent = ok ? t('app.verdict_proven') : t('app.verdict_not');
-  $('meta').textContent = fmtNum(sol.elapsed_secs, 3)+' s';
+  const status = sol.status || (ok ? 'proved' : 'not-proved');
+  const verdict = {
+    proved: ['ok', t('app.verdict_proven')],
+    'holds-numerically': ['num', t('app.verdict_numeric')],
+    refuted: ['no', t('app.verdict_refuted')],
+  }[status] || ['no', t('app.verdict_not')];
+  $('verdict').className = 'verdict '+verdict[0];
+  $('verdict').textContent = verdict[1];
+  const meta = [fmtNum(sol.elapsed_secs, 3)+' s'];
+  if (sol.numeric_samples!=null) meta.push(t('app.n_figures', {n: sol.numeric_samples}));
+  $('meta').textContent = meta.join(' · ');
   const method = {ddar:t('app.method_ddar'), 'aux-search':t('app.method_aux'), euclidean:t('app.method_euclid')}[sol.method]||sol.method;
   const hm=$('hd-method'); hm.style.display='inline-block'; hm.textContent=method; hm.className='pill';
 
@@ -572,14 +597,19 @@ function render(sol, geo, title){
     leg.innerHTML = h; leg.classList.remove('hidden');
   } else { leg.innerHTML=''; leg.classList.add('hidden'); }
 
-  $('prooftitle').textContent = ok ? t('app.proof') : t('app.search_result');
+  $('prooftitle').textContent = ok ? t('app.proof')
+    : status === 'holds-numerically' ? t('app.numeric_title')
+    : (status === 'refuted' && sol.numeric_evidence) ? t('app.counterexample')
+    : t('app.search_result');
   const parts = [t('app.n_points', {n: sol.low_level.split('@').length-1})];
   if (sol.proof_steps!=null) parts.push(t('app.n_steps', {n: sol.proof_steps}));
   if (sol.examined!=null && sol.examined>1) parts.push(t('app.n_examined', {n: sol.examined}));
   $('ptsinfo').textContent = parts.join(' · ');
 
+  // A numeric check is never a proof; say so before anything else.
+  if (status === 'holds-numerically') banner('warn', t('app.numeric_only', {n: sol.numeric_samples}));
   // warning if the statement looks false
-  if (sol.goal_holds_numerically===false) banner('warn', t('app.false_stmt'));
+  else if (sol.goal_holds_numerically===false) banner('warn', t('app.false_stmt'));
 
   // aux constructions
   if (sol.aux_constructions && sol.aux_constructions.length){
@@ -599,7 +629,11 @@ function render(sol, geo, title){
 let humanizeSeq = 0;
 async function humanizeProof(sol, geo){
   const el = $('proof');
-  if (!sol.proved || !sol.proof){ renderRawProof(sol.proof || t('app.proof_omitted')); return; }
+  if (!sol.proved || !sol.proof){
+    if (sol.numeric_evidence) { renderRawProof(sol.numeric_evidence); el.classList.add('evidence'); }
+    else renderRawProof(t('app.proof_omitted'));
+    return;
+  }
   if (!state.translateReady){ renderRawProof(sol.proof, true); return; }
   const seq = ++humanizeSeq;
   el.className = 'proof';

@@ -137,6 +137,8 @@ struct Palette {
     ink: &'static str,
     subtle: &'static str,
     accent: &'static str,
+    warn: &'static str,
+    bad: &'static str,
     rule: &'static str,
 }
 
@@ -147,6 +149,8 @@ fn palette(light: bool) -> Palette {
             ink: "#12161c",
             subtle: "#5c6b7a",
             accent: "#1a7f37",
+            warn: "#9a6700",
+            bad: "#b3261e",
             rule: "#d7dee6",
         }
     } else {
@@ -155,6 +159,8 @@ fn palette(light: bool) -> Palette {
             ink: "#e6edf3",
             subtle: "#8b98a5",
             accent: "#3fb950",
+            warn: "#d29922",
+            bad: "#e0796f",
             rule: "#222a35",
         }
     }
@@ -165,6 +171,16 @@ fn palette(light: bool) -> Palette {
 /// instead of falling back to a proportional face mid-line.
 fn normalize_glyphs(s: &str) -> String {
     s.replace('⟂', "⊥").replace('∥', "‖")
+}
+
+/// `s` cut to at most `max` characters, with an ellipsis when cut.
+fn clip(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 fn escape_xml(s: &str) -> String {
@@ -180,16 +196,18 @@ fn wrap_line(line: &str, cols: usize) -> Vec<String> {
     if line.chars().count() <= cols {
         return vec![line.to_string()];
     }
-    let indent = "     "; // aligns under "001. "
+    let lead = &line[..line.len() - line.trim_start_matches(' ').len()];
+    let indent = format!("{lead}     "); // aligns under "001. "
+    let indent = indent.as_str();
     let mut out: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    for word in line.split(' ') {
+    let mut cur = lead.to_string();
+    for word in line.trim_start_matches(' ').split(' ') {
         let prospective = if cur.is_empty() {
             word.chars().count()
         } else {
             cur.chars().count() + 1 + word.chars().count()
         };
-        if !cur.is_empty() && prospective > cols {
+        if !cur.trim().is_empty() && prospective > cols {
             out.push(std::mem::take(&mut cur));
             cur.push_str(indent);
         }
@@ -241,7 +259,21 @@ pub fn report_svg(sol: &Solution, title: Option<&str>, light: bool) -> String {
         }
         None => {
             if !sol.proved {
-                body.push("The engine did not find a proof within its search budget.".to_string());
+                let verdict = format!(
+                    "{}: {}.",
+                    sol.status.label(),
+                    sol.status.explain(sol.numeric_samples)
+                );
+                body.extend(wrap_line(&verdict, WRAP_COLS));
+                if let Some(evidence) = &sol.numeric_evidence {
+                    body.push(String::new());
+                    for raw in evidence.lines() {
+                        let raw = normalize_glyphs(raw);
+                        for w in wrap_line(&raw, WRAP_COLS) {
+                            body.push(w);
+                        }
+                    }
+                }
             }
         }
     }
@@ -254,8 +286,15 @@ pub fn report_svg(sol: &Solution, title: Option<&str>, light: bool) -> String {
     // the inner geometry inherits our coordinate box via viewBox).
     let inner_fig = strip_svg_root(&sol.svg);
 
-    let status = if sol.proved { "Proven" } else { "Not proven" };
-    let title_text = escape_xml(title.unwrap_or("GeoSolver proof"));
+    let status = sol.status.label();
+    let status_color = match sol.status {
+        crate::engine::Status::Proved => pal.accent,
+        crate::engine::Status::HoldsNumerically => pal.warn,
+        crate::engine::Status::Refuted | crate::engine::Status::NotProved => pal.bad,
+    };
+    let default_title = if sol.proved { "GeoSolver proof" } else { "GeoSolver report" };
+    let title_text = escape_xml(title.unwrap_or(default_title));
+    let note = clip(&sol.note, 72usize.saturating_sub(status.chars().count()));
 
     let mut s = String::new();
     s.push_str(&format!(
@@ -276,9 +315,9 @@ pub fn report_svg(sol: &Solution, title: Option<&str>, light: bool) -> String {
         "<text x=\"{MARGIN:.0}\" y=\"70\" font-size=\"14\" fill=\"{}\">\
          <tspan fill=\"{}\" font-weight=\"700\">{}</tspan> · {} · {:.3}s</text>\n",
         pal.subtle,
-        pal.accent,
+        status_color,
         status,
-        escape_xml(&sol.note),
+        escape_xml(&note),
         sol.elapsed_secs
     ));
 

@@ -13,8 +13,11 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 
 ## Invariants
 - **Never report a false statement as proved.** Goals DDAR cannot express are a
-  `CompileError::MetricGoal`, never a placeholder; metric results are `Ok` only
-  when verified; any NaN/refutation is `proved: false`. Each prover change needs
+  `CompileError::MetricGoal`, never a placeholder; any NaN/refutation is
+  `proved: false`.
+- **Strictly Euclidean.** `proved` means a theorem-citing proof (DDAR, or
+  `metric::solve` → `Ok`). A goal that only holds in sampled figures is
+  `MetricError::NoProof` / `status: "holds-numerically"`, `proved: false`. Each prover change needs
   a FALSE-statement regression test (`alphageometry-rs/tests/soundness.rs`).
 - Every solve reachable from outside has a wall-clock deadline (`solve_within`).
 - Panic output is muted only through `ddar::quiet_panic`; never swap the hook.

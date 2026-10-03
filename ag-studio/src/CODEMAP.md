@@ -4,13 +4,13 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 
 ## Files
 - `main.rs` — subcommands `render`/`best`/`translate`/`serve`/`mcp`; unknown flags exit 2.
-- `engine.rs` — solve wrapper: routes DDAR vs metric goals, reconciles a proof against the numeric check, `solve_within` deadline.
+- `engine.rs` — solve wrapper: routes DDAR vs metric goals, reconciles a proof against the numeric check, `solve_within` deadline. `Status` (`proved` / `holds-numerically` / `refuted` / `not-proved`) is set only in `reconcile`; `proof` is `Some` only when proved, numeric reports go in `numeric_evidence`.
 - `render.rs` — SVG→PNG/PDF and the combined report page; scales long proofs down to fit pixel/page limits.
 - `translate.rs` — photo/text → `.geo` via `claude -p`, locked down (no tools or Read-one-file, no settings/MCP/hooks, empty cwd, no API-key env).
 - `web.rs` — axum routes and handlers.
 - `security.rs` — env config (the env table is the source for `deploy/DEPLOY.md`), Basic auth, guest mode, rate limits, Host/Origin guards, CSP.
 - `auth.rs` — argon2 (gated, dummy-hash for unknown users), session ids, cookies.
-- `db.rs` — SQLite: users, sessions (hashed), history; files created 0600.
+- `db.rs` — SQLite: users, sessions (hashed), history (with the verdict `status`; `NULL` on rows from before it existed); files created 0600.
 - `mcp.rs` — stdio JSON-RPC MCP server; exports confined to `AGSTUDIO_EXPORT_DIR`.
 - `i18n.rs` — server-side EN/RO strings.
 
