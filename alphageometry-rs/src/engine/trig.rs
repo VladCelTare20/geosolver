@@ -310,3 +310,34 @@ impl Ddar {
         changed
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::predicate::Point;
+
+    #[test]
+    fn residual_guard_skips_a_numerically_false_row() {
+        let pts: Vec<Point> = [(0.0, 0.0), (3.0, 0.0), (0.5, 2.0)]
+            .iter()
+            .enumerate()
+            .map(|(i, &(x, y))| Point {
+                name: format!("P{i}"),
+                value: Vec2::new(x, y),
+            })
+            .collect();
+        let mut d = Ddar::new(&pts);
+        let (ab, ac) = (d.raw_dist_mul(0, 1), d.raw_dist_mul(0, 2));
+        let row = ab.div(&ac);
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            d.trig_force(&row, Reason::Theorem("law of sines", vec![0, 1, 2]), vec![])
+        }));
+        if cfg!(debug_assertions) {
+            assert!(res.is_err(), "debug builds assert on a failing trig row");
+        } else {
+            assert_eq!(res.ok(), Some(false));
+            assert_eq!(d.trig.rejected, 1);
+            assert!(!d.dmul.simplify(&row).is_one(), "the false row must not enter the system");
+        }
+    }
+}

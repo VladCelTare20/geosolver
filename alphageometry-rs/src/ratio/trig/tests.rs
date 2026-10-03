@@ -43,6 +43,8 @@ fn uncertifiable_equal_sines_row_is_rejected() {
     let pts: Vec<PointId> = (0..3).collect();
     f.gather_trig(&pts, &pts.iter().copied().collect());
     f.push_equal_sines(sin_key(0, 1, 2), sin_key(1, 0, 2));
+    let injected = f.steps.len() - 1;
+    f.steps[injected].support = false;
     let base = all_rows(&f);
     let mut goal = LEq::default();
     goal.add_term(latom(1, 2), Rat::one());
@@ -135,4 +137,58 @@ fn area_additivity_needs_the_same_convex_order_in_every_instance() {
     assert!(!f.area_base_rows(&[0, 1, 2, 3]).iter().any(|r| r.text.contains("convex")));
     let f = Figure::gather(&sampled, vec![convex.clone(), convex]);
     assert!(f.area_base_rows(&[0, 1, 2, 3]).iter().any(|r| r.text.contains("convex")));
+}
+
+#[test]
+fn a_ratio_rational_in_one_instance_only_is_not_bridged() {
+    let (sampled, insts) = sampled_instances("A = free\nB = free\nC = free").expect("figure");
+    let mut first = insts[0].clone();
+    first[2] = first[0] + (first[1] - first[0]) * 0.5;
+    first[2] = first[0] + Vec2::new(-(first[2] - first[0]).y, (first[2] - first[0]).x);
+    let f = Figure::gather(&sampled, vec![first.clone(), insts[1].clone()]);
+    assert_eq!(Figure::gather(&sampled, vec![first]).exact_ratio(&[latom(0, 2).into()], &[latom(0, 1).into()]), Some(Rat::new(1, 2)));
+    assert!(f.exact_ratio(&[latom(0, 2).into()], &[latom(0, 1).into()]).is_none());
+}
+
+#[test]
+fn one_theorem_spread_over_multiples_is_still_a_restatement() {
+    let mut f = figure("A = free\nB = free\nC = free");
+    let (a, b, c) = (0, 1, 2);
+    let LKey::Sin(v, p, q) = f.sin_atom(a, b, c).unwrap() else { unreachable!() };
+    let (s, co) = (LKey::Sin(v, p, q), LKey::Cos(v, p, q));
+    let (ab, ac, bc): (LKey, LKey, LKey) = (latom(a, b).into(), latom(a, c).into(), latom(b, c).into());
+    let mono = |mut m: Vec<LKey>| {
+        m.sort();
+        m
+    };
+    let mut goal = PEq::default();
+    goal.add(mono(vec![bc, bc]), Rat::one());
+    goal.add(mono(vec![ab, ab]), -Rat::one());
+    goal.add(mono(vec![ac, ac]), -Rat::one());
+    goal.add(mono(vec![ab, ac, co]), Rat::from_int(2));
+    let intro = f.ppush("Law of cosines.".into(), None, vec![]);
+    f.pending.push((intro, vec![], true));
+    for t in [vec![s, s], vec![co, co]] {
+        let mut e = PEq::default();
+        for (m, c) in &goal.terms {
+            let mut m2 = m.clone();
+            m2.extend_from_slice(&t);
+            e.add(mono(m2), c.clone());
+        }
+        f.ppush("times".into(), Some(e), vec![intro]);
+    }
+    for m in goal.terms.keys() {
+        let mut e = PEq::default();
+        let with = |t: &[LKey]| {
+            let mut m2 = m.clone();
+            m2.extend_from_slice(t);
+            mono(m2)
+        };
+        e.add(with(&[s, s]), Rat::one());
+        e.add(with(&[co, co]), Rat::one());
+        e.add(m.clone(), -Rat::one());
+        let r = f.ppush("sin² + cos² = 1".into(), Some(e), vec![]);
+        f.psteps[r].support = true;
+    }
+    assert!(f.certified_products(&goal).is_none());
 }
