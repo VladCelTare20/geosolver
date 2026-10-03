@@ -201,7 +201,7 @@ fn tools_list() -> Value {
                 "properties": {
                     "program": { "type": "string" },
                     "format": { "type": "string", "enum": ["pdf", "png"], "description": "Default pdf." },
-                    "filename": { "type": "string", "description": "A bare file name (no directories) inside the export directory ($AGSTUDIO_EXPORT_DIR, else $XDG_DATA_HOME/geosolver/exports, else ~/geosolver-exports). Its extension must match `format`; it is added if missing. Default: a fresh unique name." },
+                    "filename": { "type": "string", "description": "A bare file name (no directories) inside the export directory ($AGSTUDIO_EXPORT_DIR, else $XDG_DATA_HOME/geosolver/exports, else ~/.local/share/geosolver/exports). Its extension must match `format`; it is added if missing. Default: a fresh unique name." },
                     "overwrite": { "type": "boolean", "description": "Replace an existing file of that name (default false)." },
                     "timeout_secs": { "type": "number", "description": "Wall-clock solve limit in seconds (default 60, max 300)." },
                     "kind": { "type": "string", "enum": ["auto", "geo", "lowlevel"] },
@@ -328,14 +328,17 @@ fn timeout_from(args: &Value) -> std::time::Duration {
 }
 
 /// Where `export_report` may write: `AGSTUDIO_EXPORT_DIR`, else
-/// `$XDG_DATA_HOME/geosolver/exports`, else `~/geosolver-exports`.
+/// `$XDG_DATA_HOME/geosolver/exports`, else the XDG default
+/// `~/.local/share/geosolver/exports` (`%USERPROFILE%\\geosolver-exports` on Windows).
 fn export_dir() -> Result<PathBuf, String> {
     let nonempty = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty());
     let dir = if let Some(d) = nonempty("AGSTUDIO_EXPORT_DIR") {
         PathBuf::from(d)
     } else if let Some(x) = nonempty("XDG_DATA_HOME") {
         Path::new(&x).join("geosolver").join("exports")
-    } else if let Some(h) = nonempty("HOME").or_else(|| nonempty("USERPROFILE")) {
+    } else if let Some(h) = nonempty("HOME") {
+        Path::new(&h).join(".local/share/geosolver/exports")
+    } else if let Some(h) = nonempty("USERPROFILE") {
         Path::new(&h).join("geosolver-exports")
     } else {
         return Err("no export directory: set AGSTUDIO_EXPORT_DIR".to_string());

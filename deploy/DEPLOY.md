@@ -96,7 +96,7 @@ ProtectSystem=strict, no capabilities); its only writable path is
 | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard) |
 | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
 | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
-| `AGSTUDIO_EXPORT_DIR` | `$XDG_DATA_HOME/geosolver/exports` | MCP `export_report` writes only here (bare filenames, no overwrite unless asked) |
+| `AGSTUDIO_EXPORT_DIR` | `$XDG_DATA_HOME/geosolver/exports` (default `~/.local/share/geosolver/exports`) | MCP `export_report` writes only here (bare filenames, no overwrite unless asked) |
 | `AUX_MAX_RUNS`, `AUX_MAX_DEPTH`, `RAYON_NUM_THREADS` | server-safe | solver effort caps (set automatically; override to tune). Each web solve is also capped at 60 s wall clock |
 
 ## Health, logs, updates
