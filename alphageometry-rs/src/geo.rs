@@ -433,6 +433,9 @@ struct Parser {
     /// input gets a parse error instead of a stack overflow (which would
     /// abort the whole process — uncatchable, unlike an ordinary panic).
     depth: u32,
+    /// Binary operators in the current relation (see
+    /// [`crate::metric::MAX_EXPR_OPS`]); reset per relation.
+    ops: u32,
 }
 
 impl Parser {
@@ -585,6 +588,7 @@ impl Parser {
     }
 
     fn parse_rel(&mut self) -> Result<Rel, String> {
+        self.ops = 0;
         // The qualitative predicate relations: a keyword applied to point
         // expressions (which may be nested constructions).
         if let Some(Tok::Ident(n)) = self.peek() {
@@ -617,10 +621,12 @@ impl Parser {
             match self.peek() {
                 Some(Tok::Plus) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Add(Box::new(e), Box::new(self.parse_mterm()?));
                 }
                 Some(Tok::Minus) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Sub(Box::new(e), Box::new(self.parse_mterm()?));
                 }
                 _ => break,
@@ -634,10 +640,12 @@ impl Parser {
             match self.peek() {
                 Some(Tok::Star) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Mul(Box::new(e), Box::new(self.parse_mpow()?));
                 }
                 Some(Tok::Slash) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Div(Box::new(e), Box::new(self.parse_mpow()?));
                 }
                 _ => break,
@@ -650,7 +658,10 @@ impl Parser {
         if self.peek() == Some(&Tok::Caret) {
             self.next();
             match self.next() {
-                Some(Tok::Num(p)) => Ok(MExpr::Pow(Box::new(base), p)),
+                Some(Tok::Num(p)) => {
+                    crate::metric::count_op(&mut self.ops)?;
+                    Ok(MExpr::Pow(Box::new(base), crate::metric::check_exponent(p)?))
+                }
                 other => Err(format!("expected a numeric exponent, found {other:?}")),
             }
         } else {
@@ -748,9 +759,22 @@ fn finish_predicate_rel(name: &str, args: Vec<Expr>) -> Result<Rel, String> {
             Err(format!("`{name}` expects {k} arguments, got {}", args.len()))
         }
     };
+    let at_least = |k: usize| -> Result<(), String> {
+        if args.len() >= k {
+            Ok(())
+        } else {
+            Err(format!("`{name}` expects at least {k} arguments, got {}", args.len()))
+        }
+    };
     match name {
-        "coll" => Ok(Rel::Coll(args)),
-        "cyclic" => Ok(Rel::Cyclic(args)),
+        "coll" => {
+            at_least(3)?;
+            Ok(Rel::Coll(args))
+        }
+        "cyclic" => {
+            at_least(4)?;
+            Ok(Rel::Cyclic(args))
+        }
         "cong" => {
             need(4)?;
             Ok(Rel::Cong(args))
@@ -1331,6 +1355,20 @@ fn eval_point(scene: &mut Scene, e: &Expr) -> Result<PointId, BuildError> {
 }
 
 fn eval(scene: &mut Scene, e: &Expr) -> Result<Vec<Value>, BuildError> {
+    let values = eval_unchecked(scene, e)?;
+    // Nested constructions add anonymous points the declaration count in
+    // `check_point_count` cannot see; cap the real total as it grows.
+    if scene.points.len() > MAX_POINTS {
+        return Err(fatal(format!(
+            "too many points ({}+ after expanding nested constructions); this engine \
+             supports at most {MAX_POINTS} in one problem",
+            scene.points.len()
+        )));
+    }
+    Ok(values)
+}
+
+fn eval_unchecked(scene: &mut Scene, e: &Expr) -> Result<Vec<Value>, BuildError> {
     match e {
         Expr::Ident(name) => {
             if let Some(v) = scene.env.get(name) {
@@ -1680,6 +1718,7 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
             scene.emit("perp", &[b, c, c, d]);
             scene.emit("cong", &[b, c, c, d]);
             scene.emit("para", &[a, b, d, c]);
+            scene.emit("para", &[a, d, b, c]);
             Ok(vec![Value::Point(c), Value::Point(d)])
         }
         "on_dia" => {
@@ -2213,7 +2252,7 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
 }
 
 fn deg_to_rat(deg: f64) -> Result<Rat, BuildError> {
-    if (deg - deg.round()).abs() < 1e-9 {
+    if deg.abs() < 9.0e15 && (deg - deg.round()).abs() < 1e-9 {
         Ok(Rat::from_int(deg.round() as i64))
     } else {
         Err(fatal("angle in degrees must be an integer"))
@@ -2325,6 +2364,32 @@ impl Lowered {
                     _ => out.push(1.0),
                 }
             }
+        }
+    }
+
+    /// The goal form of this relation. Unlike a hypothesis, a goal must never
+    /// lower to the trivially-true placeholder — DDAR would "prove" it. A
+    /// metric goal (no DDAR predicate) yields `None`; [`compile`] rejects such
+    /// programs up front, so only the instance builders (which ignore the
+    /// goal) see it. An angle sum whose branch is unreadable in this sample is
+    /// a degenerate figure: resample.
+    fn to_goal_predicate(&self, scene: &Scene) -> Result<Option<Predicate>, BuildError> {
+        match &self.kind {
+            CKind::DistConst(_) | CKind::MetricEq { .. } => Ok(None),
+            CKind::AngSumEq { coefs, konst } => {
+                let pts: Vec<PointId> = self
+                    .pts
+                    .iter()
+                    .map(|r| match r {
+                        PtRef::Id(id) => Ok(*id),
+                        PtRef::Unknown => Err(BuildError::Degenerate),
+                    })
+                    .collect::<Result<_, _>>()?;
+                angsumeq_to_predicate(coefs, konst, &pts, scene)
+                    .map(Some)
+                    .ok_or(BuildError::Degenerate)
+            }
+            _ => Ok(Some(self.to_predicate(scene, 0 /* no unknown */))),
         }
     }
 
@@ -2701,7 +2766,7 @@ fn build_core(stmts: &[Stmt], seed: u64, dof_override: &[f64]) -> Result<CoreRes
                     return Err(fatal("multiple goals specified"));
                 }
                 let lowered = lower(&mut scene, rel, None)?;
-                goal = Some(lowered.to_predicate(&scene, 0 /* no unknown */));
+                goal = lowered.to_goal_predicate(&scene)?;
             }
         }
     }
@@ -2862,6 +2927,44 @@ fn solve_linear(mut a: Vec<f64>, mut b: Vec<f64>, n: usize) -> Option<Vec<f64>> 
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Why [`compile`] rejected a program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CompileError {
+    /// The goal is a metric relation — an absolute length, or a general
+    /// algebraic equation over dist/angle/area — that has no DDAR predicate.
+    /// DDAR cannot decide it; route the program to [`crate::metric::solve`].
+    MetricGoal(String),
+    /// Any other error (syntax, unknown name, arity, degenerate figure, …).
+    Invalid(String),
+}
+
+impl CompileError {
+    /// Whether the program should be routed to the metric prover instead.
+    pub fn is_metric_goal(&self) -> bool {
+        matches!(self, CompileError::MetricGoal(_))
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            CompileError::MetricGoal(m) | CompileError::Invalid(m) => m,
+        }
+    }
+}
+
+impl std::fmt::Display for CompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl std::error::Error for CompileError {}
+
+impl From<String> for CompileError {
+    fn from(m: String) -> Self {
+        CompileError::Invalid(m)
+    }
+}
+
 /// Outcome of compiling a high-level program.
 pub struct Compiled {
     pub problem: Problem,
@@ -2946,6 +3049,22 @@ fn point_count(stmts: &[Stmt]) -> usize {
         .sum()
 }
 
+/// A goal with no DDAR predicate — an absolute length or a general metric
+/// equation — must be routed to the metric prover, never compiled.
+fn check_goal_is_ddar_expressible(stmts: &[Stmt]) -> Result<(), CompileError> {
+    for s in stmts {
+        if let Stmt::Goal(Rel::DistConst(..) | Rel::MetricEq(..)) = s {
+            return Err(CompileError::MetricGoal(
+                "the goal is a metric relation (an absolute length or a general \
+                 equation over dist/angle/area) with no DDAR predicate; \
+                 use the metric prover (`ddar --metric`, `metric::solve`)"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
     let n = point_count(stmts);
     if n > MAX_POINTS {
@@ -2956,24 +3075,22 @@ fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn compile(src: &str) -> Result<Compiled, String> {
+pub fn compile(src: &str) -> Result<Compiled, CompileError> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0, ops: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
-        return Err("empty program".to_string());
+        return Err("empty program".to_string().into());
     }
     check_point_count(&stmts)?;
+    check_goal_is_ddar_expressible(&stmts)?;
+    // Sampled figures can panic deep in the numerics; each attempt is caught
+    // and resampled, with the panic output muted.
+    crate::quiet_panic::quiet(|| compile_stmts(&stmts))
+}
 
-    // Suppress panic output during the validation solve.
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
-
-    let mut result: Result<Compiled, String> = Err("no attempt".to_string());
+fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
+    let mut result: Result<Compiled, CompileError> = Err("no attempt".to_string().into());
     // A hypothesis set with open side-conditions (e.g. "interior points") can
     // produce sampled figures where the goal is numerically false even though
     // every stated constraint is satisfied. Such an instance is a last resort:
@@ -2988,13 +3105,21 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
     let mut best_true: Option<(f64, Compiled)> = None;
     let mut fallback_false: Option<Compiled> = None;
     for seed in 1..=400u64 {
-        match build(&stmts, seed) {
-            Err(BuildError::Fatal(msg)) => {
-                result = Err(msg);
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
+        match built {
+            Ok(Err(BuildError::Fatal(msg))) => {
+                result = Err(msg.into());
                 break;
             }
-            Err(BuildError::Degenerate) => continue,
-            Ok((scene, goal, _scale)) => {
+            Ok(Err(BuildError::Degenerate)) => continue,
+            Err(_) => {
+                result = Err("could not build a valid figure (internal error while \
+                              constructing; set DDAR_DEBUG_PANICS=1 for detail)"
+                    .to_string()
+                    .into());
+                continue;
+            }
+            Ok(Ok((scene, goal, _scale))) => {
                 let problem = Problem {
                     points: scene.points,
                     preds: scene.preds,
@@ -3034,7 +3159,7 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
                 let margin = if proved_in_validation {
                     f64::INFINITY // proves outright: the ideal instance
                 } else {
-                    figure_margin(&stmts, &compiled.problem)
+                    figure_margin(stmts, &compiled.problem)
                 };
                 if std::env::var_os("DDAR_DEBUG_FIGURE").is_some_and(|v| !v.is_empty()) {
                     eprintln!(
@@ -3052,7 +3177,6 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
             }
         }
     }
-    std::panic::set_hook(prev_hook);
     if let Some((_, c)) = best_true {
         return Ok(c);
     }
@@ -3069,23 +3193,24 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
 /// re-sampled instances is a genuine identity.
 pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0, ops: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
     check_point_count(&stmts)?;
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
+    crate::quiet_panic::quiet(|| build_instances_of(&stmts, n))
+}
+
+fn build_instances_of(stmts: &[Stmt], n: usize) -> Result<Vec<Vec<(String, Vec2)>>, String> {
     let mut out: Vec<Vec<(String, Vec2)>> = Vec::new();
     let mut seed = 1u64;
     let limit = (n as u64) * 40 + 800;
     while out.len() < n && seed <= limit {
-        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(&stmts, seed)));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
+        if let Ok(Err(BuildError::Fatal(msg))) = built {
+            return Err(msg);
+        }
         if let Ok(Ok((scene, _goal, _scale))) = built {
             if scene
                 .points
@@ -3103,7 +3228,6 @@ pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, 
         }
         seed += 1;
     }
-    std::panic::set_hook(prev_hook);
     if out.is_empty() {
         return Err("could not build any valid instance of the construction".to_string());
     }
@@ -3139,21 +3263,19 @@ pub struct AlgFigure {
 /// that DDAR can process without a numeric panic is found).
 pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0 };
+    let mut parser = Parser { toks, pos: 0, depth: 0, ops: 0 };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
     check_point_count(&stmts)?;
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
+    crate::quiet_panic::quiet(|| build_algebraic_of(&stmts))
+}
+
+fn build_algebraic_of(stmts: &[Stmt]) -> Result<AlgFigure, String> {
     let mut result: Result<AlgFigure, String> = Err("could not build a valid instance".to_string());
     for seed in 1..=400u64 {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(&stmts, seed))) {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed))) {
             Ok(Ok((scene, _goal, scale))) => {
                 if scene
                     .points
@@ -3178,7 +3300,6 @@ pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
             _ => continue, // degenerate sample or panic — resample
         }
     }
-    std::panic::set_hook(prev_hook);
     result
 }
 
@@ -3320,14 +3441,14 @@ mod tests {
         let mut src = String::from("prove dist(A, B) = ");
         src.push_str(&"-".repeat(500));
         src.push('5');
-        let result: Result<Compiled, String> = compile(&src);
+        let result: Result<Compiled, CompileError> = compile(&src);
         assert!(
             result.is_err(),
             "500 levels of unary-minus nesting should be rejected by a depth cap"
         );
         if let Err(msg) = result {
             assert!(
-                msg.contains("nested too deeply"),
+                msg.message().contains("nested too deeply"),
                 "expected a nesting-depth error, got: {msg}"
             );
         }
@@ -3347,13 +3468,13 @@ mod tests {
             src.push(')');
         }
         src.push_str("\nprove coll(A, A, B)");
-        let result: Result<Compiled, String> = compile(&src);
+        let result: Result<Compiled, CompileError> = compile(&src);
         assert!(
             result.is_err(),
             "500 levels of construction-call nesting should be rejected by a depth cap"
         );
         if let Err(msg) = result {
-            assert!(msg.contains("nested too deeply"));
+            assert!(msg.message().contains("nested too deeply"));
         }
     }
 
@@ -3380,7 +3501,7 @@ mod tests {
         assert!(result.is_err(), "500 points should be rejected");
         if let Err(msg) = result {
             assert!(
-                msg.contains("too many points"),
+                msg.message().contains("too many points"),
                 "expected 'too many points' error, got: {msg}"
             );
         }
