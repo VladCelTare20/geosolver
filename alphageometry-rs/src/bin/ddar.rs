@@ -71,6 +71,11 @@ Modes:
                           translation errors and numerically false goals
   --corpus-show <file> <name>  print one translated problem in low-level form
   --corpus-one <file> <name>   solve one corpus problem in-process (--proof)
+  --fuzz-false <file>     soundness fuzzer: false variants of every corpus
+                          problem (mutated goal, dropped hypothesis, degenerate
+                          figure) through DDAR + aux search, one process each;
+                          exits 2 if any is proved
+  --fuzz-one <cases> <name>    run one fuzz case in-process (child of --fuzz-false)
   \"<problem>\"             solve a single low-level problem string
 
 Options:
@@ -89,12 +94,19 @@ Corpus options:
   --only <a,b,...>        run only these problem names
   --proofs <dir>          write each proof found to <dir>/<name>.txt
   --mem-mb <n>            kill a problem whose memory exceeds n MiB (default 4096)
+
+Fuzz options (--fuzz-false; also --budget [default 15], --jobs, --threads,
+--only, --mem-mb, --out <file.tsv> [cases and proofs are written beside it]):
+  --per <n>               goal mutations per problem (default 8); hypothesis
+                          drops get n/2, degenerate figures n/4
+  --seed <k>              generation seed (default 1)
+  --samples <n>           figures a variant must be false on (default 5)
 ";
 
 const MODES: &[&str] = &[
     "--bench", "--geo", "--geo-show", "--aux", "--explore", "--constructions", "--bench-aux",
     "--verify-warm", "--metric", "--batch", "--max", "--theorems", "--corpus", "--corpus-one",
-    "--corpus-check", "--corpus-show",
+    "--corpus-check", "--corpus-show", "--fuzz-false", "--fuzz-one",
 ];
 
 enum ArgKind {
@@ -130,6 +142,10 @@ struct CorpusOpts {
     only: Option<Vec<String>>,
     proofs: Option<String>,
     mem_mb: u64,
+    budget_given: bool,
+    per: usize,
+    seed: u64,
+    samples: usize,
 }
 
 fn num_arg<T: std::str::FromStr>(v: Option<String>, flag: &str) -> T {
@@ -155,6 +171,10 @@ fn main() {
             only: None,
             proofs: None,
             mem_mb: 4096,
+            budget_given: false,
+            per: 8,
+            seed: 1,
+            samples: 5,
         },
     };
     let mut mode: Option<String> = None;
@@ -174,7 +194,13 @@ fn main() {
                 }
             }
             "--title" => opts.title = Some(it.next().unwrap_or_else(|| fail("--title needs text"))),
-            "--budget" => opts.corpus.budget = num_arg(it.next(), "--budget"),
+            "--budget" => {
+                opts.corpus.budget = num_arg(it.next(), "--budget");
+                opts.corpus.budget_given = true;
+            }
+            "--per" => opts.corpus.per = num_arg::<usize>(it.next(), "--per").max(1),
+            "--seed" => opts.corpus.seed = num_arg(it.next(), "--seed"),
+            "--samples" => opts.corpus.samples = num_arg::<usize>(it.next(), "--samples").max(2),
             "--jobs" => opts.corpus.jobs = num_arg::<usize>(it.next(), "--jobs").max(1),
             "--threads" => opts.corpus.threads = num_arg::<usize>(it.next(), "--threads").max(1),
             "--mem-mb" => opts.corpus.mem_mb = num_arg(it.next(), "--mem-mb"),
@@ -227,6 +253,8 @@ fn main() {
         Some("--corpus-check") => corpus_check(positional.first(), &opts),
         Some("--corpus-show") => corpus_show(positional.first(), positional.get(1)),
         Some("--corpus-one") => corpus_one(positional.first(), positional.get(1), &opts),
+        Some("--fuzz-false") => fuzz_false(positional.first(), &opts),
+        Some("--fuzz-one") => fuzz_one(positional.first(), positional.get(1), &opts),
         Some("--batch") => batch(
             positional
                 .first()
@@ -919,6 +947,7 @@ fn corpus_bench(file: Option<&String>, opts: &Opts) {
         mem_mb: c.mem_mb,
         grace: std::time::Duration::from_secs_f64((c.budget * 0.1).max(5.0)),
         proofs_dir: c.proofs.as_ref().map(Into::into),
+        child_flag: "--corpus-one",
     };
     eprintln!(
         "corpus {file}: {} problems, budget {}s, {} jobs x {} threads",
@@ -1029,6 +1058,126 @@ fn corpus_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
         for a in &o.aux {
             println!("aux: {a}");
         }
+        if let Some(p) = &o.proof {
+            println!("\n{p}");
+        }
+    }
+}
+
+fn fuzz_false(file: Option<&String>, opts: &Opts) {
+    use ddar::fuzz;
+    let c = &opts.corpus;
+    let problems = load_corpus(file, c.only.as_ref());
+    let file = file.expect("checked by load_corpus");
+    let budget = if c.budget_given { c.budget } else { 15.0 };
+    let out = c
+        .out
+        .clone()
+        .unwrap_or_else(|| format!("{}/ddar-fuzz-{}.tsv", std::env::temp_dir().display(), std::process::id()));
+    let cases_path = format!("{out}.cases.txt");
+    let proofs_dir = std::path::PathBuf::from(format!("{out}.proofs"));
+    let start = Instant::now();
+    let cfg = fuzz::Config {
+        per: c.per,
+        seed: c.seed,
+        samples: c.samples,
+    };
+    let gen = fuzz::generate(&problems, &cfg);
+    let by_kind: Vec<String> = fuzz::Kind::ALL
+        .iter()
+        .map(|k| format!("{} {}", k.tag(), gen.cases.iter().filter(|x| x.kind == *k).count()))
+        .collect();
+    eprintln!(
+        "fuzz {file}: {} problems -> {} cases ({}) in {:.1}s; {} variants held on some figure and were dropped; {} problems skipped",
+        problems.len(),
+        gen.cases.len(),
+        by_kind.join(", "),
+        start.elapsed().as_secs_f64(),
+        gen.not_false,
+        gen.skipped.len()
+    );
+    for (n, why) in &gen.skipped {
+        eprintln!("  skipped {n}: {why}");
+    }
+    std::fs::write(&cases_path, fuzz::corpus_text(&gen.cases))
+        .unwrap_or_else(|e| fail(&format!("writing {cases_path}: {e}")));
+    let _ = std::fs::remove_dir_all(&proofs_dir);
+    let run = bench::RunConfig {
+        exe: std::env::current_exe().unwrap_or_else(|e| fail(&format!("current_exe: {e}"))),
+        corpus: cases_path.clone().into(),
+        budget: std::time::Duration::from_secs_f64(budget),
+        jobs: c.jobs,
+        threads: c.threads,
+        mem_mb: c.mem_mb,
+        grace: std::time::Duration::from_secs_f64((budget * 0.1).max(5.0)),
+        proofs_dir: Some(proofs_dir.clone()),
+        child_flag: "--fuzz-one",
+    };
+    eprintln!(
+        "running {} cases, budget {budget}s, {} jobs x {} threads; cases in {cases_path}",
+        gen.cases.len(),
+        c.jobs,
+        c.threads
+    );
+    let kinds: std::collections::HashMap<&str, &fuzz::Case> =
+        gen.cases.iter().map(|k| (k.name.as_str(), k)).collect();
+    let progress = |k: usize, n: usize, o: &bench::Outcome| {
+        if let Some(case) = kinds.get(o.name.as_str()) {
+            let v = fuzz::verdict(case, o);
+            if v != "ok" || k % 50 == 0 || k == n {
+                eprintln!("[{k:>4}/{n}] {:<52} {:<11} {:<15} {v}", o.name, case.kind.tag(), o.status);
+            }
+        }
+    };
+    let pairs: Vec<(String, String)> = gen.cases.iter().map(|k| (k.name.clone(), k.text.clone())).collect();
+    let results = bench::run_corpus(&run, &pairs, &progress);
+    let mut tsv = String::from(fuzz::TSV_HEADER);
+    tsv.push('\n');
+    let mut unsound = Vec::new();
+    let mut crashes = 0;
+    let mut statuses: std::collections::BTreeMap<String, usize> = Default::default();
+    for o in &results {
+        let Some(case) = kinds.get(o.name.as_str()) else { continue };
+        tsv.push_str(&fuzz::tsv_row(case, o));
+        tsv.push('\n');
+        *statuses.entry(format!("{}:{}", case.kind.tag(), o.status)).or_default() += 1;
+        match fuzz::verdict(case, o) {
+            "UNSOUND" => unsound.push((*case, o)),
+            "CRASH" => crashes += 1,
+            _ => {}
+        }
+    }
+    std::fs::write(&out, &tsv).unwrap_or_else(|e| fail(&format!("writing {out}: {e}")));
+    eprintln!("\n== fuzz {file}: {} cases, {:.0}s wall, results in {out} ==", results.len(), start.elapsed().as_secs_f64());
+    for (s, n) in &statuses {
+        eprintln!("  {s:<32} {n}");
+    }
+    eprintln!("  crashes: {crashes}   UNSOUND: {}", unsound.len());
+    for (case, o) in &unsound {
+        eprintln!("\n!! UNSOUND {} [{}] {}\n   {}\n   status {} {}", case.name, case.kind.tag(), case.mutation, case.text, o.status, o.detail);
+        if let Ok(p) = std::fs::read_to_string(bench::proof_path(&proofs_dir, &case.name)) {
+            eprintln!("{p}");
+        }
+    }
+    if !unsound.is_empty() {
+        std::process::exit(2);
+    }
+    if crashes > 0 {
+        std::process::exit(1);
+    }
+}
+
+fn fuzz_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
+    let file = file.unwrap_or_else(|| fail("usage: ddar --fuzz-one <cases> <name>"));
+    let name = name.unwrap_or_else(|| fail("usage: ddar --fuzz-one <cases> <name>"));
+    let o = ddar::fuzz::child_main(
+        std::path::Path::new(file),
+        name,
+        std::time::Duration::from_secs_f64(opts.corpus.budget),
+        opts.corpus.proofs.as_deref().map(std::path::Path::new),
+    );
+    println!("RESULT\t{}", o.to_tsv());
+    if opts.proof {
         if let Some(p) = &o.proof {
             println!("\n{p}");
         }

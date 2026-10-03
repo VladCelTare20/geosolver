@@ -18,7 +18,8 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `quiet_panic.rs` — one process-wide hook, thread-local mute.
 - `runner.rs` — helpers shared by `bin/ddar.rs` and tests.
 - `corpus.rs` — reader for the original AlphaGeometry corpus language (`corpus/*.txt`, constructions from `corpus/defs.txt`) → `Problem`.
-- `bench.rs` — solve-rate benchmark: `solve_one` (DDAR, then aux search, under a deadline) and `run_corpus` (one child process per problem, killed at budget + grace).
+- `bench.rs` — solve-rate benchmark: `solve_one` (DDAR, then aux search, under a deadline) and `run_corpus` (one child process per problem, killed at budget + grace; `RunConfig.child_flag` picks the child mode).
+- `fuzz.rs` — soundness fuzzer: genuinely false variants of corpus problems, each run through DDAR + aux search in its own process; any proof is a soundness bug (exit 2). Run under the bench lock: `flock ~/Projects/geosolver-bench/.bench.lock ddar --fuzz-false corpus/jgex_ag_231.txt --per 8 --budget 10 --jobs 6 --threads 2 --out f.tsv` (cases in `f.tsv.cases.txt`, proofs of any proved case in `f.tsv.proofs/`).
 
 ## Notes
 - `geo.rs:compile` — rejects metric goals with `CompileError::MetricGoal`; before this, they compiled to `cong a b a b` and were "proved" trivially.
@@ -38,6 +39,10 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `engine.rs:force_*_with` — premises are computed lazily, after the no-op exit; nothing mutates in between, so the cited facts are unchanged.
 - `aux_search.rs:try_solve` — at depth 1 the `WarmBase` closure also answers "does the base already prove the goal" (`proves_goal`), so a branch costs one cold closure, not two.
 - `synthetic.rs` rectangle detection needs `AD ∥ BC` or a third right angle; `AB ∥ DC` is implied by two right angles and proves nothing.
+
+- `fuzz.rs:generate` — four case kinds. `goal`: mutated goal (swap/transpose points, re-segment, other predicate over the same points) kept only if false on every one of `--samples` figures where the original goal holds. `hyp-generic`: one construction dropped (or replaced by `free`/`triangle`/`quadrangle`) and the goal false on every figure of the weaker problem. `hyp-special`: that same weaker problem pinned to the ORIGINAL figure, where the dropped fact and the goal still hold numerically — catches a rule that reads an unstated fact off the coordinates. `degenerate`: original problem with a point pinned onto an earlier one or a collinear base triangle; unsound only if a conjunct false on that figure is proved.
+- `fuzz.rs` — every case is corpus text with pinned coordinates (`corpus.rs:render_problem`, shortest round-trip floats), so the child reproduces the parent's figure exactly. Generation is deterministic per (`--seed`, problem name).
+- `fuzz.rs:verdict` — a non-degenerate case is false as a theorem, so any proof is `UNSOUND`, even when the goal holds on the pinned figure (`hyp-special`).
 
 ## Subfolders
 - `bin/` — `ddar.rs`, the engine CLI (`--help` lists modes).
