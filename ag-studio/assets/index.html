@@ -248,6 +248,7 @@ setTimeout(function(){document.documentElement.style.visibility='';},1000);}}cat
     <span class="meta" id="username-label"></span>
     <button class="ghost btn" id="logout-btn" style="padding:6px 12px" data-i18n="app.logout">Log out</button>
   </div>
+  <a id="signin-link" class="ghost btn hidden" href="/auth" style="padding:6px 12px" data-i18n="nav.signin">Sign in</a>
 </header>
 
 <main>
@@ -352,7 +353,7 @@ setTimeout(function(){document.documentElement.style.visibility='';},1000);}}cat
   </section>
 
   <!-- HISTORY -->
-  <section class="card mt18" aria-label="history" style="grid-column:1">
+  <section class="card mt18 hidden" id="history-card" aria-label="history" style="grid-column:1">
     <div class="hd" data-i18n="app.history">History</div>
     <div class="bd">
       <div id="history-empty" class="empty" style="padding:20px 8px" data-i18n="app.loading">Loading…</div>
@@ -372,7 +373,7 @@ const t = (k, v) => (window.i18n ? window.i18n.t(k, v) : k);
 const curLang = () => (window.i18n ? window.i18n.current() : 'en');
 // Locale-aware number: Romanian uses a decimal comma.
 const fmtNum = (n, digits) => { let s = Number(n).toFixed(digits); return curLang() === 'ro' ? s.replace('.', ',') : s; };
-const state = { mode: 'describe', translateInstalled: false, translateReady: false, imageB64: null, imageName: null, solvedInput: null, solvedTitle: null, lastSol: null, lastGeo: null };
+const state = { signedIn: false, mode: 'describe', translateInstalled: false, translateReady: false, imageB64: null, imageName: null, solvedInput: null, solvedTitle: null, lastSol: null, lastGeo: null };
 let historyItems = []; // last-loaded /api/history rows, indexed by the .hist-item's data-index
 
 // ---------- init ----------
@@ -391,12 +392,17 @@ async function init() {
     if (me && me.username) {
       $('username-label').textContent = me.username;
       $('user-box').classList.remove('hidden');
+      state.signedIn = true;
     }
   } catch(e) {}
+  // Guests (shared-password mode) use the solver without an account; history
+  // is per-account, so they get a sign-in link instead of a history panel.
+  if (state.signedIn) $('history-card').classList.remove('hidden');
+  else $('signin-link').classList.remove('hidden');
   updatePill();
   applyModeUI();
   wire();
-  loadHistory();
+  if (state.signedIn) loadHistory();
 }
 
 function updatePill(){
@@ -421,7 +427,7 @@ function applyModeUI(){
 
 function wire(){
   document.querySelectorAll('#mode button').forEach(b=> b.onclick=()=>setMode(b.dataset.mode));
-  $('solve').onclick = solve;
+  $('solve').onclick = () => solve();
   $('clear').onclick = () => { $('input').value=''; clearImage(); $('result').classList.add('hidden'); $('empty').classList.remove('hidden'); clearBanner(); };
   $('dl-pdf').onclick = () => exportDoc('pdf');
   $('dl-png').onclick = () => exportDoc('png');
@@ -446,7 +452,7 @@ function activateHistItem(target){
   const del = target.closest('.hist-del');
   if (del) { deleteHistory(del.dataset.id); return; }
   const item = target.closest('.hist-item');
-  if (item) reopenHistory(historyItems[+item.dataset.index].input);
+  if (item) reopenHistory(historyItems[+item.dataset.index]);
 }
 
 async function logout(){
@@ -486,11 +492,13 @@ async function deleteHistory(id){
   loadHistory();
 }
 
-function reopenHistory(input){
+// Re-solve a history entry under its original title, without recording it
+// again (it is already in the list).
+function reopenHistory(entry){
   setMode('geo');
-  $('input').value = input;
+  $('input').value = entry.input;
   clearImage();
-  solve();
+  solve({ title: entry.title || null });
 }
 
 function loadImage(f){
@@ -507,7 +515,7 @@ function banner(kind,msg){ $('banner-slot').innerHTML = `<div class="banner ${ki
 function clearBanner(){ $('banner-slot').innerHTML=''; }
 
 // ---------- solve pipeline ----------
-async function solve(){
+async function solve(replay){
   clearBanner();
   const btn=$('solve'); const orig=btn.innerHTML;
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span> '+t('app.working');
@@ -516,6 +524,7 @@ async function solve(){
     if (state.mode==='geo') {
       geo = $('input').value.trim();
       if(!geo){ banner('err',t('app.err_write_geo')); return; }
+      if (replay) title = replay.title;
     } else {
       // Describe mode → translate (image or text) → geo
       if (!state.translateReady){ applyModeUI(); return; }
@@ -530,11 +539,11 @@ async function solve(){
     const best = $('best').checked;
     btn.innerHTML='<span class="spinner"></span> '+(best?t('app.finding_shortest'):t('app.solving'));
     const theme = $('theme').value;
-    const sol = await postJSON('/api/solve', { input: geo, theme, title, best, budget_secs: 20 });
+    const sol = await postJSON('/api/solve', { input: geo, theme, title, best, budget_secs: 20, record: !replay });
     if (sol.error){ banner('err',t('app.err_solve',{msg:escapeHtml(sol.error)})); return; }
     state.solvedInput = geo; state.solvedTitle = title || null;
     render(sol, geo, title);
-    loadHistory();
+    if (state.signedIn && !replay) loadHistory();
   } catch(e){ banner('err',t('app.err_generic',{msg:escapeHtml(e.message)})); }
   finally { btn.disabled=false; btn.innerHTML=orig; }
 }
