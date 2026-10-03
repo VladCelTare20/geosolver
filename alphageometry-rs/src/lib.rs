@@ -19,6 +19,8 @@
 
 pub mod algebra;
 pub mod aux_search;
+pub mod bench;
+pub mod corpus;
 pub mod elim_core;
 pub mod elimination;
 pub mod engine;

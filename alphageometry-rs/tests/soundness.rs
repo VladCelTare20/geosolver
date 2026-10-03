@@ -223,6 +223,37 @@ fn collinear_points_are_not_a_parallelogram() {
     assert!(metric::solve(cons, goal, 48).is_err());
 }
 
+/// `k` is a free point that merely *happens* to lie on circle(o, x) in the
+/// given coordinates; nothing in the hypotheses puts it there, so
+/// `cong o k o x` is false in general. Aux constructions that took numeric
+/// circle membership as a fact (the antipode of `k` "on" the circle, the pole
+/// of chord `kx`) asserted it anyway and "proved" this — found on IMO 2008 P6,
+/// where `k` is on the circle only because that is the goal.
+#[test]
+fn aux_search_does_not_assume_numeric_circle_membership() {
+    let problem = Problem::parse(
+        "o@0.0_0.0 x@1.0_0.0 y@0.0_1.0 = cong o x o y; k@0.6_0.8 = ? cong o k o x",
+    )
+    .unwrap();
+    assert!(!solve_problem(&problem).unwrap());
+    let (found, _) = ddar::aux_search::solve_with_aux_opts(&problem, 2, 200_000, false, true);
+    if let Some(p) = found {
+        let used: Vec<&str> = p.constructions.iter().map(|c| c.desc.as_str()).collect();
+        panic!("a free point was proved on a circle using {used:?}");
+    }
+    for c in ddar::aux_search::candidates(&problem, true) {
+        let mentions_k = c.args.contains(&3);
+        let circle_claim = c.preds.iter().any(|p| p.name == "cong" && p.points.contains(&0));
+        assert!(
+            !(mentions_k
+                && circle_claim
+                && matches!(c.kind, ddar::aux_search::Kind::Antipode | ddar::aux_search::Kind::PoleOfChord)),
+            "candidate `{}` treats k as on circle(o,x)",
+            c.desc
+        );
+    }
+}
+
 #[test]
 fn non_ascii_in_a_metric_goal_is_a_clean_error_not_a_panic() {
     for goal in ["dist(A,B) = é", "dist(A,B) = 2é", "dist(Aé,B) = 2", "dist(A,B) = 1 ∙ 2"] {

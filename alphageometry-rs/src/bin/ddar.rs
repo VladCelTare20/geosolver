@@ -39,6 +39,7 @@ use ddar::aux_search::{
     apply_constructions, candidates, solve_max, solve_with_aux, strip_point, AuxProof, WarmBase,
 };
 use ddar::geo::{self, CONSTRUCTIONS, RELATIONS};
+use ddar::{bench, corpus};
 use ddar::metric;
 use ddar::runner::{parse_dataset, solve_problem, solve_problem_with_proof};
 use ddar::svg::{self, FigureOptions, Theme};
@@ -62,6 +63,14 @@ Modes:
   --batch [dir]           run the universal solver on every problem in dir
   --bench-aux             leave-one-out aux rediscovery benchmark
   --verify-warm           check warm-start == full solve over the corpus
+  --corpus <file>         solve-rate benchmark over an AG1-format corpus
+                          (corpus/imo_ag_30.txt, corpus/jgex_ag_231.txt):
+                          DDAR then the aux search per problem, each in its
+                          own process with a hard wall-clock deadline
+  --corpus-check <file>   translate every corpus problem (no solving); report
+                          translation errors and numerically false goals
+  --corpus-show <file> <name>  print one translated problem in low-level form
+  --corpus-one <file> <name>   solve one corpus problem in-process (--proof)
   \"<problem>\"             solve a single low-level problem string
 
 Options:
@@ -70,11 +79,22 @@ Options:
   --theme dark|light      figure color scheme (default dark)
   --title <text>          title atop the figure's construction panel
   -h, --help              print this help
+
+Corpus options:
+  --budget <secs>         wall-clock budget per problem (default 60)
+  --jobs <n>              problems solved concurrently (default 4)
+  --threads <n>           solver threads per problem (default 3); keep
+                          jobs x threads within the machine's thread budget
+  --out <file.tsv>        write per-problem results (default: stdout only)
+  --only <a,b,...>        run only these problem names
+  --proofs <dir>          write each proof found to <dir>/<name>.txt
+  --mem-mb <n>            kill a problem whose memory exceeds n MiB (default 4096)
 ";
 
 const MODES: &[&str] = &[
     "--bench", "--geo", "--geo-show", "--aux", "--explore", "--constructions", "--bench-aux",
-    "--verify-warm", "--metric", "--batch", "--max", "--theorems",
+    "--verify-warm", "--metric", "--batch", "--max", "--theorems", "--corpus", "--corpus-one",
+    "--corpus-check", "--corpus-show",
 ];
 
 enum ArgKind {
@@ -99,6 +119,23 @@ struct Opts {
     svg_path: Option<String>,
     theme: Theme,
     title: Option<String>,
+    corpus: CorpusOpts,
+}
+
+struct CorpusOpts {
+    budget: f64,
+    jobs: usize,
+    threads: usize,
+    out: Option<String>,
+    only: Option<Vec<String>>,
+    proofs: Option<String>,
+    mem_mb: u64,
+}
+
+fn num_arg<T: std::str::FromStr>(v: Option<String>, flag: &str) -> T {
+    v.as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| fail(&format!("{flag} needs a number")))
 }
 
 fn main() {
@@ -110,6 +147,15 @@ fn main() {
         svg_path: None,
         theme: Theme::Dark,
         title: None,
+        corpus: CorpusOpts {
+            budget: 60.0,
+            jobs: 4,
+            threads: 3,
+            out: None,
+            only: None,
+            proofs: None,
+            mem_mb: 4096,
+        },
     };
     let mut mode: Option<String> = None;
     let mut positional: Vec<String> = Vec::new();
@@ -128,6 +174,24 @@ fn main() {
                 }
             }
             "--title" => opts.title = Some(it.next().unwrap_or_else(|| fail("--title needs text"))),
+            "--budget" => opts.corpus.budget = num_arg(it.next(), "--budget"),
+            "--jobs" => opts.corpus.jobs = num_arg::<usize>(it.next(), "--jobs").max(1),
+            "--threads" => opts.corpus.threads = num_arg::<usize>(it.next(), "--threads").max(1),
+            "--mem-mb" => opts.corpus.mem_mb = num_arg(it.next(), "--mem-mb"),
+            "--out" => opts.corpus.out = Some(it.next().unwrap_or_else(|| fail("--out needs a file"))),
+            "--proofs" => {
+                opts.corpus.proofs = Some(it.next().unwrap_or_else(|| fail("--proofs needs a directory")))
+            }
+            "--only" => {
+                opts.corpus.only = Some(
+                    it.next()
+                        .unwrap_or_else(|| fail("--only needs a comma-separated list"))
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                )
+            }
             other => match classify_arg(other) {
                 ArgKind::Help => {
                     print!("{USAGE}");
@@ -159,6 +223,10 @@ fn main() {
         Some("--explore") => explore(&opts),
         Some("--bench-aux") => bench_aux(),
         Some("--verify-warm") => verify_warm(),
+        Some("--corpus") => corpus_bench(positional.first(), &opts),
+        Some("--corpus-check") => corpus_check(positional.first(), &opts),
+        Some("--corpus-show") => corpus_show(positional.first(), positional.get(1)),
+        Some("--corpus-one") => corpus_one(positional.first(), positional.get(1), &opts),
         Some("--batch") => batch(
             positional
                 .first()
@@ -816,6 +884,153 @@ fn explore(opts: &Opts) {
         }
         if !load_bearing.is_empty() {
             println!("{:<10} load-bearing: {}", e.name, load_bearing.join(", "));
+        }
+    }
+}
+
+fn load_corpus(file: Option<&String>, only: Option<&Vec<String>>) -> Vec<(String, String)> {
+    let file = file.unwrap_or_else(|| fail("usage: ddar --corpus <file>"));
+    let text =
+        std::fs::read_to_string(file).unwrap_or_else(|e| fail(&format!("reading {file}: {e}")));
+    let all = corpus::read_corpus(&text).unwrap_or_else(|e| fail(&e));
+    match only {
+        None => all,
+        Some(names) => {
+            for n in names {
+                if !all.iter().any(|(m, _)| m == n) {
+                    fail(&format!("--only: no problem named `{n}` in {file}"));
+                }
+            }
+            all.into_iter().filter(|(n, _)| names.contains(n)).collect()
+        }
+    }
+}
+
+fn corpus_bench(file: Option<&String>, opts: &Opts) {
+    let c = &opts.corpus;
+    let problems = load_corpus(file, c.only.as_ref());
+    let file = file.expect("checked by load_corpus");
+    let cfg = bench::RunConfig {
+        exe: std::env::current_exe().unwrap_or_else(|e| fail(&format!("current_exe: {e}"))),
+        corpus: file.into(),
+        budget: std::time::Duration::from_secs_f64(c.budget),
+        jobs: c.jobs,
+        threads: c.threads,
+        mem_mb: c.mem_mb,
+        grace: std::time::Duration::from_secs_f64((c.budget * 0.1).max(5.0)),
+        proofs_dir: c.proofs.as_ref().map(Into::into),
+    };
+    eprintln!(
+        "corpus {file}: {} problems, budget {}s, {} jobs x {} threads",
+        problems.len(),
+        c.budget,
+        c.jobs,
+        c.threads
+    );
+    let start = Instant::now();
+    let progress = |k: usize, n: usize, o: &bench::Outcome| {
+        eprintln!(
+            "[{k:>3}/{n}] {:<44} {:<15} {:>7.2}s {}{}",
+            o.name,
+            o.status,
+            o.secs,
+            if o.proved { format!("{} ", o.method) } else { String::new() },
+            if o.aux.is_empty() { String::new() } else { format!("[{}]", o.aux.join("; ")) }
+        )
+    };
+    let results = bench::run_corpus(&cfg, &problems, &progress);
+    let mut tsv = String::from(bench::TSV_HEADER);
+    tsv.push('\n');
+    for o in &results {
+        tsv.push_str(&o.to_tsv());
+        tsv.push('\n');
+    }
+    if let Some(out) = &c.out {
+        std::fs::write(out, &tsv).unwrap_or_else(|e| fail(&format!("writing {out}: {e}")));
+    } else {
+        print!("{tsv}");
+    }
+    let count = |f: &dyn Fn(&bench::Outcome) -> bool| results.iter().filter(|o| f(o)).count();
+    let n = results.len();
+    eprintln!("\n== {file}: {n} problems, {:.0}s wall ==", start.elapsed().as_secs_f64());
+    eprintln!("  parsed (figure built):   {}/{n}", count(&|o| o.parsed));
+    eprintln!("  goal holds numerically:  {}/{n}", count(&|o| o.goal_numeric == Some(true)));
+    eprintln!("  PROVED:                  {}/{n}", count(&|o| o.proved));
+    eprintln!("    by DDAR alone:         {}", count(&|o| o.proved && o.method == "ddar"));
+    eprintln!("    with aux points:       {}", count(&|o| o.proved && o.method == "aux"));
+    let mut statuses: Vec<(String, usize)> = Vec::new();
+    for o in &results {
+        match statuses.iter_mut().find(|(s, _)| *s == o.status) {
+            Some((_, k)) => *k += 1,
+            None => statuses.push((o.status.clone(), 1)),
+        }
+    }
+    statuses.sort_by(|a, b| b.1.cmp(&a.1));
+    let st: Vec<String> = statuses.iter().map(|(s, k)| format!("{s} {k}")).collect();
+    eprintln!("  status:                  {}", st.join(", "));
+    if results.iter().any(|o| o.status == "UNSOUND") {
+        eprintln!("  !! UNSOUND results present: a numerically false goal was proved");
+        std::process::exit(2);
+    }
+}
+
+fn corpus_check(file: Option<&String>, opts: &Opts) {
+    let problems = load_corpus(file, opts.corpus.only.as_ref());
+    let (mut ok, mut false_goal, mut errors) = (0, 0, 0);
+    for (name, text) in &problems {
+        match corpus::parse_problem(name, text).and_then(|p| corpus::translate(&p, 1, 200)) {
+            Ok(t) if t.goal_holds => {
+                ok += 1;
+                println!("ok          {name}  (seed {}, {} points)", t.seed, t.problem.points.len());
+            }
+            Ok(t) => {
+                false_goal += 1;
+                println!("GOAL-FALSE  {name}  ({} points)", t.problem.points.len());
+            }
+            Err(e) => {
+                errors += 1;
+                println!("ERROR       {name}  {e}");
+            }
+        }
+    }
+    eprintln!(
+        "{} problems: {ok} ok, {false_goal} goal numerically false, {errors} not translatable",
+        problems.len()
+    );
+}
+
+fn corpus_show(file: Option<&String>, name: Option<&String>) {
+    let name = name.unwrap_or_else(|| fail("usage: ddar --corpus-show <file> <name>"));
+    let problems = load_corpus(file, Some(&vec![name.clone()]));
+    let (n, text) = &problems[0];
+    println!("{text}\n");
+    let t = corpus::parse_problem(n, text)
+        .and_then(|p| corpus::translate(&p, 1, 200))
+        .unwrap_or_else(|e| fail(&e));
+    println!("{}", t.problem.to_ag_string());
+    for g in &t.goals {
+        let names: Vec<&str> = g.points.iter().map(|&i| t.problem.point_name(i)).collect();
+        println!("goal: {} {}", g.name, names.join(" "));
+    }
+    println!("holds numerically: {}  (seed {})", t.goal_holds, t.seed);
+}
+
+fn corpus_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
+    let file = file.unwrap_or_else(|| fail("usage: ddar --corpus-one <file> <name>"));
+    let name = name.unwrap_or_else(|| fail("usage: ddar --corpus-one <file> <name>"));
+    let o = bench::child_main(
+        std::path::Path::new(file),
+        name,
+        std::time::Duration::from_secs_f64(opts.corpus.budget),
+        opts.corpus.proofs.as_deref().map(std::path::Path::new),
+    );
+    println!("RESULT\t{}", o.to_tsv());
+    if opts.proof {
+        for a in &o.aux {
+            println!("aux: {a}");
+        }
+        if let Some(p) = &o.proof {
+            println!("\n{p}");
         }
     }
 }

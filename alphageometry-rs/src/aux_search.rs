@@ -20,6 +20,7 @@ use crate::rational::Rat;
 use crate::runner::solve_problem;
 use crate::Problem;
 use rustc_hash::FxHashSet;
+use std::time::Instant;
 
 /// The construction template a candidate came from (used for ranking).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -343,6 +344,40 @@ fn known_circles(problem: &Problem) -> Vec<(PointId, PointId)> {
         }
     }
     out
+}
+
+/// The points other than `o` that lie on circle(o, a) *by the hypotheses*:
+/// linked to `a` by a chain of `cong` facts centred on `o`. Numeric membership
+/// is not enough — a point can sit on the circle only because the goal holds,
+/// and asserting it would let the search prove the goal from itself.
+fn hypothesis_circle_members(problem: &Problem, o: PointId, a: PointId) -> Vec<PointId> {
+    let n = problem.points.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+    let spoke = |s: &[PointId]| match *s {
+        [p, q] if p == o && q != o => Some(q as usize),
+        [p, q] if q == o && p != o => Some(p as usize),
+        _ => None,
+    };
+    for pr in &problem.preds {
+        if pr.name == "cong" && pr.points.len() == 4 {
+            if let (Some(x), Some(y)) = (spoke(&pr.points[..2]), spoke(&pr.points[2..])) {
+                let (rx, ry) = (find(&mut parent, x), find(&mut parent, y));
+                parent[rx] = ry;
+            }
+        }
+    }
+    let root = find(&mut parent, a as usize);
+    (0..n)
+        .filter(|&p| p != o as usize && find(&mut parent, p) == root)
+        .map(|p| p as PointId)
+        .collect()
 }
 
 /// The point pairs that form the *lines and chords of the figure*: every pair
@@ -710,25 +745,22 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
     }
     // ... and on circles named by the hypotheses, for every point on them.
     for &(o, a) in &known_circles(problem) {
-        let r = distance(c(o), c(a));
-        for p in 0..n as PointId {
-            if p != o && (distance(c(p), c(o)) - r).abs() < 1e-6 {
-                let coord = c(o) * 2.0 - c(p);
-                let preds = vec![
-                    pred("cong", vec![o, new_id, o, a]),
-                    pred("coll", vec![p, o, new_id]),
-                    pred("cong", vec![p, o, o, new_id]),
-                ];
-                try_push(
-                    &mut out,
-                    &mut seen,
-                    coord,
-                    preds,
-                    format!("antipode({} on circle({},{}))", nm(p), nm(o), nm(a)),
-                    Kind::Antipode,
-                    vec![p, o, a],
-                );
-            }
+        for p in hypothesis_circle_members(problem, o, a) {
+            let coord = c(o) * 2.0 - c(p);
+            let preds = vec![
+                pred("cong", vec![o, new_id, o, a]),
+                pred("coll", vec![p, o, new_id]),
+                pred("cong", vec![p, o, o, new_id]),
+            ];
+            try_push(
+                &mut out,
+                &mut seen,
+                coord,
+                preds,
+                format!("antipode({} on circle({},{}))", nm(p), nm(o), nm(a)),
+                Kind::Antipode,
+                vec![p, o, a],
+            );
         }
     }
 
@@ -939,9 +971,7 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
         // meet there (perpendicular to the radii, equidistant from both).
         for &(o, a) in &known_circles(problem) {
             let (vo, r) = (c(o), distance(c(o), c(a)));
-            let on_circle: Vec<PointId> = (0..n as PointId)
-                .filter(|&p| p != o && (distance(c(p), vo) - r).abs() < 1e-6)
-                .collect();
+            let on_circle = hypothesis_circle_members(problem, o, a);
             for pi in 0..on_circle.len() {
                 for qi in (pi + 1)..on_circle.len() {
                     let (p, q) = (on_circle[pi], on_circle[qi]);
@@ -1424,6 +1454,10 @@ fn heuristic_score(problem: &Problem, cand: &Construction, ctx: &RankContext) ->
     kind_prior(cand.kind) + 2.0 * rel + salient_bonus(cand, ctx)
 }
 
+fn past(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|d| Instant::now() >= d)
+}
+
 fn try_solve(
     problem: &Problem,
     depth: usize,
@@ -1431,12 +1465,16 @@ fn try_solve(
     max_runs: usize,
     full: bool,
     verbose: bool,
+    deadline: Option<Instant>,
 ) -> Option<Vec<Construction>> {
+    if past(deadline) {
+        return None;
+    }
     *runs += 1;
     if safe_solve(problem) {
         return Some(Vec::new());
     }
-    if depth == 0 || *runs >= max_runs {
+    if depth == 0 || *runs >= max_runs || past(deadline) {
         return None;
     }
     let cands = candidates(problem, full);
@@ -1474,6 +1512,9 @@ fn try_solve(
             None
         };
         let found = cands[..take].par_iter().find_first(|cand| {
+            if past(deadline) {
+                return false;
+            }
             attempted.fetch_add(1, Ordering::Relaxed);
             match &warm {
                 Some(w) => w.check(cand),
@@ -1497,12 +1538,12 @@ fn try_solve(
     let branches = cands.len().min(64);
     let per_branch = ((max_runs - *runs) / branches.max(1)).max(1_500);
     for cand in cands.into_iter().take(branches) {
-        if *runs >= max_runs {
+        if *runs >= max_runs || past(deadline) {
             break;
         }
         let aug = augment(problem, &cand);
         let sub_max = (*runs + per_branch).min(max_runs);
-        if let Some(mut rest) = try_solve(&aug, depth - 1, runs, sub_max, full, verbose) {
+        if let Some(mut rest) = try_solve(&aug, depth - 1, runs, sub_max, full, verbose, deadline) {
             let mut v = vec![cand];
             v.append(&mut rest);
             return Some(v);
@@ -1535,6 +1576,21 @@ pub fn solve_with_aux_opts(
     verbose: bool,
     full: bool,
 ) -> (Option<AuxProof>, SearchStats) {
+    solve_with_aux_until(problem, max_depth, max_runs, verbose, full, None)
+}
+
+/// [`solve_with_aux_opts`] with a wall-clock `deadline`: once it passes, no new
+/// candidate DDAR run starts and the search returns `None` unless a proof was
+/// already found. A run already in progress finishes, so a caller needing a
+/// hard stop must also bound the process externally.
+pub fn solve_with_aux_until(
+    problem: &Problem,
+    max_depth: usize,
+    max_runs: usize,
+    verbose: bool,
+    full: bool,
+    deadline: Option<Instant>,
+) -> (Option<AuxProof>, SearchStats) {
     // A goal-less problem can never be proved; without this guard the search
     // would burn its entire run budget on unprovable attempts (e.g. after
     // `strip_point` removed a point the goal mentioned).
@@ -1548,7 +1604,7 @@ pub fn solve_with_aux_opts(
     // warm-start bookkeeping, parallel harness). A machinery panic must not
     // kill a long-running search process — degrade to "no proof found".
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::quiet_panic::quiet(|| try_solve(problem, max_depth, &mut runs, max_runs, full, verbose))
+        crate::quiet_panic::quiet(|| try_solve(problem, max_depth, &mut runs, max_runs, full, verbose, deadline))
     }))
     .unwrap_or_else(|_| {
         eprintln!(
@@ -1604,6 +1660,38 @@ pub fn solve_max(problem: &Problem, verbose: bool) -> (Option<AuxProof>, SearchS
         // size — a 17-point IMO configuration needs the circle constructions
         // most of all.
         let (res, stats) = solve_with_aux_opts(problem, depth, budget, verbose, true);
+        runs += stats.runs;
+        if res.is_some() {
+            return (res, SearchStats { runs });
+        }
+    }
+    (None, SearchStats { runs })
+}
+
+/// [`solve_max`] bounded by a wall-clock `deadline` and complete at depth 1: it
+/// first sweeps every single-construction candidate, then deepens to
+/// 2..=`AUX_MAX_DEPTH` with [`solve_max`]'s budgets.
+pub fn solve_max_until(
+    problem: &Problem,
+    verbose: bool,
+    deadline: Option<Instant>,
+) -> (Option<AuxProof>, SearchStats) {
+    if problem.goal.is_none() {
+        return (None, SearchStats { runs: 0 });
+    }
+    let max_depth = env_usize("AUX_MAX_DEPTH", 3).max(1);
+    let deep_budget = env_usize("AUX_MAX_RUNS", 2_000_000).max(10_000);
+    let mut runs = 0usize;
+    for depth in 1..=max_depth {
+        if past(deadline) {
+            break;
+        }
+        let budget = if depth == 1 || depth == max_depth {
+            deep_budget
+        } else {
+            (deep_budget / 8).max(200_000).min(deep_budget)
+        };
+        let (res, stats) = solve_with_aux_until(problem, depth, budget, verbose, true, deadline);
         runs += stats.runs;
         if res.is_some() {
             return (res, SearchStats { runs });
