@@ -776,6 +776,8 @@ pub fn generate_geo(programs: &[(String, String)], cfg: &Config) -> Generated {
     out
 }
 
+type Prover = fn(&str, &str) -> Result<crate::synthetic::Outcome, String>;
+
 /// Run one metric case through the classical provers directly — the additive
 /// (`synthetic`) and the multiplicative (`ratio`) one — without
 /// `metric::solve`'s figure backstop, so a wrong derivation is seen.
@@ -796,7 +798,7 @@ pub fn solve_geo_case(name: &str, text: &str) -> Outcome {
     let cons: String = cons.split(';').map(str::trim).collect::<Vec<_>>().join("\n");
     out.parsed = true;
     out.goal_numeric = equation_truths(&cons, goal, 1).and_then(|t| t.first().copied().flatten());
-    let provers: [(&str, fn(&str, &str) -> Result<Proof, String>); 2] = [
+    let provers: [(&str, Prover); 2] = [
         ("synthetic", crate::synthetic::prove_euclidean),
         ("ratio", crate::ratio::prove_ratio),
     ];

@@ -1134,7 +1134,7 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
     let progress = |k: usize, n: usize, o: &bench::Outcome| {
         if let Some(case) = kinds.get(o.name.as_str()) {
             let v = fuzz::verdict(case, o);
-            if v != "ok" || k % 50 == 0 || k == n {
+            if v != "ok" || k.is_multiple_of(50) || k == n {
                 eprintln!("[{k:>4}/{n}] {:<52} {:<11} {:<15} {v}", o.name, case.kind.tag(), o.status);
             }
         }
