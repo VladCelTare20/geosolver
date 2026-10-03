@@ -2,7 +2,7 @@
   "//": "Merge this into %APPDATA%\\Claude\\claude_desktop_config.json (Windows) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS), then restart Claude Desktop. Build the binary first: cargo build --release -p ag-studio",
   "mcpServers": {
     "alphageometry": {
-      "command": "C:\\Users\\vlada\\Documents\\alphageometry2-main\\alphageometry2-main\\target\\release\\agstudio.exe",
+      "command": "/absolute/path/to/geosolver/target/release/agstudio",
       "args": ["mcp"]
     }
   }

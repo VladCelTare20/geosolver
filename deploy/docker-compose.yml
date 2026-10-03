@@ -1,4 +1,4 @@
-# Production deployment: AlphaGeometry Studio behind an nginx TLS reverse proxy.
+# Production deployment: GeoSolver behind an nginx TLS reverse proxy.
 #
 #   1.  cp deploy/.env.example deploy/.env   &&   edit AGSTUDIO_BASIC_AUTH
 #   2.  put your TLS files in deploy/certs/  (fullchain.pem + privkey.pem)
@@ -15,6 +15,9 @@ services:
     environment:
       AGSTUDIO_BIND: "0.0.0.0:8787"
       AGSTUDIO_TRUST_PROXY: "1"
+      AGSTUDIO_SECURE_COOKIES: "1"
+    volumes:
+      - agstudio-data:/data   # SQLite accounts/sessions/history — survives rebuilds
     expose:
       - "8787"          # container network only — NOT published to the host
     healthcheck:
@@ -34,3 +37,6 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs:/etc/nginx/certs:ro
+
+volumes:
+  agstudio-data:

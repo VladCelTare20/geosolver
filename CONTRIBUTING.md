@@ -1,25 +1,24 @@
-# How to Contribute
+# Contributing
 
-## Contributor License Agreement
+Pull requests are welcome.
 
-Contributions to this project must be accompanied by a Contributor License
-Agreement. You (or your employer) retain the copyright to your contribution,
-this simply gives us permission to use and redistribute your contributions as
-part of the project. Head over to <https://cla.developers.google.com/> to see
-your current agreements on file or to sign a new one.
+Before opening one:
 
-You generally only need to submit a CLA once, so if you've already submitted one
-(even if it was for a different project), you probably don't need to do it
-again.
+```sh
+cargo fmt --all
+cargo clippy --workspace --all-targets --release
+cargo test --workspace --release
+cargo run --release -p alphageometry-rs --bin ddar -- --bench   # must stay 26/26
+```
 
-## Code reviews
+Ground rules:
 
-All submissions, including submissions by project members, require review. We
-use GitHub pull requests for this purpose. Consult
-[GitHub Help](https://help.github.com/articles/about-pull-requests/) for more
-information on using pull requests.
+- **Soundness first.** The prover must never report a false statement as proved.
+  Any change to deduction rules, goal compilation or the metric/ratio provers
+  needs a regression test with a *false* statement that must stay unproved.
+- Keep the engine pure Rust with no Python dependency.
+- Translation uses the local `claude` CLI on a Claude subscription — never an API key.
+- In `mcp` mode stdout is the protocol channel; nothing else may print there.
 
-## Community Guidelines
-
-This project follows [Google's Open Source Community
-Guidelines](https://opensource.google/conduct/).
+By contributing you agree your contribution is licensed under Apache-2.0
+(see `LICENSE` and `NOTICE`).

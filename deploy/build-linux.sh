@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a release binary of AlphaGeometry Studio on a Linux host (no Docker).
+# Build a release binary of GeoSolver on a Linux host (no Docker).
 # Building on the target host uses that host's CPU tuning, which is what you want.
 set -euo pipefail
 cd "$(dirname "$0")/.."

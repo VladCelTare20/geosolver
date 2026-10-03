@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "agstudio",
-      "runtimeExecutable": "C:/Users/vlada/Documents/alphageometry2-main/alphageometry2-main/target/release/agstudio.exe",
+      "runtimeExecutable": "target/release/agstudio",
       "runtimeArgs": ["serve", "--port", "8787"],
       "port": 8787
     }

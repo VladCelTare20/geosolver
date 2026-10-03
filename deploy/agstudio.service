@@ -13,6 +13,13 @@ Wants=network-online.target
 Type=simple
 ExecStart=/opt/agstudio/agstudio serve
 EnvironmentFile=/etc/agstudio.env
+# Accounts, sessions and history live in SQLite. DynamicUser + ProtectSystem=strict
+# leave no writable path except the StateDirectory, so the DB must live there.
+StateDirectory=agstudio
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/agstudio
+Environment=AGSTUDIO_DB=/var/lib/agstudio/agstudio.db
+UMask=0077
 Restart=on-failure
 RestartSec=3
 
@@ -27,7 +34,13 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectProc=invisible
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
 RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes

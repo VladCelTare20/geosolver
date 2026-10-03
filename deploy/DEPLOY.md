@@ -1,7 +1,9 @@
-# Deploying AlphaGeometry Studio on a Linux server
+# Deploying GeoSolver on a Linux server
 
-The whole app is a **single static binary** — the web UI, fonts, and grammar are
-baked in. There is no database and no runtime assets. Pick one of:
+The whole app is a **single binary** — the web UI, fonts, and grammar are baked
+in — plus **one SQLite file** (`AGSTUDIO_DB`) holding accounts, sessions and
+solve history. That file is the only state: put it on persistent storage and
+back it up. Each option below does that for you. Pick one of:
 
 - **A. Docker Compose + nginx (TLS)** — recommended for a public host.
 - **B. Plain `docker run`** — behind your own proxy / Cloudflare Tunnel.
@@ -42,14 +44,17 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
 
 ```sh
 docker build -t agstudio .
-docker run -d --name agstudio -p 8787:8787 \
+docker run -d --name agstudio -p 127.0.0.1:8787:8787 \
   -e AGSTUDIO_BASIC_AUTH="user:strong-password" \
+  -v agstudio-data:/data \
   --restart unless-stopped agstudio
 ```
 
 Then front it with your own TLS proxy (nginx, Caddy, Traefik, Cloudflare
-Tunnel). Set `AGSTUDIO_TRUST_PROXY=1` (default on) so the real client IP is read
-from `X-Forwarded-For`.
+Tunnel). Set `AGSTUDIO_TRUST_PROXY=1` so the real client IP is read from
+`X-Forwarded-For` — only when a proxy is the sole way in, otherwise clients can
+forge the header and dodge the rate limits. The `-v agstudio-data:/data` volume
+keeps accounts and history across `docker rm`/rebuilds.
 
 ## C. Native binary + systemd
 
@@ -62,8 +67,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now agstudio
 ```
 
-Requires [Rust](https://rustup.rs) to build. The unit is hardened (DynamicUser,
-seccomp, ProtectSystem=strict, no capabilities).
+Requires Rust 1.88+ to build. The unit is hardened (DynamicUser, seccomp,
+ProtectSystem=strict, no capabilities); its only writable path is
+`StateDirectory=/var/lib/agstudio`, where the SQLite DB lives.
 
 ---
 
@@ -74,13 +80,15 @@ seccomp, ProtectSystem=strict, no capabilities).
 | `AGSTUDIO_BIND` | `127.0.0.1:8787` | interface:port to bind |
 | `AGSTUDIO_BASIC_AUTH` | (none) | `user:pass` — require HTTP Basic auth. **Required for a public bind.** |
 | `AGSTUDIO_ALLOW_INSECURE` | off | allow a non-loopback bind with no auth (only if a proxy is the sole entry point) |
-| `AGSTUDIO_TRUST_PROXY` | on | read the client IP from `X-Forwarded-For` |
+| `AGSTUDIO_TRUST_PROXY` | off | read the client IP from `X-Forwarded-For` |
 | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests (503 when full) |
 | `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests/min (0 = off) |
 | `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP translations/min |
 | `AGSTUDIO_MAX_BODY_KB` | 8192 | request body limit |
 | `AGSTUDIO_MAX_INPUT_CHARS` | 16384 | max program length |
 | `AGSTUDIO_DISABLE_TRANSLATE` | off | disable the `/api/translate` endpoint |
+| `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts, sessions, history (the only state) |
+| `AGSTUDIO_SECURE_COOKIES` | off | `Secure`/`__Host-` session cookie — turn on whenever served over HTTPS |
 | `AUX_MAX_RUNS`, `AUX_MAX_DEPTH`, `RAYON_NUM_THREADS` | server-safe | solver effort caps (set automatically; override to tune) |
 
 ## Health, logs, updates
