@@ -19,15 +19,24 @@
 //! remaining classics (Menelaus, Ceva, the angle-bisector ratio) are cited as
 //! lemmas — legitimate when they are a *step*, and blocked by the
 //! anti-circularity guard when they would *be* the goal.
+//!
+//! Every fact a step rests on is derived, never measured. The figure's
+//! coordinates only *propose* candidates (which triangles look similar, which
+//! lines look parallel) and read configuration (order, orientation); a
+//! candidate is used only once its angle facts are derived from the hypotheses
+//! by the DDAR closure ([`crate::engine`]), and that derivation is printed with
+//! the step.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::geo::AlgFigure;
+use crate::geo::SampledFigure;
 use crate::metric::MExpr;
 use crate::numerics::{intersect_ll, NumCircle, NumLine, Vec2};
-use crate::predicate::PointId;
+use crate::certify::{derivation_block, pred, with_refs, Certifier};
+use crate::predicate::{PointId, Predicate};
 use crate::rational::Rat;
-use crate::synthetic::{rat_of, Outcome};
+use crate::synthetic::{equal_radius_circles, rat_of, Outcome};
 
 /// A log-length unknown `ln|ab|`, keyed by the unordered pair.
 type LAtom = (PointId, PointId);
@@ -165,6 +174,14 @@ struct Figure {
     /// per drop (never merged) so the solver behaves identically to distinct
     /// auxiliary points.
     drop_group: usize,
+    /// The construction's hypothesis predicates plus the defining facts of every
+    /// auxiliary point added since — exactly what the DDAR certifier may use.
+    preds: Vec<Predicate>,
+    /// The DDAR closure over `preds`, rebuilt when points or facts are added.
+    ddar: RefCell<Certifier>,
+    /// Similar-triangle steps of the product engine awaiting certification:
+    /// `(intro step, t1, t2)`.
+    sim_intros: Vec<(usize, [PointId; 3], [PointId; 3])>,
 }
 
 impl Figure {
@@ -222,7 +239,7 @@ impl Figure {
 
     // ----------------------------------------------------------------------
 
-    fn gather(fig: &AlgFigure, insts: Vec<Vec<Vec2>>) -> Figure {
+    fn gather(fig: &SampledFigure, insts: Vec<Vec<Vec2>>) -> Figure {
         let mut f = Figure {
             names: fig.names.clone(),
             insts,
@@ -236,6 +253,9 @@ impl Figure {
             steps: Vec::new(),
             psteps: Vec::new(),
             drop_group: 0,
+            preds: fig.preds.clone(),
+            ddar: RefCell::new(Certifier::default()),
+            sim_intros: Vec::new(),
         };
         for p in &fig.preds {
             let pts = &p.points;
@@ -261,26 +281,12 @@ impl Figure {
         f
     }
 
-    /// Circles with a known centre (from `cong(o,·,o,·)`), and the concyclic
-    /// point-sets they induce (added to `concyclic` for power-of-a-point).
+    /// Circles whose equal radii follow from the hypotheses (see
+    /// [`equal_radius_circles`]), and the concyclic point-sets they induce
+    /// (added to `concyclic` for power-of-a-point). The figure is only a
+    /// consistency guard.
     fn detect_circles(&mut self) {
-        let n = self.names.len();
-        let mut on: Vec<BTreeSet<PointId>> = vec![BTreeSet::new(); n];
-        for c in &self.congs {
-            if c[0] == c[2] && c[1] != c[3] {
-                on[c[0] as usize].insert(c[1]);
-                on[c[0] as usize].insert(c[3]);
-            }
-            if c[1] == c[3] && c[0] != c[2] {
-                on[c[1] as usize].insert(c[0]);
-                on[c[1] as usize].insert(c[2]);
-            }
-        }
-        for o in 0..n as PointId {
-            let set = &on[o as usize];
-            if set.len() < 3 {
-                continue;
-            }
+        for (o, set) in equal_radius_circles(self.names.len(), &self.congs, &self.abs_len) {
             let pts: Vec<PointId> = set.iter().copied().collect();
             let r2 = self.dist(0, o, pts[0]).powi(2);
             if pts
@@ -293,6 +299,73 @@ impl Figure {
                 }
             }
         }
+    }
+
+    /// Does the figure show `p` strictly between `x` and `y` (a configuration
+    /// fact, read from every instance)?
+    fn between(&self, x: PointId, p: PointId, y: PointId) -> bool {
+        (0..self.insts.len()).all(|i| {
+            let (vx, vp, vy) = (
+                self.insts[i][x as usize],
+                self.insts[i][p as usize],
+                self.insts[i][y as usize],
+            );
+            (vp - vx).dot(vy - vp) > 0.0
+        })
+    }
+
+    /// How the angles `∠xPx'` and `∠yPy'` at a common vertex relate when the
+    /// lines `xy` and `x'y'` cross at `P`: vertical angles if `P` lies between
+    /// `x` and `y`, otherwise the same angle.
+    fn angle_at(&self, x: PointId, p: PointId, y: PointId) -> &'static str {
+        if self.between(x, p, y) {
+            "vertical angles"
+        } else {
+            "the same angle"
+        }
+    }
+
+    // -- DDAR certification -------------------------------------------------
+
+    /// Derive every predicate in `goals` with the DDAR closure over the
+    /// hypotheses (and auxiliary facts) of this figure. Returns the numbered
+    /// derivation, or `None` if any goal is not derivable.
+    fn certify(&self, goals: &[Predicate]) -> Option<Vec<String>> {
+        self.ddar
+            .borrow_mut()
+            .derive(&self.names, &self.insts[0], &self.preds, goals)
+    }
+
+    /// The directed-angle facts that make `t1 = (p,q,r) ~ t2 = (u,v,w)` (by
+    /// position) similar, given their orientations in the figure: the angles
+    /// at `p`/`u` and at `q`/`v` are equal.
+    fn similarity_angles(&self, t1: [PointId; 3], t2: [PointId; 3]) -> Option<[Predicate; 2]> {
+        let orient = |t: [PointId; 3], i: usize| {
+            let (a, b, c) = (
+                self.insts[i][t[0] as usize],
+                self.insts[i][t[1] as usize],
+                self.insts[i][t[2] as usize],
+            );
+            let (u, v) = (b - a, c - a);
+            (u.x * v.y - u.y * v.x).signum()
+        };
+        let same = orient(t1, 0) == orient(t2, 0);
+        if (0..self.insts.len()).any(|i| (orient(t1, i) == orient(t2, i)) != same) {
+            return None;
+        }
+        let [p, q, r] = t1;
+        let [u, v, w] = t2;
+        Some(if same {
+            [
+                pred("eqangle", &[p, r, p, q, u, w, u, v]),
+                pred("eqangle", &[q, r, q, p, v, w, v, u]),
+            ]
+        } else {
+            [
+                pred("eqangle", &[p, r, p, q, u, v, u, w]),
+                pred("eqangle", &[q, r, q, p, v, u, v, w]),
+            ]
+        })
     }
 
     /// Are the two triangles similar (equal angles at corresponding vertices) in
@@ -327,10 +400,14 @@ impl Figure {
         }
         let [p, q, r] = t1;
         let [u, v, w] = t2;
+        let (reason, derivation) = match reason.split_once('\n') {
+            Some((head, rest)) => (head, format!("\n{rest}")),
+            None => (reason, String::new()),
+        };
         let intro = self.push(
             format!(
                 "{reason} — so triangles {} and {} are similar (AA), giving \
-                 {}:{} = {}:{} = {}:{}.",
+                 {}:{} = {}:{} = {}:{}.{derivation}",
                 tri(self, t1),
                 tri(self, t2),
                 self.seg(p, q),
@@ -562,10 +639,16 @@ impl Figure {
                                     break;
                                 }
                                 if self.similar_in_all([aa, p, cc], [dd, p, bb]) {
+                                    let inside = self.between(a, p, b);
+                                    let at_p = if inside { "vertical angles" } else { "the same angle" };
+                                    let at_chord = if inside {
+                                        "inscribed angles on the same arc"
+                                    } else {
+                                        "an exterior angle of a cyclic quadrilateral equals the interior opposite angle"
+                                    };
                                     let reason = format!(
                                         "{a}, {b}, {c}, {d} are concyclic: ∠{aa}{p}{cc} = ∠{dd}{p}{bb} \
-                                         (vertical angles) and ∠{cc}{aa}{bb} = ∠{cc}{dd}{bb} \
-                                         (inscribed on chord {cc}{bb})",
+                                         ({at_p}) and ∠{p}{aa}{cc} = ∠{p}{dd}{bb} ({at_chord})",
                                         a = self.nm(a),
                                         b = self.nm(b),
                                         c = self.nm(c),
@@ -668,9 +751,13 @@ impl Figure {
                             {
                                 continue;
                             }
+                            let Some(why) = self.certify(&[pred("para", &[d, e, b, c])]) else {
+                                continue;
+                            };
                             let reason = format!(
-                                "{de} ∥ {bc}, so ∠{a}{d}{e} = ∠{a}{b}{c} and ∠{a}{e}{d} = ∠{a}{c}{b} \
-                                 (corresponding angles)",
+                                "{de} ∥ {bc} (derived below), so ∠{a}{d}{e} = ∠{a}{b}{c} and \
+                                 ∠{a}{e}{d} = ∠{a}{c}{b} (corresponding angles){}",
+                                derivation_block(&why),
                                 de = self.seg(d, e),
                                 bc = self.seg(b, c),
                                 a = self.nm(a),
@@ -710,6 +797,7 @@ impl Figure {
     /// `BB′:CC′ = AB:AC`; hence `BD:DC = AB:AC`.
     fn derive_bisector(&mut self) {
         let n = self.names.len() as PointId;
+        let mut found: Vec<(PointId, PointId, PointId, PointId, Vec<String>)> = Vec::new();
         for a in 0..n {
             for b in 0..n {
                 for c in (b + 1)..n {
@@ -720,75 +808,80 @@ impl Figure {
                         if [a, b, c].contains(&d) || !self.coll(b, d, c) {
                             continue;
                         }
-                        let bisects = (0..self.insts.len()).all(|i| {
+                        let looks_bisected = (0..self.insts.len()).all(|i| {
                             let x = self.angle(i, b, a, d);
                             let y = self.angle(i, d, a, c);
-                            let inside = (self.insts[i][d as usize] - self.insts[i][b as usize])
-                                .dot(self.insts[i][c as usize] - self.insts[i][d as usize])
-                                > 0.0;
-                            x.is_finite() && y.is_finite() && (x - y).abs() < 1e-6 && x > 1e-4 && inside
+                            x.is_finite() && y.is_finite() && (x - y).abs() < 1e-6 && x > 1e-4
                         });
-                        if !bisects {
+                        if !looks_bisected || !self.between(b, d, c) {
                             continue;
                         }
-                        self.cite(
-                            &[(b, d), (a, c)],
-                            &[(d, c), (a, b)],
-                            format!(
-                                "By the angle-bisector theorem ({ad} bisects ∠{b}{a}{c}), \
-                                 {bd}·{ac} = {dc}·{ab}.",
-                                ad = self.seg(a, d),
-                                a = self.nm(a),
-                                b = self.nm(b),
-                                c = self.nm(c),
-                                bd = self.seg(b, d),
-                                ac = self.seg(a, c),
-                                dc = self.seg(d, c),
-                                ab = self.seg(a, b),
-                            ),
-                        );
-                        self.drop_group += 1;
-                        let fb = self.add_perp_foot(b, a, d);
-                        let fc = self.add_perp_foot(c, a, d);
-                        let intro = self.push(
-                            format!(
-                                "{ad} bisects ∠{b}{a}{c}. Drop perpendiculars from {b}, {c} onto \
-                                 the bisector {ad}, with feet {fb}, {fc}.",
-                                ad = self.seg(a, d),
-                                a = self.nm(a),
-                                b = self.nm(b),
-                                c = self.nm(c),
-                                fb = self.nm(fb),
-                                fc = self.nm(fc),
-                            ),
-                            None,
-                            vec![],
-                            false,
-                        );
-                        let r1 = format!(
-                            "∠{b}{d}{fb} = ∠{c}{d}{fc} (vertical angles at {d}) and the right \
-                             angles at {fb}, {fc}",
-                            b = self.nm(b),
-                            c = self.nm(c),
-                            d = self.nm(d),
-                            fb = self.nm(fb),
-                            fc = self.nm(fc),
-                        );
-                        self.emit_similar([b, d, fb], [c, d, fc], &r1, vec![intro]);
-                        let r2 = format!(
-                            "∠{b}{a}{fb} = ∠{c}{a}{fc} (since {a}{d} bisects ∠{b}{a}{c}) and the \
-                             right angles at {fb}, {fc}",
-                            a = self.nm(a),
-                            b = self.nm(b),
-                            c = self.nm(c),
-                            d = self.nm(d),
-                            fb = self.nm(fb),
-                            fc = self.nm(fc),
-                        );
-                        self.emit_similar([a, b, fb], [a, c, fc], &r2, vec![intro]);
+                        let Some(why) = self.certify(&[pred("eqangle", &[a, b, a, d, a, d, a, c])])
+                        else {
+                            continue;
+                        };
+                        found.push((a, b, c, d, why));
                     }
                 }
             }
+        }
+        for (a, b, c, d, why) in found {
+            self.cite(
+                &[(b, d), (a, c)],
+                &[(d, c), (a, b)],
+                format!(
+                    "By the angle-bisector theorem ({ad} bisects ∠{b}{a}{c}), \
+                     {bd}·{ac} = {dc}·{ab}.",
+                    ad = self.seg(a, d),
+                    a = self.nm(a),
+                    b = self.nm(b),
+                    c = self.nm(c),
+                    bd = self.seg(b, d),
+                    ac = self.seg(a, c),
+                    dc = self.seg(d, c),
+                    ab = self.seg(a, b),
+                ),
+            );
+            self.drop_group += 1;
+            let fb = self.add_perp_foot(b, a, d);
+            let fc = self.add_perp_foot(c, a, d);
+            let intro = self.push(
+                format!(
+                    "{ad} bisects ∠{b}{a}{c} (derived below). Drop perpendiculars from {b}, {c} \
+                     onto the bisector {ad}, with feet {fb}, {fc}.{}",
+                    derivation_block(&why),
+                    ad = self.seg(a, d),
+                    a = self.nm(a),
+                    b = self.nm(b),
+                    c = self.nm(c),
+                    fb = self.nm(fb),
+                    fc = self.nm(fc),
+                ),
+                None,
+                vec![],
+                false,
+            );
+            let r1 = format!(
+                "∠{b}{d}{fb} = ∠{c}{d}{fc} ({rel} at {d}) and the right angles at {fb}, {fc}",
+                rel = self.angle_at(b, d, c),
+                b = self.nm(b),
+                c = self.nm(c),
+                d = self.nm(d),
+                fb = self.nm(fb),
+                fc = self.nm(fc),
+            );
+            self.emit_similar([b, d, fb], [c, d, fc], &r1, vec![intro]);
+            let r2 = format!(
+                "∠{b}{a}{fb} = ∠{c}{a}{fc} (since {a}{d} bisects ∠{b}{a}{c}) and the \
+                 right angles at {fb}, {fc}",
+                a = self.nm(a),
+                b = self.nm(b),
+                c = self.nm(c),
+                d = self.nm(d),
+                fb = self.nm(fb),
+                fc = self.nm(fc),
+            );
+            self.emit_similar([a, b, fb], [a, c, fc], &r2, vec![intro]);
         }
     }
 
@@ -799,11 +892,18 @@ impl Figure {
         let name = format!("{}{}", self.nm(a), subscript(self.drop_group));
         let id = self.names.len() as PointId;
         self.names.push(name);
+        let mut fresh = true;
         for inst in &mut self.insts {
             let (pa, p1, p2) = (inst[a as usize], inst[l1 as usize], inst[l2 as usize]);
             let dir = p2 - p1;
             let t = (pa - p1).dot(dir) / dir.dot(dir).max(1e-18);
-            inst.push(p1 + dir * t);
+            let foot = p1 + dir * t;
+            fresh &= inst.iter().all(|q| (*q - foot).norm() > 1e-6);
+            inst.push(foot);
+        }
+        if fresh {
+            self.preds.push(pred("coll", &[l1, l2, id]));
+            self.preds.push(pred("perp", &[a, id, l1, l2]));
         }
         id
     }
@@ -865,8 +965,9 @@ impl Figure {
             );
             let vertical = |f: &Figure, x: PointId, p: PointId, fx: PointId, y: PointId, fy: PointId| {
                 format!(
-                    "∠{x}{p}{fx} = ∠{y}{p}{fy} (vertical angles at {p}) and the right angles at \
+                    "∠{x}{p}{fx} = ∠{y}{p}{fy} ({rel} at {p}) and the right angles at \
                      {fx}, {fy}",
+                    rel = f.angle_at(x, p, y),
                     x = f.nm(x),
                     p = f.nm(p),
                     fx = f.nm(fx),
@@ -1030,7 +1131,7 @@ impl Figure {
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}{}\n", k + 1, self.steps[i].text, refs));
+            out.push_str(&format!("  {}. {}\n", k + 1, with_refs(&self.steps[i].text, &refs)));
         }
         out.push_str(&format!(
             "\n  Combining the proportions above gives {goal_text}  (= {}). ∎\n",
@@ -1190,6 +1291,8 @@ struct PStep {
     text: String,
     eq: Option<PEq>,
     premises: Vec<usize>,
+    /// Printed before the other steps (the shared angle derivation).
+    lead: bool,
 }
 
 type Mono = Vec<LAtom>;
@@ -1283,12 +1386,19 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
 
 impl Figure {
     fn ppush(&mut self, text: String, eq: Option<PEq>, premises: Vec<usize>) -> usize {
-        self.psteps.push(PStep { text, eq, premises });
+        self.psteps.push(PStep {
+            text,
+            eq,
+            premises,
+            lead: false,
+        });
         self.psteps.len() - 1
     }
 
-    /// Emit the three product equalities of similar `t1 = (p,q,r) ~ t2 = (u,v,w)`,
-    /// gated by numeric similarity in every instance, stating the equal angles.
+    /// Propose the three product equalities of similar `t1 = (p,q,r) ~
+    /// t2 = (u,v,w)` when the triangles look similar in every instance. The
+    /// step is only a candidate: [`Figure::prove_products`] keeps it only if the
+    /// DDAR closure derives the two angle equalities, and prints that derivation.
     fn psim(&mut self, t1: [PointId; 3], t2: [PointId; 3]) {
         if !self.similar_in_all(t1, t2) {
             return;
@@ -1297,7 +1407,7 @@ impl Figure {
         let [u, v, w] = t2;
         let intro = self.ppush(
             format!(
-                "∠{}{}{} = ∠{}{}{} and ∠{}{}{} = ∠{}{}{}, so {} ~ {} (AA): {}·{} = {}·{}, {}·{} = {}·{}, {}·{} = {}·{}.",
+                "∠{}{}{} = ∠{}{}{} and ∠{}{}{} = ∠{}{}{} (derived from the hypotheses), so {} ~ {} (AA): {}·{} = {}·{}, {}·{} = {}·{}, {}·{} = {}·{}.",
                 self.nm(r), self.nm(p), self.nm(q), self.nm(w), self.nm(u), self.nm(v),
                 self.nm(p), self.nm(q), self.nm(r), self.nm(u), self.nm(v), self.nm(w),
                 tri(self, t1), tri(self, t2),
@@ -1308,6 +1418,7 @@ impl Figure {
             None,
             vec![],
         );
+        self.sim_intros.push((intro, t1, t2));
         let (pq, qr, rp) = (latom(p, q), latom(q, r), latom(r, p));
         let (uv, vw, wu) = (latom(u, v), latom(v, w), latom(w, u));
         for (x, y) in [
@@ -1469,11 +1580,8 @@ impl Figure {
         g.is_zero().then_some(deps)
     }
 
-    fn pprove(&self, goal: &PEq) -> Option<BTreeSet<usize>> {
-        let all: BTreeSet<usize> = (0..self.psteps.len())
-            .filter(|&i| self.psteps[i].eq.is_some())
-            .collect();
-        let mut used = self.pprove_with(goal, &all)?;
+    fn pprove(&self, goal: &PEq, all: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
+        let mut used = self.pprove_with(goal, all)?;
         loop {
             let mut removed = false;
             for &s in used.clone().iter() {
@@ -1500,11 +1608,12 @@ impl Figure {
                 stack.extend(self.psteps[i].premises.iter().copied());
             }
         }
-        let order: Vec<usize> = keep
+        let mut order: Vec<usize> = keep
             .iter()
             .copied()
             .filter(|&i| !self.psteps[i].text.is_empty())
             .collect();
+        order.sort_by_key(|&i| (!self.psteps[i].lead, i));
         let number: BTreeMap<usize, usize> = order
             .iter()
             .enumerate()
@@ -1527,13 +1636,95 @@ impl Figure {
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}{}\n", k + 1 + aux.len(), self.psteps[i].text, refs));
+            out.push_str(&format!(
+                "  {}. {}\n",
+                k + 1 + aux.len(),
+                with_refs(&self.psteps[i].text, &refs)
+            ));
         }
         out.push_str(&format!(
             "\n  Adding the relations above gives {goal_text}  (= {}). ∎\n",
             crate::synthetic::pretty_len(goal_val)
         ));
         out
+    }
+
+    /// Solve `goal` with the product steps, using a similar-triangle step only if
+    /// DDAR derives its angle equalities. Uncertifiable candidates are dropped
+    /// and the solve retried; certified steps get their derivation appended.
+    fn certified_products(&mut self, goal: &PEq) -> Option<BTreeSet<usize>> {
+        let intro_of: BTreeMap<usize, ([PointId; 3], [PointId; 3])> = self
+            .sim_intros
+            .iter()
+            .map(|&(i, t1, t2)| (i, (t1, t2)))
+            .collect();
+        let mut rejected: BTreeSet<usize> = BTreeSet::new();
+        let mut certified: BTreeMap<usize, Vec<crate::proof::FactId>> = BTreeMap::new();
+        for _ in 0..64 {
+            let allowed: BTreeSet<usize> = (0..self.psteps.len())
+                .filter(|&i| {
+                    self.psteps[i].eq.is_some()
+                        && !self.psteps[i].premises.iter().any(|p| rejected.contains(p))
+                })
+                .collect();
+            let used = self.pprove(goal, &allowed)?;
+            let intros: BTreeSet<usize> = used
+                .iter()
+                .flat_map(|&i| self.psteps[i].premises.iter().copied())
+                .filter(|p| intro_of.contains_key(p))
+                .collect();
+            let mut all_ok = true;
+            for intro in intros {
+                if certified.contains_key(&intro) {
+                    continue;
+                }
+                let (t1, t2) = intro_of[&intro];
+                let why = self.similarity_angles(t1, t2).and_then(|goals| {
+                    self.ddar
+                        .borrow_mut()
+                        .derive_deps(&self.names, &self.insts[0], &self.preds, &goals)
+                });
+                match why {
+                    Some(deps) => {
+                        certified.insert(intro, deps);
+                    }
+                    None => {
+                        rejected.insert(intro);
+                        all_ok = false;
+                    }
+                }
+            }
+            if all_ok {
+                let used_intros: BTreeSet<usize> = used
+                    .iter()
+                    .flat_map(|&i| self.psteps[i].premises.iter().copied())
+                    .filter(|p| certified.contains_key(p))
+                    .collect();
+                if !used_intros.is_empty() {
+                    let mut deps: Vec<crate::proof::FactId> = used_intros
+                        .iter()
+                        .flat_map(|i| certified[i].iter().copied())
+                        .collect();
+                    deps.sort_unstable();
+                    deps.dedup();
+                    let lines = self.ddar.borrow().lines(&deps);
+                    let lead = self.ppush(
+                        format!(
+                            "Angle facts, derived from the hypotheses by the deductive closure:{}",
+                            derivation_block(&lines)
+                        ),
+                        None,
+                        vec![],
+                    );
+                    self.psteps[lead].lead = true;
+                    for intro in used_intros {
+                        self.psteps[intro].premises.push(lead);
+                    }
+                }
+                return Some(used);
+            }
+        }
+        None
     }
 
     /// Try to prove a homogeneous degree-2 length identity from the CURRENT
@@ -1561,9 +1752,10 @@ impl Figure {
             goal_segs.insert(m[1]);
         }
         self.psteps.clear();
+        self.sim_intros.clear();
         self.gather_generic_similar(relevant);
         self.gather_product_relations(&goal_segs);
-        let used = self.pprove(&goal)?;
+        let used = self.certified_products(&goal)?;
         if used.is_empty() {
             return None;
         }
@@ -1585,6 +1777,8 @@ enum AuxFact {
     Perp([PointId; 4]),
     Cong([PointId; 4]),
     Cyclic(Vec<PointId>),
+    /// `dir(p0p1) − dir(p2p3) = dir(p4p5) − dir(p6p7)` (directed, mod π).
+    EqAngle([PointId; 8]),
 }
 
 struct AuxCand {
@@ -1633,14 +1827,30 @@ impl Figure {
             steps: Vec::new(),
             psteps: Vec::new(),
             drop_group: 0,
+            preds: self.preds.clone(),
+            ddar: RefCell::new(Certifier::default()),
+            sim_intros: Vec::new(),
         }
     }
     fn add_fact(&mut self, f: &AuxFact) {
         match f {
-            AuxFact::Coll(a, b, c) => self.colls.push(vec![*a, *b, *c]),
-            AuxFact::Perp(p) => self.perps.push(*p),
-            AuxFact::Cong(p) => self.congs.push(*p),
-            AuxFact::Cyclic(v) => self.concyclic.push(v.iter().copied().collect()),
+            AuxFact::Coll(a, b, c) => {
+                self.colls.push(vec![*a, *b, *c]);
+                self.preds.push(pred("coll", &[*a, *b, *c]));
+            }
+            AuxFact::Perp(p) => {
+                self.perps.push(*p);
+                self.preds.push(pred("perp", p));
+            }
+            AuxFact::Cong(p) => {
+                self.congs.push(*p);
+                self.preds.push(pred("cong", p));
+            }
+            AuxFact::Cyclic(v) => {
+                self.concyclic.push(v.iter().copied().collect());
+                self.preds.push(pred("cyclic", v));
+            }
+            AuxFact::EqAngle(p) => self.preds.push(pred("eqangle", p)),
         }
     }
 
@@ -1818,13 +2028,16 @@ impl Figure {
                                     continue;
                                 }
                                 for sgn in [1.0f64, -1.0] {
+                                    let Some(copied) = self.copied_angle(v, r, p, q, kid, sgn) else {
+                                        continue;
+                                    };
                                     push!(self.build_cand(
                                         "K".to_string(),
                                         format!(
                                             "Let {} be the point on {} with ∠{}{}{} = ∠{}{}{}.",
                                             "K", seg(s, t), nm(r), nm(v), "K", nm(p), nm(v), nm(q)
                                         ),
-                                        vec![AuxFact::Coll(s, kid, t)],
+                                        vec![AuxFact::Coll(s, kid, t), copied],
                                         move |i| angle_copy(i, [v, r, p, q, s, t], sgn),
                                     ));
                                 }
@@ -1835,6 +2048,34 @@ impl Figure {
             }
         }
         out
+    }
+
+    /// The directed-angle fact defining an angle-copy point `K` (the ray `vK` is
+    /// `vr` turned by `sgn·∠pvq`): `∠(vr, vK) = ∠(vp, vq)` or `∠(vq, vp)`,
+    /// whichever orientation `p, q` have about `v` — the same in every instance,
+    /// or no fact (and no candidate) at all.
+    fn copied_angle(
+        &self,
+        v: PointId,
+        r: PointId,
+        p: PointId,
+        q: PointId,
+        k: PointId,
+        sgn: f64,
+    ) -> Option<AuxFact> {
+        let turn = |i: &Vec<Vec2>| {
+            let (dp, dq) = (i[p as usize] - i[v as usize], i[q as usize] - i[v as usize]);
+            (dp.x * dq.y - dp.y * dq.x).signum()
+        };
+        let first = turn(&self.insts[0]);
+        if first == 0.0 || self.insts.iter().any(|i| turn(i) != first) {
+            return None;
+        }
+        Some(if first == sgn {
+            AuxFact::EqAngle([v, k, v, r, v, q, v, p])
+        } else {
+            AuxFact::EqAngle([v, k, v, r, v, p, v, q])
+        })
     }
 
     /// Try to prove the goal by introducing one auxiliary point from the library.
@@ -1931,14 +2172,14 @@ fn angle_copy(i: &[Vec2], pts: [PointId; 6], sgn: f64) -> Option<Vec2> {
 /// Attempt a classical Euclidean proof of a **multiplicative** length goal.
 pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let (lhs, rhs) = crate::metric::parse_equation(goal)?;
-    let algfig = crate::geo::build_algebraic(cons_src)?;
+    let sampled = crate::geo::build_sampled_figure(cons_src)?;
 
     // Several independent instances gate the numeric detections: a similarity or
     // parallelism must hold in every one, so a rule fires only on a
     // construction-general fact, never a single-instance coincidence.
-    let mut insts: Vec<Vec<Vec2>> = vec![algfig.coords.clone()];
+    let mut insts: Vec<Vec<Vec2>> = vec![sampled.coords.clone()];
     if let Ok(more) = crate::geo::build_instances(cons_src, 4) {
-        let names = &algfig.names;
+        let names = &sampled.names;
         for inst in more {
             let map: std::collections::HashMap<&str, Vec2> =
                 inst.iter().map(|(k, v)| (k.as_str(), *v)).collect();
@@ -1952,13 +2193,13 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
         }
     }
 
-    let mut fig = Figure::gather(&algfig, insts);
+    let mut fig = Figure::gather(&sampled, insts);
     fig.apply();
 
     // General metric hypotheses imposed by `point:` constraints become given
     // equations — so an arbitrary relation the user imposed can be *used* here.
     let mut hyp_steps: Vec<(String, LEq)> = Vec::new();
-    for (l, r) in &algfig.metric_hyps {
+    for (l, r) in &sampled.metric_hyps {
         if let (Some(le), Some(re)) = (llower(l, &fig), llower(r, &fig)) {
             let mut eq = le;
             eq.sub_scaled(&re, &Rat::one());
@@ -2028,8 +2269,8 @@ mod tests {
         // Ten goal points: the angle-copy family alone would be ~580k candidates.
         let names: Vec<String> = (0..10).map(|i| format!("P{i}")).collect();
         let cons: String = names.iter().map(|n| format!("{n} = free\n")).collect();
-        let algfig = crate::geo::build_algebraic(&cons).expect("build");
-        let fig = Figure::gather(&algfig, vec![algfig.coords.clone()]);
+        let sampled = crate::geo::build_sampled_figure(&cons).expect("build");
+        let fig = Figure::gather(&sampled, vec![sampled.coords.clone()]);
         let g: Vec<PointId> = (0..names.len() as PointId).collect();
         let cands = fig.aux_candidates(&g);
         assert!(cands.len() <= MAX_AUX_CANDIDATES, "{} candidates", cands.len());

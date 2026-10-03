@@ -17,8 +17,8 @@
 //! * [`predicate`] — the AlphaGeometry predicate/problem language and parser.
 //! * [`engine`] — the DDAR deductive-closure loop.
 
-pub mod algebra;
 pub mod aux_search;
+pub(crate) mod certify;
 pub mod elim_core;
 pub mod elimination;
 pub mod engine;

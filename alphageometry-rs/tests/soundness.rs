@@ -72,9 +72,9 @@ fn metric_goals_still_work_as_hypotheses() {
 }
 
 #[test]
-fn nan_goal_is_not_verified() {
+fn nan_goal_is_not_proved() {
     let r = metric::solve("A = free\nB = free", "angle(A, A, B) = 1234", 48);
-    assert!(r.is_err(), "a NaN quantity must not verify: {r:?}");
+    assert!(r.is_err(), "a NaN quantity must not be proved: {r:?}");
 }
 
 #[test]
@@ -83,17 +83,51 @@ fn refuted_metric_goal_is_an_err() {
     let e = r.expect_err("a refuted goal must be an Err, not an Ok report");
     assert!(e.is_refuted(), "{e}");
     assert!(e.to_string().contains("counterexample"), "{e}");
-    assert!(metric::verify("A = free\nB = free", "dist(A,B) = 3", 8).is_err());
+    assert!(metric::check_numerically("A = free\nB = free", "dist(A,B) = 3", 8).is_err());
 }
 
 #[test]
-fn verified_metric_goal_is_ok() {
-    let r = metric::verify(
+fn true_metric_goal_passes_the_numeric_check() {
+    let r = metric::check_numerically(
         "A B = segment\nC = on_tline(B, A, B)",
         "dist(A,C)^2 = dist(A,B)^2 + dist(B,C)^2",
         16,
     );
-    assert!(r.is_ok(), "{r:?}");
+    let ev = r.expect("a true identity holds in every sampled figure");
+    assert!(ev.samples >= 8, "{ev:?}");
+    assert!(ev.report.contains("not a proof"), "{}", ev.report);
+}
+
+/// A numerical certificate is not a proof: a true goal that no theorem-citing
+/// prover reaches must come back as `NoProof` carrying the numeric evidence,
+/// never as an `Ok` report.
+#[test]
+fn numeric_only_goal_is_no_proof_not_ok() {
+    let r = metric::solve(
+        "A B C = triangle\nM = midpoint(B, C)",
+        "area(A,B,M) = area(A,M,C)",
+        48,
+    );
+    match r {
+        Err(e @ metric::MetricError::NoProof { .. }) => {
+            assert_eq!(e.numerically_holds(), Some(true));
+            let ev = e.evidence().expect("NoProof carries its evidence");
+            assert!(ev.samples >= 8, "{ev:?}");
+            assert!(!e.is_refuted());
+            assert!(e.report().starts_with("NOT PROVED"), "{}", e.report());
+        }
+        other => panic!("expected NoProof with numeric evidence, got {other:?}"),
+    }
+}
+
+/// The refuted, unproved and failed outcomes report distinct numeric verdicts.
+#[test]
+fn metric_errors_carry_a_typed_numeric_verdict() {
+    let refuted = metric::solve("A = free\nB = free", "dist(A,B) = 3", 16).unwrap_err();
+    assert_eq!(refuted.numerically_holds(), Some(false));
+    assert!(refuted.evidence().is_none());
+    let failed = metric::solve("A = free\nB = free", "dist(A,Z) = 3", 16).unwrap_err();
+    assert_eq!(failed.numerically_holds(), None, "{failed:?}");
 }
 
 #[test]

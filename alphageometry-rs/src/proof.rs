@@ -97,37 +97,49 @@ impl ProofLog {
     /// Render a numbered proof in the spirit of the original AlphaGeometry
     /// (`001. premise & premise ⇒ conclusion`).
     pub fn report(&self, used: &[FactId], goal_text: &str, names: &[String]) -> String {
-        let steps = self.closure(used);
-        let number: std::collections::HashMap<FactId, usize> =
-            steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
-
+        let lines = self.step_lines(used, names);
         let mut out = String::new();
         out.push_str(&format!(
             "Proof of {goal_text} ({} steps, {} facts recorded in total):\n",
-            steps.len(),
+            lines.len(),
             self.facts.len()
         ));
-        for &f in &steps {
-            let fact = &self.facts[f as usize];
-            let cites: Vec<String> = fact
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|n| format!("{n:03}")))
-                .collect();
-            let arrow = if cites.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", cites.join(" & "))
-            };
-            out.push_str(&format!(
-                "{:03}. {}{}\n",
-                number[&f],
-                render_reason(&fact.reason, names),
-                arrow
-            ));
+        for line in &lines {
+            out.push_str(line);
+            out.push('\n');
         }
         out.push_str(&format!("∎ {goal_text}\n"));
         out
+    }
+
+    /// The numbered derivation lines (`001. reason [premises]`) of the backward
+    /// closure from `used`, without a header or conclusion line.
+    pub fn step_lines(&self, used: &[FactId], names: &[String]) -> Vec<String> {
+        let steps = self.closure(used);
+        let number: std::collections::HashMap<FactId, usize> =
+            steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
+        steps
+            .iter()
+            .map(|&f| {
+                let fact = &self.facts[f as usize];
+                let cites: Vec<String> = fact
+                    .premises
+                    .iter()
+                    .filter_map(|p| number.get(p).map(|n| format!("{n:03}")))
+                    .collect();
+                let arrow = if cites.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", cites.join(" & "))
+                };
+                format!(
+                    "{:03}. {}{}",
+                    number[&f],
+                    render_reason(&fact.reason, names),
+                    arrow
+                )
+            })
+            .collect()
     }
 }
 

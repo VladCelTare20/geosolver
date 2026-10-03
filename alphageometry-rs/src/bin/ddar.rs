@@ -307,7 +307,7 @@ fn list_theorems() {
     );
 }
 
-/// Verify a *metric* goal (specific lengths/angles/areas, sums of squares, any
+/// Prove a *metric* goal (specific lengths/angles/areas, sums of squares, any
 /// algebraic relation) that DDAR cannot express — see [`metric`]. The program is
 /// a coordinate-free construction plus a `prove <expr> = <expr>` line, e.g.
 ///   O = free; A = point: dist(O,A)=6; ... ; prove dist(A,C)^2 + dist(B,D)^2 = 144
@@ -335,10 +335,10 @@ fn metric_solve(src: &str) {
         fail("--metric needs a `prove <equation>` line, e.g. `prove dist(A,C)^2 + dist(B,D)^2 = 144`")
     });
     let start = Instant::now();
-    match metric::solve(&cons.join("\n"), &goal, 48) {
+    match metric::solve(&cons.join("\n"), &goal, metric::DEFAULT_SAMPLES) {
         Ok(report) => println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64()),
-        Err(metric::MetricError::Refuted(report)) => {
-            println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64());
+        Err(e @ (metric::MetricError::Refuted(_) | metric::MetricError::NoProof { .. })) => {
+            println!("{}\n  ({:.3}s)", e.report(), start.elapsed().as_secs_f64());
             std::process::exit(1);
         }
         Err(e) => fail(e.message()),

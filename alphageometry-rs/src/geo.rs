@@ -1212,31 +1212,10 @@ fn fatal(m: impl Into<String>) -> BuildError {
     BuildError::Fatal(m.into())
 }
 
-/// A single-branch algebraic definition of a constructed point, used by the
-/// exact metric prover ([`crate::algebra`]). Some DDAR predicate encodings
-/// describe a point only up to a *two-branch* variety (e.g. `reflect` emits
-/// `coll` + `cong`, which is satisfied by both the point and its "un-reflected"
-/// twin). Wu's method proves identities on the whole variety, so it cannot use
-/// those. These defs pin the intended point with single-branch (linear)
-/// equations without changing what DDAR sees.
-#[derive(Clone, Debug)]
-pub enum PointDef {
-    /// Each coordinate is this exact affine combination of earlier points:
-    /// `NEW = Σ wᵢ·Pᵢ` (a midpoint, reflection over a point, translation, …).
-    Affine(Vec<(PointId, Rat)>),
-    /// The reflection of `p` across the line through `a` and `b`, pinned by the
-    /// two linear conditions `(NEW−p) ⟂ (b−a)` and `midpoint(p,NEW) ∈ line ab`.
-    ReflectLine { p: PointId, a: PointId, b: PointId },
-}
-
 struct Scene {
     env: HashMap<String, Value>,
     points: Vec<Point>,
     preds: Vec<Predicate>,
-    /// Single-branch algebraic definitions for constructed points (for the
-    /// exact metric prover); only populated for constructions whose predicate
-    /// encoding is otherwise multi-branch.
-    defs: HashMap<PointId, PointDef>,
     /// General metric-equation hypotheses (`dist(P,A) = 2*dist(P,B)`, …) imposed
     /// via `point:` or `assume` — offered to the metric provers as givens.
     metric_hyps: Vec<(MExpr, MExpr)>,
@@ -1261,7 +1240,6 @@ impl Scene {
             env: HashMap::new(),
             points: Vec::new(),
             preds: Vec::new(),
-            defs: HashMap::new(),
             metric_hyps: Vec::new(),
             dof_record: Vec::new(),
             dof_override: Vec::new(),
@@ -1567,11 +1545,6 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
                     let id = scene.add_point(None, x);
                     scene.emit("coll", &[a, b, id]);
                     scene.emit("cong", &[a, b, b, id]);
-                    // Single-branch: NEW = 2·b − a.
-                    scene.defs.insert(
-                        id,
-                        PointDef::Affine(vec![(b, Rat::from_int(2)), (a, Rat::from_int(-1))]),
-                    );
                     Ok(vec![Value::Point(id)])
                 }
                 Value::Line(b, c) => {
@@ -1580,9 +1553,6 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
                     let id = scene.add_point(None, x);
                     scene.emit("cong", &[b, a, b, id]);
                     scene.emit("cong", &[c, a, c, id]);
-                    scene
-                        .defs
-                        .insert(id, PointDef::ReflectLine { p: a, a: b, b: c });
                     Ok(vec![Value::Point(id)])
                 }
                 _ => Err(fatal("reflect's second argument must be a point or line")),
@@ -1841,15 +1811,6 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
             let x = scene.add_point(None, scene.coord(p) + scene.coord(b) - scene.coord(a));
             scene.emit("para", &[p, x, a, b]);
             scene.emit("cong", &[p, x, a, b]);
-            // Single-branch: NEW = p + b − a.
-            scene.defs.insert(
-                x,
-                PointDef::Affine(vec![
-                    (p, Rat::one()),
-                    (b, Rat::one()),
-                    (a, Rat::from_int(-1)),
-                ]),
-            );
             Ok(vec![Value::Point(x)])
         }
         "excenter" => {
@@ -2197,7 +2158,7 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
         }
         Rel::MetricEq(lhs, rhs) => {
             // Resolve the referenced point names (so the placeholder predicate and
-            // the algebraic hypothesis can name real points), and validate them.
+            // the metric hypothesis can name real points), and validate them.
             let mut names: Vec<String> = Vec::new();
             collect_mexpr_points(lhs, &mut names);
             collect_mexpr_points(rhs, &mut names);
@@ -2576,7 +2537,7 @@ fn solve_constrained(
 /// Result of building one instance: the scene, the (optional) goal predicate,
 /// and every absolute-length constraint `|ab| = v` (from `dist(a,b) = <num>`),
 /// which is solver-only and therefore not recoverable from the predicate list —
-/// the algebraic prover needs it to pin the figure's scale.
+/// the metric provers need it to pin the figure's scale.
 type BuiltScene = (Scene, Option<Predicate>, Vec<(PointId, PointId, f64)>);
 
 fn build(stmts: &[Stmt], seed: u64) -> Result<BuiltScene, BuildError> {
@@ -2732,7 +2693,7 @@ fn build_core(stmts: &[Stmt], seed: u64, dof_override: &[f64]) -> Result<CoreRes
                 scene.env.insert(name.clone(), Value::Point(id));
                 for l in &lowered {
                     // Capture absolute-length constraints (solver-only, lost in
-                    // the predicate encoding) for the algebraic prover.
+                    // the predicate encoding) for the metric provers.
                     if let CKind::DistConst(v) = &l.kind {
                         let resolve = |r: &PtRef| match r {
                             PtRef::Id(x) => *x,
@@ -3036,7 +2997,7 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
 const MAX_POINTS: usize = 100;
 
 /// Total point count declared across a parsed program — shared by every
-/// public entry point (`compile`, `build_instances`, `build_algebraic`) so
+/// public entry point (`compile`, `build_instances`, `build_sampled_figure`) so
 /// the guard below applies uniformly.
 fn point_count(stmts: &[Stmt]) -> usize {
     stmts
@@ -3234,11 +3195,11 @@ fn build_instances_of(stmts: &[Stmt], n: usize) -> Result<Vec<Vec<(String, Vec2)
     Ok(out)
 }
 
-/// A figure prepared for the algebraic (Wu's-method) metric prover: one valid
-/// numeric instance of the construction, the defining/hypothesis predicates, and
-/// the absolute-length constraints (which pin the figure's scale and are not
-/// recoverable from the predicate list). See [`crate::algebra`].
-pub struct AlgFigure {
+/// One valid sampled instance of a construction, as the classical metric
+/// provers ([`crate::synthetic`], [`crate::ratio`]) read it: the hypothesis
+/// predicates they cite, the absolute lengths, and coordinates used only to
+/// read configuration (order, orientation) and to rule out degenerate cases.
+pub struct SampledFigure {
     /// Point name per id.
     pub names: Vec<String>,
     /// Numeric coordinates of a single generic, valid instance.
@@ -3248,20 +3209,16 @@ pub struct AlgFigure {
     pub preds: Vec<Predicate>,
     /// Absolute-length constraints `|ab| = v`.
     pub scale: Vec<(PointId, PointId, f64)>,
-    /// Single-branch algebraic definitions for constructed points whose
-    /// predicate encoding is multi-branch (`reflect`, `shift`).
-    pub defs: HashMap<PointId, PointDef>,
     /// General metric-equation hypotheses imposed by `point:` constraints, as
     /// `(lhs, rhs)` pairs — offered to the metric provers as given equations so
     /// an arbitrary imposed relation can be *used* in a synthetic proof.
     pub metric_hyps: Vec<(MExpr, MExpr)>,
 }
 
-/// Build one generic valid instance of a coordinate-free construction and return
-/// it in a form the algebraic prover can lower to polynomials. Mirrors the
-/// instance search in [`compile`] (tries seeds until a non-degenerate figure
-/// that DDAR can process without a numeric panic is found).
-pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
+/// Build one generic valid instance of a coordinate-free construction. Mirrors
+/// the instance search in [`compile`] (tries seeds until a non-degenerate
+/// figure is found).
+pub fn build_sampled_figure(src: &str) -> Result<SampledFigure, String> {
     let toks = tokenize(src)?;
     let mut parser = Parser { toks, pos: 0, depth: 0, ops: 0 };
     let stmts = parser.parse_program()?;
@@ -3269,11 +3226,11 @@ pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
         return Err("empty construction".to_string());
     }
     check_point_count(&stmts)?;
-    crate::quiet_panic::quiet(|| build_algebraic_of(&stmts))
+    crate::quiet_panic::quiet(|| build_sampled_figure_of(&stmts))
 }
 
-fn build_algebraic_of(stmts: &[Stmt]) -> Result<AlgFigure, String> {
-    let mut result: Result<AlgFigure, String> = Err("could not build a valid instance".to_string());
+fn build_sampled_figure_of(stmts: &[Stmt]) -> Result<SampledFigure, String> {
+    let mut result: Result<SampledFigure, String> = Err("could not build a valid instance".to_string());
     for seed in 1..=400u64 {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed))) {
             Ok(Ok((scene, _goal, scale))) => {
@@ -3282,12 +3239,11 @@ fn build_algebraic_of(stmts: &[Stmt]) -> Result<AlgFigure, String> {
                     .iter()
                     .all(|p| p.value.x.is_finite() && p.value.y.is_finite())
                 {
-                    result = Ok(AlgFigure {
+                    result = Ok(SampledFigure {
                         names: scene.points.iter().map(|p| p.name.clone()).collect(),
                         coords: scene.points.iter().map(|p| p.value).collect(),
                         preds: scene.preds,
                         scale,
-                        defs: scene.defs,
                         metric_hyps: scene.metric_hyps,
                     });
                     break;
@@ -3419,7 +3375,7 @@ mod tests {
     fn arbitrary_metric_constraint_positions_point() {
         // The universal constraint escape hatch: an arbitrary metric equation
         // (with a coefficient) pins a free point, solved numerically.
-        let fig = build_algebraic("A = free\nB = free\nP = point: dist(P,A) = 2*dist(P,B)")
+        let fig = build_sampled_figure("A = free\nB = free\nP = point: dist(P,A) = 2*dist(P,B)")
             .expect("build");
         let idx = |n: &str| fig.names.iter().position(|x| x == n).unwrap();
         let (pa, pb) = (
@@ -3511,7 +3467,7 @@ mod tests {
     fn assume_positions_free_points_jointly() {
         // Declare four free points and ASSUME they are concyclic — the global
         // solve must place them on one circle.
-        let fig = build_algebraic("A = free\nB = free\nC = free\nD = free\nassume cyclic(A,B,C,D)")
+        let fig = build_sampled_figure("A = free\nB = free\nC = free\nD = free\nassume cyclic(A,B,C,D)")
             .expect("build");
         let c = |n: &str| fig.coords[fig.names.iter().position(|x| x == n).unwrap()];
         let circ = NumCircle::through(c("A"), c("B"), c("C")).expect("circle");
