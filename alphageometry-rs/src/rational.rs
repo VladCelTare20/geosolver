@@ -277,7 +277,10 @@ impl std::ops::Neg for Rat {
     type Output = Rat;
     fn neg(self) -> Rat {
         match self {
-            Rat::Small(n, d) => Rat::Small(-n, d),
+            Rat::Small(n, d) => match n.checked_neg() {
+                Some(m) => Rat::Small(m, d),
+                None => Rat::from_i128(-(n as i128), d as i128),
+            },
             Rat::Big(r) => Rat::from_big(-(*r)),
         }
     }
