@@ -13,7 +13,7 @@
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
-//! | `AGSTUDIO_WORKER_MEM_MB` | 2048 | address-space cap (`RLIMIT_AS`) of each solve worker process; 0 = none |
+//! | `AGSTUDIO_WORKER_MEM_MB` | 2048 | memory cap (`RLIMIT_DATA`: heap and thread stacks, not merely reserved address space) of each solve worker process; 0 = none |
 //! | `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests per minute (0 = off) |
 //! | `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP `/api/translate` + `/api/humanize` per minute (0 = off) |
 //! | `AGSTUDIO_AUTH_PER_MIN` | 15 | per-IP `/api/auth/login` + `register` per minute (0 = off) |
@@ -133,10 +133,15 @@ pub struct Config {
     /// Wall-clock deadline of one web solve or export (its worker is killed
     /// [`crate::worker::GRACE`] later).
     pub solve_deadline: Duration,
+    /// How long a client has to send a request's headers before the
+    /// connection is closed.
+    pub header_timeout: Duration,
 }
 
 /// Default web solve deadline, well inside the 120 s request timeout.
 pub const SOLVE_DEADLINE: Duration = Duration::from_secs(60);
+/// Default [`Config::header_timeout`].
+pub const HEADER_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn is_on(v: Option<&str>) -> bool {
     matches!(v, Some("1") | Some("true") | Some("yes") | Some("on"))
@@ -225,6 +230,7 @@ impl Config {
             secure_cookies: flag("AGSTUDIO_SECURE_COOKIES"),
             queue_wait: Duration::from_secs(num("AGSTUDIO_QUEUE_WAIT_SECS", 5).min(60) as u64),
             solve_deadline: SOLVE_DEADLINE,
+            header_timeout: HEADER_TIMEOUT,
         })
     }
 

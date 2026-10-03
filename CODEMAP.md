@@ -20,7 +20,7 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
   `metric::solve` → `Ok`). A goal that only holds in sampled figures is
   `MetricError::NoProof` / `status: "holds-numerically"`, `proved: false`. Each prover change needs
   a FALSE-statement regression test (`alphageometry-rs/tests/soundness.rs`).
-- Every solve reachable from outside has a wall-clock deadline (`solve_within`), and the web/MCP servers run it in a killable worker process (`worker::run`) that is SIGKILLed at deadline + grace, on client disconnect and on MCP cancel; the CLI's `--timeout`/`--budget` is enforced by a watchdog. No solve runs in-process in a server.
+- Every solve reachable from outside has a wall-clock deadline (`solve_within`), and the web/MCP servers run it in a killable worker process (`worker::run`) that is SIGKILLed at deadline + grace, on client disconnect and on MCP cancel, and exits by itself within 100 ms if its server dies; the CLI's `--timeout`/`--budget` is enforced by a watchdog. No solve runs in-process in a server.
 - Panic output is muted only through `ddar::quiet_panic`; never swap the hook.
 - In `mcp` mode stdout is the protocol channel.
 - State is one SQLite file (`AGSTUDIO_DB`); deploy files put it on a volume.

@@ -11,12 +11,13 @@ use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::io::AsyncBufReadExt;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{watch, OwnedSemaphorePermit, Semaphore};
 
 use crate::engine::{self, InputKind, SolveOptions};
 use crate::translate;
@@ -30,6 +31,23 @@ const SUPPORTED_PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"]
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 
+/// Shortest time a tool call waits for a free solver slot before it is
+/// answered "busy"; otherwise it waits up to its own time limit.
+const MIN_QUEUE_WAIT: Duration = if cfg!(test) {
+    Duration::from_secs(1)
+} else {
+    Duration::from_secs(5)
+};
+/// After stdin closes, how long the last responses may take to be read.
+const FINAL_FLUSH: Duration = Duration::from_secs(60);
+/// Diagnostics queued for stderr before new ones are dropped.
+const NOTE_BACKLOG: usize = 256;
+
+/// `eprintln!` that never blocks the caller (see [`note`]).
+macro_rules! note {
+    ($($arg:tt)*) => { note(format!($($arg)*)) };
+}
+
 /// Run the MCP server, reading requests from stdin and writing responses to
 /// stdout, until stdin closes and every in-flight tool call has answered.
 pub fn serve() -> anyhow::Result<()> {
@@ -42,7 +60,7 @@ pub fn serve() -> anyhow::Result<()> {
         .enable_all()
         .build()?;
     let input = tokio::io::BufReader::new(tokio::io::stdin());
-    let result = rt.block_on(serve_io(input, std::io::stdout()));
+    let result = rt.block_on(serve_io(input, std::io::stdout(), max_concurrent()));
     rt.shutdown_timeout(std::time::Duration::from_secs(1));
     result
 }
@@ -53,11 +71,58 @@ fn relock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn emit<W: Write>(out: &Mutex<W>, resp: &Value) -> std::io::Result<()> {
-    let line = serde_json::to_string(resp)?;
-    let mut w = relock(out);
-    writeln!(w, "{line}")?;
-    w.flush()
+/// Responses, one JSON line each, for the stdout writer thread.
+type Output = std::sync::mpsc::Sender<String>;
+
+fn spawn_writer<W: Write + Send + 'static>(
+    mut out: W,
+) -> std::io::Result<(Output, std::thread::JoinHandle<()>)> {
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let handle = std::thread::Builder::new()
+        .name("mcp-stdout".into())
+        .spawn(move || {
+            for line in rx {
+                if writeln!(out, "{line}").and_then(|()| out.flush()).is_err() {
+                    return;
+                }
+            }
+        })?;
+    Ok((tx, handle))
+}
+
+/// Queue one response for stdout; fails only once stdout is broken.
+fn emit(out: &Output, resp: &Value) -> std::io::Result<()> {
+    out.send(resp.to_string())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stdout is closed"))
+}
+
+/// Wait (bounded by [`FINAL_FLUSH`]) for the writer to deliver what is queued.
+async fn finish_writer(writer: std::thread::JoinHandle<()>) {
+    let joined = tokio::task::spawn_blocking(move || writer.join());
+    if tokio::time::timeout(FINAL_FLUSH, joined).await.is_err() {
+        note!("stdout was not read for {}s after stdin closed; exiting", FINAL_FLUSH.as_secs());
+    }
+}
+
+/// One diagnostic line to stderr, written by its own thread; dropped when
+/// [`NOTE_BACKLOG`] lines are already queued.
+fn note(line: String) {
+    static TX: OnceLock<Option<std::sync::mpsc::SyncSender<String>>> = OnceLock::new();
+    let tx = TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<String>(NOTE_BACKLOG);
+        std::thread::Builder::new()
+            .name("mcp-stderr".into())
+            .spawn(move || {
+                for line in rx {
+                    let _ = writeln!(std::io::stderr(), "{line}");
+                }
+            })
+            .ok()
+            .map(|_| tx)
+    });
+    if let Some(tx) = tx {
+        let _ = tx.try_send(line);
+    }
 }
 
 /// Simultaneous solve workers: `AGSTUDIO_MAX_CONCURRENT`, default 2.
@@ -71,14 +136,15 @@ fn max_concurrent() -> usize {
 
 /// The protocol loop. Solves run as tasks, so the loop keeps reading while
 /// they work; `notifications/cancelled` aborts one, which kills its worker.
-async fn serve_io<R, W>(mut input: R, out: W) -> anyhow::Result<()>
+async fn serve_io<R, W>(mut input: R, out: W, slots: usize) -> anyhow::Result<()>
 where
     R: tokio::io::AsyncBufRead + Unpin,
     W: Write + Send + 'static,
 {
-    let out = Arc::new(Mutex::new(out));
+    let (out, writer) = spawn_writer(out)?;
     let inflight: Inflight = Arc::default();
-    let slots = Arc::new(Semaphore::new(max_concurrent()));
+    let slots = Arc::new(Semaphore::new(slots));
+    let (closing, closed) = watch::channel(false);
     let mut tasks = tokio::task::JoinSet::new();
     let mut seq = 0u64;
     let mut buf = Vec::new();
@@ -94,18 +160,25 @@ where
             Route::Cancel(key) => {
                 if let Some((_, task)) = relock(&inflight).remove(&key) {
                     task.abort();
-                    eprintln!("request {key} cancelled; its solver was stopped");
+                    note!("request {key} cancelled; its solver was stopped");
                 }
             }
             Route::Tool { id, name, args } => {
+                let key = id.to_string();
+                let mut map = relock(&inflight);
+                if map.contains_key(&key) {
+                    drop(map);
+                    let msg = "invalid request: this id is already used by a call in progress";
+                    emit(&out, &error_response(id, INVALID_REQUEST, msg))?;
+                    continue;
+                }
                 seq += 1;
                 let me = seq;
-                let key = id.to_string();
                 let (out, inflight_ref, slots) = (out.clone(), inflight.clone(), slots.clone());
-                let mut map = relock(&inflight);
+                let closed = closed.clone();
                 let task_key = key.clone();
                 let handle = tasks.spawn(async move {
-                    let resp = run_tool(id, &name, args, slots).await;
+                    let resp = run_tool(id, &name, args, slots, closed).await;
                     {
                         let mut map = relock(&inflight_ref);
                         if map.get(&task_key).is_some_and(|(s, _)| *s == me) {
@@ -113,14 +186,17 @@ where
                         }
                     }
                     if let Err(e) = emit(&out, &resp) {
-                        eprintln!("could not write a response: {e}");
+                        note!("could not write a response: {e}");
                     }
                 });
                 map.insert(key, (me, handle));
             }
         }
     }
+    let _ = closing.send(true);
     while tasks.join_next().await.is_some() {}
+    drop(out);
+    finish_writer(writer).await;
     Ok(())
 }
 
@@ -163,23 +239,74 @@ fn is_slow_tool(name: &str) -> bool {
     matches!(name, "solve_geometry" | "export_report")
 }
 
-async fn run_tool(id: Value, name: &str, args: Value, slots: Arc<Semaphore>) -> Value {
+async fn run_tool(
+    id: Value,
+    name: &str,
+    args: Value,
+    slots: Arc<Semaphore>,
+    closed: watch::Receiver<bool>,
+) -> Value {
     let work = async {
-        let permit = slots.acquire_owned().await.ok();
+        let permit = match acquire_slot(slots, queue_wait(name, &args), closed).await {
+            Ok(p) => p,
+            Err(why) => return text_result(&why, true),
+        };
         match name {
-            "solve_geometry" => tool_solve(&args, permit).await,
-            _ => tool_export(&args, permit).await,
+            "solve_geometry" => tool_solve(&args, Some(permit)).await,
+            _ => tool_export(&args, Some(permit)).await,
         }
     };
     match CatchUnwind(Box::pin(work)).await {
         Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
         Err(_) => {
-            eprintln!("tool call panicked; returning an error instead of crashing");
+            note!("tool call panicked; returning an error instead of crashing");
             json!({
                 "jsonrpc": "2.0", "id": id,
                 "error": { "code": -32000, "message": "internal error while handling this request" }
             })
         }
+    }
+}
+
+/// How long a call may wait for a slot: its own time limit, at least
+/// [`MIN_QUEUE_WAIT`].
+fn queue_wait(name: &str, args: &Value) -> Duration {
+    let limit = match name {
+        "solve_geometry" => solve_limit(args).1,
+        _ => timeout_from(args),
+    };
+    limit.max(MIN_QUEUE_WAIT)
+}
+
+/// A solver slot, or the error text for a call that never started: the
+/// server stayed busy for `wait`, or stdin closed while the call was queued.
+async fn acquire_slot(
+    slots: Arc<Semaphore>,
+    wait: Duration,
+    mut closed: watch::Receiver<bool>,
+) -> Result<OwnedSemaphorePermit, String> {
+    const HUNG_UP: &str = "error: not started — the client closed stdin while this call \
+                           was waiting for a free solver slot";
+    if let Ok(permit) = slots.clone().try_acquire_owned() {
+        return Ok(permit);
+    }
+    let hung_up = async {
+        if closed.wait_for(|c| *c).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    tokio::select! {
+        biased;
+        got = tokio::time::timeout(wait, slots.acquire_owned()) => match got {
+            Ok(Ok(permit)) => Ok(permit),
+            Ok(Err(_)) => Err(HUNG_UP.to_string()),
+            Err(_) => Err(format!(
+                "error: the server is busy — every solver slot stayed in use for {:.0}s, so \
+                 this call was not started; retry it later",
+                wait.as_secs_f64()
+            )),
+        },
+        () = hung_up => Err(HUNG_UP.to_string()),
     }
 }
 
@@ -219,7 +346,7 @@ fn handle_line(raw: &[u8]) -> Option<Value> {
 /// `Err` carries the reply for an invalid line (or `None`: say nothing).
 fn validate(raw: &[u8]) -> Result<Value, Option<Value>> {
     let Ok(text) = std::str::from_utf8(raw) else {
-        eprintln!("rejecting a JSON-RPC line that is not valid UTF-8");
+        note!("rejecting a JSON-RPC line that is not valid UTF-8");
         return Err(Some(error_response(Value::Null, PARSE_ERROR, "parse error: invalid UTF-8")));
     };
     let trimmed = text.trim();
@@ -229,7 +356,7 @@ fn validate(raw: &[u8]) -> Result<Value, Option<Value>> {
     let req: Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("rejecting malformed JSON-RPC line: {e}");
+            note!("rejecting malformed JSON-RPC line: {e}");
             return Err(Some(error_response(Value::Null, PARSE_ERROR, &format!("parse error: {e}"))));
         }
     };
@@ -274,7 +401,7 @@ fn catch_panics(id: Option<Value>, f: impl FnOnce() -> Option<Value>) -> Option<
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(resp) => resp,
         Err(_) => {
-            eprintln!("request handler panicked; returning an error instead of crashing");
+            note!("request handler panicked; returning an error instead of crashing");
             id.map(|id| {
                 json!({
                     "jsonrpc": "2.0", "id": id,
@@ -425,18 +552,8 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
     if program.trim().is_empty() {
         return text_result("error: `program` is required", true);
     }
-    let best = args.get("best").and_then(Value::as_bool).unwrap_or(false);
-    let mut job = if best {
-        let secs = args
-            .get("budget_secs")
-            .and_then(Value::as_f64)
-            .filter(|v| v.is_finite())
-            .unwrap_or(20.0)
-            .clamp(0.5, 120.0);
-        worker::Request::new(&program, &opts, worker::Mode::Best, std::time::Duration::from_secs_f64(secs))
-    } else {
-        worker::Request::new(&program, &opts, worker::Mode::Solve, timeout_from(args))
-    };
+    let (mode, limit) = solve_limit(args);
+    let mut job = worker::Request::new(&program, &opts, mode, limit);
     job.figure_png_scale = Some(1.5);
     let (sol, figure_png) = match worker::run(&job, permit).await {
         Outcome::Done(reply) => match reply.result {
@@ -445,7 +562,7 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
         },
         Outcome::TimedOut => (worker::time_limit_solution(&program, job.limit()), None),
         Outcome::Failed(e) => {
-            eprintln!("solve worker failed: {e}");
+            note!("solve worker failed: {e}");
             return text_result("error: the solver process failed (crashed or ran out of memory)", true);
         }
     };
@@ -498,6 +615,22 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
     // "Not proven" is a valid answer, not a tool failure.
     json!({ "content": content, "isError": false })
 }
+/// `solve_geometry`'s mode and limit: the `best` search with `budget_secs`
+/// (default 20, 0.5..=120), else a plain solve with `timeout_secs`.
+fn solve_limit(args: &Value) -> (worker::Mode, Duration) {
+    if args.get("best").and_then(Value::as_bool).unwrap_or(false) {
+        let secs = args
+            .get("budget_secs")
+            .and_then(Value::as_f64)
+            .filter(|v| v.is_finite())
+            .unwrap_or(20.0)
+            .clamp(0.5, 120.0);
+        (worker::Mode::Best, Duration::from_secs_f64(secs))
+    } else {
+        (worker::Mode::Solve, timeout_from(args))
+    }
+}
+
 /// The solve wall-clock limit from a tool's `timeout_secs` (default 60s,
 /// clamped to 1..=300s).
 fn timeout_from(args: &Value) -> std::time::Duration {
@@ -657,7 +790,7 @@ async fn tool_export_in(args: &Value, dir: &Path, permit: Option<OwnedSemaphoreP
             )
         }
         Outcome::Failed(e) => {
-            eprintln!("export worker failed: {e}");
+            note!("export worker failed: {e}");
             return text_result("error: the solver process failed (crashed or ran out of memory)", true);
         }
     };
@@ -887,7 +1020,7 @@ mod tests {
         let (program, pidfile) = hang_input(dir.path(), "pid");
         let (mut client, server_end) = tokio::io::duplex(1 << 16);
         let out = Captured::default();
-        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone()));
+        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 2));
         let send = |v: Value| format!("{v}\n");
 
         let call = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
@@ -932,7 +1065,7 @@ mod tests {
         let out = Captured::default();
         tokio::time::timeout(
             std::time::Duration::from_secs(60),
-            serve_io(tokio::io::BufReader::new(input.as_bytes()), out.clone()),
+            serve_io(tokio::io::BufReader::new(input.as_bytes()), out.clone(), 2),
         )
         .await
         .unwrap()
@@ -941,6 +1074,166 @@ mod tests {
         assert_eq!(rs.len(), 2, "{rs:?}");
         let solve = rs.iter().find(|r| r["id"] == 1).unwrap();
         assert!(solve["result"]["content"][0]["text"].as_str().unwrap().starts_with("PROVEN"), "{solve}");
+    }
+
+    /// A stdout nobody reads: every write blocks until [`Stalled::open`].
+    #[derive(Clone, Default)]
+    struct Stalled {
+        gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+        data: Captured,
+    }
+
+    impl Write for Stalled {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            let (open, cv) = &*self.gate;
+            let mut is_open = relock(open);
+            while !*is_open {
+                is_open = cv.wait(is_open).unwrap_or_else(PoisonError::into_inner);
+            }
+            drop(is_open);
+            self.data.write(b)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Stalled {
+        fn open(&self) {
+            *relock(&self.gate.0) = true;
+            self.gate.1.notify_all();
+        }
+    }
+
+    fn call(id: Value, name: &str, args: Value) -> String {
+        format!("{}\n", json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": {"name": name, "arguments": args}}))
+    }
+
+    async fn stopped<T>(server: tokio::task::JoinHandle<T>, within: Duration) -> T {
+        tokio::time::timeout(within, server)
+            .await
+            .expect("the server must stop at EOF")
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_undrained_stdout_never_stalls_the_runtime_or_its_kill_timers() {
+        use crate::worker::tests::{hang_input, wait_for_pid, wait_reaped};
+        use tokio::io::AsyncWriteExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (program, pidfile) = hang_input(dir.path(), "pid");
+        let out = Stalled::default();
+        let (mut client, server_end) = tokio::io::duplex(1 << 16);
+        let server_out = out.clone();
+        let server = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(serve_io(tokio::io::BufReader::new(server_end), server_out, 2))
+        });
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let ping = json!({"jsonrpc": "2.0", "id": 1, "method": "ping"});
+            client.write_all(format!("{ping}\n").as_bytes()).await.unwrap();
+            let hang = call(json!(2), "solve_geometry", json!({"program": program, "timeout_secs": 1}));
+            client.write_all(hang.as_bytes()).await.unwrap();
+            let pid = wait_for_pid(&pidfile).await;
+            let hard = Duration::from_secs(1) + worker::GRACE;
+            let took = wait_reaped(pid, hard + Duration::from_millis(500)).await;
+            eprintln!("worker {pid} killed {took:?} after start with stdout blocked");
+        });
+        out.open();
+        drop(client);
+        let until = std::time::Instant::now() + Duration::from_secs(20);
+        while !server.is_finished() {
+            assert!(std::time::Instant::now() < until, "the server did not stop at EOF");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        server.join().unwrap().unwrap();
+        let rs = out.data.responses();
+        assert_eq!(rs.iter().find(|r| r["id"] == 1).unwrap()["result"], json!({}), "{rs:?}");
+        let solve = rs.iter().find(|r| r["id"] == 2).expect("the killed solve is still answered");
+        assert!(solve["result"]["content"][0]["text"].as_str().unwrap().contains("time limit"), "{solve}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_queued_call_waits_at_most_its_own_limit_then_is_told_the_server_is_busy() {
+        use crate::worker::tests::{hang_input, wait_for_pid, wait_reaped, CIRCUMCENTER};
+        use tokio::io::AsyncWriteExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (program, pidfile) = hang_input(dir.path(), "pid");
+        let (mut client, server_end) = tokio::io::duplex(1 << 16);
+        let out = Captured::default();
+        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 1));
+        client.write_all(call(json!(1), "solve_geometry", json!({"program": program, "timeout_secs": 60})).as_bytes()).await.unwrap();
+        let pid = wait_for_pid(&pidfile).await;
+
+        let t = std::time::Instant::now();
+        client.write_all(call(json!(2), "solve_geometry", json!({"program": CIRCUMCENTER, "timeout_secs": 1})).as_bytes()).await.unwrap();
+        let busy = out.wait_for(json!(2)).await;
+        let waited = t.elapsed();
+        assert_eq!(busy["result"]["isError"], true, "{busy}");
+        assert!(busy["result"]["content"][0]["text"].as_str().unwrap().contains("busy"), "{busy}");
+        assert!(waited >= MIN_QUEUE_WAIT, "{waited:?}");
+        assert!(waited < MIN_QUEUE_WAIT + Duration::from_secs(2), "{waited:?}");
+
+        let cancel = json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}});
+        client.write_all(format!("{cancel}\n").as_bytes()).await.unwrap();
+        wait_reaped(pid, Duration::from_secs(3)).await;
+        drop(client);
+        stopped(server, Duration::from_secs(10)).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn at_eof_queued_calls_are_not_started_and_running_ones_still_answer() {
+        use crate::worker::tests::{hang_input, wait_for_pid, CIRCUMCENTER};
+        use tokio::io::AsyncWriteExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (program, pidfile) = hang_input(dir.path(), "pid");
+        let (mut client, server_end) = tokio::io::duplex(1 << 16);
+        let out = Captured::default();
+        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 1));
+        client.write_all(call(json!(1), "solve_geometry", json!({"program": program, "timeout_secs": 2})).as_bytes()).await.unwrap();
+        wait_for_pid(&pidfile).await;
+        client.write_all(call(json!(2), "export_report", json!({"program": CIRCUMCENTER, "timeout_secs": 60})).as_bytes()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        drop(client);
+        let t = std::time::Instant::now();
+        let queued = out.wait_for(json!(2)).await;
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+        assert_eq!(queued["result"]["isError"], true, "{queued}");
+        assert!(queued["result"]["content"][0]["text"].as_str().unwrap().contains("not started"), "{queued}");
+        let hard = Duration::from_secs(2) + worker::GRACE;
+        stopped(server, hard + Duration::from_secs(3)).await.unwrap();
+        let running = out.responses().into_iter().find(|r| r["id"] == 1).expect("the running call answers");
+        assert!(running["result"]["content"][0]["text"].as_str().unwrap().contains("time limit"), "{running}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_reused_id_is_refused_so_cancel_still_reaches_the_first_call() {
+        use crate::worker::tests::{hang_input, wait_for_pid, wait_reaped, CIRCUMCENTER};
+        use tokio::io::AsyncWriteExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (program, pidfile) = hang_input(dir.path(), "pid");
+        let (mut client, server_end) = tokio::io::duplex(1 << 16);
+        let out = Captured::default();
+        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 2));
+        client.write_all(call(json!(7), "solve_geometry", json!({"program": program, "timeout_secs": 60})).as_bytes()).await.unwrap();
+        let pid = wait_for_pid(&pidfile).await;
+        client.write_all(call(json!(7), "solve_geometry", json!({"program": CIRCUMCENTER})).as_bytes()).await.unwrap();
+        let dup = out.wait_for(json!(7)).await;
+        assert_eq!(dup["error"]["code"], INVALID_REQUEST, "{dup}");
+
+        let cancel = json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7}});
+        client.write_all(format!("{cancel}\n").as_bytes()).await.unwrap();
+        wait_reaped(pid, Duration::from_secs(3)).await;
+        drop(client);
+        stopped(server, Duration::from_secs(10)).await.unwrap();
+        assert_eq!(out.responses().iter().filter(|r| r["id"] == 7).count(), 1, "{:?}", out.responses());
     }
 
     #[test]

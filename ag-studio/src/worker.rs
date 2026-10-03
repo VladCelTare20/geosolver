@@ -29,6 +29,18 @@ pub const GRACE: Duration = if cfg!(test) {
 /// Exit status of a process stopped by its own hard-deadline watchdog (the
 /// coreutils `timeout` convention).
 pub const EXIT_HARD_LIMIT: i32 = 124;
+/// Exit status of a worker that stopped because its server went away.
+pub const EXIT_ORPHANED: i32 = 125;
+/// Exit status of a worker that could not start its solver threads.
+pub const EXIT_NO_THREADS: i32 = 3;
+
+/// Env var carrying the server's pid to the worker, which exits once its
+/// parent is no longer that process.
+const PARENT_ENV: &str = "AGSTUDIO_WORKER_PARENT";
+/// How often a worker checks that its server is still alive.
+const PARENT_POLL: Duration = Duration::from_millis(100);
+/// How long a dying process waits for its last stderr line to be written.
+const LAST_WORDS: Duration = Duration::from_millis(200);
 
 const DEFAULT_MEM_MB: u64 = 2048;
 const MAX_REQUEST_BYTES: u64 = 16 << 20;
@@ -259,6 +271,14 @@ impl Drop for Slot {
 /// the worker is gone. Never takes longer than `req.hard_limit()` plus the
 /// time to reap a SIGKILLed process.
 pub async fn run(req: &Request, permit: Option<OwnedSemaphorePermit>) -> Outcome {
+    run_with(req, permit, |_| {}).await
+}
+
+async fn run_with(
+    req: &Request,
+    permit: Option<OwnedSemaphorePermit>,
+    tweak: impl FnOnce(&mut tokio::process::Command),
+) -> Outcome {
     let body = match serde_json::to_vec(req) {
         Ok(b) => b,
         Err(e) => return Outcome::Failed(format!("could not encode the solve request: {e}")),
@@ -269,6 +289,7 @@ pub async fn run(req: &Request, permit: Option<OwnedSemaphorePermit>) -> Outcome
         Err(e) => return Outcome::Failed(format!("could not locate the solver executable: {e}")),
     };
     configure(&mut cmd, hard);
+    tweak(&mut cmd);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return Outcome::Failed(format!("could not start the solver process: {e}")),
@@ -323,6 +344,7 @@ fn configure(cmd: &mut tokio::process::Command, hard: Duration) {
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
+        .env(PARENT_ENV, std::process::id().to_string())
         .kill_on_drop(true);
     #[cfg(unix)]
     {
@@ -334,7 +356,7 @@ fn configure(cmd: &mut tokio::process::Command, hard: Duration) {
             cmd.pre_exec(move || {
                 cap(libc::RLIMIT_CORE, 0, 0)?;
                 if let Some(bytes) = mem {
-                    cap(libc::RLIMIT_AS, bytes, bytes)?;
+                    cap(libc::RLIMIT_DATA, bytes, bytes)?;
                 }
                 cap(libc::RLIMIT_CPU, cpu, cpu + 5)?;
                 libc::setpriority(libc::PRIO_PROCESS, 0, WORKER_NICE);
@@ -446,14 +468,20 @@ pub fn worker_main() -> i32 {
             return 2;
         }
     };
+    no_core_dumps();
     crate::security::apply_process_limits();
-    // The parent kills at `hard_limit`; this covers a parent that is gone.
+    // The parent kills at `hard_limit`; these cover a parent that cannot.
+    watch_parent(format!("solve worker {}", std::process::id()));
     arm_watchdog(
         req.hard_limit() + GRACE,
         format!("solve worker {}", std::process::id()),
     );
     #[cfg(all(test, unix))]
     tests::hooks(&req.input);
+    if let Err(e) = rayon::ThreadPoolBuilder::new().build_global() {
+        eprintln!("solve worker: could not start the solver threads: {e}");
+        return EXIT_NO_THREADS;
+    }
     let reply = match catch_unwind(AssertUnwindSafe(|| execute(&req))) {
         Ok(r) => r,
         Err(_) => {
@@ -508,15 +536,66 @@ pub fn arm_watchdog(limit: Duration, what: String) {
         .name("hard-deadline".into())
         .spawn(move || {
             std::thread::sleep(limit);
-            let _ = writeln!(
-                std::io::stderr(),
+            last_words(format!(
                 "error: {what} overran its hard time limit of {:.1}s and was stopped",
                 limit.as_secs_f64()
-            );
+            ));
             hard_exit(EXIT_HARD_LIMIT);
         });
     if let Err(e) = spawned {
         eprintln!("warning: could not start the hard-deadline watchdog: {e}");
+    }
+}
+
+/// Exit with [`EXIT_ORPHANED`] as soon as the server that started this worker
+/// is gone.
+fn watch_parent(what: String) {
+    #[cfg(unix)]
+    {
+        let Some(parent) = std::env::var(PARENT_ENV)
+            .ok()
+            .and_then(|v| v.parse::<libc::pid_t>().ok())
+            .filter(|p| *p > 1)
+        else {
+            return;
+        };
+        let spawned = std::thread::Builder::new()
+            .name("parent-watch".into())
+            .spawn(move || loop {
+                // SAFETY: plain syscall.
+                if unsafe { libc::getppid() } != parent {
+                    last_words(format!("{what}: its server ({parent}) is gone; stopping"));
+                    hard_exit(EXIT_ORPHANED);
+                }
+                std::thread::sleep(PARENT_POLL);
+            });
+        if let Err(e) = spawned {
+            eprintln!("warning: could not start the parent watch: {e}");
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = what;
+}
+
+/// Write one line to stderr, but never wait more than [`LAST_WORDS`] for it:
+/// stderr may be a pipe nobody drains, and the caller is about to exit.
+fn last_words(line: String) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().spawn(move || {
+        let _ = writeln!(std::io::stderr(), "{line}");
+        let _ = tx.send(());
+    });
+    if spawned.is_ok() {
+        let _ = rx.recv_timeout(LAST_WORDS);
+    }
+}
+
+/// Keep a crashed worker away from the system's coredump handler.
+fn no_core_dumps() {
+    #[cfg(target_os = "linux")]
+    // SAFETY: plain prctl on this process.
+    unsafe {
+        libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
     }
 }
 
@@ -539,6 +618,8 @@ pub(crate) mod tests {
 
     const WATCHDOG_ENTRY: &str = "worker::tests::watchdog_process_entry";
     const WATCHDOG_ENV: &str = "AGSTUDIO_TEST_WATCHDOG_PROCESS";
+    const SERVER_ENTRY: &str = "worker::tests::server_process_entry";
+    const SERVER_ENV: &str = "AGSTUDIO_TEST_SERVER_PROCESS";
 
     /// Test-only inputs, honoured by the worker only in `cfg(test)` builds:
     /// the production binary has no code path that reads them.
@@ -547,7 +628,7 @@ pub(crate) mod tests {
     /// `LIMITS <file>`: write `/proc/self/limits`, the nice value and the
     /// process group, then answer normally.
     const LIMITS: &str = "__agstudio_test_limits__";
-    /// Allocate far past `RLIMIT_AS`.
+    /// Allocate far past the memory cap.
     const ALLOC: &str = "__agstudio_test_alloc__";
 
     pub const CIRCUMCENTER: &str =
@@ -563,11 +644,15 @@ pub(crate) mod tests {
         if let Some(path) = input.strip_prefix(LIMITS) {
             let limits = std::fs::read_to_string("/proc/self/limits").unwrap_or_default();
             // SAFETY: plain syscalls.
-            let (nice, pgrp) = unsafe {
-                (libc::getpriority(libc::PRIO_PROCESS, 0), libc::getpgrp())
+            let (nice, pgrp, dumpable) = unsafe {
+                (
+                    libc::getpriority(libc::PRIO_PROCESS, 0),
+                    libc::getpgrp(),
+                    libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0),
+                )
             };
             let pid = std::process::id();
-            let text = format!("{limits}\nnice={nice}\npgrp={pgrp}\npid={pid}\n");
+            let text = format!("{limits}\nnice={nice}\npgrp={pgrp}\npid={pid}\ndumpable={dumpable}\n");
             std::fs::write(path.trim(), text).unwrap();
         }
         if input.starts_with(ALLOC) {
@@ -589,6 +674,18 @@ pub(crate) mod tests {
         if std::env::var_os(TEST_ENTRY_ENV).is_some() {
             std::process::exit(worker_main());
         }
+    }
+
+    /// A stand-in server: runs one hung solve, then is killed by the test.
+    #[test]
+    fn server_process_entry() {
+        let Some(pidfile) = std::env::var_os(SERVER_ENV) else {
+            return;
+        };
+        let input = format!("{HANG} {}", std::path::Path::new(&pidfile).display());
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        rt.block_on(run(&request(&input, 60.0), None));
+        std::process::exit(0);
     }
 
     #[test]
@@ -726,10 +823,12 @@ pub(crate) mod tests {
             line[name.len()..].split_whitespace().map(str::to_string).collect()
         };
         let mem = (DEFAULT_MEM_MB << 20).to_string();
-        assert_eq!(row("Max address space")[..2], [mem.clone(), mem], "{text}");
+        assert_eq!(row("Max data size")[..2], [mem.clone(), mem], "{text}");
+        assert_eq!(row("Max address space")[0], "unlimited", "{text}");
         assert_ne!(row("Max cpu time")[0], "unlimited", "{text}");
         assert_eq!(row("Max core file size")[0], "0", "{text}");
         assert!(text.contains(&format!("nice={WORKER_NICE}")), "{text}");
+        assert!(text.contains("dumpable=0"), "a crash must not reach the coredump handler: {text}");
         let field = |k: &str| text.lines().find_map(|l| l.strip_prefix(k)).unwrap().to_string();
         assert_eq!(field("pgrp="), field("pid="), "the worker must lead its own process group");
     }
@@ -740,6 +839,53 @@ pub(crate) mod tests {
         let outcome = bounded(run(&request(ALLOC, 30.0), None)).await;
         assert!(matches!(outcome, Outcome::Failed(_)), "an 8 GiB allocation must kill the worker");
         assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
+    }
+
+    #[tokio::test]
+    async fn a_worker_whose_server_is_killed_exits_instead_of_running_on() {
+        use wait_timeout::ChildExt;
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        let mut server = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([SERVER_ENTRY, "--exact", "--nocapture", "--test-threads=1", "-q"])
+            .env(SERVER_ENV, &pidfile)
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = wait_for_pid(&pidfile).await;
+        server.kill().unwrap();
+        assert!(server.wait_timeout(Duration::from_secs(10)).unwrap().is_some());
+        let took = wait_reaped(pid, Duration::from_secs(3)).await;
+        eprintln!("orphaned worker {pid} gone {took:?} after its server was SIGKILLed");
+    }
+
+    fn with_threads(n: &'static str) -> impl FnOnce(&mut tokio::process::Command) {
+        move |cmd| {
+            cmd.env("RAYON_NUM_THREADS", n);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_imo_solve_with_many_threads_fits_the_default_memory_cap() {
+        let imo = include_str!("../../imo2023p2.geo");
+        let t = Instant::now();
+        let outcome = bounded(run_with(&request(imo, 50.0), None, with_threads("64"))).await;
+        let Outcome::Done(reply) = outcome else {
+            panic!("64 solver threads under the default cap must not crash the worker");
+        };
+        let sol = reply.result.as_ref().expect("solve error");
+        assert!(sol.proved, "{} ({:?})", sol.note, t.elapsed());
+    }
+
+    #[tokio::test]
+    async fn a_worker_that_cannot_start_its_threads_fails_instead_of_answering_not_proved() {
+        let imo = include_str!("../../imo2023p2.geo");
+        let outcome = bounded(run_with(&request(imo, 30.0), None, with_threads("100000"))).await;
+        match outcome {
+            Outcome::Failed(e) => assert!(e.contains(&format!("exit status: {EXIT_NO_THREADS}")), "{e}"),
+            Outcome::Done(r) => panic!("a dead thread pool was reported as a result: {:?}", r.result.map(|s| s.note)),
+            Outcome::TimedOut => panic!("timed out"),
+        }
     }
 
     #[test]

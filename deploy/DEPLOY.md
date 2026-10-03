@@ -87,7 +87,7 @@ ProtectSystem=strict, no capabilities); its only writable path is
 | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
 | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
-| `AGSTUDIO_WORKER_MEM_MB` | 2048 | address-space cap (`RLIMIT_AS`) of each solve worker process; 0 = none |
+| `AGSTUDIO_WORKER_MEM_MB` | 2048 | memory cap (`RLIMIT_DATA`: heap and thread stacks, not merely reserved address space) of each solve worker process; 0 = none |
 | `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests per minute (0 = off) |
 | `AGSTUDIO_TRANSLATE_PER_MIN` | 12 | per-IP `/api/translate` + `/api/humanize` per minute (0 = off) |
 | `AGSTUDIO_AUTH_PER_MIN` | 15 | per-IP `/api/auth/login` + `register` per minute (0 = off) |

@@ -46,33 +46,91 @@ const ARGON2_QUEUE_WAIT: Duration = Duration::from_secs(10);
 /// Run the web app until the process is stopped, using the given configuration.
 pub async fn serve(config: Config) -> anyhow::Result<()> {
     let bind = config.bind;
-    let summary = config.summary();
     let state = AppState::new(config).map_err(|e| anyhow::anyhow!(e))?;
-    let translate_note = if !state.config.enable_translate {
-        "disabled by configuration".to_string()
-    } else {
-        match state.translate_status().await {
-            s if s.logged_in => "on (local Claude subscription)".into(),
-            s if s.installed => "installed — run `claude auth login` to enable".into(),
-            _ => "off — install the `claude` CLI to enable".into(),
-        }
-    };
-    let app = app_router(state);
-
     let listener = tokio::net::TcpListener::bind(bind).await?;
+    serve_on(listener, state).await
+}
+
+/// Serve `state` on an already-bound listener. Answers at once: the
+/// translation probe (which can take seconds) reports in the background.
+async fn serve_on(listener: tokio::net::TcpListener, state: Shared) -> anyhow::Result<()> {
+    let bind = listener.local_addr()?;
     println!("\n  GeoSolver  →  http://{bind}\n");
-    println!("  AI translation: {translate_note}");
-    println!("  Security: {summary}");
+    println!("  Security: {}", state.config.summary());
     if bind.ip().is_loopback() {
         println!("  (loopback only — put a reverse proxy in front to expose it)");
     }
     println!("  Press Ctrl-C to stop.\n");
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
-    Ok(())
+    report_translate_status(state.clone());
+    let header_timeout = state.config.header_timeout;
+    accept_loop(listener, app_router(state), header_timeout).await
+}
+
+fn report_translate_status(state: Shared) {
+    if !state.config.enable_translate {
+        println!("  AI translation: disabled by configuration");
+        return;
+    }
+    tokio::spawn(async move {
+        let note = match state.translate_status().await {
+            s if s.logged_in => "on (local Claude subscription)",
+            s if s.installed => "installed — run `claude auth login` to enable",
+            _ => "off — install the `claude` CLI to enable",
+        };
+        println!("  AI translation: {note}");
+    });
+}
+
+/// HTTP/1 connections with a header-read timeout; each request carries its
+/// peer as `ConnectInfo<SocketAddr>`.
+async fn accept_loop(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    header_timeout: Duration,
+) -> anyhow::Result<()> {
+    let mut http = hyper::server::conn::http1::Builder::new();
+    http.timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(header_timeout);
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) if is_connection_error(&e) => continue,
+            Err(e) => {
+                eprintln!("accept failed: {e}");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+        let conn = http.serve_connection(
+            hyper_util::rt::TokioIo::new(stream),
+            WithPeer { app: app.clone(), peer },
+        );
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+    }
+}
+
+fn is_connection_error(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind::*;
+    matches!(e.kind(), ConnectionRefused | ConnectionAborted | ConnectionReset)
+}
+
+#[derive(Clone)]
+struct WithPeer {
+    app: Router,
+    peer: SocketAddr,
+}
+
+impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for WithPeer {
+    type Response = Response;
+    type Error = std::convert::Infallible;
+    type Future = axum::routing::future::RouteFuture<std::convert::Infallible>;
+
+    fn call(&self, mut req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
+        req.extensions_mut().insert(axum::extract::ConnectInfo(self.peer));
+        tower::Service::call(&mut self.app.clone(), req)
+    }
 }
 
 /// Assemble the full application router (routes + middleware) for `state`.
@@ -2233,8 +2291,7 @@ mod tests {
             let cookie = register_cookie(&state, "leaver").await;
             let listener = bind_test_port().await;
             let addr = listener.local_addr().unwrap();
-            let app = app_router(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
-            let server = tokio::spawn(async move { axum::serve(listener, app).await });
+            let server = tokio::spawn(serve_on(listener, state.clone()));
 
             let tmp = tempfile::tempdir().unwrap();
             let (input, pidfile) = hang_input(tmp.path(), "pid");
@@ -2254,6 +2311,71 @@ mod tests {
             let took = wait_reaped(pid, Duration::from_secs(3)).await;
             wait_permits(&state, 1).await;
             eprintln!("worker reaped {took:?} after the client hung up");
+            server.abort();
+        }
+
+        async fn http_get(addr: SocketAddr, path: &str) -> String {
+            use tokio::io::AsyncReadExt;
+            let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n", addr.port());
+            sock.write_all(req.as_bytes()).await.unwrap();
+            let mut out = String::new();
+            sock.read_to_string(&mut out).await.unwrap();
+            out
+        }
+
+        fn slow_probe() -> crate::translate::Status {
+            std::thread::sleep(Duration::from_secs(3));
+            crate::translate::Status { installed: true, logged_in: false }
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn the_server_answers_before_a_slow_translate_probe_finishes() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = Config::from_env(0).unwrap();
+            config.db_path = dir.path().join("test.db");
+            config.enable_translate = true;
+            let state = AppState::with_translate_probe(config, slow_probe).unwrap();
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let t = Instant::now();
+            let server = tokio::spawn(serve_on(listener, state));
+            let reply = bounded(http_get(addr, "/healthz")).await;
+            assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+            assert!(t.elapsed() < Duration::from_secs(1), "healthz waited {:?} for the probe", t.elapsed());
+            server.abort();
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn a_client_that_never_finishes_its_headers_is_dropped() {
+            use tokio::io::AsyncReadExt;
+            let (state, _dir) = state_with(|c| c.header_timeout = Duration::from_secs(1));
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(serve_on(listener, state));
+
+            let status = bounded(http_get(addr, "/api/status")).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "the peer address reaches the app: {status}");
+
+            let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+            sock.write_all(b"POST /api/solve HTTP/1.1\r\nHost: 127.0.0.1\r\n").await.unwrap();
+            let t = Instant::now();
+            let mut buf = [0u8; 256];
+            let closed = bounded(async {
+                loop {
+                    tokio::select! {
+                        n = sock.read(&mut buf) => break n.map_or(true, |n| n == 0 || buf[..n].starts_with(b"HTTP/1.1 408")),
+                        _ = tokio::time::sleep(Duration::from_millis(300)) => {
+                            if sock.write_all(b"X-Slow: 1\r\n").await.is_err() {
+                                break true;
+                            }
+                        }
+                    }
+                }
+            })
+            .await;
+            assert!(closed);
+            assert!(t.elapsed() < Duration::from_secs(3), "dropped after {:?}", t.elapsed());
             server.abort();
         }
     }
