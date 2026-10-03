@@ -414,3 +414,44 @@ fn similitude_pairing_is_not_read_off_a_tangent_line() {
     assert_eq!(o.goal_numeric, Some(true), "DA = DE on the tangent figure");
     assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
 }
+
+/// The classical closure rules (squared lengths, Menelaus/Ceva converses,
+/// bisector concurrency) on near-miss configurations: true controls stay
+/// proved, false neighbours stay unproved by DDAR and by the aux search.
+#[test]
+fn classical_rules_do_not_prove_near_misses() {
+    let truths = [
+        "A B C = triangle\nH = point: perp(A, H, B, C), perp(B, H, C, A)\nprove perp(C, H, A, B)",
+        "A B C = triangle\nX = meet(bisector(B, A, C), bisector(A, B, C))\nprove eqangle(C, B, C, X, C, X, C, A)",
+        "A B C = triangle\nI = incenter(A, B, C)\nTa = foot(I, line(B, C))\nTb = foot(I, line(C, A))\n\
+         Tc = foot(I, line(A, B))\nX = meet(line(A, Ta), line(B, Tb))\nprove coll(C, Tc, X)",
+    ];
+    for src in truths {
+        assert!(ddar_claims_proof(src), "control case no longer proved:\n{src}");
+    }
+    let falsehoods = [
+        "A B C = triangle\nH = point: perp(A, H, B, C)\nprove perp(C, H, A, B)",
+        "A B C = triangle\nM = midpoint(B, C)\nprove perp(A, M, B, C)",
+        "A B = segment\nC = on_tline(B, A, B)\nprove cong(A, C, B, C)",
+        "A B C = triangle\nD = midpoint(B, C)\nE = midpoint(C, A)\nF = midpoint(A, B)\nprove coll(D, E, F)",
+        "A B C = triangle\nD = midpoint(B, C)\nE = midpoint(C, A)\nX = meet(line(A, D), line(B, E))\n\
+         F = on_line(A, B)\nprove coll(C, X, F)",
+        "A B C = triangle\nX = meet(bisector(B, A, C), line(B, midpoint(C, A)))\n\
+         prove eqangle(C, B, C, X, C, X, C, A)",
+        "A B C = triangle\nG = centroid(A, B, C)\nMa = midpoint(B, C)\nMb = midpoint(C, A)\n\
+         Mc = midpoint(A, B)\nP = midpoint(A, G)\nprove cyclic(Ma, Mb, Mc, P)",
+    ];
+    for src in falsehoods {
+        let c = compile(src).unwrap();
+        assert_eq!(c.goal_numerically_holds, Some(false), "near-miss must be false:\n{src}");
+        assert!(!ddar_claims_proof(src), "DDAR proved a false statement:\n{src}");
+        let problem = c.problem;
+        let found = bounded(300, move || {
+            ddar::aux_search::solve_with_aux_opts(&problem, 1, 400, false, true).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("the aux search proved a false statement with {used:?}:\n{src}");
+        }
+    }
+}

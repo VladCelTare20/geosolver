@@ -193,6 +193,11 @@ impl ElimCore {
         true
     }
 
+    /// Number of independent equations stored; grows with every new fact.
+    pub fn rows(&self) -> usize {
+        self.instantiated.len()
+    }
+
     /// Whether a single variable already participates in the system (used to
     /// prune the similar-triangle search).
     pub fn var_encountered(&self, var: VarId) -> bool {

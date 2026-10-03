@@ -254,7 +254,7 @@ pub(crate) fn cong_center(p: &[PointId]) -> Option<(PointId, PointId)> {
 fn pred_pairs(pred: &Predicate) -> Vec<(PointId, PointId)> {
     match pred.name.as_str() {
         "cong" | "perp" | "para" | "eqangle" | "eqratio" | "distmeq" | "distseq" | "s_angle"
-        | "aconst" | "angeq" | "rconst" | "acompute" => {
+        | "aconst" | "angeq" | "rconst" | "acompute" | "rcompute" => {
             pred.points.chunks_exact(2).map(|c| (c[0], c[1])).collect()
         }
         "coll" => {
@@ -981,6 +981,7 @@ fn pretty(problem: &Problem, pred: &Predicate) -> String {
             pretty_angle(&a[0], &a[1], &a[2], &a[3])
         }
         "rconst" if nm == 4 => format!("{}{} : {}{} = {}", n(0), n(1), n(2), n(3), const_str(pred)),
+        "rcompute" if nm == 4 => format!("{}{} : {}{} = ?", n(0), n(1), n(2), n(3)),
         "simtri" | "simtri2" | "simtri*" if nm == 6 => format!(
             "\u{25b3}{}{}{} \u{223c} \u{25b3}{}{}{}",
             n(0),

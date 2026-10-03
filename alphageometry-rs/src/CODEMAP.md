@@ -5,8 +5,8 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 ## Files
 - `geo.rs` — the `.geo` language: parse, expand constructions, sample a figure, compile to predicates. Point cap counts expanded points.
 - `predicate.rs` — the low-level AlphaGeometry predicate language and parser.
-- `engine.rs` — DDAR deductive closure.
-- `elim_core.rs`, `elimination.rs`, `lincomb.rs`, `rational.rs` — exact Gaussian elimination over rationals (angles, ratios, distances).
+- `engine.rs` — DDAR deductive closure; goals include `acompute` (angle) and `rcompute` (ratio fixed to a constant).
+- `elim_core.rs`, `elimination.rs`, `lincomb.rs`, `rational.rs` — exact Gaussian elimination over rationals (angles, ratios, distances, squared lengths).
 - `fingerprint.rs` — linear fingerprints of `LinComb`s mod 2^61−1; can only rule an equality out.
 - `aux_search.rs` — LM-free auxiliary-point search over DDAR.
 - `metric.rs` — metric goals: `solve` is `Ok` only for a Euclidean proof; otherwise `MetricError::{Refuted, NoProof{evidence}, Failed}`. `check_numerically` is evidence, never a proof.
@@ -34,7 +34,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `engine.rs:search_similitude` — the image-vs-antihomologous pairing is read off the figure only when line ZP meets circle 1 in two numerically distinct points; at a tangency both pairings coincide, so the choice would be a coincidence, not a configuration (found by the fuzzer, four false statements: `tests/soundness.rs: similitude_pairing_is_not_read_off_a_tangent_coincidence`, `..._tangent_line`).
 - `engine.rs:search_radical_axis` — the inside/outside branch is read from chord-end order, not from the conclusion.
 - `engine.rs:PairIds` — per-pass keys for the O(n³) searches (similar, concyclic, bisector): a triangle's angle/ratio key is a fingerprint difference of two cached pair values, O(1). A fingerprint match is acted on only after an exact comparison of interned normal forms (`ang`/`rat`, memoised in the thread-local stamped `TripleMemo`); a coefficient with no residue switches the pass to exact ids (`fp_ok`). Shared across the three searches until the next `update_cache`.
-- `engine.rs` speed work keeps the force order: bucket maps are only probed, never iterated; concyclic's group map is keyed by `&LinComb`, which hashes like the old `Angle` key. Proofs on all 252 corpus solves are byte-identical to a764596.
+- `engine.rs` speed work keeps the force order: bucket maps are only probed, never iterated; concyclic's group map is keyed by `&LinComb`, which hashes like the old `Angle` key. wf/speed kept proofs byte-identical to a764596; the engine/ rules (wf/rules) change proofs on purpose.
 - `engine.rs:search_similar` — degenerate triangles are skipped by `force_collinear`'s tolerance (`numerically_flat`) as well as `orientation`: a long base with sub-ATOM height would otherwise force a bogus ratio.
 - `engine.rs:row_already_concyclic`, `line_holds` — skip forces that `force_concyclic`/`force_collinear` would exit from as no-ops. They rely on `triple_to_circle`/`pair_line` mapping every numerically distinct triple/pair of active points to the one object holding it; `line_holds` also repeats `force_collinear`'s numeric check so a would-be panic still happens.
 - `engine.rs:force_*_with` — premises are computed lazily, after the no-op exit; nothing mutates in between, so the cited facts are unchanged.
@@ -47,4 +47,5 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `fuzz.rs:verdict` — a non-degenerate case is false as a theorem, so any proof is `UNSOUND`, even when the goal holds on the pinned figure (`hyp-special`).
 
 ## Subfolders
+- [engine/](engine/CODEMAP.md) — classical closure rules: squared lengths, Menelaus/Ceva, bisector concurrency.
 - `bin/` — `ddar.rs`, the engine CLI (`--help` lists modes).

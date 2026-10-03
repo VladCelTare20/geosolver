@@ -12,7 +12,9 @@
 //! until no new fact can be derived. A goal predicate is proved iff it holds in
 //! the closure.
 
-use crate::elimination::{Angle, DistAdd, DistMul, ElimAngle, ElimDistAdd, ElimDistMul};
+use crate::elimination::{
+    Angle, DistAdd, DistMul, DistSq, ElimAngle, ElimDistAdd, ElimDistMul, ElimDistSq,
+};
 use crate::fingerprint;
 use crate::lincomb::LinComb;
 use crate::numerics::{
@@ -23,6 +25,9 @@ use crate::proof::{FactId, ProofLog, Reason};
 use crate::rational::Rat;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::Entry;
+
+mod classics;
+mod sqlen;
 
 /// A maximal set of collinear points (immutable snapshot).
 #[derive(Clone, Debug)]
@@ -67,11 +72,13 @@ pub struct Ddar {
     angle: ElimAngle,
     dmul: ElimDistMul,
     dadd: ElimDistAdd,
+    dsq: ElimDistSq,
 
     // Per-pair tables (flat n*n; `None` for numerically identical pairs).
     pair_dir: Vec<Option<Angle>>,
     pair_dist_mul: Vec<Option<DistMul>>,
     pair_dist_add: Vec<Option<DistAdd>>,
+    pair_dist_sq: Vec<Option<DistSq>>,
     pair_line: Vec<Option<usize>>,
 
     // Object arenas + live-id lists (mirrors the reference's `set`s).
@@ -91,6 +98,9 @@ pub struct Ddar {
     /// Proof provenance log (facts + reasons). Row-level dependency tracking is
     /// only active when constructed via [`Ddar::new_tracked`].
     log: ProofLog,
+
+    classics: classics::Done,
+    rules_off: u8,
 }
 
 impl Ddar {
@@ -121,6 +131,11 @@ impl Ddar {
         self.pair_dist_add[self.pk(a, b)]
             .clone()
             .expect("no dist_add for pair")
+    }
+    fn raw_dist_sq(&self, a: PointId, b: PointId) -> DistSq {
+        self.pair_dist_sq[self.pk(a, b)]
+            .clone()
+            .expect("no dist_sq for pair")
     }
     fn cached_dir(&self, a: PointId, b: PointId) -> &Angle {
         self.dir_cache[self.pk(a, b)]
@@ -264,10 +279,12 @@ impl Ddar {
         let mut angle = ElimAngle::new();
         let mut dmul = ElimDistMul::new();
         let mut dadd = ElimDistAdd::new();
+        let mut dsq = ElimDistSq::new();
 
         let mut pair_dir: Vec<Option<Angle>> = vec![None; n * n];
         let mut pair_dist_mul: Vec<Option<DistMul>> = vec![None; n * n];
         let mut pair_dist_add: Vec<Option<DistAdd>> = vec![None; n * n];
+        let mut pair_dist_sq: Vec<Option<DistSq>> = vec![None; n * n];
         let mut pair_line: Vec<Option<usize>> = vec![None; n * n];
 
         let mut lines: Vec<FormalLine> = Vec::new();
@@ -306,6 +323,9 @@ impl Ddar {
                 let da = dadd.new_var(d);
                 pair_dist_add[idx_ab] = Some(da.clone());
                 pair_dist_add[idx_ba] = Some(da);
+                let ds = dsq.new_var(d * d);
+                pair_dist_sq[idx_ab] = Some(ds.clone());
+                pair_dist_sq[idx_ba] = Some(ds);
             }
         }
 
@@ -323,9 +343,11 @@ impl Ddar {
             angle,
             dmul,
             dadd,
+            dsq,
             pair_dir,
             pair_dist_mul,
             pair_dist_add,
+            pair_dist_sq,
             pair_line,
             lines,
             live_lines,
@@ -337,6 +359,8 @@ impl Ddar {
             dist_mul_cache,
             dir_cache,
             log: ProofLog::new(),
+            classics: classics::Done::default(),
+            rules_off: classics::env_disabled_mask(),
         }
     }
 
@@ -379,6 +403,9 @@ impl Ddar {
             let da = self.dadd.new_var(d);
             self.pair_dist_add[ai] = Some(da.clone());
             self.pair_dist_add[ia] = Some(da);
+            let ds = self.dsq.new_var(d * d);
+            self.pair_dist_sq[ai] = Some(ds.clone());
+            self.pair_dist_sq[ia] = Some(ds);
             // Seed the caches like `new` does (force_pred reads them before the
             // first `update_cache`).
             self.dist_mul_cache[ai] = self.pair_dist_mul[ai].clone();
@@ -396,6 +423,7 @@ impl Ddar {
         d.angle.core.track = true;
         d.dmul.core.track = true;
         d.dadd.core.track = true;
+        d.dsq.core.track = true;
         d
     }
 
@@ -648,7 +676,7 @@ impl Ddar {
             }
         } else if name == "overlap" {
             self.force_equal_points(pts[0], pts[1], vec![fact]);
-        } else if name == "acompute" {
+        } else if name == "acompute" || name == "rcompute" {
             // Nothing to force.
         } else {
             panic!("unexpected predicate: {name}");
@@ -662,6 +690,9 @@ impl Ddar {
     pub fn check_pred(&mut self, pred: &Predicate) -> bool {
         if pred.name == "acompute" {
             return self.acompute(pred).is_some_and(|v| !v.is_zero());
+        }
+        if pred.name == "rcompute" {
+            return self.rcompute_deps(pred).is_some();
         }
         let pts = self.subst_points(pred);
         let name = pred.name.as_str();
@@ -709,6 +740,9 @@ impl Ddar {
                 .all(|(v, _)| *v == crate::elimination::ANGLE_UNIT);
             let nonzero = !ang.0.get(crate::elimination::ANGLE_UNIT).is_zero();
             return (determined && nonzero).then_some(deps);
+        }
+        if pred.name == "rcompute" {
+            return self.rcompute_deps(pred).map(|(_, deps)| deps);
         }
         let pts = self.subst_points(pred);
         let name = pred.name.as_str();
@@ -790,6 +824,31 @@ impl Ddar {
         self.log.step_lines(deps, &self.names)
     }
 
+    /// `|ab| / |cd|` for an `rcompute a b c d` goal when the ratio table fixes it
+    /// to a constant (prime-log terms only, so square roots of rationals too),
+    /// with the facts the reduction used.
+    pub fn rcompute_deps(&self, pred: &Predicate) -> Option<(DistMul, Vec<FactId>)> {
+        let pts = self.subst_points(pred);
+        if pts.len() != 4 || self.num_identical(pts[0], pts[1]) || self.num_identical(pts[2], pts[3]) {
+            return None;
+        }
+        let r = self
+            .raw_dist_mul(pts[0], pts[1])
+            .div(&self.raw_dist_mul(pts[2], pts[3]));
+        let (r, deps) = self.dmul.simplify_deps(&r);
+        r.0.terms
+            .iter()
+            .all(|(v, _)| !self.dmul.core.is_lhs[*v as usize])
+            .then_some((r, deps))
+    }
+
+    /// The rational value of a determined `rcompute` ratio, if it is rational.
+    pub fn rcompute(&self, pred: &Predicate) -> Option<Rat> {
+        let (r, _) = self.rcompute_deps(pred)?;
+        let (rest, coef) = self.dmul.normalize(&r);
+        rest.is_one().then_some(coef)
+    }
+
     /// Compute a determined angle for an `acompute` goal, if any (in half-turns).
     pub fn acompute(&mut self, pred: &Predicate) -> Option<Rat> {
         let pts = self.subst_points(pred);
@@ -850,6 +909,39 @@ impl Ddar {
 
     /// Run the fixpoint loop until no new fact is derived.
     pub fn deduction_closure(&mut self) {
+        loop {
+            self.base_closure();
+            if !self.classical_rules() {
+                break;
+            }
+        }
+    }
+
+    fn classical_rules(&mut self) -> bool {
+        let mut changed = false;
+        if self.rule_on(classics::Rule::BisectorConcurrency)
+            && self.inputs_changed(classics::Pass::BisectorConcurrency)
+        {
+            changed |= self.search_bisector_concurrency();
+        }
+        if self.rule_on(classics::Rule::MenelausCeva)
+            && self.inputs_changed(classics::Pass::MenelausCeva)
+        {
+            if changed {
+                self.update_cache();
+            }
+            changed |= self.search_menelaus_ceva();
+        }
+        if self.rule_on(classics::Rule::SquaredLengths) {
+            if changed {
+                self.update_cache();
+            }
+            changed |= self.search_squared_lengths();
+        }
+        changed
+    }
+
+    fn base_closure(&mut self) {
         let mut changed = true;
         while changed {
             self.update_cache();
@@ -2481,6 +2573,8 @@ impl Ddar {
                 let d1 = self.raw_dist_mul(x, a);
                 let d2 = self.raw_dist_mul(x, b);
                 self.dmul.force_one(&d1.div(&d2), Some(fact));
+                let s = DistSq(&self.raw_dist_sq(x, a).0 - &self.raw_dist_sq(x, b).0);
+                self.dsq.force_zero(&s, Some(fact));
             }
         }
 
