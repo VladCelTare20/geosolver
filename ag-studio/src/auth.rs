@@ -27,7 +27,14 @@ pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Er
         .to_string())
 }
 
+#[cfg(test)]
+thread_local! {
+    static ARGON2_VERIFIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub fn verify_password(password: &str, hash: &str) -> bool {
+    #[cfg(test)]
+    ARGON2_VERIFIES.with(|c| c.set(c.get() + 1));
     PasswordHash::new(hash)
         .map(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
         .unwrap_or(false)
@@ -231,23 +238,17 @@ mod tests {
 
     #[test]
     fn unknown_user_costs_a_full_argon2_verify() {
-        let hash = hash_password("the real password").unwrap();
-        let _ = verify_password_or_dummy("warm", None);
-        let time = |f: &dyn Fn()| {
-            (0..3)
-                .map(|_| {
-                    let t = std::time::Instant::now();
-                    f();
-                    t.elapsed()
-                })
-                .min()
-                .unwrap()
-        };
-        let known = time(&|| assert!(!verify_password_or_dummy("guess", Some(&hash))));
-        let unknown = time(&|| assert!(!verify_password_or_dummy("guess", None)));
-        assert!(
-            unknown * 2 > known,
-            "unknown-user path ({unknown:?}) must cost about the same as a real verify ({known:?})"
+        let verifies = || ARGON2_VERIFIES.with(|c| c.get());
+        let before = verifies();
+        assert!(!verify_password_or_dummy("guess", None));
+        assert_eq!(verifies(), before + 1, "unknown user must still run argon2");
+        let dummy = PasswordHash::new(dummy_hash()).expect("dummy is a real PHC hash");
+        assert_eq!(dummy.algorithm.as_str(), "argon2id");
+        let real = hash_password("x").unwrap();
+        assert_eq!(
+            PasswordHash::new(&real).unwrap().params,
+            dummy.params,
+            "same cost parameters as real hashes"
         );
     }
 }
