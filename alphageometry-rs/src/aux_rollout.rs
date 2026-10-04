@@ -14,7 +14,7 @@ use rustc_hash::{FxHashSet, FxHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const MAX_POINTS: usize = 4;
 const CHILD_CAP: usize = 192;
@@ -507,9 +507,14 @@ fn lemmas_enabled() -> bool {
 /// Share of the budget after which the lemma phase starts, and where it ends.
 const LEMMA_START: f64 = 0.3;
 const LEMMA_END: f64 = 0.75;
+/// The phase never takes longer than this: a lemma worth its detour is a
+/// short search, and the rollouts it interrupts need the time back.
+const LEMMA_PHASE_CAP: Duration = Duration::from_secs(20);
 /// Share of the budget by which the search on the lemma-augmented problem
-/// must succeed; afterwards the original rollouts resume where they stopped.
+/// must succeed (and at most `AUGMENTED_CAP` after the phase); afterwards
+/// the original rollouts resume where they stopped.
 const AUGMENTED_END: f64 = 0.85;
+const AUGMENTED_CAP: Duration = Duration::from_secs(40);
 /// Pool items a lemma's depth-1 sweep covers (best ranked) before its rollouts.
 const LEMMA_SWEEP: usize = 1000;
 /// Lemmas tried per phase.
@@ -746,7 +751,7 @@ fn search_with(
         if let (true, Some(b)) = (lemma_due, budget) {
             if t0.elapsed() >= b.mul_f64(LEMMA_START) {
                 lemma_due = false;
-                let until = t0 + b.mul_f64(LEMMA_END);
+                let until = t0 + b.mul_f64(LEMMA_END).min(t0.elapsed() + LEMMA_PHASE_CAP);
                 if let Some((aug, cons)) = lemma_phase(problem, warm.ddar(), verbose, until) {
                     if verbose {
                         eprintln!(
@@ -755,7 +760,7 @@ fn search_with(
                             t0.elapsed().as_secs_f64()
                         );
                     }
-                    let aug_until = t0 + b.mul_f64(AUGMENTED_END);
+                    let aug_until = (t0 + b.mul_f64(AUGMENTED_END)).min(Instant::now() + AUGMENTED_CAP);
                     let res = search_with(&aug, verbose, Some(aug_until), true, usize::MAX, false);
                     if let Some((found, st)) = res {
                         s.runs.fetch_add(st.runs, Ordering::Relaxed);
