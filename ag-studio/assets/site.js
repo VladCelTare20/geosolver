@@ -69,7 +69,7 @@
   }
   function mathPart(tok) {
     if (isNameTok(tok)) return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
-    var m = /^(sin|cos|tan)?([∠△])([A-Z][A-Z₀-₉′″]*)([²³]?)$/.exec(tok);
+    var m = /^((?:sin|cos|tan)[²³]?)?([∠△])([A-Z][A-Z₀-₉′″]*)([²³]?)$/.exec(tok);
     if (m) return esc((m[1] || "") + m[2]) + m[3].replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml) + m[4];
     return esc(tok);
   }
@@ -110,9 +110,14 @@
       case "contri": return "△" + g(0) + " ≅ △" + g(1);
       case "eqdist": return a.join(" = ");
       case "points": return a.join(", ");
-      case "prose": return math(((lang() === "ro" && f.ro) || f.args || [])[0], true);
+      case "prose": return math(localNum(((lang() === "ro" && f.ro) || f.args || [])[0]), true);
+      case "formula": return math(localNum((f.args || [])[0]));
       default: return a.join(" ");
     }
+  }
+  function localNum(s) {
+    s = String(s == null ? "" : s);
+    return lang() === "ro" ? s.replace(/(\d)\.(\d)/g, "$1,$2") : s;
   }
   /** The same fact as plain text (for copying). */
   function factText(f) {
@@ -433,8 +438,8 @@
     svg.querySelectorAll(".f-lead").forEach(function (el) { leadOf[el.getAttribute("data-p")] = true; });
     var dots = Array.prototype.map.call(svg.querySelectorAll(".f-dot"), function (el) { return [+el.getAttribute("cx"), +el.getAttribute("cy")]; });
     var segs = [];
-    svg.querySelectorAll("line.f-line, line.f-seg, line.f-goal, line.f-aux").forEach(function (el) {
-      segs.push([+el.getAttribute("x1"), +el.getAttribute("y1"), +el.getAttribute("x2"), +el.getAttribute("y2")]);
+    svg.querySelectorAll("line.f-line, line.f-seg, line.f-ext, line.f-goal, line.f-aux").forEach(function (el) {
+      segs.push([+el.getAttribute("x1"), +el.getAttribute("y1"), +el.getAttribute("x2"), +el.getAttribute("y2"), el.classList.contains("f-goal") ? 12 : 1.2]);
     });
     var gap = 3 / s, placed = [], leads = [], out = [];
     labels.forEach(function (el) {
@@ -449,19 +454,22 @@
       function cost(cx, cy, ring) {
         var b = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], c = ring * 0.35;
         placed.forEach(function (q) { var a = overlapArea(b, [q[0] - gap, q[1] - gap, q[2] + gap, q[3] + gap]); if (a > 0) c += 12 + a / (k * k) * 0.05; });
+        var own = Math.hypot(cx - x, cy - y);
         dots.forEach(function (d) {
           if (Math.hypot(d[0] - x, d[1] - y) < 1e-6) return;
           if (d[0] > b[0] - dotR && d[0] < b[2] + dotR && d[1] > b[1] - dotR && d[1] < b[3] + dotR) c += 10;
+          else if (Math.hypot(d[0] - cx, d[1] - cy) < own) c += 14;
         });
-        leads.forEach(function (l) { if (segHitsBox(l[0], l[1], l[2], l[3], b)) c += 9; });
+        leads.forEach(function (l) { if (segHitsBox(l[0], l[1], l[2], l[3], b)) c += 14; });
         var L = Math.hypot(cx - x, cy - y) || 1, ux = (cx - x) / L, uy = (cy - y) / L;
         var ext = Math.max(Math.abs(ux) * w / 2, Math.abs(uy) * h / 2) + 2 * k;
         if (L - ext > dotR + 3 / s) {
           var lx = x + ux * (L - ext), ly = y + uy * (L - ext);
-          placed.forEach(function (q) { if (segHitsBox(x, y, lx, ly, q)) c += 9; });
+          placed.forEach(function (q) { if (segHitsBox(x, y, lx, ly, q)) c += 14; });
         }
+        segs.forEach(function (g) { if (g[4] > 2 && segHitsBox(g[0], g[1], g[2], g[3], b)) c += g[4]; });
         var hard = c - ring * 0.35;
-        segs.forEach(function (g) { if (segHitsBox(g[0], g[1], g[2], g[3], b)) c += 1.2; });
+        segs.forEach(function (g) { if (g[4] <= 2 && segHitsBox(g[0], g[1], g[2], g[3], b)) c += g[4]; });
         return { c: c, hard: hard, b: b, ext: ext, lead: L - ext > dotR + 3 / s ? [x, y, x + ux * (L - ext), y + uy * (L - ext)] : null };
       }
       var best = cost(x + dx0 * k, y + dy0 * k, 0);

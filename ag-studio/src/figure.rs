@@ -52,6 +52,8 @@ struct El {
     centre: Option<String>,
 }
 
+type RightAngle = (String, Vec<Pt>, Vec<(Pt, Pt, u32, u32)>);
+
 struct Frame {
     x0: f64,
     y1: f64,
@@ -182,6 +184,21 @@ fn metric_pairs(goal: &str) -> (Vec<(String, String)>, Vec<(String, String, Stri
     (d, a)
 }
 
+fn metric_triangles(goal: &str) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    let mut rest = goal;
+    while let Some(at) = rest.find("area(") {
+        let after = &rest[at + 5..];
+        let Some(close) = after.find(')') else { break };
+        let args: Vec<String> = after[..close].split(',').map(|s| s.trim().to_string()).collect();
+        if args.len() == 3 {
+            out.push((args[0].clone(), args[1].clone(), args[2].clone()));
+        }
+        rest = &after[close + 1..];
+    }
+    out
+}
+
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
@@ -211,18 +228,142 @@ fn arc_path(v: Pt, p1: Pt, p2: Pt, r: f64) -> Option<(String, Vec<Pt>)> {
     Some((d, pts))
 }
 
-/// The thin line from a crowded point to a label placed away from it (the
-/// segment drawn as `f-lead`), if one is drawn.
-fn leader(p: Pt, off: Pt, w: f64, crowded: bool) -> Option<(Pt, Pt)> {
+fn leader(p: Pt, off: Pt, w: f64, crowded: bool, k: f64) -> Option<(Pt, Pt)> {
     if !crowded {
         return None;
     }
     let u = unit(off);
-    let ext = (u.0.abs() * w / 2.0).max(u.1.abs() * LABEL_FS * 0.45) + 2.0;
-    if len(off) < ext + DOT_R + 4.0 {
+    let ext = (u.0.abs() * w / 2.0).max(u.1.abs() * LABEL_FS * k * 0.45) + 2.0 * k;
+    if len(off) < ext + DOT_R * k + 4.0 * k {
         return None;
     }
-    Some((add(p, mul(u, DOT_R + 1.5)), sub(add(p, off), mul(u, ext))))
+    Some((add(p, mul(u, DOT_R * k + 1.5 * k)), sub(add(p, off), mul(u, ext))))
+}
+
+fn is_crowded(p: Pt, dots: &[Pt], k: f64) -> bool {
+    dots.iter().any(|d| {
+        let dd = len(sub(*d, p));
+        dd > 1e-6 && dd < LABEL_FS * k * 1.6
+    })
+}
+
+fn incident_dirs(p: Pt, els: &[El]) -> Vec<f64> {
+    let mut dirs: Vec<f64> = Vec::new();
+    for el in els {
+        match &el.shape {
+            Shape::Line(a, b) => {
+                if dist_to_line(p, *a, *b) < 1.0 {
+                    let along = unit(sub(*b, *a));
+                    if len(sub(p, *a)) > 2.0 {
+                        dirs.push((-along.1).atan2(-along.0));
+                    }
+                    if len(sub(p, *b)) > 2.0 {
+                        dirs.push(along.1.atan2(along.0));
+                    }
+                }
+            }
+            Shape::Circle(c, r) => {
+                if (len(sub(p, *c)) - r).abs() < 1.0 {
+                    let rad = unit(sub(p, *c));
+                    let tan = (-rad.1, rad.0);
+                    dirs.push(tan.1.atan2(tan.0));
+                    dirs.push((-tan.1).atan2(-tan.0));
+                }
+            }
+            Shape::Path(..) => {}
+        }
+    }
+    dirs
+}
+
+fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<Pt> {
+    let fs = LABEL_FS * k;
+    let dot_r = DOT_R * k;
+    let mut placed: Vec<(f64, f64, f64, f64)> = Vec::new();
+    let mut leads: Vec<(Pt, Pt)> = Vec::new();
+    let mut out = Vec::new();
+    for (p, name) in specs {
+        let p = *p;
+        let dirs = incident_dirs(p, els);
+        let w = label_width(name) * k;
+        let h = fs * 0.9;
+        let crowded = is_crowded(p, dots, k);
+        let mut best: Option<(f64, Pt)> = None;
+        for ring in 0..if crowded { 5 } else { 3 } {
+            for j in 0..16 {
+                let th = (j as f64) * std::f64::consts::PI / 8.0 + if ring == 1 { std::f64::consts::PI / 16.0 } else { 0.0 };
+                let dv = (th.cos(), th.sin());
+                let gap = dirs
+                    .iter()
+                    .map(|&a| {
+                        let mut d = (a - th).abs() % (2.0 * std::f64::consts::PI);
+                        if d > std::f64::consts::PI {
+                            d = 2.0 * std::f64::consts::PI - d;
+                        }
+                        d
+                    })
+                    .fold(std::f64::consts::PI, f64::min);
+                let reach = (7.0 + ring as f64 * 7.0) * k + (dv.0.abs() * w / 2.0).max(dv.1.abs() * h / 2.0);
+                let c = add(p, mul(dv, reach));
+                let m = 1.5 * k;
+                let bx = (c.0 - w / 2.0 - m, c.1 - h / 2.0 - m, c.0 + w / 2.0 + m, c.1 + h / 2.0 + m);
+                let gap_px = LABEL_GAP * k;
+                let mut penalty = ring as f64 * 0.35;
+                for q in &placed {
+                    let ox = (bx.2.min(q.2 + gap_px) - bx.0.max(q.0 - gap_px)).max(0.0);
+                    let oy = (bx.3.min(q.3 + gap_px) - bx.1.max(q.1 - gap_px)).max(0.0);
+                    if ox * oy > 0.0 {
+                        penalty += 14.0 + ox * oy * 0.05 / (k * k);
+                    }
+                }
+                for (a, b) in &leads {
+                    if seg_hits_box(*a, *b, bx) {
+                        penalty += 14.0;
+                    }
+                }
+                if let Some((a, b)) = leader(p, sub(c, p), w, crowded, k) {
+                    penalty += 14.0 * placed.iter().filter(|q| seg_hits_box(a, b, **q)).count() as f64;
+                }
+                let own = len(sub(c, p));
+                for d in dots {
+                    if len(sub(*d, p)) < 1e-6 {
+                        continue;
+                    }
+                    if d.0 > bx.0 - dot_r && d.0 < bx.2 + dot_r && d.1 > bx.1 - dot_r && d.1 < bx.3 + dot_r {
+                        penalty += 10.0;
+                    } else if len(sub(c, *d)) < own {
+                        penalty += 14.0;
+                    }
+                }
+                for el in els {
+                    let hit = match &el.shape {
+                        Shape::Line(a, b) => seg_hits_box(*a, *b, bx),
+                        Shape::Circle(cc, r) => circle_hits_box(*cc, *r, bx),
+                        Shape::Path(_, pts) => pts.windows(2).any(|s| seg_hits_box(s[0], s[1], bx)),
+                    };
+                    if hit {
+                        penalty += match (el.role, &el.shape) {
+                            (Role::Goal, Shape::Path(..)) => 2.2,
+                            (Role::Goal, _) => 12.0,
+                            (_, Shape::Path(..)) => 4.0,
+                            _ => 1.4,
+                        };
+                    }
+                }
+                let score = gap.min(1.2) * 0.8 - penalty;
+                if best.is_none_or(|(s, _)| score > s) {
+                    best = Some((score, c));
+                }
+            }
+        }
+        let (_, c) = best.unwrap_or((0.0, add(p, (10.0 * k, -10.0 * k))));
+        placed.push((c.0 - w / 2.0, c.1 - h / 2.0, c.0 + w / 2.0, c.1 + h / 2.0));
+        if let Some(l) = leader(p, sub(c, p), w, crowded, k) {
+            leads.push(l);
+        }
+        out.push(sub(c, p));
+    }
+    out
 }
 
 fn label_width(name: &str) -> f64 {
@@ -454,13 +595,37 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         });
     }
 
-    // Right-angle marks.
-    let right_angle = |a: u32, b: u32, c: u32, d: u32| -> Option<(String, Vec<Pt>)> {
+    let extent = |a: u32, b: u32| -> (Pt, Pt) {
+        let (pa, pb) = (scr[a as usize], scr[b as usize]);
+        match lines.iter().find(|(lo, hi, _)| dist_to_line(pa, *lo, *hi) < 0.5 && dist_to_line(pb, *lo, *hi) < 0.5) {
+            Some((lo, hi, _)) => {
+                let e = mul(sub(*hi, *lo), 0.07);
+                (sub(*lo, e), add(*hi, e))
+            }
+            None => (pa, pb),
+        }
+    };
+    let right_angle = |a: u32, b: u32, c: u32, d: u32| -> Option<RightAngle> {
         let (pa, pb, pc, pd) = (scr[a as usize], scr[b as usize], scr[c as usize], scr[d as usize]);
         let x = intersect(pa, pb, pc, pd)?;
         let near = scr.iter().any(|&p| finite(p) && len(sub(p, x)) < SPAN * 0.6);
         if !near {
             return None;
+        }
+        let mut exts = Vec::new();
+        for (e1, e2) in [(a, b), (c, d)] {
+            let (s0, s1) = extent(e1, e2);
+            let dir = sub(s1, s0);
+            let l2 = (dir.0 * dir.0 + dir.1 * dir.1).max(1e-9);
+            let t = ((x.0 - s0.0) * dir.0 + (x.1 - s0.1) * dir.1) / l2;
+            let slack = 2.0 / l2.sqrt();
+            if t < -slack || t > 1.0 + slack {
+                let end = if t < 0.0 { s0 } else { s1 };
+                if len(sub(end, x)) > SPAN * 0.5 {
+                    return None;
+                }
+                exts.push((end, x, e1, e2));
+            }
         }
         let far = |e1: Pt, e2: Pt| if len(sub(e1, x)) >= len(sub(e2, x)) { e1 } else { e2 };
         let u = unit(sub(far(pa, pb), x));
@@ -469,15 +634,28 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         let p1 = add(x, mul(u, t));
         let p2 = add(add(x, mul(u, t)), mul(v, t));
         let p3 = add(x, mul(v, t));
-        Some((format!("M{:.1},{:.1} L{:.1},{:.1} L{:.1},{:.1}", p1.0, p1.1, p2.0, p2.1, p3.0, p3.1), vec![p1, p2, p3]))
+        Some((format!("M{:.1},{:.1} L{:.1},{:.1} L{:.1},{:.1}", p1.0, p1.1, p2.0, p2.1, p3.0, p3.1), vec![p1, p2, p3], exts))
+    };
+    let extension = |(from, to, a, b): (Pt, Pt, u32, u32), aux: bool| El {
+        shape: Shape::Line(from, to),
+        class: "f-ext",
+        role: if aux { Role::Aux } else { Role::Base },
+        dashed: true,
+        width: 1.0,
+        pts: vec![dn(a), dn(b)],
+        centre: None,
     };
     for pred in problem.preds.iter().filter(|p| p.name == "perp" && p.points.len() == 4) {
         let p = &pred.points;
-        if let Some((d, pts)) = right_angle(p[0], p[1], p[2], p[3]) {
+        if let Some((d, pts, exts)) = right_angle(p[0], p[1], p[2], p[3]) {
+            let aux = p.iter().any(|&i| is_aux(i));
+            for e in exts {
+                els.push(extension(e, aux));
+            }
             els.push(El {
                 shape: Shape::Path(d, pts),
                 class: "f-mark",
-                role: if p.iter().any(|&i| is_aux(i)) { Role::Aux } else { Role::Base },
+                role: if aux { Role::Aux } else { Role::Base },
                 dashed: false,
                 width: 1.2,
                 pts: p.iter().map(|&i| dn(i)).collect(),
@@ -646,7 +824,10 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 let (u, v) = (sub(scr[p[1] as usize], scr[p[0] as usize]), sub(scr[p[3] as usize], scr[p[2] as usize]));
                 let cos = (u.0 * v.0 + u.1 * v.1).abs() / (len(u) * len(v)).max(1e-9);
                 let holds = cos < 0.02;
-                if let Some((d, pts)) = right_angle(p[0], p[1], p[2], p[3]).filter(|_| holds) {
+                if let Some((d, pts, exts)) = right_angle(p[0], p[1], p[2], p[3]).filter(|_| holds) {
+                    for e in exts {
+                        goal_els.push(extension(e, false));
+                    }
                     goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 1.8, pts: gp.clone(), centre: None });
                 }
             }
@@ -690,6 +871,13 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 gseg(ia, ib, &mut goal_els);
             }
         }
+        for (a, b, c) in metric_triangles(g) {
+            for (u, v) in [(&a, &b), (&b, &c), (&c, &a)] {
+                if let (Some(&iu), Some(&iv)) = (id_of.get(u), id_of.get(v)) {
+                    gseg(iu, iv, &mut goal_els);
+                }
+            }
+        }
         for (a, b, c) in angs {
             if let (Some(&ia), Some(&ib), Some(&ic)) = (id_of.get(&a), id_of.get(&b), id_of.get(&c)) {
                 gseg(ib, ia, &mut goal_els);
@@ -702,115 +890,13 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     }
     els.extend(goal_els);
 
-    // Labels: every point, at the candidate offset that collides least with
-    // other labels, dots, lines and circles.
-    let mut placed: Vec<(f64, f64, f64, f64)> = Vec::new();
-    let mut leads: Vec<(Pt, Pt)> = Vec::new();
     let dots: Vec<Pt> = (0..n).map(|i| scr[i]).filter(|p| finite(*p)).collect();
-    let mut labels: Vec<(usize, String, Pt, Pt)> = Vec::new();
     let mut order: Vec<usize> = (0..n).filter(|&i| finite(scr[i])).collect();
     let crowd = |p: Pt| dots.iter().filter(|d| len(sub(**d, p)) < 40.0).count();
     order.sort_by_key(|&i| (is_aux(i as u32), std::cmp::Reverse(crowd(scr[i])), i));
-    for i in order {
-        let p = scr[i];
-        let name = dn(i as u32);
-        let mut dirs: Vec<f64> = Vec::new();
-        for el in &els {
-            match &el.shape {
-                Shape::Line(a, b) => {
-                    if dist_to_line(p, *a, *b) < 1.0 {
-                        let along = unit(sub(*b, *a));
-                        if len(sub(p, *a)) > 2.0 {
-                            dirs.push((-along.1).atan2(-along.0));
-                        }
-                        if len(sub(p, *b)) > 2.0 {
-                            dirs.push(along.1.atan2(along.0));
-                        }
-                    }
-                }
-                Shape::Circle(c, r) => {
-                    if (len(sub(p, *c)) - r).abs() < 1.0 {
-                        let rad = unit(sub(p, *c));
-                        let tan = (-rad.1, rad.0);
-                        dirs.push(tan.1.atan2(tan.0));
-                        dirs.push((-tan.1).atan2(-tan.0));
-                    }
-                }
-                Shape::Path(..) => {}
-            }
-        }
-        let w = label_width(&name);
-        let h = LABEL_FS * 0.9;
-        let mut best: Option<(f64, Pt)> = None;
-        let crowded = dots.iter().any(|d| {
-            let dd = len(sub(*d, p));
-            dd > 1e-6 && dd < LABEL_FS * 1.6
-        });
-        for ring in 0..if crowded { 5 } else { 3 } {
-            for k in 0..16 {
-                let th = (k as f64) * std::f64::consts::PI / 8.0 + if ring == 1 { std::f64::consts::PI / 16.0 } else { 0.0 };
-                let dv = (th.cos(), th.sin());
-                let gap = dirs
-                    .iter()
-                    .map(|&a| {
-                        let mut d = (a - th).abs() % (2.0 * std::f64::consts::PI);
-                        if d > std::f64::consts::PI {
-                            d = 2.0 * std::f64::consts::PI - d;
-                        }
-                        d
-                    })
-                    .fold(std::f64::consts::PI, f64::min);
-                let reach = 7.0 + ring as f64 * 7.0 + (dv.0.abs() * w / 2.0).max(dv.1.abs() * h / 2.0);
-                let c = add(p, mul(dv, reach));
-                let bx = (c.0 - w / 2.0 - 1.5, c.1 - h / 2.0 - 1.5, c.0 + w / 2.0 + 1.5, c.1 + h / 2.0 + 1.5);
-                let mut penalty = ring as f64 * 0.35;
-                for q in &placed {
-                    let ox = (bx.2.min(q.2 + LABEL_GAP) - bx.0.max(q.0 - LABEL_GAP)).max(0.0);
-                    let oy = (bx.3.min(q.3 + LABEL_GAP) - bx.1.max(q.1 - LABEL_GAP)).max(0.0);
-                    if ox * oy > 0.0 {
-                        penalty += 14.0 + ox * oy * 0.05;
-                    }
-                }
-                for (a, b) in &leads {
-                    if seg_hits_box(*a, *b, bx) {
-                        penalty += 9.0;
-                    }
-                }
-                let lead = leader(p, sub(c, p), w, crowded);
-                if let Some((a, b)) = lead {
-                    penalty += 9.0 * placed.iter().filter(|q| seg_hits_box(a, b, **q)).count() as f64;
-                }
-                for d in &dots {
-                    if len(sub(*d, p)) < 1e-6 {
-                        continue;
-                    }
-                    if d.0 > bx.0 - DOT_R && d.0 < bx.2 + DOT_R && d.1 > bx.1 - DOT_R && d.1 < bx.3 + DOT_R {
-                        penalty += 10.0;
-                    }
-                }
-                for el in &els {
-                    let hit = match &el.shape {
-                        Shape::Line(a, b) => seg_hits_box(*a, *b, bx),
-                        Shape::Circle(cc, r) => circle_hits_box(*cc, *r, bx),
-                        Shape::Path(_, pts) => pts.windows(2).any(|s| seg_hits_box(s[0], s[1], bx)),
-                    };
-                    if hit {
-                        penalty += if el.role == Role::Goal { 2.2 } else { 1.4 };
-                    }
-                }
-                let score = gap.min(1.2) * 0.8 - penalty;
-                if best.is_none_or(|(s, _)| score > s) {
-                    best = Some((score, c));
-                }
-            }
-        }
-        let (_, c) = best.unwrap_or((0.0, add(p, (10.0, -10.0))));
-        placed.push((c.0 - w / 2.0, c.1 - h / 2.0, c.0 + w / 2.0, c.1 + h / 2.0));
-        if let Some(l) = leader(p, sub(c, p), w, crowded) {
-            leads.push(l);
-        }
-        labels.push((i, name, p, sub(c, p)));
-    }
+    let specs: Vec<(Pt, String)> = order.iter().map(|&i| (scr[i], dn(i as u32))).collect();
+    let offsets = place_labels(&specs, &dots, &els, 1.0);
+    let labels: Vec<(usize, String, Pt, Pt)> = order.iter().zip(specs).zip(offsets).map(|((&i, (p, name)), off)| (i, name, p, off)).collect();
 
     // Frame the points and labels; lines and arcs may widen it a little, a
     // large circle is clipped rather than allowed to shrink the construction.
@@ -876,7 +962,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         (Role::Goal, _) => 5,
         (_, "f-circ") => 0,
         (_, "f-line") => 1,
-        (_, "f-seg") => 2,
+        (_, "f-seg" | "f-ext") => 2,
         (_, "f-mark") => 3,
         _ => 4,
     };
@@ -896,7 +982,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             Role::Aux => " f-aux",
             Role::Goal => "",
         };
-        let dash = if el.dashed { r#" stroke-dasharray="7 5""# } else { "" };
+        let dash = match (el.dashed, el.class) {
+            (true, "f-ext") => r#" stroke-dasharray="4 4""#,
+            (true, _) => r#" stroke-dasharray="7 5""#,
+            _ => "",
+        };
         let data = {
             let mut d = format!(r#" data-p="{}""#, esc(&el.pts.join(" ")));
             if let Some(c) = &el.centre {
@@ -921,11 +1011,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         }
     }
     for (_, name, p, off) in &labels {
-        let crowded = dots.iter().any(|d| {
-            let dd = len(sub(*d, *p));
-            dd > 1e-6 && dd < LABEL_FS * 1.6
-        });
-        if !crowded {
+        if !is_crowded(*p, &dots, 1.0) {
             continue;
         }
         let u = unit(*off);
@@ -986,4 +1072,172 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     }
     s.push_str("</svg>\n");
     s
+}
+
+fn attr_of<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    let key = format!(" {name}=\"");
+    let at = line.find(&key)? + key.len();
+    let rest = &line[at..];
+    Some(&rest[..rest.find('"')?])
+}
+
+fn num_attr(line: &str, name: &str) -> Option<f64> {
+    attr_of(line, name)?.trim().parse().ok().filter(|v: &f64| v.is_finite())
+}
+
+fn set_attr(line: &str, name: &str, value: &str) -> String {
+    let key = format!(" {name}=\"");
+    match line.find(&key) {
+        Some(at) => {
+            let start = at + key.len();
+            let end = start + line[start..].find('"').unwrap_or(0);
+            format!("{}{value}{}", &line[..start], &line[end..])
+        }
+        None => line.to_string(),
+    }
+}
+
+fn path_points(d: &str) -> Vec<Pt> {
+    let nums: Vec<f64> = d
+        .split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    nums.chunks_exact(2).map(|c| (c[0], c[1])).collect()
+}
+
+/// The figure with labels, dots and leaders laid out again at `k` times
+/// their drawn size.
+pub fn relabel(svg: &str, k: f64) -> String {
+    let k = if k.is_finite() { k.clamp(0.3, 6.0) } else { 1.0 };
+    let lines: Vec<&str> = svg.lines().collect();
+    let class = |l: &str| attr_of(l, "class").unwrap_or("").to_string();
+    let mut els: Vec<El> = Vec::new();
+    let mut dots: Vec<Pt> = Vec::new();
+    let mut specs: Vec<(Pt, String)> = Vec::new();
+    let mut label_lines: Vec<&str> = Vec::new();
+    for l in &lines {
+        let c = class(l);
+        let role = if c.starts_with("f-goal") { Role::Goal } else { Role::Base };
+        let el = |shape| El { shape, class: "f-seg", role, dashed: false, width: 1.0, pts: Vec::new(), centre: None };
+        if l.starts_with("<circle") && c.starts_with("f-dot") {
+            if let (Some(x), Some(y)) = (num_attr(l, "cx"), num_attr(l, "cy")) {
+                dots.push((x, y));
+            }
+        } else if l.starts_with("<text") && c.starts_with("f-lbl") {
+            let name = l.split_once('>').and_then(|(_, r)| r.split_once("</text>")).map(|(n, _)| n).unwrap_or("");
+            let name = name.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+            if let (Some(x), Some(y)) = (num_attr(l, "data-x"), num_attr(l, "data-y")) {
+                specs.push(((x, y), name));
+                label_lines.push(l);
+            }
+        } else if l.starts_with("<line") && c != "f-lead" {
+            if let (Some(x1), Some(y1), Some(x2), Some(y2)) = (num_attr(l, "x1"), num_attr(l, "y1"), num_attr(l, "x2"), num_attr(l, "y2")) {
+                els.push(el(Shape::Line((x1, y1), (x2, y2))));
+            }
+        } else if l.starts_with("<circle") {
+            if let (Some(x), Some(y), Some(r)) = (num_attr(l, "cx"), num_attr(l, "cy"), num_attr(l, "r")) {
+                els.push(el(Shape::Circle((x, y), r)));
+            }
+        } else if l.starts_with("<path") {
+            if let Some(d) = attr_of(l, "d") {
+                els.push(el(Shape::Path(String::new(), path_points(d))));
+            }
+        }
+    }
+    let Some(vb) = attr_of(svg, "viewBox").map(|v| v.split_whitespace().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>()) else {
+        return svg.to_string();
+    };
+    if specs.is_empty() || vb.len() != 4 {
+        return svg.to_string();
+    }
+    let offsets = place_labels(&specs, &dots, &els, k);
+    let fs = LABEL_FS * k;
+    let mut bounds = (vb[0] + PAD, vb[1] + PAD, vb[0] + vb[2] - PAD, vb[1] + vb[3] - PAD);
+    let mut grow = |p: Pt| {
+        bounds.0 = bounds.0.min(p.0);
+        bounds.1 = bounds.1.min(p.1);
+        bounds.2 = bounds.2.max(p.0);
+        bounds.3 = bounds.3.max(p.1);
+    };
+    let mut leads = String::new();
+    let mut texts = String::new();
+    for (((p, name), off), l) in specs.iter().zip(&offsets).zip(&label_lines) {
+        let c = add(*p, *off);
+        let w = label_width(name) * k;
+        grow((c.0 - w / 2.0, c.1 - fs * 0.55));
+        grow((c.0 + w / 2.0, c.1 + fs * 0.55));
+        let mut t = set_attr(l, "x", &format!("{:.1}", c.0));
+        t = set_attr(&t, "y", &format!("{:.1}", c.1 + fs * 0.34));
+        t = set_attr(&t, "font-size", &format!("{fs:.2}"));
+        t = set_attr(&t, "stroke-width", &format!("{:.2}", 5.0 * k));
+        texts.push_str(&t);
+        texts.push('\n');
+        if let Some((a, b)) = leader(*p, *off, w, is_crowded(*p, &dots, k), k) {
+            let _ = writeln!(
+                leads,
+                r#"<line class="f-lead" x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{MARK}" stroke-width="0.9" vector-effect="non-scaling-stroke" data-p="{}"/>"#,
+                a.0,
+                a.1,
+                b.0,
+                b.1,
+                esc(name)
+            );
+        }
+    }
+    let r = DOT_R * k;
+    let (mut head, mut body, mut dots_out) = (String::new(), String::new(), String::new());
+    for l in &lines {
+        let c = class(l);
+        if l.starts_with("<svg") {
+            head = l.to_string();
+        } else if l.starts_with("</svg") || c == "f-lead" || (l.starts_with("<text") && c.starts_with("f-lbl")) {
+            continue;
+        } else if l.starts_with("<circle") && c.starts_with("f-dot") {
+            dots_out.push_str(&set_attr(l, "r", &format!("{r:.2}")));
+            dots_out.push('\n');
+        } else {
+            body.push_str(l);
+            body.push('\n');
+        }
+    }
+    let (vx, vy) = (bounds.0 - PAD, bounds.1 - PAD);
+    let (vw, vh) = (bounds.2 - bounds.0 + 2.0 * PAD, bounds.3 - bounds.1 + 2.0 * PAD);
+    head = set_attr(&head, "viewBox", &format!("{vx:.1} {vy:.1} {vw:.1} {vh:.1}"));
+    head = set_attr(&head, "width", &format!("{vw:.0}"));
+    head = set_attr(&head, "height", &format!("{vh:.0}"));
+    format!("{head}\n{body}{leads}{texts}{dots_out}</svg>\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::engine::{solve, SolveOptions};
+
+    fn svg(src: &str) -> String {
+        crate::present::build(&solve(src, &SolveOptions::default()).expect("solve")).svg
+    }
+
+    #[test]
+    fn right_angles_off_the_drawn_sides_get_a_dashed_leg() {
+        let s = svg("A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))");
+        let marks = s.lines().filter(|l| l.starts_with("<path") && l.contains("f-mark")).count();
+        assert!(marks >= 2, "{s}");
+        assert!(s.contains("class=\"f-ext\""), "the altitude feet lie on extended sides here: {s}");
+    }
+
+    #[test]
+    fn area_goals_draw_their_triangles() {
+        let s = svg("A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)");
+        let goal: Vec<&str> = s.lines().filter(|l| l.contains("class=\"f-goal\"")).collect();
+        assert!(goal.iter().any(|l| l.contains("data-p=\"A M\"") || l.contains("data-p=\"M A\"")), "{s}");
+    }
+
+    #[test]
+    fn relabel_sets_the_label_size_and_keeps_every_label() {
+        let s = svg("A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))");
+        let big = super::relabel(&s, 2.0);
+        let n = |x: &str| x.matches("class=\"f-lbl").count();
+        assert_eq!(n(&s), n(&big));
+        assert!(big.contains("font-size=\"36.00\""), "{big}");
+    }
 }

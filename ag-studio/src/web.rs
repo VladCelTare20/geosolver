@@ -632,7 +632,37 @@ fn compile_detail(d: &present::Diagnosis, raw: &str) -> Option<String> {
     if d.key == "unknown_relation" && bare.contains("is not a metric value here") {
         return d.token.as_ref().map(|t| format!("compile error: unknown relation `{t}`"));
     }
-    Some(raw.to_string())
+    Some(present::readable_engine_message(raw))
+}
+
+/// Where a goal divides by a literal zero: (line, column), both 1-based.
+fn division_by_zero(input: &str) -> Option<(usize, usize)> {
+    let lines: Vec<&str> = input.lines().collect();
+    let i = lines.iter().rposition(|l| l.split('#').next().unwrap_or("").trim_start().starts_with("prove"))?;
+    let code: Vec<char> = lines[i].split('#').next().unwrap_or("").chars().collect();
+    (0..code.len()).find_map(|k| {
+        if code[k] != '/' {
+            return None;
+        }
+        let mut j = k + 1;
+        while j < code.len() && code[j] == ' ' {
+            j += 1;
+        }
+        let num: String = code[j..].iter().take_while(|c| c.is_ascii_digit() || **c == '.').collect();
+        let next = code.get(j + num.chars().count());
+        let zero = !num.is_empty() && num.parse::<f64>().is_ok_and(|v| v == 0.0);
+        (zero && next.is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '_' && *c != '(' && *c != '^')).then_some((i + 1, k + 1))
+    })
+}
+
+fn division_by_zero_err(lang: i18n::Lang, at: (usize, usize)) -> Response {
+    let d = present::Diagnosis { key: "div_zero", line: at.0, col: at.1, len: 1, token: None, expected: None, got: None };
+    let msg = i18n::compile_message(lang, &d);
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": "the goal divides by zero" })),
+    )
+        .into_response()
 }
 
 /// Reject empty or over-long programs early. (The `Response` error is axum's
@@ -886,6 +916,9 @@ async fn api_solve(
     if let Some(p) = degenerate_goal(&req.input) {
         return degenerate_goal_err(i18n::lang_from_headers(&headers), &req.input, &p);
     }
+    if let Some(at) = division_by_zero(&req.input) {
+        return division_by_zero_err(i18n::lang_from_headers(&headers), at);
+    }
     let Some(slot) = state.claim_caller(caller_key(&caller, ip.as_ref())) else {
         let lang = i18n::lang_from_headers(&headers);
         return (
@@ -1077,6 +1110,8 @@ struct HistoryItem {
     has_solution: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    as_drawn: bool,
     created_at: i64,
 }
 
@@ -1092,6 +1127,7 @@ impl From<db::HistoryEntry> for HistoryItem {
             goal: h.goal.and_then(|g| serde_json::from_str(&g).ok()),
             has_solution: h.has_solution,
             note: h.note,
+            as_drawn: h.as_drawn,
             created_at: h.created_at,
         }
     }
@@ -3070,6 +3106,19 @@ mod tests {
         let ro = format!("{cookie}; lang=ro");
         let (_, _, body) = call(&state, "POST", "/api/solve", Some(&ro), serde_json::json!({"input": bad})).await;
         assert!(body["error"].as_str().unwrap().starts_with("Lipsește"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn dividing_by_zero_is_an_input_error_not_a_verdict() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "zero").await;
+        let src = "A B C = triangle\nprove dist(A,B) = 1/0";
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": src})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["diagnosis"]["key"], "div_zero", "{body}");
+        assert_eq!(body["error"], "Division by zero in the goal.");
+        assert!(division_by_zero("A B C = triangle\nprove dist(A,B) / 0.5 = 2").is_none());
+        assert!(division_by_zero("A B C = triangle\nprove dist(A,B) = 1/ 0.0").is_some());
     }
 
     #[tokio::test]

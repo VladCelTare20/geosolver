@@ -41,3 +41,13 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `site.js:toggleFull` — the figure panel gets `has-full` (z-index above the sticky header) while full screen.
 - `auth.js` — server errors carry a `code`; field codes (`user_taken`, `username_rule`, `pw_len`) mark the field instead of a banner and are repainted on a language switch. Field hints are not live regions.
 - `landing.js` — stats and the showcase blurb come from `showcase.json` (`first_secs`, `budget_secs`); the step count excludes restated hypotheses; the folded preview ends after `FIRST_DEDUCTIONS` deductions. `showcase.json`'s figure predates server-side leaders; its crowded labels had `f-lead` lines added to the stored SVG.
+- `site.js:placeLabels` — goal lines (`line.f-goal`, weight 12) count as collisions that send a label away from the server's spot; a leader crossing a placed label and a spot nearer another dot than its own each cost 14. `f-ext` (dashed extensions to right-angle feet) are obstacles too.
+- `app.css` figure focus — dimmed labels keep opacity 1 and switch to `--fig-lbl-dim` / `--fig-aux-dim` (≥ 5.8:1 on `--fig-bg` in both themes); lines and dots still fade.
+- `app.css` header — `.seg`, `.icon-btn` and `.btn-sm` in `.site-header` share `--hdr-ctl` (36 px, 44 px on coarse pointers).
+- `app.css` verdict actions — a wrapping flex row (buttons grow, never truncate); meta items may wrap. Toasts sit bottom-right from 1200 px so they never cover the verdict actions; `.toast :focus-visible` uses `--bg` for its ring.
+- `app.js:sessionEnded` — any 401 (solve, history list/delete/open, export, shorter-proof search) refreshes `/api/status`, swaps the header to Sign in and puts the session-ended message in the rail.
+- `app.js:refineShorter` — “none found” only for a 2xx answer that is not shorter; a 503/429 says the server was busy, other failures say the search could not run.
+- `app.js:exportName` — downloads are named by title and verdict (`-proof`, `-counterexample`, `-numerical`, `-not-proved`).
+- `app.js:histStatus` — `proved-drawn` (stored `as_drawn`) shows “Proved (as drawn)” under the Proved filter.
+- `app.js:verdictModel` — a proof with no steps says it follows at once and offers no Copy proof.
+- `i18n.js` RO — hyphenated clitics (`fotografiaz-o`, `s-a`) carry a word joiner (U+2060) after the hyphen so lines never break there.

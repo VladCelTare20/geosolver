@@ -131,13 +131,13 @@
   function paintAccount() {
     var st = S.status || {};
     $("account").hidden = !st.signed_in;
-    $("signin").hidden = !!st.signed_in || !st.guest;
+    $("signin").hidden = !!st.signed_in || !(st.guest || S.sessionEnded);
     if (st.signed_in) {
       $("username").textContent = st.username;
       $("avatar").textContent = (st.username || "?").slice(0, 1);
       $("account").setAttribute("title", t("app.signed_in_as", { name: st.username }));
     }
-    var rail = !!st.signed_in;
+    var rail = !!st.signed_in || !!S.sessionEnded;
     document.body.classList.toggle("has-rail", rail);
     $("rail").hidden = !rail;
     $("rail-toggle").hidden = !rail;
@@ -500,6 +500,7 @@
     if (mode !== "geo" && aiBlock()) return;
     editor.setError(null);
     S.lastError = null;
+    if (S.cancelToast) { S.cancelToast.close(); S.cancelToast = null; }
     if (S.activeHistory != null) { S.activeHistory = null; renderHistory(); }
     var ae = document.activeElement;
     var moveFocus = !ae || ae === document.body || ae === $("solve") || !!(ae.closest && ae.closest("[data-example-solve], #state-error, #verdict"));
@@ -557,7 +558,7 @@
       S.abort = null;
       if (e && e.name === "AbortError") {
         show("state-empty");
-        GS.toast(t("cancelled"), { ms: 6000 });
+        S.cancelToast = GS.toast(t("cancelled"), { ms: 6000 });
         if (lost) $("solve").focus();
         return;
       }
@@ -575,12 +576,29 @@
     $("solving-title").textContent = S.stage.stages[S.stage.i] === "translate" ? t("solving.translating") : t("solving.solving");
   }
 
+  function sessionEnded() {
+    if (S.sessionEnded) return;
+    S.sessionEnded = true;
+    S.history = [];
+    S.activeHistory = null;
+    api("/api/status").then(function (r) {
+      if (r.ok) { S.status = r.data; S.deadline = r.data.solve_deadline_secs || S.deadline; }
+    }).catch(function () {}).then(function () {
+      if (S.status) S.status.signed_in = false;
+      paintAccount();
+      $("hist-list").innerHTML = "";
+      $("hist-empty").hidden = false;
+      $("hist-empty").innerHTML = esc(t("hist.session_ended")) + ' <a href="/auth">' + esc(t("nav.signin")) + "</a>";
+      paintAiPill();
+      paintGates();
+    });
+  }
   function httpError(r, what) {
     var d = r.data || {};
     if (r.status === 400 && d.code === "compile") {
       return { titleKey: "err.title.compile", body: d.error, diagnosis: d.diagnosis, detail: d.detail, compile: true };
     }
-    if (r.status === 401) return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true };
+    if (r.status === 401) { sessionEnded(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
     if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", retry: true };
     if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true };
@@ -606,7 +624,7 @@
     if (e.signin) actions += '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("nav.signin")) + "</a>";
     box.innerHTML = '<div class="err-head"><span class="err-icon">' + icons.alert + '</span><div class="grow"><h3 id="err-title" tabindex="-1">' + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
       (actions ? '<div class="err-actions">' + actions + "</div>" : "") +
-      (e.detail ? '<details class="err-detail"><summary>' + icons.chevron + "<span>" + esc(t("err.details")) + "</span></summary><pre>" + esc(e.detail) + "</pre></details>" : "");
+      (e.detail ? '<details class="err-detail"><summary>' + icons.chevron + "<span>" + esc(t("err.details")) + "</span></summary><pre lang=\"en\">" + esc(e.detail) + "</pre></details>" : "");
     show("state-error");
     if (!e.compile) announce(e.title + ". " + (e.body || ""));
     else announce("");
@@ -651,6 +669,7 @@
     var timeLimited = note.key === "time_limit";
     switch (sol.status) {
       case "proved":
+        if (!hasSteps(sol)) return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.immediate") };
         if (v.as_drawn) return { tone: "proved", icon: "check", head: t("v.proved.drawn"), text: t("v.proved.drawn.x") };
         return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
       case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
@@ -662,6 +681,9 @@
         else if (["metric_error", "unsound", "replay"].indexOf(note.key) >= 0) text = t("v.not." + note.key);
         return { tone: "neutral", icon: "minus", head: t("v.not"), text: text };
     }
+  }
+  function hasSteps(sol) {
+    return !!(sol.view && sol.view.proof && sol.view.proof.steps && sol.view.proof.steps.length);
   }
   function stepCount(sol) {
     if (sol.status !== "proved" || !sol.view || !sol.view.proof) return 0;
@@ -697,7 +719,7 @@
     var guestNote = guest ? '<p class="hint guest-note"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t("hist.guest")) + ' <a href="/auth?mode=register">' + esc(t("nav.create")) + "</a></span></p>" : "";
     var counter = v.counterexample ? '<p class="counter"><strong>' + esc(t("counter.title")) + ".</strong> " + GS.math(counterText(v.counterexample), true) + "</p>" : "";
     var actions = '<div class="verdict-actions">' +
-      (sol.status === "proved" ? '<button type="button" class="btn btn-secondary btn-sm" id="copy-proof">' + icons.copy + "<span>" + esc(t("action.copy_proof")) + "</span></button>" : "") +
+      (sol.status === "proved" && hasSteps(sol) ? '<button type="button" class="btn btn-secondary btn-sm" id="copy-proof">' + icons.copy + "<span>" + esc(t("action.copy_proof")) + "</span></button>" : "") +
       '<button type="button" class="btn btn-secondary btn-sm" id="copy-geo">' + icons.code + "<span>" + esc(t("action.copy_geo")) + "</span></button>" +
       '<div class="menu-wrap"><button type="button" class="btn btn-secondary btn-sm" id="export-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu">' + icons.download + "<span>" + esc(t("action.export")) + "</span>" + icons.chevron + "</button>" +
       '<div class="menu" id="export-menu" role="menu" aria-labelledby="export-btn" hidden>' +
@@ -735,6 +757,8 @@
       var i = items.indexOf(document.activeElement);
       if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
       else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === "Home") { e.preventDefault(); items[0].focus(); }
+      else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus(); }
       else if (e.key === "Escape") { e.preventDefault(); close(true); }
       else if (e.key === "Tab") close();
     });
@@ -990,6 +1014,15 @@
       S.refining = null;
       if (S.sol !== first) return;
       var better = r.ok && r.data.status === "proved" && stepCount(r.data) && stepCount(r.data) < stepCount(first);
+      if (!r.ok) {
+        if (r.status === 401) sessionEnded();
+        var e1 = $("refine");
+        var key = r.status === 503 || r.status === 429 ? "shorter.busy" : "shorter.failed";
+        if (e1) e1.innerHTML = "<span>" + esc(t(key)) + "</span>";
+        if (e1 && e1.contains(document.activeElement)) focusVerdictHead();
+        announceStatus(t(key));
+        return;
+      }
       if (better) {
         var msg = t("shorter.found", { n: tp("meta.steps", stepCount(r.data)), m: tp("meta.steps", stepCount(first)) });
         var keep = focusMark();
@@ -1007,11 +1040,16 @@
         if (hadFocus) focusVerdictHead();
         announceStatus(t("shorter.none"));
       }
-    }).catch(function () {
-      if (S.refining === ctl) S.refining = null;
+    }).catch(function (err) {
+      var mine = S.refining === ctl;
+      if (mine) S.refining = null;
       var e3 = $("refine");
       if (e3 && e3.contains(document.activeElement)) focusVerdictHead();
-      if (e3) e3.hidden = true;
+      if (!e3) return;
+      if (mine && S.sol === first && !(err && err.name === "AbortError")) {
+        e3.innerHTML = "<span>" + esc(t("shorter.failed")) + "</span>";
+        announceStatus(t("shorter.failed"));
+      } else e3.hidden = true;
     });
   }
   function stopRefining() {
@@ -1056,12 +1094,22 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   }
+  function slug(s) {
+    return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-+$/, "");
+  }
+  function exportName(sol, fmt) {
+    var kind = { proved: "proof", refuted: "counterexample", "holds-numerically": "numerical" }[sol.status] || "not-proved";
+    var title = slug(sol.title);
+    return "geosolver-" + (title ? title + "-" : "") + kind + "." + fmt;
+  }
   function exportAs(fmt) {
     var sol = S.sol;
     if (!sol) return;
     var label = fmt.toUpperCase();
     if (fmt === "svg") {
-      download(new Blob([sol.svg], { type: "image/svg+xml" }), "geosolver-figure.svg");
+      var t0 = slug(sol.title);
+      download(new Blob([sol.svg], { type: "image/svg+xml" }), "geosolver-" + (t0 ? t0 + "-" : "") + "figure.svg");
       GS.toast(t("export.done", { fmt: "SVG" }));
       return;
     }
@@ -1070,12 +1118,13 @@
     var tst = GS.toast(t("export.preparing", { fmt: label }), { ms: 60000 });
     fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sol.id, format: fmt }) }).then(function (res) {
       if (res.ok) return res.blob().then(function (b) {
-        download(b, "geosolver-proof." + fmt);
+        download(b, exportName(sol, fmt));
         if (tst) tst.close();
         GS.toast(t("export.done", { fmt: label }));
       });
       return res.json().catch(function () { return {}; }).then(function (j) {
         if (tst) tst.close();
+        if (res.status === 401) { sessionEnded(); return; }
         GS.toast(t("export.failed", { msg: j.error || res.statusText }), { ms: 7000 });
       });
     }).catch(function (e) {
@@ -1107,12 +1156,14 @@
   }
   function histStatus(r) {
     if (r.status === "not-proved" && r.note === "time_limit") return "time-limit";
+    if (r.status === "proved" && r.as_drawn) return "proved-drawn";
     if (r.status) return r.status;
     if (r.proved && r.method === "euclidean") return "legacy";
     return r.proved ? "proved" : "not-proved";
   }
-  var TONE = { proved: "proved", refuted: "false", "holds-numerically": "unproved", "not-proved": "neutral", "time-limit": "neutral", legacy: "neutral" };
-  var ICON = { proved: "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", "time-limit": "clock", legacy: "minus" };
+  var TONE = { proved: "proved", "proved-drawn": "proved", refuted: "false", "holds-numerically": "unproved", "not-proved": "neutral", "time-limit": "neutral", legacy: "neutral" };
+  var ICON = { proved: "check", "proved-drawn": "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", "time-limit": "clock", legacy: "minus" };
+  var FILTER_OF = { "time-limit": "not-proved", "proved-drawn": "proved" };
   function relTime(sec) {
     var diff = sec - Date.now() / 1000;
     var rtf = new Intl.RelativeTimeFormat(window.i18n.locale(), { numeric: "auto" });
@@ -1125,6 +1176,7 @@
   }
   function loadHistory() {
     api("/api/history").then(function (r) {
+      if (r.status === 401) { sessionEnded(); return; }
       if (!r.ok) throw new Error();
       S.history = Array.isArray(r.data) ? r.data : [];
       renderHistory();
@@ -1137,7 +1189,7 @@
     var q = S.query.trim().toLowerCase();
     var rows = S.history.filter(function (r) {
       if (S.pendingDeletes.has(r.id)) return false;
-      var st = histStatus(r) === "time-limit" ? "not-proved" : histStatus(r);
+      var st = FILTER_OF[histStatus(r)] || histStatus(r);
       if (S.filter !== "all" && st !== S.filter) return false;
       if (!q) return true;
       return (histTitle(r) + " " + (r.input || "")).toLowerCase().indexOf(q) >= 0;
@@ -1232,6 +1284,7 @@
     clearTimeout(S.pendingDeletes.get(id));
     S.pendingDeletes.delete(id);
     api("/api/history/" + id, { method: "DELETE", keepalive: !!keepalive }).then(function (r) {
+      if (r.status === 401) { sessionEnded(); GS.toast(t("hist.session_ended")); return; }
       if (!r.ok && r.status !== 404) { GS.toast(t("hist.del_fail")); loadHistory(); return; }
       S.history = S.history.filter(function (x) { return x.id !== id; });
       renderHistory();
@@ -1255,16 +1308,16 @@
       editor.set(row.input);
     }
     function gone(msg) {
-      if (S.activeHistory === id) S.activeHistory = null;
+      S.activeHistory = null;
       renderHistory();
       GS.toast(msg);
     }
     api("/api/history/" + id).then(function (r) {
       if (seq !== S.openSeq) return;
       if (r.ok && validSolution(r.data)) { adopt(); r.data.history_id = id; renderSolution(r.data, { announce: true, focus: true }); return; }
-      if (r.ok) { showError(unreadable()); return; }
+      if (r.ok) { S.activeHistory = null; renderHistory(); showError(unreadable()); return; }
       if (r.status === 410) { adopt(); solveReplay(row); return; }
-      if (r.status === 401) { showError(httpError(r)); return; }
+      if (r.status === 401) { S.activeHistory = null; showError(httpError(r)); return; }
       if (r.status === 404) {
         S.history = S.history.filter(function (x) { return x.id !== id; });
         gone(t("hist.gone"));
