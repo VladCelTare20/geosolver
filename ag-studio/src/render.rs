@@ -937,6 +937,22 @@ mod tests {
     }
 
     #[test]
+    fn long_proof_pdf_pages_stay_within_viewer_limits() {
+        let mut sol = solve(
+            "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
+            &SolveOptions::default(),
+        )
+        .expect("solve");
+        let proof: Vec<String> = (1..=3000usize).map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1))).collect();
+        sol.proof = Some(proof.join("\n"));
+        let pdf = report_pdf(&sol, Some("long")).expect("a long proof must still export to PDF");
+        let text = String::from_utf8_lossy(&pdf);
+        let boxes = text.matches("/MediaBox").count();
+        assert!(boxes > 1, "paginated, not one tall page");
+        assert_eq!(text.matches("/MediaBox [0 0 595 842]").count(), boxes, "every page is A4");
+    }
+
+    #[test]
     fn report_copy_matches_the_app() {
         let refuted = serde_json::json!({"status": "refuted", "method": "ddar", "view": {"note": {"key": "false"}}});
         assert_eq!(verdict_copy(&refuted, Lang::En).1, "A sampled figure contradicts it, so no proof can exist.");

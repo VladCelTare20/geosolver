@@ -773,3 +773,17 @@ fn ddar_trig_rows_prove_only_what_follows() {
         assert!(!ddar_trig_proves(false_goal, true), "trig DDAR proved a false goal:\n{false_goal}");
     }
 }
+
+/// Fuzz case jgex E051-26~hs2: the tangent at B was dropped, but the figure
+/// is the original one, where E is the midpoint of FG and E F H N is a
+/// rectangle. There the chords HE and NF are diameters, so the side of the
+/// centre (the arc-chord transfer's configuration branch) is rounding noise;
+/// reading it paired the arcs as a rectangle's, which is false for the
+/// isosceles trapezoid of a generic figure, and ended in an SSA "similarity"
+/// proving GE = EF. Chords through the centre are no longer transferred.
+#[test]
+fn arc_chord_transfer_reads_no_side_off_a_diameter() {
+    let low = "a@-0.52555007828554_0.24644985287467536 b@0.5787628638709572_0.6713292845322588 c@-1.6877412770044946_0.024321009002004373 e@0.3180434353940881_0.5969029357011043 d@-4.170870672315426_13.01620030840955 f@-3.5995943484790898_10.027248923150959 g@4.235681219267257_-8.83344305174873 n@105.73780307188756_44.39131239516121 h@101.82016528801438_53.82165838261104 = coll e b c, cong a c a b, perp d c c a, perp f e a e, coll f c d, coll g e f, coll g b d, cyclic d f g n, cong n f n g, para e g n h, para g n e h, cong e g n h, cong g n e h ? cong g e e f";
+    let problem = Problem::parse(low).unwrap();
+    assert!(!solve_problem(&problem).unwrap(), "proved GE = EF without the tangent at B");
+}

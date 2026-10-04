@@ -442,6 +442,16 @@ impl Ddar {
     /// the smallest vertex-to-opposite-side distance (`|det| / longest side`)
     /// is below [`ATOM`]. This is *stricter about degeneracy* than
     /// [`orientation`], which only compares the raw determinant to `ATOM`.
+    /// Whether the centre of `circle` lies left of chord `a → b`, by a margin
+    /// relative to the chord and radius. A chord through the centre (a
+    /// diameter, up to rounding) has no reliable side.
+    fn centre_strictly_left(&self, a: PointId, b: PointId, circle: &NumCircle) -> bool {
+        let (pa, pb, o) = (self.coord(a), self.coord(b), circle.center);
+        let det = (pb.x - pa.x) * (o.y - pa.y) - (pb.y - pa.y) * (o.x - pa.x);
+        let scale = distance(pa, pb) * circle.r;
+        scale > 0.0 && det > 1e-9 * scale
+    }
+
     fn numerically_flat(&self, a: PointId, b: PointId, c: PointId) -> bool {
         let (pa, pb, pc) = (self.coord(a), self.coord(b), self.coord(c));
         let det = (pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x);
@@ -2069,7 +2079,7 @@ impl Ddar {
             let mut arc_to_src: FxHashMap<Angle, (DistMul, Angle, Pair)> = FxHashMap::default();
             for &a in &circle.points {
                 for &b in &circle.points {
-                    if orientation(self.coord(a), self.coord(b), circle.value.center) != 1 {
+                    if !self.centre_strictly_left(a, b, &circle.value) {
                         continue;
                     }
                     let (arc, _) = self.get_arc(&circle, a, b);
