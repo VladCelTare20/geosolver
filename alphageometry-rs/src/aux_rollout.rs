@@ -505,13 +505,11 @@ fn lemmas_enabled() -> bool {
 }
 
 /// Share of the budget after which the lemma phase starts, and where it ends.
-const LEMMA_START: f64 = 0.35;
-const LEMMA_END: f64 = 0.7;
+const LEMMA_START: f64 = 0.3;
+const LEMMA_END: f64 = 0.75;
 /// Share of the budget by which the search on the lemma-augmented problem
 /// must succeed; afterwards the original rollouts resume where they stopped.
 const AUGMENTED_END: f64 = 0.85;
-/// Share of the lemma phase the first lemma may use (later ones: half).
-const FIRST_LEMMA: f64 = 0.6;
 /// Pool items a lemma's depth-1 sweep covers (best ranked) before its rollouts.
 const LEMMA_SWEEP: usize = 1000;
 /// Lemmas tried per phase.
@@ -614,7 +612,6 @@ fn lemma_phase(
     let total = until.saturating_duration_since(Instant::now());
     let mut aug = problem.clone();
     let mut cons: Vec<Construction> = Vec::new();
-    let mut first = true;
     for lemma in lemmas.into_iter().take(LEMMA_MAX) {
         let now = Instant::now();
         if now >= until {
@@ -622,9 +619,7 @@ fn lemma_phase(
         }
         let mut lp = aug.clone();
         lp.goal = Some(lemma);
-        let share = if first { FIRST_LEMMA } else { 0.5 };
-        first = false;
-        let per = total.mul_f64(share).min(until - now);
+        let per = (total / 2).min(until - now);
         let t = Instant::now();
         let res = guarded(|| search_with(&lp, false, Some(now + per), true, LEMMA_SWEEP, false)).flatten();
         let text = lp.goal.as_ref().map(|g| {
