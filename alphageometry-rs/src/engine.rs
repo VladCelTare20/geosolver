@@ -12,7 +12,10 @@
 //! until no new fact can be derived. A goal predicate is proved iff it holds in
 //! the closure.
 
-use crate::elimination::{Angle, DistAdd, DistMul, ElimAngle, ElimDistAdd, ElimDistMul};
+use crate::elimination::{
+    Angle, DistAdd, DistMul, DistSq, ElimAngle, ElimDistAdd, ElimDistMul, ElimDistSq,
+};
+use crate::fingerprint;
 use crate::lincomb::LinComb;
 use crate::numerics::{
     collinear, direction_of, distance, orientation, NumCircle, NumLine, Vec2, ATOM,
@@ -21,6 +24,10 @@ use crate::predicate::{Point, PointId, Predicate};
 use crate::proof::{FactId, ProofLog, Reason};
 use crate::rational::Rat;
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::hash_map::Entry;
+
+mod classics;
+mod sqlen;
 
 /// A maximal set of collinear points (immutable snapshot).
 #[derive(Clone, Debug)]
@@ -49,17 +56,6 @@ struct FormalCircle {
 
 type Triple = (PointId, PointId, PointId);
 
-/// Precomputed quantities for one oriented triangle, used by the
-/// similar-triangle search (see [`Ddar::triangle_data`]).
-struct TriData {
-    tri: Triple,
-    orient: i32,
-    rat1: DistMul,
-    ang1: Angle,
-    rat2: DistMul,
-    ang2: Angle,
-}
-
 /// The main logical engine.
 #[derive(Clone)]
 pub struct Ddar {
@@ -76,11 +72,13 @@ pub struct Ddar {
     angle: ElimAngle,
     dmul: ElimDistMul,
     dadd: ElimDistAdd,
+    dsq: ElimDistSq,
 
     // Per-pair tables (flat n*n; `None` for numerically identical pairs).
     pair_dir: Vec<Option<Angle>>,
     pair_dist_mul: Vec<Option<DistMul>>,
     pair_dist_add: Vec<Option<DistAdd>>,
+    pair_dist_sq: Vec<Option<DistSq>>,
     pair_line: Vec<Option<usize>>,
 
     // Object arenas + live-id lists (mirrors the reference's `set`s).
@@ -100,6 +98,9 @@ pub struct Ddar {
     /// Proof provenance log (facts + reasons). Row-level dependency tracking is
     /// only active when constructed via [`Ddar::new_tracked`].
     log: ProofLog,
+
+    classics: classics::Done,
+    rules_off: u8,
 }
 
 impl Ddar {
@@ -131,14 +132,19 @@ impl Ddar {
             .clone()
             .expect("no dist_add for pair")
     }
-    fn cached_dir(&self, a: PointId, b: PointId) -> Angle {
-        self.dir_cache[self.pk(a, b)]
+    fn raw_dist_sq(&self, a: PointId, b: PointId) -> DistSq {
+        self.pair_dist_sq[self.pk(a, b)]
             .clone()
+            .expect("no dist_sq for pair")
+    }
+    fn cached_dir(&self, a: PointId, b: PointId) -> &Angle {
+        self.dir_cache[self.pk(a, b)]
+            .as_ref()
             .expect("no cached dir")
     }
-    fn cached_dist_mul(&self, a: PointId, b: PointId) -> DistMul {
+    fn cached_dist_mul(&self, a: PointId, b: PointId) -> &DistMul {
         self.dist_mul_cache[self.pk(a, b)]
-            .clone()
+            .as_ref()
             .expect("no cached dist_mul")
     }
 
@@ -153,11 +159,82 @@ impl Ddar {
     }
     /// `|cd| / |ab|` from the cache.
     fn get_dist_ratio(&self, a: PointId, b: PointId, c: PointId, d: PointId) -> DistMul {
-        self.cached_dist_mul(c, d).div(&self.cached_dist_mul(a, b))
+        self.cached_dist_mul(c, d).div(self.cached_dist_mul(a, b))
     }
     /// `dir(cd) - dir(ab)` from the cache.
     fn get_point_angle(&self, a: PointId, b: PointId, c: PointId, d: PointId) -> Angle {
-        self.cached_dir(c, d).sub(&self.cached_dir(a, b))
+        self.cached_dir(c, d).sub(self.cached_dir(a, b))
+    }
+
+    fn pair_ids(&self) -> PairIds {
+        let n = self.n;
+        let pairs = self.active.len() * self.active.len();
+        let mut ids = PairIds {
+            n,
+            dir: Interner::with_capacity(true, pairs),
+            dm: Interner::with_capacity(false, pairs),
+            dir_id: vec![u32::MAX; n * n],
+            dm_id: vec![u32::MAX; n * n],
+            memo: TripleMemo::take(n * n * n),
+            fp_ok: true,
+            dir_fp: vec![0; n * n],
+            dir_unit: vec![Rat::zero(); n * n],
+            dir_unit_rank: vec![0; n * n],
+            w0: fingerprint::weight(crate::elimination::ANGLE_UNIT),
+            dm_fp: vec![0; n * n],
+        };
+        let unit = crate::elimination::ANGLE_UNIT;
+        for &a in &self.active {
+            for &b in &self.active {
+                if self.num_identical(a, b) {
+                    continue;
+                }
+                let k = self.pk(a, b);
+                let dir = &self.dir_cache[k].as_ref().unwrap().0;
+                let dm = &self.dist_mul_cache[k].as_ref().unwrap().0;
+                ids.dir_id[k] = ids.dir.intern(dir.clone());
+                ids.dm_id[k] = ids.dm.intern(dm.clone());
+                if !ids.fp_ok {
+                    continue;
+                }
+                let u = dir.get(unit);
+                match (
+                    fingerprint::lincomb_without(dir, Some(unit)),
+                    fingerprint::rat(&u),
+                    fingerprint::lincomb_without(dm, None),
+                ) {
+                    (Some(rest), Some(ufp), Some(dmfp)) => {
+                        ids.dir_fp[k] = fingerprint::add(rest, fingerprint::mul(ids.w0, ufp));
+                        ids.dir_unit[k] = u;
+                        ids.dm_fp[k] = dmfp;
+                    }
+                    _ => ids.fp_ok = false,
+                }
+            }
+        }
+        if ids.fp_ok {
+            let mut units: Vec<Rat> = Vec::new();
+            for &a in &self.active {
+                for &b in &self.active {
+                    if !self.num_identical(a, b) {
+                        let u = &ids.dir_unit[self.pk(a, b)];
+                        if !units.contains(u) {
+                            units.push(u.clone());
+                        }
+                    }
+                }
+            }
+            units.sort();
+            for &a in &self.active {
+                for &b in &self.active {
+                    if !self.num_identical(a, b) {
+                        let k = self.pk(a, b);
+                        ids.dir_unit_rank[k] = units.binary_search(&ids.dir_unit[k]).unwrap() as u32;
+                    }
+                }
+            }
+        }
+        ids
     }
 
     fn get_arc(&self, circle: &FormalCircle, a: PointId, b: PointId) -> (Angle, PointId) {
@@ -202,10 +279,12 @@ impl Ddar {
         let mut angle = ElimAngle::new();
         let mut dmul = ElimDistMul::new();
         let mut dadd = ElimDistAdd::new();
+        let mut dsq = ElimDistSq::new();
 
         let mut pair_dir: Vec<Option<Angle>> = vec![None; n * n];
         let mut pair_dist_mul: Vec<Option<DistMul>> = vec![None; n * n];
         let mut pair_dist_add: Vec<Option<DistAdd>> = vec![None; n * n];
+        let mut pair_dist_sq: Vec<Option<DistSq>> = vec![None; n * n];
         let mut pair_line: Vec<Option<usize>> = vec![None; n * n];
 
         let mut lines: Vec<FormalLine> = Vec::new();
@@ -244,6 +323,9 @@ impl Ddar {
                 let da = dadd.new_var(d);
                 pair_dist_add[idx_ab] = Some(da.clone());
                 pair_dist_add[idx_ba] = Some(da);
+                let ds = dsq.new_var(d * d);
+                pair_dist_sq[idx_ab] = Some(ds.clone());
+                pair_dist_sq[idx_ba] = Some(ds);
             }
         }
 
@@ -261,9 +343,11 @@ impl Ddar {
             angle,
             dmul,
             dadd,
+            dsq,
             pair_dir,
             pair_dist_mul,
             pair_dist_add,
+            pair_dist_sq,
             pair_line,
             lines,
             live_lines,
@@ -275,6 +359,8 @@ impl Ddar {
             dist_mul_cache,
             dir_cache,
             log: ProofLog::new(),
+            classics: classics::Done::default(),
+            rules_off: classics::env_disabled_mask(),
         }
     }
 
@@ -317,6 +403,9 @@ impl Ddar {
             let da = self.dadd.new_var(d);
             self.pair_dist_add[ai] = Some(da.clone());
             self.pair_dist_add[ia] = Some(da);
+            let ds = self.dsq.new_var(d * d);
+            self.pair_dist_sq[ai] = Some(ds.clone());
+            self.pair_dist_sq[ia] = Some(ds);
             // Seed the caches like `new` does (force_pred reads them before the
             // first `update_cache`).
             self.dist_mul_cache[ai] = self.pair_dist_mul[ai].clone();
@@ -334,6 +423,7 @@ impl Ddar {
         d.angle.core.track = true;
         d.dmul.core.track = true;
         d.dadd.core.track = true;
+        d.dsq.core.track = true;
         d
     }
 
@@ -586,7 +676,7 @@ impl Ddar {
             }
         } else if name == "overlap" {
             self.force_equal_points(pts[0], pts[1], vec![fact]);
-        } else if name == "acompute" {
+        } else if name == "acompute" || name == "rcompute" {
             // Nothing to force.
         } else {
             panic!("unexpected predicate: {name}");
@@ -600,6 +690,9 @@ impl Ddar {
     pub fn check_pred(&mut self, pred: &Predicate) -> bool {
         if pred.name == "acompute" {
             return self.acompute(pred).is_some_and(|v| !v.is_zero());
+        }
+        if pred.name == "rcompute" {
+            return self.rcompute_deps(pred).is_some();
         }
         let pts = self.subst_points(pred);
         let name = pred.name.as_str();
@@ -647,6 +740,9 @@ impl Ddar {
                 .all(|(v, _)| *v == crate::elimination::ANGLE_UNIT);
             let nonzero = !ang.0.get(crate::elimination::ANGLE_UNIT).is_zero();
             return (determined && nonzero).then_some(deps);
+        }
+        if pred.name == "rcompute" {
+            return self.rcompute_deps(pred).map(|(_, deps)| deps);
         }
         let pts = self.subst_points(pred);
         let name = pred.name.as_str();
@@ -728,6 +824,31 @@ impl Ddar {
         self.log.step_lines(deps, &self.names)
     }
 
+    /// `|ab| / |cd|` for an `rcompute a b c d` goal when the ratio table fixes it
+    /// to a constant (prime-log terms only, so square roots of rationals too),
+    /// with the facts the reduction used.
+    pub fn rcompute_deps(&self, pred: &Predicate) -> Option<(DistMul, Vec<FactId>)> {
+        let pts = self.subst_points(pred);
+        if pts.len() != 4 || self.num_identical(pts[0], pts[1]) || self.num_identical(pts[2], pts[3]) {
+            return None;
+        }
+        let r = self
+            .raw_dist_mul(pts[0], pts[1])
+            .div(&self.raw_dist_mul(pts[2], pts[3]));
+        let (r, deps) = self.dmul.simplify_deps(&r);
+        r.0.terms
+            .iter()
+            .all(|(v, _)| !self.dmul.core.is_lhs[*v as usize])
+            .then_some((r, deps))
+    }
+
+    /// The rational value of a determined `rcompute` ratio, if it is rational.
+    pub fn rcompute(&self, pred: &Predicate) -> Option<Rat> {
+        let (r, _) = self.rcompute_deps(pred)?;
+        let (rest, coef) = self.dmul.normalize(&r);
+        rest.is_one().then_some(coef)
+    }
+
     /// Compute a determined angle for an `acompute` goal, if any (in half-turns).
     pub fn acompute(&mut self, pred: &Predicate) -> Option<Rat> {
         let pts = self.subst_points(pred);
@@ -788,32 +909,87 @@ impl Ddar {
 
     /// Run the fixpoint loop until no new fact is derived.
     pub fn deduction_closure(&mut self) {
+        self.deduction_closure_until(None);
+    }
+
+    /// [`Ddar::deduction_closure`] that gives up between passes once
+    /// `deadline` has passed; returns whether the fixpoint was reached.
+    pub fn deduction_closure_until(&mut self, deadline: Option<std::time::Instant>) -> bool {
+        loop {
+            if !self.base_closure(deadline) {
+                return false;
+            }
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+                return false;
+            }
+            if !self.classical_rules() {
+                return true;
+            }
+        }
+    }
+
+    fn classical_rules(&mut self) -> bool {
+        let mut changed = false;
+        if self.rule_on(classics::Rule::BisectorConcurrency)
+            && self.inputs_changed(classics::Pass::BisectorConcurrency)
+        {
+            changed |= self.search_bisector_concurrency();
+        }
+        if self.rule_on(classics::Rule::MenelausCeva)
+            && self.inputs_changed(classics::Pass::MenelausCeva)
+        {
+            if changed {
+                self.update_cache();
+            }
+            changed |= self.search_menelaus_ceva();
+        }
+        if self.rule_on(classics::Rule::SquaredLengths) {
+            if changed {
+                self.update_cache();
+            }
+            changed |= self.search_squared_lengths();
+        }
+        changed
+    }
+
+    fn base_closure(&mut self, deadline: Option<std::time::Instant>) -> bool {
         let mut changed = true;
         while changed {
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+                return false;
+            }
             self.update_cache();
             changed = false;
+            let mut ids: Option<PairIds> = None;
 
-            let c = self.search_similar();
+            let c = self.search_similar(&mut ids);
             if c {
                 self.update_cache();
+                ids = None;
             }
             changed |= c;
 
-            let c = self.search_concyclic();
+            let c = self.search_concyclic(&mut ids);
             if c {
                 self.update_cache();
+                ids = None;
             }
             changed |= c;
 
             changed |= self.search_circles();
-            changed |= self.merge_points();
+            if self.merge_points() {
+                changed = true;
+                ids = None;
+            }
             changed |= self.transfer_dist_add_mul();
             changed |= self.transfer_dist_arc_mul();
-            changed |= self.search_bisector_theorem();
+            changed |= self.search_bisector_theorem(&mut ids);
+            drop(ids);
             changed |= self.search_intercept_theorem();
             changed |= self.search_similitude();
             changed |= self.search_radical_axis();
         }
+        true
     }
 
     /// Centres of similitude (homothety centres) of circle pairs, and the two
@@ -856,6 +1032,7 @@ impl Ddar {
         // (z, internal?, premises)
         let mut centres: FxHashMap<(usize, usize), Vec<(PointId, bool, Vec<FactId>)>> =
             FxHashMap::default();
+        let mut dirs: FxHashMap<(PointId, PointId), Angle> = FxHashMap::default();
         for i in 0..circs.len() {
             for j in (i + 1)..circs.len() {
                 let (o1, a1, _, f1) = (circs[i].0, circs[i].1, (), circs[i].3);
@@ -868,7 +1045,12 @@ impl Ddar {
                         continue;
                     }
                     // Symbolic: Z on the centre line, |ZO₁|/|ZO₂| = r₁/r₂.
-                    if self.get_point_dir(z, o1) != self.get_point_dir(z, o2) {
+                    let d1 = dirs
+                        .entry((z, o1))
+                        .or_insert_with(|| self.get_point_dir(z, o1))
+                        .clone();
+                    let d2 = dirs.entry((z, o2)).or_insert_with(|| self.get_point_dir(z, o2));
+                    if d1 != *d2 {
                         continue;
                     }
                     if self.get_dist_ratio(z, o2, z, o1) != self.get_dist_ratio(o2, a2, o1, a1) {
@@ -912,7 +1094,14 @@ impl Ddar {
                         // Numeric: Q is the image of P — radii parallel, with the
                         // orientation the centre type dictates (same direction for
                         // an external centre, opposite for an internal one).
-                        let rp = self.coord(p) - self.coord(o1);
+                        let (vz, vp, vo1) = (self.coord(z), self.coord(p), self.coord(o1));
+                        let u = vp - vz;
+                        let foot = vz + u * ((vo1 - vz).dot(u) / u.dot(u));
+                        let second = foot * 2.0 - vp;
+                        if (second - vp).norm() < 1e-6 * (vp - vo1).norm() {
+                            continue;
+                        }
+                        let rp = vp - vo1;
                         let rq = self.coord(q) - self.coord(o2);
                         let cross = rp.x * rq.y - rp.y * rq.x;
                         if cross.abs() > 1e-7 * rp.norm() * rq.norm() {
@@ -1152,8 +1341,9 @@ impl Ddar {
         changed
     }
 
-    fn search_bisector_theorem(&mut self) -> bool {
+    fn search_bisector_theorem(&mut self, ids: &mut Option<PairIds>) -> bool {
         let mut changed = false;
+        let ids = ids.get_or_insert_with(|| self.pair_ids());
         for lid in self.live_lines.clone() {
             let pts = self.lines[lid].points.clone();
             if pts.len() < 3 {
@@ -1181,14 +1371,8 @@ impl Ddar {
                                 continue;
                             }
                             // Bisector relation: dir(ax)-dir(ab) == dir(ac)-dir(ax).
-                            let lhs = self.get_point_angle(a, b, a, x);
-                            let rhs = self.get_point_angle(a, x, a, c);
-                            // Ratio relation: |xb|/|xc| == |ab|/|ac|.
-                            let rat_l = self.get_dist_ratio(x, c, x, b);
-                            let rat_r = self.get_dist_ratio(a, c, a, b);
-
-                            let angle_holds = lhs == rhs;
-                            let ratio_holds = rat_l == rat_r;
+                            let angle_holds = ids.ang_eq((a, b, x), (a, x, c));
+                            let ratio_holds = ids.rat_eq((x, c, b), (a, c, b));
                             if angle_holds == ratio_holds {
                                 continue; // nothing new in either direction
                             }
@@ -1255,7 +1439,7 @@ impl Ddar {
                     pts2.iter().map(|&p| self.name(p)).collect::<Vec<_>>()
                 );
                 // Bucket rungs (p ∈ L1, q ∈ L2) by direction normal form.
-                let mut buckets: FxHashMap<Angle, Vec<(PointId, PointId)>> = FxHashMap::default();
+                let mut buckets: FxHashMap<&Angle, Vec<(PointId, PointId)>> = FxHashMap::default();
                 for &p in &pts1 {
                     for &q in &pts2 {
                         if p == q || self.num_identical(p, q) {
@@ -1277,12 +1461,13 @@ impl Ddar {
                             .push((p, q));
                     }
                 }
+                let buckets: Vec<Vec<(PointId, PointId)>> = buckets.into_values().collect();
                 let line_facts: Vec<FactId> = self.lines[l1]
                     .fact
                     .into_iter()
                     .chain(self.lines[l2].fact)
                     .collect();
-                for rungs in buckets.into_values() {
+                for rungs in buckets {
                     #[cfg(feature = "trace-rules")]
                     eprintln!(
                         "[intercept]   bucket: {:?}",
@@ -1411,51 +1596,20 @@ impl Ddar {
         changed
     }
 
-    /// Per-triangle quantities used by the similar-triangle search.
-    fn triangle_data(&self, a: PointId, b: PointId, c: PointId) -> TriData {
-        TriData {
-            tri: (a, b, c),
-            orient: orientation(self.coord(a), self.coord(b), self.coord(c)),
-            rat1: self.get_dist_ratio(a, b, a, c),
-            ang1: self.get_point_angle(a, b, a, c),
-            rat2: self.get_dist_ratio(c, b, c, a),
-            ang2: self.get_point_angle(c, b, c, a),
-        }
-    }
-
-    /// Compute triangle data for every candidate, in parallel when the crate is
-    /// built with `--features parallel` and the workload is large enough to
-    /// amortize the thread-pool overhead. Output order is identical to the
-    /// serial path, so the subsequent (order-sensitive) bucketing is unchanged.
-    fn compute_tri_data(&self, triangles: &[Triple]) -> Vec<TriData> {
-        #[cfg(feature = "parallel")]
-        {
-            use rayon::prelude::*;
-            if triangles.len() > 1024 {
-                return triangles
-                    .par_iter()
-                    .map(|&(a, b, c)| self.triangle_data(a, b, c))
-                    .collect();
-            }
-        }
-        triangles
-            .iter()
-            .map(|&(a, b, c)| self.triangle_data(a, b, c))
-            .collect()
-    }
-
-    fn search_similar(&mut self) -> bool {
+    fn search_similar(&mut self, ids: &mut Option<PairIds>) -> bool {
         let active = self.active.clone();
 
-        // Enumerate candidate triangles in the reference order.
-        let mut triangles: Vec<Triple> = Vec::new();
+        let mut triangles: Vec<(Triple, i32)> = Vec::new();
         for &a in &active {
             for &b in &active {
                 if self.num_identical(a, b) {
                     continue;
                 }
-                let encountered = self.angle.was_encountered(&self.raw_dir(a, b))
-                    || self.dmul.was_encountered(&self.raw_dist_mul(a, b));
+                let k = self.pk(a, b);
+                let encountered = self.angle.was_encountered(self.pair_dir[k].as_ref().unwrap())
+                    || self
+                        .dmul
+                        .was_encountered(self.pair_dist_mul[k].as_ref().unwrap());
                 if !encountered {
                     continue;
                 }
@@ -1463,77 +1617,70 @@ impl Ddar {
                     if self.num_identical(a, c) || self.num_identical(b, c) {
                         continue;
                     }
-                    // Skip degenerate triangles by the *same* tolerance
-                    // `force_collinear` uses (a vertex within ATOM of the line
-                    // through the other two). `orientation` compares the raw
-                    // determinant (base × height) to ATOM, so a triple with a
-                    // long base and sub-ATOM height passes `orientation != 0`
-                    // yet is treated as collinear elsewhere — admitting it as a
-                    // triangle would force a bogus similarity ratio.
-                    if orientation(self.coord(a), self.coord(b), self.coord(c)) == 0
-                        || self.numerically_flat(a, b, c)
-                    {
+                    let orient = orientation(self.coord(a), self.coord(b), self.coord(c));
+                    if orient == 0 || self.numerically_flat(a, b, c) {
                         continue;
                     }
-                    triangles.push((a, b, c));
+                    triangles.push(((a, b, c), orient));
                 }
             }
         }
+        if triangles.is_empty() {
+            return false;
+        }
 
-        // Heavy per-triangle arithmetic (optionally parallel).
-        let data = self.compute_tri_data(&triangles);
-
-        // Order-sensitive bucketing to detect similar pairs (serial).
-        let mut sss: FxHashMap<(DistMul, DistMul), Triple> = FxHashMap::default();
-        let mut aa: FxHashMap<(Angle, Angle), Triple> = FxHashMap::default();
-        let mut sas: FxHashMap<(Angle, DistMul, i32), Triple> = FxHashMap::default();
-        let mut ssa: FxHashMap<(Angle, DistMul, i32), Triple> = FxHashMap::default();
-        let mut ssa_triangles: FxHashSet<Triple> = FxHashSet::default();
+        let ids = ids.get_or_insert_with(|| self.pair_ids());
+        let cap = triangles.len();
+        let mut sss: FpBuckets<(u64, u64)> = FpBuckets::with_capacity(cap);
+        let mut aa: FpBuckets<(u64, u64)> = FpBuckets::with_capacity(2 * cap);
+        let mut sas: FpBuckets<(u64, u64, i32)> = FpBuckets::with_capacity(2 * cap);
+        let mut ssa: FpBuckets<(u64, u64, i32)> = FpBuckets::with_capacity(2 * cap);
+        let n = self.n;
+        let mut dist = vec![0.0f64; n * n];
+        for &a in &active {
+            for &b in &active {
+                dist[a as usize * n + b as usize] = distance(self.coord(a), self.coord(b));
+            }
+        }
         let mut similar_pairs: Vec<(Triple, Triple)> = Vec::new();
 
-        for d in &data {
-            let (a, b, c) = d.tri;
-            let orient = d.orient;
-            let (rat1, ang1, rat2, ang2) = (&d.rat1, &d.ang1, &d.rat2, &d.ang2);
+        for &((a, b, c), orient) in &triangles {
+            let t = (a, b, c);
+            let (r1, r2) = (ids.rat_key(a, b, c), ids.rat_key(c, b, a));
+            let (g1, g2) = (ids.ang_key(a, b, c), ids.ang_key(c, b, a));
 
-            if let Some(&t0) = sss.get(&(rat1.clone(), rat2.clone())) {
-                similar_pairs.push((t0, (a, b, c)));
-            } else {
-                sss.insert((rat1.clone(), rat2.clone()), (a, b, c));
+            if let Some(t0) = find_or_put(&mut sss, ids, (r1, r2), (t, 0), sss_exact) {
+                similar_pairs.push((t0, t));
             }
 
-            if let Some(&t0) = aa.get(&(ang1.clone(), ang2.clone())) {
-                similar_pairs.push((t0, (a, b, c)));
+            if let Some(t0) = find_or_put(&mut aa, ids, (g1, g2), (t, 0), aa_exact) {
+                similar_pairs.push((t0, t));
             } else {
-                aa.insert((ang1.clone(), ang2.clone()), (a, b, c));
-                aa.insert((ang1.neg(), ang2.neg()), (a, b, c));
+                let neg_key = (ids.ang_key(a, c, b), ids.ang_key(c, a, b));
+                put(&mut aa, ids, neg_key, (t, 1), aa_exact);
             }
 
-            if let Some(&t0) = sas.get(&(ang1.clone(), rat1.clone(), orient)) {
-                similar_pairs.push((t0, (a, b, c)));
+            if let Some(t0) = find_or_put(&mut sas, ids, (g1, r1, orient), (t, 0), sas_exact) {
+                similar_pairs.push((t0, t));
             } else {
-                sas.insert((ang1.clone(), rat1.clone(), orient), (a, b, c));
-                sas.insert((ang1.neg(), rat1.clone(), -orient), (a, b, c));
+                let neg_key = (ids.ang_key(a, c, b), r1, -orient);
+                put(&mut sas, ids, neg_key, (t, 1), sas_exact);
             }
 
-            let candidates = [
-                (a, b, c, ang1.clone(), rat2.clone(), orient),
-                (c, b, a, ang2.clone(), rat1.clone(), -orient),
-            ];
+            let candidates = [(a, b, c, g1, r2, orient), (c, b, a, g2, r1, -orient)];
             for (a1, b1, c1, ang, rat, cur_orient) in candidates {
-                if distance(self.coord(c1), self.coord(b1))
-                    - distance(self.coord(c1), self.coord(a1))
-                    > ATOM
-                {
-                    if ssa_triangles.contains(&(a1, b1, c1)) {
+                let (a1u, b1u, c1u) = (a1 as usize, b1 as usize, c1 as usize);
+                if dist[c1u * n + b1u] - dist[c1u * n + a1u] > ATOM {
+                    let u = (a1, b1, c1);
+                    if !ids.memo.mark_ssa((a1u * n + b1u) * n + c1u) {
                         continue;
                     }
-                    ssa_triangles.insert((a1, b1, c1));
-                    if let Some(&t0) = ssa.get(&(ang.clone(), rat.clone(), cur_orient)) {
-                        similar_pairs.push((t0, (a1, b1, c1)));
+                    let key = (ang, rat, cur_orient);
+                    if let Some(t0) = find_or_put(&mut ssa, ids, key, (u, 0), ssa_exact) {
+                        similar_pairs.push((t0, u));
                     } else {
-                        ssa.insert((ang.clone(), rat.clone(), cur_orient), (a1, b1, c1));
-                        ssa.insert((ang.neg(), rat.clone(), -cur_orient), (a1, b1, c1));
+                        let neg_key = (ids.ang_key(a1, c1, b1), rat, -cur_orient);
+                        put(&mut ssa, ids, neg_key, (u, 1), ssa_exact);
                     }
                 }
             }
@@ -1546,61 +1693,142 @@ impl Ddar {
         changed
     }
 
-    fn search_concyclic(&mut self) -> bool {
+    fn search_concyclic(&mut self, ids: &mut Option<PairIds>) -> bool {
         let active = self.active.clone();
+        let ids = ids.get_or_insert_with(|| self.pair_ids());
         let mut changed = false;
+        let mut row_keys: Vec<(PointId, Option<u64>, Option<u64>)> = Vec::new();
+        let mut counts: FxHashMap<u64, (u32, u32)> = FxHashMap::default();
+        let mut row: Vec<(PointId, Option<u32>, Option<u32>)> = Vec::new();
+        let mut on_line: Vec<PointId> = Vec::new();
         for &a in &active {
             for &b in &active {
-                let mut ang_map: FxHashMap<Angle, (Vec<PointId>, Vec<PointId>)> =
-                    FxHashMap::default();
-                let mut on_line: Vec<PointId> = Vec::new();
+                row_keys.clear();
+                on_line.clear();
+                let ab_identical = self.num_identical(a, b);
                 for &c in &active {
                     if self.num_identical(a, c) || self.num_identical(b, c) {
                         continue;
                     }
-                    let ang = self.get_point_angle(c, a, c, b);
-                    if ang.is_zero() {
+                    let key = ids.ang_key(c, a, b);
+                    if ids.ang_key_is_zero(key, c, a, b) {
                         on_line.push(c);
                     }
-                    if self.num_identical(a, b) {
+                    if ab_identical {
                         continue;
                     }
-                    if !collinear(self.coord(a), self.coord(b), self.coord(c)) {
-                        ang_map.entry(ang.clone()).or_default().0.push(c);
-                    }
-                    let dist_ratio = self.get_dist_ratio(c, a, c, b);
-                    if dist_ratio.is_one() {
-                        let halfang = self
-                            .get_point_angle(a, c, a, b)
-                            .add(&self.angle.const_ratio(1, 2));
-                        ang_map.entry(halfang).or_default().1.push(c);
-                    }
+                    let inscribed =
+                        (!collinear(self.coord(a), self.coord(b), self.coord(c))).then_some(key);
+                    let central = (ids.dm_id[self.pk(c, a)] == ids.dm_id[self.pk(c, b)])
+                        .then(|| ids.half_turn_key(a, c, b));
+                    row_keys.push((c, inscribed, central));
                 }
                 for &c in &on_line {
-                    let prem = self.deps_of_angle_expr(c, a, c, b);
-                    changed = self.force_collinear(&[a, b, c], prem) || changed;
+                    if self.line_holds(a, b, c) {
+                        continue;
+                    }
+                    changed = self
+                        .force_collinear_with(&[a, b, c], |s| s.deps_of_angle_expr(c, a, c, b))
+                        || changed;
                 }
-                let groups: Vec<(Vec<PointId>, Vec<PointId>)> = ang_map.into_values().collect();
+                counts.clear();
+                let mut may_fire = false;
+                for &(_, inscribed, central) in &row_keys {
+                    if let Some(k) = inscribed {
+                        let e = counts.entry(k).or_default();
+                        e.0 += 1;
+                        may_fire |= e.0 >= 2 || e.1 >= 1;
+                    }
+                    if let Some(k) = central {
+                        let e = counts.entry(k).or_default();
+                        e.1 += 1;
+                        may_fire |= e.0 >= 1;
+                    }
+                }
+                if !may_fire || self.row_already_concyclic(a, b, &row_keys, &counts) {
+                    continue;
+                }
+                row.clear();
+                for &(c, inscribed, central) in &row_keys {
+                    let inscribed = inscribed.map(|_| ids.ang(c, a, b));
+                    let central = central.map(|_| {
+                        let half = ids.ang(a, c, b);
+                        ids.dir.plus_half_turn(half)
+                    });
+                    row.push((c, inscribed, central));
+                }
+                let groups: Vec<(Vec<PointId>, Vec<PointId>)> = {
+                    let mut ang_map: FxHashMap<&LinComb, (Vec<PointId>, Vec<PointId>)> =
+                        FxHashMap::default();
+                    for &(c, inscribed, central) in &row {
+                        if let Some(k) = inscribed {
+                            ang_map.entry(ids.dir.item(k)).or_default().0.push(c);
+                        }
+                        if let Some(k) = central {
+                            ang_map.entry(ids.dir.item(k)).or_default().1.push(c);
+                        }
+                    }
+                    ang_map.into_values().collect()
+                };
                 for (points_list, centers) in groups {
                     if points_list.len() >= 2 || (!centers.is_empty() && !points_list.is_empty()) {
-                        // Premises: the equal inscribed angles (and, for centers,
-                        // the equal distances + half-angle relations).
-                        let mut prem: Vec<FactId> = Vec::new();
-                        for &c in &points_list {
-                            prem.extend(self.deps_of_angle_expr(c, a, c, b));
-                        }
-                        for &c in &centers {
-                            prem.extend(self.deps_of_ratio_expr(c, a, c, b));
-                            prem.extend(self.deps_of_angle_expr(a, c, a, b));
-                        }
                         let mut pts = vec![a, b];
-                        pts.extend(points_list);
-                        changed = self.force_concyclic(&pts, &centers, prem) || changed;
+                        pts.extend_from_slice(&points_list);
+                        let premises = |s: &Ddar| {
+                            let mut prem: Vec<FactId> = Vec::new();
+                            for &c in &points_list {
+                                prem.extend(s.deps_of_angle_expr(c, a, c, b));
+                            }
+                            for &c in &centers {
+                                prem.extend(s.deps_of_ratio_expr(c, a, c, b));
+                                prem.extend(s.deps_of_angle_expr(a, c, a, b));
+                            }
+                            prem
+                        };
+                        changed = self.force_concyclic_with(&pts, &centers, premises) || changed;
                     }
                 }
             }
         }
         changed
+    }
+
+    fn line_holds(&self, a: PointId, b: PointId, c: PointId) -> bool {
+        let Some(lid) = self.pair_line[self.pk(a, b)] else {
+            return false;
+        };
+        let line = &self.lines[lid];
+        line.points.contains(&c)
+            && [a, b, c]
+                .iter()
+                .all(|&p| line.value.distance(self.coord(p)) < ATOM)
+    }
+
+    fn row_already_concyclic(
+        &self,
+        a: PointId,
+        b: PointId,
+        row: &[(PointId, Option<u64>, Option<u64>)],
+        counts: &FxHashMap<u64, (u32, u32)>,
+    ) -> bool {
+        counts.iter().all(|(&k, &(inscribed, central))| {
+            if !(inscribed >= 2 || (inscribed >= 1 && central >= 1)) {
+                return true;
+            }
+            let mut on = row.iter().filter(|r| r.1 == Some(k)).map(|r| r.0);
+            let Some(first) = on.next() else {
+                return false;
+            };
+            let Some(&cid) = self.triple_to_circle.get(&(a, b, first)) else {
+                return false;
+            };
+            let circle = &self.circles[cid];
+            on.all(|c| circle.points.contains(&c))
+                && row
+                    .iter()
+                    .filter(|r| r.2 == Some(k))
+                    .all(|r| circle.centers.contains(&r.0))
+        })
     }
 
     fn search_circles(&mut self) -> bool {
@@ -1874,6 +2102,14 @@ impl Ddar {
 
 impl Ddar {
     fn force_collinear(&mut self, points_in: &[PointId], premises: Vec<FactId>) -> bool {
+        self.force_collinear_with(points_in, |_| premises)
+    }
+
+    fn force_collinear_with(
+        &mut self,
+        points_in: &[PointId],
+        premises: impl FnOnce(&Ddar) -> Vec<FactId>,
+    ) -> bool {
         assert!(points_in.len() > 1);
         let a0 = points_in[0];
         let b = Self::arg_max_first(points_in, |p| distance(self.coord(a0), self.coord(p)));
@@ -1934,7 +2170,7 @@ impl Ddar {
 
         // Register the collinearity fact: premises plus the facts that
         // established the lines being merged.
-        let mut prem = premises;
+        let mut prem = premises(self);
         for &lid in &line_ids {
             prem.extend(self.lines[lid].fact);
         }
@@ -2002,6 +2238,15 @@ impl Ddar {
         points_in: &[PointId],
         centers_in: &[PointId],
         premises: Vec<FactId>,
+    ) -> bool {
+        self.force_concyclic_with(points_in, centers_in, |_| premises)
+    }
+
+    fn force_concyclic_with(
+        &mut self,
+        points_in: &[PointId],
+        centers_in: &[PointId],
+        premises: impl FnOnce(&Ddar) -> Vec<FactId>,
     ) -> bool {
         let mut stack: Vec<PointId> = points_in.to_vec();
         let mut points: Vec<PointId> = Vec::new();
@@ -2104,7 +2349,7 @@ impl Ddar {
 
         // Register the concyclicity fact: premises plus the facts behind the
         // circles being merged.
-        let mut prem = premises;
+        let mut prem = premises(self);
         for &cid in &circ_ids {
             prem.extend(self.circles[cid].fact);
         }
@@ -2181,6 +2426,26 @@ impl Ddar {
             }
         }
         false
+    }
+
+    /// Lines of the closure holding at least three points.
+    pub fn proved_lines(&self) -> Vec<Vec<PointId>> {
+        self.live_lines
+            .iter()
+            .map(|&l| &self.lines[l])
+            .filter(|l| l.points.len() >= 3)
+            .map(|l| l.points.clone())
+            .collect()
+    }
+
+    /// Circles of the closure as `(points, centers)`.
+    pub fn proved_circles(&self) -> Vec<(Vec<PointId>, Vec<PointId>)> {
+        self.live_circles
+            .iter()
+            .map(|&c| &self.circles[c])
+            .filter(|c| c.points.len() >= 3 || (!c.centers.is_empty() && !c.points.is_empty()))
+            .map(|c| (c.points.clone(), c.centers.clone()))
+            .collect()
     }
 
     fn check_concyclic(&self, points: &[PointId], centers: &[PointId]) -> bool {
@@ -2343,6 +2608,8 @@ impl Ddar {
                 let d1 = self.raw_dist_mul(x, a);
                 let d2 = self.raw_dist_mul(x, b);
                 self.dmul.force_one(&d1.div(&d2), Some(fact));
+                let s = DistSq(&self.raw_dist_sq(x, a).0 - &self.raw_dist_sq(x, b).0);
+                self.dsq.force_zero(&s, Some(fact));
             }
         }
 
@@ -2358,5 +2625,360 @@ impl Ddar {
 
     fn check_equal_points(&self, a: PointId, b: PointId) -> bool {
         self.subst[a as usize] == self.subst[b as usize]
+    }
+}
+
+struct Interner {
+    angular: bool,
+    table: hashbrown::HashTable<(u64, u32)>,
+    items: Vec<LinComb>,
+    halves: FxHashMap<u32, u32>,
+}
+
+impl Interner {
+    fn with_capacity(angular: bool, cap: usize) -> Interner {
+        Interner {
+            angular,
+            table: hashbrown::HashTable::with_capacity(cap),
+            items: Vec::with_capacity(cap),
+            halves: FxHashMap::default(),
+        }
+    }
+
+    fn intern(&mut self, comb: LinComb) -> u32 {
+        use std::hash::BuildHasher;
+        let h = rustc_hash::FxBuildHasher.hash_one(&comb);
+        let items = &self.items;
+        match self.table.entry(
+            h,
+            |&(hh, i)| hh == h && items[i as usize] == comb,
+            |&(hh, _)| hh,
+        ) {
+            hashbrown::hash_table::Entry::Occupied(e) => e.get().1,
+            hashbrown::hash_table::Entry::Vacant(e) => {
+                let id = self.items.len() as u32;
+                e.insert((h, id));
+                self.items.push(comb);
+                id
+            }
+        }
+    }
+
+    fn diff(&mut self, x: u32, y: u32) -> u32 {
+        let d = &self.items[x as usize] - &self.items[y as usize];
+        let d = if self.angular { Angle::new(d).0 } else { d };
+        self.intern(d)
+    }
+
+    fn item(&self, id: u32) -> &LinComb {
+        &self.items[id as usize]
+    }
+
+    fn is_zero(&self, id: u32) -> bool {
+        self.items[id as usize].is_zero()
+    }
+
+    fn plus_half_turn(&mut self, id: u32) -> u32 {
+        debug_assert!(self.angular);
+        if let Some(&h) = self.halves.get(&id) {
+            return h;
+        }
+        let half = LinComb::singleton(crate::elimination::ANGLE_UNIT, Rat::new(1, 2));
+        let comb = Angle::new(&self.items[id as usize] + &half).0;
+        let h = self.intern(comb);
+        self.halves.insert(id, h);
+        h
+    }
+}
+
+struct PairIds {
+    n: usize,
+    dir: Interner,
+    dm: Interner,
+    dir_id: Vec<u32>,
+    dm_id: Vec<u32>,
+    memo: TripleMemo,
+    fp_ok: bool,
+    dir_fp: Vec<u64>,
+    dir_unit: Vec<Rat>,
+    dir_unit_rank: Vec<u32>,
+    w0: u64,
+    dm_fp: Vec<u64>,
+}
+
+#[derive(Default)]
+struct TripleMemo {
+    stamp: u32,
+    ang: Vec<(u32, u32)>,
+    rat: Vec<(u32, u32)>,
+    ssa: Vec<u32>,
+}
+
+thread_local! {
+    static TRIPLE_MEMO: std::cell::RefCell<TripleMemo> = std::cell::RefCell::new(TripleMemo::default());
+}
+
+impl TripleMemo {
+    fn take(len: usize) -> TripleMemo {
+        let mut m = TRIPLE_MEMO.with(|t| std::mem::take(&mut *t.borrow_mut()));
+        m.stamp = m.stamp.wrapping_add(1);
+        if m.stamp == 0 {
+            m.ang.clear();
+            m.rat.clear();
+            m.ssa.clear();
+            m.stamp = 1;
+        }
+        if m.ang.len() < len {
+            m.ang.resize(len, (0, 0));
+            m.rat.resize(len, (0, 0));
+            m.ssa.resize(len, 0);
+        }
+        m
+    }
+
+    fn mark_ssa(&mut self, k: usize) -> bool {
+        let fresh = self.ssa[k] != self.stamp;
+        self.ssa[k] = self.stamp;
+        fresh
+    }
+}
+
+impl Drop for PairIds {
+    fn drop(&mut self) {
+        let m = std::mem::take(&mut self.memo);
+        TRIPLE_MEMO.with(|t| {
+            let mut slot = t.borrow_mut();
+            if m.ang.len() >= slot.ang.len() {
+                *slot = m;
+            }
+        });
+    }
+}
+
+impl PairIds {
+    fn ang(&mut self, a: PointId, b: PointId, c: PointId) -> u32 {
+        let n = self.n;
+        let (a, b, c) = (a as usize, b as usize, c as usize);
+        let k = (a * n + b) * n + c;
+        let (stamp, id) = self.memo.ang[k];
+        if stamp == self.memo.stamp {
+            return id;
+        }
+        let id = self.dir.diff(self.dir_id[a * n + c], self.dir_id[a * n + b]);
+        self.memo.ang[k] = (self.memo.stamp, id);
+        id
+    }
+
+    fn rat(&mut self, a: PointId, b: PointId, c: PointId) -> u32 {
+        let n = self.n;
+        let (a, b, c) = (a as usize, b as usize, c as usize);
+        let k = (a * n + b) * n + c;
+        let (stamp, id) = self.memo.rat[k];
+        if stamp == self.memo.stamp {
+            return id;
+        }
+        let id = self.dm.diff(self.dm_id[a * n + c], self.dm_id[a * n + b]);
+        self.memo.rat[k] = (self.memo.stamp, id);
+        id
+    }
+
+    fn ang_key(&mut self, a: PointId, b: PointId, c: PointId) -> u64 {
+        if !self.fp_ok {
+            return self.ang(a, b, c) as u64;
+        }
+        let n = self.n;
+        let (x, y) = (a as usize * n + c as usize, a as usize * n + b as usize);
+        let d = fingerprint::sub(self.dir_fp[x], self.dir_fp[y]);
+        if self.dir_unit_rank[x] < self.dir_unit_rank[y] {
+            fingerprint::add(d, self.w0)
+        } else {
+            d
+        }
+    }
+
+    fn half_turn_key(&mut self, a: PointId, b: PointId, c: PointId) -> u64 {
+        if !self.fp_ok {
+            let id = self.ang(a, b, c);
+            return self.dir.plus_half_turn(id) as u64;
+        }
+        let n = self.n;
+        let (x, y) = (a as usize * n + c as usize, a as usize * n + b as usize);
+        let mut u = &self.dir_unit[x] - &self.dir_unit[y];
+        if u.is_negative() {
+            u = &u + &Rat::one();
+        }
+        let half = fingerprint::mul(self.w0, fingerprint::rat(&Rat::new(1, 2)).unwrap());
+        let shift = if u >= Rat::new(1, 2) {
+            fingerprint::sub(half, self.w0)
+        } else {
+            half
+        };
+        fingerprint::add(self.ang_key(a, b, c), shift)
+    }
+
+    fn rat_key(&mut self, a: PointId, b: PointId, c: PointId) -> u64 {
+        if !self.fp_ok {
+            return self.rat(a, b, c) as u64;
+        }
+        let n = self.n;
+        let (x, y) = (a as usize * n + c as usize, a as usize * n + b as usize);
+        fingerprint::sub(self.dm_fp[x], self.dm_fp[y])
+    }
+
+    fn ang_key_is_zero(&mut self, key: u64, a: PointId, b: PointId, c: PointId) -> bool {
+        if self.fp_ok && key != 0 {
+            return false;
+        }
+        let id = self.ang(a, b, c);
+        self.dir.is_zero(id)
+    }
+
+    fn ang_eq(&mut self, p: Triple, q: Triple) -> bool {
+        if self.fp_ok && self.ang_key(p.0, p.1, p.2) != self.ang_key(q.0, q.1, q.2) {
+            return false;
+        }
+        self.ang(p.0, p.1, p.2) == self.ang(q.0, q.1, q.2)
+    }
+
+    fn rat_eq(&mut self, p: Triple, q: Triple) -> bool {
+        if self.fp_ok && self.rat_key(p.0, p.1, p.2) != self.rat_key(q.0, q.1, q.2) {
+            return false;
+        }
+        self.rat(p.0, p.1, p.2) == self.rat(q.0, q.1, q.2)
+    }
+}
+
+fn sss_exact(ids: &mut PairIds, (a, b, c): Triple, _form: u8) -> (u32, u32) {
+    (ids.rat(a, b, c), ids.rat(c, b, a))
+}
+
+fn aa_exact(ids: &mut PairIds, (a, b, c): Triple, form: u8) -> (u32, u32) {
+    if form == 0 {
+        (ids.ang(a, b, c), ids.ang(c, b, a))
+    } else {
+        (ids.ang(a, c, b), ids.ang(c, a, b))
+    }
+}
+
+fn sas_exact(ids: &mut PairIds, (a, b, c): Triple, form: u8) -> (u32, u32) {
+    if form == 0 {
+        (ids.ang(a, b, c), ids.rat(a, b, c))
+    } else {
+        (ids.ang(a, c, b), ids.rat(a, b, c))
+    }
+}
+
+fn ssa_exact(ids: &mut PairIds, (a, b, c): Triple, form: u8) -> (u32, u32) {
+    if form == 0 {
+        (ids.ang(a, b, c), ids.rat(c, b, a))
+    } else {
+        (ids.ang(a, c, b), ids.rat(c, b, a))
+    }
+}
+
+type FpEntry = (Triple, u8);
+type ExactKey = fn(&mut PairIds, Triple, u8) -> (u32, u32);
+
+fn find_or_put<K: std::hash::Hash + Eq + Copy>(
+    map: &mut FpBuckets<K>,
+    ids: &mut PairIds,
+    key: K,
+    entry: FpEntry,
+    exact: ExactKey,
+) -> Option<Triple> {
+    let mut want: Option<(u32, u32)> = None;
+    let mut same = |e: FpEntry| {
+        let w = match want {
+            Some(w) => w,
+            None => *want.insert(exact(ids, entry.0, entry.1)),
+        };
+        exact(ids, e.0, e.1) == w
+    };
+    if let Some(t0) = map.find(key, &mut same) {
+        return Some(t0);
+    }
+    map.put(key, entry, same);
+    None
+}
+
+fn put<K: std::hash::Hash + Eq + Copy>(
+    map: &mut FpBuckets<K>,
+    ids: &mut PairIds,
+    key: K,
+    entry: FpEntry,
+    exact: ExactKey,
+) {
+    let mut want: Option<(u32, u32)> = None;
+    map.put(key, entry, |e: FpEntry| {
+        let w = match want {
+            Some(w) => w,
+            None => *want.insert(exact(ids, entry.0, entry.1)),
+        };
+        exact(ids, e.0, e.1) == w
+    });
+}
+
+struct FpBuckets<K> {
+    first: FxHashMap<K, FpEntry>,
+    more: FxHashMap<K, Vec<FpEntry>>,
+}
+
+impl<K: std::hash::Hash + Eq + Copy> FpBuckets<K> {
+    fn with_capacity(cap: usize) -> Self {
+        let mut first = FxHashMap::default();
+        first.reserve(cap);
+        FpBuckets {
+            first,
+            more: FxHashMap::default(),
+        }
+    }
+
+    fn find(&self, k: K, mut same: impl FnMut(FpEntry) -> bool) -> Option<Triple> {
+        let e = *self.first.get(&k)?;
+        if same(e) {
+            return Some(e.0);
+        }
+        self.more.get(&k)?.iter().find(|&&x| same(x)).map(|x| x.0)
+    }
+
+    fn put(&mut self, k: K, v: FpEntry, mut same: impl FnMut(FpEntry) -> bool) {
+        match self.first.entry(k) {
+            Entry::Vacant(e) => {
+                e.insert(v);
+            }
+            Entry::Occupied(mut e) => {
+                if same(*e.get()) {
+                    *e.get_mut() = v;
+                    return;
+                }
+                let more = self.more.entry(k).or_default();
+                match more.iter_mut().find(|x| same(**x)) {
+                    Some(x) => *x = v,
+                    None => more.push(v),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fp_buckets_only_match_exactly_equal_entries() {
+        let exact = |t: Triple| t.0 % 3;
+        let (t1, t2, t3, t4) = ((1, 0, 0), (5, 0, 0), (9, 0, 0), (10, 0, 0));
+        let mut b: FpBuckets<u64> = FpBuckets::with_capacity(4);
+        b.put(7, (t1, 0), |e| exact(e.0) == exact(t1));
+        assert_eq!(b.find(7, |e| exact(e.0) == exact(t2)), None);
+        b.put(7, (t2, 0), |e| exact(e.0) == exact(t2));
+        assert_eq!(b.find(7, |e| exact(e.0) == exact(t1)), Some(t1));
+        assert_eq!(b.find(7, |e| exact(e.0) == exact(t2)), Some(t2));
+        assert_eq!(b.find(7, |e| exact(e.0) == exact(t3)), None);
+        assert_eq!(b.find(8, |_| true), None);
+        b.put(7, (t4, 1), |e| exact(e.0) == exact(t4));
+        assert_eq!(b.find(7, |e| exact(e.0) == exact(t1)), Some(t4));
+        assert_eq!(b.find(7, |e| exact(e.0) == exact(t2)), Some(t2));
     }
 }

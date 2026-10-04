@@ -530,9 +530,10 @@ a real win and semantics-preserving:
 * **`--batch`** runs the universal MAX solver over a whole directory in parallel,
   and **`--bench`** re-times the bundled set as a parallel batch; both report the
   wall-clock vs. summed-CPU speedup;
-* the optional `--features parallel` additionally parallelizes the O(n³)
-  similar-triangle search's per-triangle arithmetic (modest at IMO sizes,
-  headroom for larger figures).
+* the closure itself is serial: its O(n³) searches key triangles and inscribed
+  angles by O(1) fingerprint arithmetic (see `src/CODEMAP.md`), so the former
+  `--features parallel` per-triangle path no longer had work to parallelize and
+  was removed.
 
 An honest note on **async**: async/await is a tool for overlapping *IO waits*
 (sockets, disks, timers). This prover is purely CPU-bound — there is no IO to

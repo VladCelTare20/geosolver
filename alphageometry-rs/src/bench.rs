@@ -117,7 +117,7 @@ impl Outcome {
     }
 }
 
-fn proof_steps(proof: &str) -> usize {
+pub(crate) fn proof_steps(proof: &str) -> usize {
     let header = proof.lines().find(|l| l.starts_with("Proof of")).unwrap_or("");
     header
         .rfind('(')
@@ -134,7 +134,7 @@ fn proof_steps(proof: &str) -> usize {
         })
 }
 
-enum Attempt {
+pub(crate) enum Attempt {
     Proved {
         proof: String,
         aux: Vec<String>,
@@ -146,7 +146,7 @@ enum Attempt {
     Panicked,
 }
 
-fn prove_goal(problem: &Problem, deadline: Instant) -> Attempt {
+pub(crate) fn prove_goal(problem: &Problem, deadline: Instant) -> Attempt {
     let direct = catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(problem))));
     match direct {
         Err(_) => return Attempt::Panicked,
@@ -314,6 +314,8 @@ pub struct RunConfig {
     /// How long past the budget a child may run before it is killed.
     pub grace: Duration,
     pub proofs_dir: Option<PathBuf>,
+    /// The child mode flag: `--corpus-one` (benchmark) or `--fuzz-one`.
+    pub child_flag: &'static str,
 }
 
 fn rss_mb(pid: u32) -> Option<u64> {
@@ -325,7 +327,7 @@ fn rss_mb(pid: u32) -> Option<u64> {
 fn run_child(cfg: &RunConfig, name: &str) -> Outcome {
     let start = Instant::now();
     let mut cmd = Command::new(&cfg.exe);
-    cmd.arg("--corpus-one")
+    cmd.arg(cfg.child_flag)
         .arg(&cfg.corpus)
         .arg(name)
         .arg("--budget")
@@ -452,22 +454,35 @@ pub fn child_main(corpus: &Path, name: &str, budget: Duration, proofs_dir: Optio
             ..Outcome::default()
         },
     };
-    if let (Some(dir), Some(proof)) = (proofs_dir, &o.proof) {
-        let _ = std::fs::create_dir_all(dir);
-        let safe: String = name
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-            .collect();
-        let mut body = format!("{name}\n");
-        for a in &o.aux {
-            body.push_str(&format!("aux: {a}\n"));
-        }
-        body.push('\n');
-        body.push_str(proof);
-        body.push('\n');
-        let _ = std::fs::write(dir.join(format!("{safe}.txt")), body);
+    if let Some(dir) = proofs_dir {
+        write_proof(dir, &o);
     }
     o
+}
+
+/// Write an outcome's proof (if any) to `dir/<sanitised name>.txt`.
+pub fn write_proof(dir: &Path, o: &Outcome) {
+    let Some(proof) = &o.proof else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(dir);
+    let mut body = format!("{}\n", o.name);
+    for a in &o.aux {
+        body.push_str(&format!("aux: {a}\n"));
+    }
+    body.push('\n');
+    body.push_str(proof);
+    body.push('\n');
+    let _ = std::fs::write(proof_path(dir, &o.name), body);
+}
+
+/// Where [`write_proof`] puts the proof of problem `name`.
+pub fn proof_path(dir: &Path, name: &str) -> PathBuf {
+    let safe: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect();
+    dir.join(format!("{safe}.txt"))
 }
 
 /// Read a results TSV written by the benchmark.

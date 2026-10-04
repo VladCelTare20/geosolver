@@ -17,13 +17,18 @@
 //! * [`predicate`] — the AlphaGeometry predicate/problem language and parser.
 //! * [`engine`] — the DDAR deductive-closure loop.
 
+pub(crate) mod aux_rollout;
+pub(crate) mod aux_score;
 pub mod aux_search;
+pub(crate) mod aux_virtual;
 pub mod bench;
-pub mod corpus;
 pub(crate) mod certify;
+pub mod corpus;
 pub mod elim_core;
 pub mod elimination;
 pub mod engine;
+pub mod fuzz;
+pub(crate) mod fingerprint;
 pub mod geo;
 pub mod lincomb;
 pub mod metric;
@@ -31,8 +36,8 @@ pub mod numerics;
 pub mod predicate;
 pub mod proof;
 pub mod quiet_panic;
-pub mod rational;
 pub mod ratio;
+pub mod rational;
 pub mod runner;
 pub mod svg;
 pub mod synthetic;

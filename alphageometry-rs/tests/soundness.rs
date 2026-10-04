@@ -338,3 +338,258 @@ fn certified_facts_do_not_prove_false_neighbours() {
         }
     }
 }
+
+/// The closure buckets triangles and inscribed angles by 61-bit fingerprints
+/// and acts on a match only after an exact comparison. False neighbours of
+/// true statements in figures dense with similar triangles and circles must
+/// stay unproved, by DDAR and by the auxiliary search.
+#[test]
+fn fingerprint_bucketing_does_not_prove_false_neighbours() {
+    let orthic = "A B C = triangle\nFa = foot(A, line(B, C))\nFb = foot(B, line(C, A))\n\
+                  Fc = foot(C, line(A, B))\nMa = midpoint(B, C)\n";
+    let bisector = "A B C = triangle\nX = meet(bisector(B, A, C), line(B, C))\n";
+    let excenter = "A B C = triangle\nI = incenter(A, B, C)\nIa = excenter(A, B, C)\n";
+    let truths = [
+        format!("{orthic}prove cyclic(Fa, Fb, Fc, Ma)"),
+        format!("{bisector}prove eqratio(X, B, X, C, A, B, A, C)"),
+    ];
+    for src in &truths {
+        assert!(ddar_claims_proof(src), "control case no longer proved:\n{src}");
+    }
+    let falsehoods = [
+        format!("{orthic}prove cyclic(Fa, Fb, Fc, A)"),
+        format!("{orthic}prove eqangle(Fa, Fb, Fa, Fc, A, B, A, C)"),
+        format!("{bisector}prove eqratio(X, B, X, C, A, C, A, B)"),
+        format!("{excenter}prove cyclic(A, I, C, Ia)"),
+    ];
+    for src in falsehoods {
+        assert!(!ddar_claims_proof(&src), "DDAR proved a false statement:\n{src}");
+        let problem = compile(&src).unwrap().problem;
+        let found = bounded(300, move || {
+            ddar::aux_search::solve_with_aux_opts(&problem, 1, 400, false, true).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("the aux search proved a false statement with {used:?}:\n{src}");
+        }
+    }
+}
+
+/// Found by `ddar --fuzz-false` (jgex `complete_016_ex-gao_gao_M_M021-64` with
+/// `cong b c b a` dropped). AB = AC, D the midpoint of AB, E and F the second
+/// points of the circle on diameter AB on AC and BC, X the centre of circle DEF
+/// (on AF), Y the reflection of A in X. A is the external centre of similitude
+/// of circles (X, XE) and (Y, YC), but C is the image of the OTHER point of
+/// line AC on circle X (the midpoint of AC), so AE = EF is false. On this
+/// figure BC = AB as well, E is that midpoint, line AC touches circle X, and
+/// the image/antihomologous pairing read off the coordinates is a coincidence.
+#[test]
+fn similitude_pairing_is_not_read_off_a_tangent_coincidence() {
+    let special = "a@0.873411653346327_0.22024962392785574 b@-0.3678402298414716_0.22639228009786294 = segment a b; \
+        d@0.2527857117524277_0.22332095201285934 = midpoint d b a; \
+        c@0.24746601546248825_-0.8516347113230487 = on_circle c a b; \
+        e@0.5604388344044076_-0.3156925436975965 = on_line e a c, on_circle e d a; \
+        f@-0.060187107189491634_-0.3126212156125929 = on_circle f d a, on_line f b c; \
+        x = on_line x a f, on_circum x a d e; y = mirror y a x ? cong a e e f";
+    let o = ddar::fuzz::solve_case("tangent-similitude", special, Duration::from_secs(60), false);
+    assert!(o.parsed, "{}", o.detail);
+    assert_eq!(o.goal_numeric, Some(true), "the special figure is equilateral");
+    assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
+}
+
+/// Second fuzzer finding of the same rule (jgex `E061-63f` with the tangent
+/// construction of `e` dropped, aux points p, q, r as the aux search found
+/// them). On the original figure line DE touches the circle through A, C, D,
+/// so DA = DE holds there, but nothing in the hypotheses says so.
+#[test]
+fn similitude_pairing_is_not_read_off_a_tangent_line() {
+    let special = "a@-0.9675444639971735_-0.4702425265711835 b@0.17646760846163745_-0.21674859371974686 = segment a b; \
+        c@-0.39553842776776804_-0.3434955601454652 = midpoint c b a; \
+        d@-0.21930150243035063_0.215249681560101 = s_angle b a d 30, on_circle d c a; \
+        e@0.7484736446910423_-0.09000162729402861 = on_line e a b; \
+        p = on_line p d e, on_circum p a c d; q = reflect q a d e; \
+        r = on_line r d e, angle_bisector r d c e ? cong d a d e";
+    let o = ddar::fuzz::solve_case("tangent-line-similitude", special, Duration::from_secs(60), false);
+    assert!(o.parsed, "{}", o.detail);
+    assert_eq!(o.goal_numeric, Some(true), "DA = DE on the tangent figure");
+    assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
+}
+
+/// The classical closure rules (squared lengths, Menelaus/Ceva converses,
+/// bisector concurrency) on near-miss configurations: true controls stay
+/// proved, false neighbours stay unproved by DDAR and by the aux search.
+#[test]
+fn classical_rules_do_not_prove_near_misses() {
+    let truths = [
+        "A B C = triangle\nH = point: perp(A, H, B, C), perp(B, H, C, A)\nprove perp(C, H, A, B)",
+        "A B C = triangle\nX = meet(bisector(B, A, C), bisector(A, B, C))\nprove eqangle(C, B, C, X, C, X, C, A)",
+        "A B C = triangle\nI = incenter(A, B, C)\nTa = foot(I, line(B, C))\nTb = foot(I, line(C, A))\n\
+         Tc = foot(I, line(A, B))\nX = meet(line(A, Ta), line(B, Tb))\nprove coll(C, Tc, X)",
+    ];
+    for src in truths {
+        assert!(ddar_claims_proof(src), "control case no longer proved:\n{src}");
+    }
+    let falsehoods = [
+        "A B C = triangle\nH = point: perp(A, H, B, C)\nprove perp(C, H, A, B)",
+        "A B C = triangle\nM = midpoint(B, C)\nprove perp(A, M, B, C)",
+        "A B = segment\nC = on_tline(B, A, B)\nprove cong(A, C, B, C)",
+        "A B C = triangle\nD = midpoint(B, C)\nE = midpoint(C, A)\nF = midpoint(A, B)\nprove coll(D, E, F)",
+        "A B C = triangle\nD = midpoint(B, C)\nE = midpoint(C, A)\nX = meet(line(A, D), line(B, E))\n\
+         F = on_line(A, B)\nprove coll(C, X, F)",
+        "A B C = triangle\nX = meet(bisector(B, A, C), line(B, midpoint(C, A)))\n\
+         prove eqangle(C, B, C, X, C, X, C, A)",
+        "A B C = triangle\nG = centroid(A, B, C)\nMa = midpoint(B, C)\nMb = midpoint(C, A)\n\
+         Mc = midpoint(A, B)\nP = midpoint(A, G)\nprove cyclic(Ma, Mb, Mc, P)",
+    ];
+    for src in falsehoods {
+        let c = compile(src).unwrap();
+        assert_eq!(c.goal_numerically_holds, Some(false), "near-miss must be false:\n{src}");
+        assert!(!ddar_claims_proof(src), "DDAR proved a false statement:\n{src}");
+        let problem = c.problem;
+        let found = bounded(300, move || {
+            ddar::aux_search::solve_with_aux_opts(&problem, 1, 400, false, true).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("the aux search proved a false statement with {used:?}:\n{src}");
+        }
+    }
+}
+
+/// The same false neighbours against the rollout search (several points at
+/// once, coincidence-ranked) for a few seconds each.
+#[test]
+fn rollout_search_does_not_prove_false_neighbours() {
+    let orthic = "A B C = triangle\nFa = foot(A, line(B, C))\nFb = foot(B, line(C, A))\n\
+                  Fc = foot(C, line(A, B))\nMa = midpoint(B, C)\n";
+    let excenter = "A B C = triangle\nI = incenter(A, B, C)\nIa = excenter(A, B, C)\n";
+    let falsehoods = [
+        format!("{orthic}prove cyclic(Fa, Fb, Fc, A)"),
+        format!("{orthic}prove eqangle(Fa, Fb, Fa, Fc, A, B, A, C)"),
+        format!("{excenter}prove cyclic(A, I, C, Ia)"),
+    ];
+    for src in falsehoods {
+        let problem = compile(&src).unwrap().problem;
+        let found = bounded(120, move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            ddar::aux_search::solve_max_until(&problem, false, Some(deadline)).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("the rollout search proved a false statement with {used:?}:\n{src}");
+        }
+    }
+}
+
+fn fmt_pt(name: &str, x: f64, y: f64) -> String {
+    format!("{name}@{x:.17}_{y:.17}")
+}
+
+/// Each new auxiliary kind (virtual lines met with figure objects, harmonic
+/// conjugates, intersections with circles the closure proved) next to a free
+/// point `k` that only *happens* to satisfy the goal relation in the sampled
+/// coordinates. The coincidence ranking puts exactly the candidates through `k`
+/// first; none may assert the coincidence, so neither DDAR nor the rollout
+/// search may prove the goal.
+#[test]
+fn new_aux_kinds_do_not_assume_numeric_coincidences() {
+    use ddar::aux_search::{candidate_pool, solve_max_until, Kind, WarmBase};
+    let free = format!(
+        "{} {} {} = ",
+        fmt_pt("d", -0.7, 0.9),
+        fmt_pt("e", 1.6, -0.8),
+        fmt_pt("g", 0.2, -1.1)
+    );
+    let (a, b, c) = ((0.0f64, 0.0f64), (1.3f64, 0.2f64), (0.4f64, 1.1f64));
+    let base = format!(
+        "{} {} {} = ; {free}",
+        fmt_pt("a", a.0, a.1),
+        fmt_pt("b", b.0, b.1),
+        fmt_pt("c", c.0, c.1)
+    );
+    let (ux, uy) = (b.0 - a.0, b.1 - a.1);
+    let para_k = (c.0 + 0.8 * ux, c.1 + 0.8 * uy);
+    let perp_k = (c.0 - 0.7 * uy, c.1 + 0.7 * ux);
+    let (tx, ty) = (0.6f64, 0.8f64);
+    let tangent_k = (tx - 0.9 * ty, ty + 0.9 * tx);
+    let th = |p: (f64, f64)| p.1.atan2(p.0);
+    let q = (-0.5f64, 0.8f64);
+    let iso = th(b) + th(c) - th(q);
+    let iso_k = (1.1 * iso.cos(), 1.1 * iso.sin());
+    let (ha, hb, hc) = (0.0f64, 2.0f64, 0.5f64);
+    let hk = (2.0 * ha * hb - hc * (ha + hb)) / (ha + hb - 2.0 * hc);
+    let cases: Vec<(Kind, String)> = vec![
+        (Kind::ParaMeet, format!("{base}; {} = ? para c k a b", fmt_pt("k", para_k.0, para_k.1))),
+        (Kind::PerpMeet, format!("{base}; {} = ? perp c k a b", fmt_pt("k", perp_k.0, perp_k.1))),
+        (
+            Kind::TangentMeet,
+            format!(
+                "o@0.0_0.0 x@1.0_0.0 = ; {} = cong o t o x; {free}; {} = ? perp o t t k",
+                fmt_pt("t", tx, ty),
+                fmt_pt("k", tangent_k.0, tangent_k.1)
+            ),
+        ),
+        (
+            Kind::IsogonalMeet,
+            format!(
+                "{base}; {} = ; {} = ? eqangle a b a k a q a c",
+                fmt_pt("q", q.0, q.1),
+                fmt_pt("k", iso_k.0, iso_k.1)
+            ),
+        ),
+        (
+            Kind::Harmonic,
+            format!(
+                "a@0.0_0.0 b@2.0_0.0 = ; c@0.5_0.0 = coll a b c; {free}; {} = coll a b k ? eqratio c a c b k a k b",
+                fmt_pt("k", hk, 0.0)
+            ),
+        ),
+        (
+            Kind::CircleCircle,
+            format!(
+                "o@0.0_0.0 x@1.0_0.0 = ; y@0.0_1.0 = cong o y o x; z@-1.0_0.0 = cong o z o x; \
+                 w@1.0_0.5 = ; {} = cong w u w o; {free}; k@0.6_-0.8 = ? cong o k o x",
+                fmt_pt("u", 1.0, 0.5 + 1.25f64.sqrt())
+            ),
+        ),
+    ];
+    for (kind, src) in cases {
+        let problem = Problem::parse(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert!(!solve_problem(&problem).unwrap(), "DDAR proved a coincidence:\n{src}");
+        let all = candidate_pool(&problem, 0.0);
+        assert!(
+            all.iter().any(|(_, c)| c.kind == kind),
+            "no {kind:?} candidate generated for\n{src}"
+        );
+        let warm = WarmBase::new(&problem).unwrap();
+        for (_, c) in all.iter().filter(|(_, c)| c.kind == kind) {
+            assert!(!warm.check(c), "`{}` proves a numeric coincidence:\n{src}", c.desc);
+        }
+        let found = bounded(120, move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(4);
+            solve_max_until(&problem, false, Some(deadline)).0
+        });
+        if let Some(p) = found {
+            let used: Vec<String> = p.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("{kind:?}: the aux search proved a numeric coincidence with {used:?}:\n{src}");
+        }
+    }
+}
+
+/// The rollout search adds up to four points at once; a free point that
+/// merely sits on a circle must stay off it whatever combination is tried.
+#[test]
+fn rollouts_do_not_assume_numeric_circle_membership() {
+    let problem = Problem::parse(
+        "o@0.0_0.0 x@1.0_0.0 y@0.0_1.0 = cong o x o y; k@0.6_0.8 = ? cong o k o x",
+    )
+    .unwrap();
+    let found = bounded(120, move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(6);
+        ddar::aux_search::solve_max_until(&problem, false, Some(deadline)).0
+    });
+    if let Some(p) = found {
+        let used: Vec<&str> = p.constructions.iter().map(|c| c.desc.as_str()).collect();
+        panic!("a free point was proved on a circle using {used:?}");
+    }
+}
