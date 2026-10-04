@@ -134,11 +134,12 @@ impl Ddar {
 
     fn line_meet(&self, l1: usize, l2: usize) -> Option<PointId> {
         let p2 = &self.lines[l2].points;
-        self.lines[l1]
-            .points
-            .iter()
-            .copied()
-            .find(|p| p2.contains(p))
+        let mut common = self.lines[l1].points.iter().copied().filter(|p| p2.contains(p));
+        let meet = common.next();
+        match common.next() {
+            None => meet,
+            Some(_) => None,
+        }
     }
 
     fn all_distinct(&self, pts: &[PointId]) -> bool {

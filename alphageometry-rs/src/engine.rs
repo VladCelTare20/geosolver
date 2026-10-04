@@ -1316,6 +1316,9 @@ impl Ddar {
                 if uv.len() < 2 {
                     continue;
                 }
+                if circs[i].0.iter().filter(|p| circs[j].0.contains(p)).count() >= 3 {
+                    continue;
+                }
                 let (u, v) = (uv[0], uv[1]);
                 for &x in &self.active.clone() {
                     if x == u || x == v || self.num_identical(x, u) || self.num_identical(x, v) {
@@ -2814,6 +2817,18 @@ impl Ddar {
 
     fn check_equal_points(&self, a: PointId, b: PointId) -> bool {
         self.subst[a as usize] == self.subst[b as usize]
+    }
+
+    /// Whether an auxiliary point (id in `from..upto`) sits numerically on an
+    /// earlier point without having been merged with it. The aux search only
+    /// accepts a proof once every double point it used is identified with the
+    /// point it doubles by a proved merge.
+    pub(crate) fn has_unmerged_double(&self, from: PointId, upto: PointId) -> bool {
+        (from..upto.min(self.n as PointId)).any(|p| {
+            (0..p).any(|q| {
+                distance(self.coord(p), self.coord(q)) < ATOM && !self.check_equal_points(p, q)
+            })
+        })
     }
 }
 

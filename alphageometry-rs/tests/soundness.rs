@@ -1059,3 +1059,32 @@ fn morley_by_trig_rows_only_where_true() {
         assert!(!ddar_trig_proves_low(&src), "proved Morley without `{dropped}`");
     }
 }
+
+/// Fuzzer finding on wf/final-hard-r1 (jgex GDD_FULL_81-109_100~hs1: D made free, the figure kept,
+/// so F is only numerically the point with CF ⟂ CA). The aux search proved it with two double
+/// points, x1 = circle(A,C,E) ∩ circle(B,E,F) on F and the spiral centre z on B, never merged with
+/// F and B: the circles (x1 f e b) and (x1 f z e) share three symbolic points, are one circle for a
+/// generic F, and the radical-axis rule treated them as two. The DDAR part was a pre-existing hole
+/// (wf/final proves the augmented problem too). Now the radical axis skips circle pairs sharing
+/// three points, and the aux search accepts no proof that leaves a double point unmerged.
+#[test]
+fn double_points_and_coinciding_circles_prove_nothing_false() {
+    let aug = "a@-0.23981029018905176_-0.39281463739256384 c@0.8811080127867896_0.17516087337911768 \
+        b@0.8125300823545871_-1.0795706079507439 e@0.7439521519223846_-2.3343020892806052 \
+        d@0.6753742214901821_-3.5890335706104666 f@1.864870454898226_-1.7663265785089237 = \
+        cong b c c a, cong c a a b, eqangle c b c a a c a b, eqangle b a b c c b c a, coll e c b, \
+        cong b c b e, coll f a b; x@-0.37696615105345677_-2.9022776000522867 = para a x c b, coll e f x; \
+        x1@1.864870454898226_-1.7663265785089237 = cyclic a c e x1, cyclic b e f x1; \
+        z@0.812530082354587_-1.0795706079507439 = eqangle z e z c z f z a, eqratio z e z c z f z a \
+        ? perp a c c f";
+    let p = Problem::parse(aug).unwrap();
+    assert!(!solve_problem(&p).unwrap(), "radical axis of two circle objects that may be one circle");
+    let case = "a@-0.23981029018905176_-0.39281463739256384 c@0.8811080127867896_0.17516087337911768 = \
+        segment a c; b@0.8125300823545871_-1.0795706079507439 = eq_triangle b c a; \
+        e@0.7439521519223846_-2.3343020892806052 = mirror e c b; d@0.6753742214901821_-3.5890335706104666 = \
+        free d; f@1.864870454898226_-1.7663265785089237 = foot f d a b ? perp a c c f";
+    let o = bounded(200, move || ddar::fuzz::solve_case("hs1", case, Duration::from_secs(20), true));
+    assert!(o.parsed, "{}", o.detail);
+    assert_eq!(o.goal_numeric, Some(true), "the goal holds on the pinned figure");
+    assert!(!o.proved, "the aux search proved a false statement:\n{case}\n{}", o.proof.unwrap_or_default());
+}

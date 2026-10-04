@@ -372,6 +372,7 @@ pub struct WarmBase {
     base: crate::Ddar,
     aux_id: PointId,
     goal: Predicate,
+    first_aux: PointId,
 }
 
 impl WarmBase {
@@ -394,6 +395,7 @@ impl WarmBase {
             base,
             aux_id: problem.points.len() as PointId,
             goal,
+            first_aux: problem.points.len() as PointId,
         })
     }
 
@@ -427,6 +429,7 @@ impl WarmBase {
                 base: d,
                 aux_id: self.aux_id + 1,
                 goal: self.goal.clone(),
+                first_aux: self.first_aux,
             })
         }))
         .ok()
@@ -447,7 +450,9 @@ impl WarmBase {
                     d.force_pred(p);
                 }
             }
-            d.deduction_closure_until(deadline) && d.check_pred(&self.goal)
+            d.deduction_closure_until(deadline)
+                && d.check_pred(&self.goal)
+                && !d.has_unmerged_double(self.first_aux, self.aux_id + cands.len() as PointId)
         }))
         .unwrap_or(false)
     }
