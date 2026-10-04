@@ -214,7 +214,7 @@
       </div>
       <div role="tabpanel" id="proof-ai-panel" aria-labelledby="ptab-ai" hidden>
         <div class="banner tone-unproved ai-note"><span data-icon="alert" aria-hidden="true"></span><div><strong data-i18n="proof.ai.badge">Not machine-checked</strong> — <span data-i18n="proof.ai.note"></span></div></div>
-        <div class="ai-text" id="ai-text" aria-live="polite"></div>
+        <div class="ai-text" id="ai-text"></div>
         <button type="button" class="btn btn-ghost btn-sm" id="ai-regen"><span data-icon="retry" aria-hidden="true"></span><span data-i18n="proof.ai.regen">Regenerate</span></button>
       </div>
     </section>
@@ -226,6 +226,7 @@
 </main>
 
 <p class="sr-only" id="announce" aria-live="polite"></p>
+<p class="sr-only" id="announce-status" role="status"></p>
 <div class="toast-region" id="toasts" aria-live="polite"></div>
 
 <footer class="site-footer"><p data-i18n="footer">GeoSolver · machine-checked geometry proofs</p></footer>

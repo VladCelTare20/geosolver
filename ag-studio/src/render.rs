@@ -424,6 +424,9 @@ const MARGIN: f32 = 48.0;
 const BODY_FS: f32 = 11.0;
 const LEADING: f32 = 16.0;
 const FIG_MAX_H: f32 = 330.0;
+/// A report that would spill onto a second page gets a figure down to this
+/// height instead.
+const FIG_MIN_H: f32 = 190.0;
 const UI: &str = "'GeoSolver Sans', 'DejaVu Sans', sans-serif";
 const MATH: &str = "'GeoSolver Math', 'DejaVu Serif', serif";
 const INK: &str = "#16191d";
@@ -530,7 +533,8 @@ impl Typeset<'_> {
             if tok.is_empty() {
                 return;
             }
-            let lead: String = tok.chars().take_while(|c| matches!(c, '△' | '∠' | '|' | '(' | '[')).collect();
+            let fn_len = ["sin", "cos", "tan"].iter().find(|f| tok.starts_with(**f) && tok[f.len()..].starts_with(['∠', '△'])).map_or(0, |f| f.len());
+            let lead: String = tok[..fn_len].to_string() + &tok[fn_len..].chars().take_while(|c| matches!(c, '△' | '∠' | '|' | '(' | '[')).collect::<String>();
             let core = &tok[lead.len()..];
             let trail_len = core.chars().rev().take_while(|c| matches!(c, '|' | ')' | ']' | '²' | '³')).map(char::len_utf8).sum::<usize>();
             let (name, trail) = core.split_at(core.len() - trail_len);
@@ -590,10 +594,19 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
         .filter(|s| !s.trim().is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| i18n::t(lang, "report.default_title").to_string());
-    let point_names: Vec<String> = view["points"]
+    let mut point_names: Vec<String> = view["points"]
         .as_array()
         .map(|a| a.iter().filter_map(|p| p["name"].as_str().map(str::to_string)).collect())
         .unwrap_or_default();
+    for st in view["proof"]["steps"].as_array().into_iter().flatten() {
+        for f in std::iter::once(&st["fact"]).chain(st["subs"].as_array().into_iter().flatten().map(|u| &u["fact"])) {
+            for p in f["points"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                if !point_names.iter().any(|n| n == p) {
+                    point_names.push(p.to_string());
+                }
+            }
+        }
+    }
     let ts = Typeset { names: point_names.iter().map(String::as_str).collect() };
     let content_w = PAGE_W - 2.0 * MARGIN;
     let cols = (content_w / (BODY_FS * 0.5)) as usize;
@@ -620,7 +633,7 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
     y += card_h + 18.0;
     let mut meta: Vec<String> = method_text(v, lang).into_iter().collect();
     meta.push(fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang));
-    let shown_steps = view["proof"]["steps"].as_array().map_or(0, |a| a.iter().filter(|s| s["kind"] != "given").count());
+    let shown_steps = view["proof"]["steps"].as_array().map_or(0, |a| a.iter().filter(|s| s["kind"] == "step").count());
     if status == "proved" && shown_steps > 0 {
         meta.push(tpn(lang, "report.steps", shown_steps as u64));
     }
@@ -632,24 +645,46 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
     }
     head.push_str(&plain(MARGIN, y, 9.5, 400, MUTED, UI, &meta.join("  \u{b7}  ")));
     y += 12.0;
+    let given: Vec<String> = view["given"]
+        .as_array()
+        .map(|a| a.iter().map(|f| fact_text(f, lang)).collect())
+        .unwrap_or_default();
+    let goal_text = (!view["goal"].is_null()).then(|| fact_text(&view["goal"], lang));
     let svg = v["svg"].as_str().unwrap_or("");
     let mut fig_h = 0.0;
+    let mut beside = false;
     if let Some((fw, fh)) = svg_dimensions(svg).or_else(|| viewbox_size(svg)) {
         let inner_w = content_w - 24.0;
         let scale = (inner_w / fw).min(fig_max_h / fh);
         let (w, h) = (fw * scale, fh * scale);
-        let x = MARGIN + (content_w - w) / 2.0;
         let vb = viewbox_attr(svg).unwrap_or_else(|| format!("0 0 {fw} {fh}"));
-        head.push_str(&format!(
-            "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{:.1}\" rx=\"8\" fill=\"#ffffff\" stroke=\"{RULE}\"/>\n<svg x=\"{x:.1}\" y=\"{:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"xMidYMid meet\" font-family=\"{MATH}\">\n{}\n</svg>\n",
-            h + 24.0,
-            y + 12.0,
-            strip_svg_root(svg)
-        ));
-        y += h + 24.0 + 10.0;
+        let figure = |x: f32, y: f32, frame_x: f32, frame_w: f32| {
+            format!(
+                "<rect x=\"{frame_x:.1}\" y=\"{y:.1}\" width=\"{frame_w:.1}\" height=\"{:.1}\" rx=\"8\" fill=\"#ffffff\" stroke=\"{RULE}\"/>\n<svg x=\"{x:.1}\" y=\"{:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"xMidYMid meet\" font-family=\"{MATH}\">\n{}\n</svg>\n",
+                h + 24.0,
+                y + 12.0,
+                strip_svg_root(svg)
+            )
+        };
+        let frame_w = w + 24.0;
+        let text_w = content_w - frame_w - 20.0;
+        let side = beside_text(&given, goal_text.as_deref(), text_w, lang, &ts);
+        if frame_w <= content_w * 0.62 && text_w >= 170.0 && side.1 <= h + 24.0 + 40.0 {
+            beside = true;
+            blocks.push(Block { h: y, body: head, keep_next: 1 });
+            let mut b = figure(MARGIN + content_w - frame_w + 12.0, 0.0, MARGIN + content_w - frame_w, frame_w);
+            b.push_str(&side.0);
+            blocks.push(Block { h: (h + 24.0).max(side.1) + 10.0, body: b, keep_next: 0 });
+            head = String::new();
+        } else {
+            head.push_str(&figure(MARGIN + (content_w - w) / 2.0, y, MARGIN, content_w));
+            y += h + 24.0 + 10.0;
+        }
         fig_h = h;
     }
-    blocks.push(Block { h: y, body: head, keep_next: 0 });
+    if !beside {
+        blocks.push(Block { h: y, body: head, keep_next: 0 });
+    }
 
     let section = |blocks: &mut Vec<Block>, label: &str, items: usize| {
         let mut b = plain(MARGIN, 22.0, 9.0, 600, MUTED, UI, &label.to_uppercase());
@@ -670,19 +705,15 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
     };
     let penultimate = |i: usize, n: usize| usize::from(n >= 2 && i + 2 == n);
 
-    let given: Vec<String> = view["given"]
-        .as_array()
-        .map(|a| a.iter().map(|f| fact_text(f, lang)).collect())
-        .unwrap_or_default();
-    if !given.is_empty() {
+    if !given.is_empty() && !beside {
         section(&mut blocks, i18n::t(lang, "report.given"), given.len());
         for (i, g) in given.iter().enumerate() {
             lines_block(&mut blocks, &wrap(g, cols - 4), INK, 400, true, &ts, penultimate(i, given.len()));
         }
     }
-    if !view["goal"].is_null() {
+    if let Some(goal) = goal_text.as_ref().filter(|_| !beside) {
         section(&mut blocks, i18n::t(lang, "report.prove"), 1);
-        lines_block(&mut blocks, &wrap(&fact_text(&view["goal"], lang), cols), INK, 600, false, &ts, 0);
+        lines_block(&mut blocks, &wrap(goal, cols), INK, 600, false, &ts, 0);
     }
     if let Some(c) = view.get("counterexample").filter(|c| !c.is_null()).and_then(|c| counter_text(c, lang)) {
         section(&mut blocks, i18n::t(lang, "report.counter"), 1);
@@ -709,7 +740,21 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
         section(&mut blocks, i18n::t(lang, "report.proof"), steps.len());
         let gutter = 28.0;
         let step_cols = ((content_w - gutter) / (BODY_FS * 0.5)) as usize;
+        let restated: Vec<u64> = steps.iter().filter(|s| s["kind"] == "given").filter_map(|s| s["n"].as_u64()).collect();
+        let fold = restated.len() >= 2;
         for st in &steps {
+            if fold && st["kind"] == "given" {
+                if st["n"].as_u64() == restated.first().copied() {
+                    let text = i18n::t(lang, "report.hyps").replace("{list}", &ranges(&restated));
+                    let mut body = String::new();
+                    let lines = wrap(&text, step_cols);
+                    for (i, l) in lines.iter().enumerate() {
+                        body.push_str(&plain(MARGIN + gutter, 12.0 + i as f32 * LEADING, BODY_FS - 0.5, 400, MUTED, UI, l));
+                    }
+                    blocks.push(Block { h: lines.len() as f32 * LEADING + 6.0, body, keep_next: 0 });
+                }
+                continue;
+            }
             let fact = fact_text(&st["fact"], lang);
             let rule = rule_text(st, lang);
             let deps: Vec<String> = st["deps"]
@@ -723,19 +768,45 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
             let lines = wrap(&fact, step_cols);
             let n = st["n"].as_u64().unwrap_or(0);
             let mut b = plain(MARGIN, 12.0, 9.5, 600, MUTED, UI, &format!("{n}."));
-            for (i, l) in lines.iter().enumerate() {
-                b.push_str(&txt(MARGIN + gutter, 12.0 + i as f32 * LEADING, BODY_FS, 400, INK, MATH, &ts.spans(l)));
+            let mut y = 12.0;
+            for l in &lines {
+                b.push_str(&txt(MARGIN + gutter, y, BODY_FS, 400, INK, MATH, &ts.spans(l)));
+                y += LEADING;
             }
-            let my = 12.0 + lines.len() as f32 * LEADING - 2.0;
+            for sub in st["subs"].as_array().into_iter().flatten() {
+                let rule = rule_text(sub, lang);
+                let sub_lines = wrap(&fact_text(&sub["fact"], lang), step_cols - 4);
+                let last = sub_lines.len() - 1;
+                let inline = sub_lines[last].chars().count() + rule.chars().count() * 8 / 10 + 3 <= step_cols - 4;
+                for (i, l) in sub_lines.iter().enumerate() {
+                    let lead = if i == 0 { "\u{2022}  " } else { "    " };
+                    let tail = if i == last && inline {
+                        format!("<tspan font-family=\"{UI}\" font-size=\"7.5\" fill=\"{MUTED}\">   {}</tspan>", escape_xml(&rule))
+                    } else {
+                        String::new()
+                    };
+                    b.push_str(&txt(MARGIN + gutter + 6.0, y, BODY_FS - 0.5, 400, INK, MATH, &format!("{}{}{tail}", escape_xml(lead), ts.spans(l))));
+                    y += LEADING - 1.0;
+                }
+                if !inline {
+                    b.push_str(&plain(MARGIN + gutter + 18.0, y - 3.0, 7.5, 400, MUTED, UI, &rule));
+                    y += 9.0;
+                }
+            }
+            let my = y - 2.0;
             b.push_str(&plain(MARGIN + gutter, my, 8.5, 400, MUTED, UI, &meta));
-            blocks.push(Block { h: lines.len() as f32 * LEADING + 16.0, body: b, keep_next: 0 });
+            blocks.push(Block { h: y - 12.0 + 16.0, body: b, keep_next: 0 });
         }
         if let Some(c) = view["proof"].get("conclusion").filter(|c| !c.is_null()) {
             if let Some(last) = blocks.last_mut() {
                 last.keep_next = 1;
             }
-            let lines = wrap(&format!("\u{220e}  {}", fact_text(c, lang)), cols);
-            lines_block(&mut blocks, &lines, INK, 600, false, &ts, 0);
+            let lines = wrap(&fact_text(c, lang), step_cols);
+            let mut b = txt(MARGIN + gutter - 8.0, 12.0, BODY_FS, 600, "#17703a", MATH, "\u{220e}").replace("<text ", "<text text-anchor=\"end\" ");
+            for (i, l) in lines.iter().enumerate() {
+                b.push_str(&txt(MARGIN + gutter, 12.0 + i as f32 * LEADING, BODY_FS, 600, INK, MATH, &ts.spans(l)));
+            }
+            blocks.push(Block { h: lines.len() as f32 * LEADING + 2.0, body: b, keep_next: 0 });
         }
     }
 
@@ -779,9 +850,9 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
     let bottom = PAGE_H - MARGIN - 24.0;
     let total: f32 = blocks.iter().map(|b| b.h).sum();
     let overflow = total - (bottom - (MARGIN - 10.0));
-    if paginate && overflow > 0.0 && overflow < 170.0 && fig_h > 0.0 && fig_max_h >= FIG_MAX_H {
+    if paginate && overflow > 0.0 && fig_h > 0.0 && fig_max_h >= FIG_MAX_H {
         let smaller = fig_h - overflow - 8.0;
-        if smaller >= 150.0 {
+        if smaller >= FIG_MIN_H {
             return report_pages_fit(v, lang, paginate, smaller);
         }
     }
@@ -834,6 +905,58 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
             page_svg(&full, PAGE_H)
         })
         .collect()
+}
+
+/// GIVEN and PROVE set in a column `width` wide (beside a narrow figure):
+/// the markup and its height.
+fn beside_text(given: &[String], goal: Option<&str>, width: f32, lang: Lang, ts: &Typeset) -> (String, f32) {
+    let cols = (width / (BODY_FS * 0.5)) as usize;
+    let mut b = String::new();
+    let mut y = 0.0;
+    let section = |b: &mut String, y: &mut f32, label: &str| {
+        b.push_str(&plain(MARGIN, *y + 10.0, 9.0, 600, MUTED, UI, &label.to_uppercase()));
+        b.push_str(&format!(
+            "<line x1=\"{MARGIN}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{RULE}\"/>\n",
+            *y + 16.0,
+            MARGIN + width,
+            *y + 16.0
+        ));
+        *y += 32.0;
+    };
+    if !given.is_empty() {
+        section(&mut b, &mut y, i18n::t(lang, "report.given"));
+        for g in given {
+            for (i, l) in wrap(g, cols.saturating_sub(4)).iter().enumerate() {
+                let lead = if i == 0 { "\u{2022}  " } else { "   " };
+                b.push_str(&txt(MARGIN, y, BODY_FS, 400, INK, MATH, &format!("{}{}", escape_xml(lead), ts.spans(l))));
+                y += LEADING;
+            }
+        }
+        y += 14.0;
+    }
+    if let Some(goal) = goal {
+        section(&mut b, &mut y, i18n::t(lang, "report.prove"));
+        for l in wrap(goal, cols) {
+            b.push_str(&txt(MARGIN, y, BODY_FS, 600, INK, MATH, &ts.spans(&l)));
+            y += LEADING;
+        }
+    }
+    (b, y)
+}
+
+/// Step numbers as ranges: `[1, 2, 3, 5]` → `1–3, 5`.
+fn ranges(ns: &[u64]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < ns.len() {
+        let mut j = i;
+        while j + 1 < ns.len() && ns[j + 1] == ns[j] + 1 {
+            j += 1;
+        }
+        out.push(if j > i { format!("{}\u{2013}{}", ns[i], ns[j]) } else { ns[i].to_string() });
+        i = j + 1;
+    }
+    out.join(", ")
 }
 
 /// Read the `width`/`height` attributes off an SVG document's root tag.

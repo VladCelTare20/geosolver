@@ -255,6 +255,18 @@ impl Names {
         out
     }
 
+    /// These names plus points a proof introduces itself (`Let N be …`),
+    /// each shown under its own name.
+    fn with_points(&self, extra: &[String]) -> Names {
+        let mut map = self.map.clone();
+        for e in extra {
+            map.entry(e.clone()).or_insert_with(|| disp(e));
+        }
+        let mut raws: Vec<String> = map.keys().cloned().collect();
+        raws.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+        Names { map, raws }
+    }
+
     fn disp_all(&self, raws: &[String]) -> Vec<String> {
         raws.iter().map(|r| self.get(r)).collect()
     }
@@ -520,6 +532,10 @@ fn metric_seq(c: &[char], mut i: usize, names: &Names, stop_at_close: bool) -> (
                             out.push(')');
                         }
                     }
+                    f if args.len() == 1 && args[0].starts_with('\u{2220}') && !args[0].contains(' ') => {
+                        out.push_str(f);
+                        out.push_str(&args[0]);
+                    }
                     f => {
                         out.push_str(f);
                         out.push('(');
@@ -556,6 +572,9 @@ fn metric_seq(c: &[char], mut i: usize, names: &Names, stop_at_close: bool) -> (
                 continue;
             }
             '*' => out.push_str(" \u{b7} "),
+            '-' if out.trim_end().is_empty() || out.trim_end().ends_with(['=', '(', '+', '\u{2212}', '\u{b7}', '/']) => {
+                out.push_str(" \u{2212}")
+            }
             '-' => out.push_str(" \u{2212} "),
             '+' => out.push_str(" + "),
             '=' => out.push_str(" = "),
@@ -697,6 +716,20 @@ pub struct Step {
     pub fact: Fact,
     /// Step numbers this step cites.
     pub deps: Vec<usize>,
+    /// The facts a Euclidean step lists under itself (its deductive-closure
+    /// facts, or the sine relations it combines).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub subs: Vec<SubStep>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct SubStep {
+    pub rule: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_name_ro: Option<String>,
+    pub fact: Fact,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -719,94 +752,116 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
             conclusion = fact_of_pred_text(problem, names, rest.trim());
             continue;
         }
-        let digits: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if digits.is_empty() || !t[digits.len()..].starts_with(". ") {
-            continue;
+        if let Some(step) = ddar_line(t, problem, names, aux) {
+            steps.push(step);
         }
-        let n: usize = digits.parse().unwrap_or(0);
-        let mut body = t[digits.len() + 2..].to_string();
-        let mut deps = Vec::new();
-        if body.ends_with(']') {
-            if let Some(open) = body.rfind(" [") {
-                deps = body[open + 2..body.len() - 1]
-                    .split('&')
-                    .filter_map(|d| d.trim().parse().ok())
-                    .collect();
-                body.truncate(open);
-            }
-        }
-        let pts_of = |s: &str| names.disp_all(&names.mentioned(s, false));
-        let formula = |s: &str| Fact::new("formula", vec![names.rename_text(s, false)], pts_of(s));
-        let (kind, rule, rule_name, fact) = if let Some(r) = body.strip_prefix("equal distances from ") {
-            let (o, rest) = r.split_once(" \u{21d2} circle through ").unwrap_or((r, ""));
-            let on: Vec<String> = rest.split_whitespace().map(|x| names.get(x)).collect();
-            let c = names.get(o.trim());
-            let mut args: Vec<String> = on.iter().map(|x| format!("{c}{x}")).collect();
-            if args.is_empty() {
-                args.push(c.clone());
-            }
-            let mut pts = vec![c];
-            pts.extend(on);
-            ("step", "eqradius", None, Fact::new("eqdist", args, pts))
-        } else if let Some(r) = body.strip_prefix("points ") {
-            let ab: Vec<&str> = r.split(" coincide").next().unwrap_or("").split(" and ").collect();
-            let a: Vec<String> = ab.iter().map(|x| names.get(x.trim())).collect();
-            ("step", "coincide", None, Fact::new("coincide", a.clone(), a))
-        } else if let Some((rule, stmt)) = body.split_once(": ") {
-            match rule {
-                "assumption" | "construction" => {
-                    let f = fact_of_pred_text(problem, names, stmt).unwrap_or_else(|| formula(stmt));
-                    let rule = if f.points.iter().any(|p| aux.contains(p)) {
-                        "aux"
-                    } else if rule == "assumption" {
-                        "given"
-                    } else {
-                        "construction"
-                    };
-                    ("given", rule, None, f)
-                }
-                "similar triangles" => {
-                    let tri: Vec<String> = stmt
-                        .split('\u{223c}')
-                        .map(|s| names.rename_text(s.trim().trim_start_matches('\u{25b3}'), false))
-                        .collect();
-                    ("step", "similar", None, Fact::new("simtri", tri, pts_of(stmt)))
-                }
-                "collinear" => {
-                    let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
-                    ("step", "collinear", None, Fact::new("coll", v.clone(), v))
-                }
-                "concyclic (inscribed angles)" => {
-                    let raws: Vec<&str> = stmt.split_whitespace().collect();
-                    let v: Vec<String> = raws.iter().map(|x| names.get(x)).collect();
-                    let fact = if raws.len() == 3 {
-                        three_on_a_circle(problem, names, &raws).unwrap_or_else(|| Fact::new("cyclic", v.clone(), v))
-                    } else {
-                        Fact::new("cyclic", v.clone(), v)
-                    };
-                    ("step", "concyclic", None, fact)
-                }
-                "segment arithmetic" => {
-                    let s = stmt.trim_end_matches(" (add/mul transfer)");
-                    ("step", "transfer", None, transfer_fact(problem, names, s).unwrap_or_else(|| formula(s)))
-                }
-                "equal arcs \u{21d4} equal chords" => {
-                    let s = stmt.replace(" and ", ", ");
-                    ("step", "arcchord", None, formula(&s))
-                }
-                other => {
-                    let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
-                    let fact = theorem_fact(other, &v).unwrap_or_else(|| Fact::new("points", v.clone(), v));
-                    ("step", "theorem", Some(crate::i18n::prose_en(other)), fact)
-                }
-            }
-        } else {
-            ("step", "other", None, formula(&body))
-        };
-        let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
-        steps.push(Step { n, kind, rule, rule_name, rule_name_ro, fact, deps });
     }
     ProofView { steps: drop_restatements(steps), conclusion, style: "ddar" }
+}
+
+/// One numbered DDAR proof line (`012. similar triangles: △ABC ∼ △DEF [003 & 007]`).
+fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -> Option<Step> {
+    let digits: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() || !t[digits.len()..].starts_with(". ") {
+        return None;
+    }
+    let n: usize = digits.parse().unwrap_or(0);
+    let mut body = t[digits.len() + 2..].to_string();
+    let mut deps = Vec::new();
+    if body.ends_with(']') {
+        if let Some(open) = body.rfind(" [") {
+            deps = body[open + 2..body.len() - 1]
+                .split('&')
+                .filter_map(|d| d.trim().parse().ok())
+                .collect();
+            body.truncate(open);
+        }
+    }
+    let pts_of = |s: &str| names.disp_all(&names.mentioned(s, false));
+    let formula = |s: &str| Fact::new("formula", vec![names.rename_text(s, false)], pts_of(s));
+    let (kind, rule, rule_name, fact) = if let Some(r) = body.strip_prefix("equal distances from ") {
+        let (o, rest) = r.split_once(" \u{21d2} circle through ").unwrap_or((r, ""));
+        let on: Vec<String> = rest.split_whitespace().map(|x| names.get(x)).collect();
+        let c = names.get(o.trim());
+        let mut args: Vec<String> = on.iter().map(|x| format!("{c}{x}")).collect();
+        if args.is_empty() {
+            args.push(c.clone());
+        }
+        let mut pts = vec![c];
+        pts.extend(on);
+        ("step", "eqradius", None, Fact::new("eqdist", args, pts))
+    } else if let Some(r) = body.strip_prefix("points ") {
+        let ab: Vec<&str> = r.split(" coincide").next().unwrap_or("").split(" and ").collect();
+        let a: Vec<String> = ab.iter().map(|x| names.get(x.trim())).collect();
+        ("step", "coincide", None, Fact::new("coincide", a.clone(), a))
+    } else if let Some((rule, stmt)) = body.split_once(": ") {
+        match rule {
+            "assumption" | "construction" => {
+                let f = fact_of_pred_text(problem, names, stmt).unwrap_or_else(|| formula(stmt));
+                let rule = if f.points.iter().any(|p| aux.contains(p)) {
+                    "aux"
+                } else if rule == "assumption" {
+                    "given"
+                } else {
+                    "construction"
+                };
+                ("given", rule, None, f)
+            }
+            "similar triangles" => {
+                let tri: Vec<String> = stmt
+                    .split('\u{223c}')
+                    .map(|s| names.rename_text(s.trim().trim_start_matches('\u{25b3}'), false))
+                    .collect();
+                ("step", "similar", None, Fact::new("simtri", tri, pts_of(stmt)))
+            }
+            "collinear" => {
+                let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
+                ("step", "collinear", None, Fact::new("coll", v.clone(), v))
+            }
+            "concyclic (inscribed angles)" => {
+                let raws: Vec<&str> = stmt.split_whitespace().collect();
+                let v: Vec<String> = raws.iter().map(|x| names.get(x)).collect();
+                let fact = if raws.len() == 3 {
+                    three_on_a_circle(problem, names, &raws).unwrap_or_else(|| Fact::new("cyclic", v.clone(), v))
+                } else {
+                    Fact::new("cyclic", v.clone(), v)
+                };
+                ("step", "concyclic", None, fact)
+            }
+            "segment arithmetic" => {
+                let s = stmt.trim_end_matches(" (add/mul transfer)");
+                ("step", "transfer", None, transfer_fact(problem, names, s).unwrap_or_else(|| formula(s)))
+            }
+            "equal arcs \u{21d4} equal chords" => {
+                let chords: Vec<Vec<String>> =
+                    stmt.split(" and ").filter_map(|s| names.segment(s.trim())).filter(|v| v.len() == 2).collect();
+                let fact = match chords.as_slice() {
+                    [a, b] if stmt.split(" and ").count() == 2 => {
+                        let mut pts: Vec<String> = Vec::new();
+                        for r in a.iter().chain(b.iter()) {
+                            let d = names.get(r);
+                            if !pts.contains(&d) {
+                                pts.push(d);
+                            }
+                        }
+                        let seg = |v: &[String]| v.iter().map(|r| names.get(r)).collect::<String>();
+                        Fact::new("cong", vec![seg(a), seg(b)], pts)
+                    }
+                    _ => formula(&stmt.replace(" and ", ", ")),
+                };
+                ("step", "arcchord", None, fact)
+            }
+            other => {
+                let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
+                let fact = theorem_fact(other, &v).unwrap_or_else(|| Fact::new("points", v.clone(), v));
+                ("step", "theorem", Some(crate::i18n::prose_en(other)), fact)
+            }
+        }
+    } else {
+        ("step", "other", None, formula(&body))
+    };
+    let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
+    Some(Step { n, kind, rule, rule_name, rule_name_ro, fact, deps, subs: Vec::new() })
 }
 
 fn theorem_fact(name: &str, p: &[String]) -> Option<Fact> {
@@ -964,6 +1019,41 @@ fn drop_restatements(steps: Vec<Step>) -> Vec<Step> {
         .collect()
 }
 
+/// The theorems the Euclidean provers name in their sentences, as the step's
+/// rule label (lower-case needle, label).
+const KNOWN_THEOREMS: &[(&str, &str)] = &[
+    ("extended law of sines", "extended law of sines"),
+    ("law of sines", "law of sines"),
+    ("law of cosines", "law of cosines"),
+    ("sine area formula", "sine area formula"),
+    ("ratio lemma", "ratio lemma"),
+    ("trigonometric ceva", "trigonometric Ceva"),
+    ("power of the point", "power of a point"),
+    ("tangent\u{2013}secant power", "power of a point"),
+    ("thales' theorem", "Thales' theorem"),
+    ("pythagorean theorem", "Pythagorean theorem"),
+    ("stewart's theorem", "Stewart's theorem"),
+    ("apollonius's median theorem", "Apollonius's median theorem"),
+    ("menelaus's theorem", "Menelaus's theorem"),
+    ("ceva's theorem", "Ceva's theorem"),
+    ("angle-bisector theorem", "angle-bisector theorem"),
+    ("basic proportionality (intercept) theorem", "basic proportionality (intercept) theorem"),
+    ("geometric-mean (altitude) relation", "geometric-mean (altitude) relation"),
+    ("geometric-mean (leg) relation", "geometric-mean (leg) relation"),
+    ("ptolemy's theorem", "Ptolemy's theorem"),
+];
+
+/// The named theorem a Euclidean sentence uses: the earliest one it mentions
+/// (`Ratio lemma … By the law of sines …` is the ratio lemma).
+fn known_theorem(text: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    KNOWN_THEOREMS
+        .iter()
+        .filter_map(|(needle, label)| lower.find(needle).map(|at| (at, std::cmp::Reverse(needle.len()), *label)))
+        .min()
+        .map(|(_, _, label)| label.to_string())
+}
+
 /// The theorem a Euclidean prose step cites (`… by Stewart's theorem …`).
 fn cited_theorem(text: &str) -> Option<String> {
     let lower = text.to_lowercase();
@@ -1037,27 +1127,153 @@ fn as_drawn(s: &str) -> String {
     }
 }
 
-fn parse_euclid_proof(text: &str, names: &Names) -> ProofView {
-    let mut steps = Vec::new();
-    let mut conclusion = None;
+const CLOSURE_HEADING: &str = "Facts derived from the hypotheses by the deductive closure";
+
+/// A Euclidean sentence as a `prose` fact, typeset, renamed and translated.
+fn euclid_prose(s: &str, names: &Names) -> Fact {
+    let typeset = fractions(&pretty_metric_inline(&as_drawn(s), names));
+    let shown = names.rename_text(&typeset, true);
+    let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&shown)], names.disp_all(&names.mentioned(s, true)));
+    f.ro = Some(vec![crate::i18n::prose_ro(&shown)]);
+    f
+}
+
+/// The prover's `  [from 2, 4]` back-reference, split off the sentence.
+fn split_from(body: &str) -> (String, Vec<usize>) {
+    let t = body.trim_end();
+    if t.ends_with(']') {
+        if let Some(open) = t.rfind("[from ") {
+            let deps: Vec<usize> = t[open + 6..t.len() - 1]
+                .split([',', '&'])
+                .filter_map(|d| d.trim().parse().ok())
+                .collect();
+            if !deps.is_empty() {
+                return (t[..open].trim_end().to_string(), deps);
+            }
+        }
+    }
+    (t.to_string(), Vec::new())
+}
+
+/// Reword the prover's mechanical phrasings: `X (derived from the
+/// hypotheses), so X.` loses its echo, and a trailing `; times k` says what is
+/// multiplied.
+fn smooth_euclid(body: &str) -> String {
+    let mut s = body.to_string();
+    let derived = " (derived from the hypotheses), so ";
+    if let Some((a, b)) = s.split_once(derived) {
+        if b.trim_end_matches('.').trim() == a.trim() {
+            s = format!("{} (derived from the hypotheses).", a.trim());
+        }
+    }
+    if let Some(at) = s.rfind("; times ") {
+        let rest = s[at + 8..].to_string();
+        s = match rest.split_once(": ") {
+            Some((k, after)) => format!("{}; multiplying both sides by {k}: {after}", &s[..at]),
+            None => format!("{} (both sides multiplied by {}).", &s[..at], rest.trim_end_matches('.').trim()),
+        };
+    }
+    s
+}
+
+/// What kind of step a Euclidean sentence is: `(kind, rule, theorem)`.
+fn euclid_rule(body: &str) -> (&'static str, &'static str, Option<String>) {
+    if body.starts_with("Let ") {
+        return ("construction", "construction", None);
+    }
+    if body.starts_with(CLOSURE_HEADING) {
+        return ("step", "closure", None);
+    }
+    if let Some(name) = known_theorem(body).or_else(|| cited_theorem(body)) {
+        return ("step", "theorem", Some(name));
+    }
+    if body.contains("(given)") || body.contains("(hypothesis)") || body.starts_with("Given: ") {
+        let derives = body.contains(", so ");
+        return (if derives { "step" } else { "given" }, "given", None);
+    }
+    if body.starts_with("From the sine relations") {
+        return ("step", "trig", None);
+    }
+    if body.starts_with("Multiply both sides by") {
+        return ("step", "rearrange", None);
+    }
+    if body.contains("area splits along") {
+        return ("step", "area", None);
+    }
+    if body.contains(" lies on ") && body.contains(" + ") {
+        return ("step", "segments", None);
+    }
+    if body.contains("(derived from the hypotheses)") {
+        return ("step", "other", None);
+    }
+    ("step", "combine", None)
+}
+
+fn euclid_sub(line: &str, names: &Names) -> SubStep {
+    let (_, rule, rule_name) = euclid_rule(line);
+    let rule = if rule == "closure" || rule == "construction" || rule == "given" { "other" } else { rule };
+    let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
+    SubStep { rule, rule_name, rule_name_ro, fact: euclid_prose(&smooth_euclid(line), names) }
+}
+
+/// The closing sentence: the echoed goal typeset like the PROVE card, and
+/// `Adding the relations above` said as `Hence` when there is only one.
+fn euclid_conclusion(line: &str, names: &Names, single: bool) -> Fact {
+    let t = drop_value_echo(line.trim_end_matches('\u{220e}').trim());
+    let t = t.trim().trim_end_matches('.').trim();
+    let (lead, goal) = match t.rfind(" gives ") {
+        Some(at) => (&t[..at + 7], &t[at + 7..]),
+        None => (t, ""),
+    };
+    let lead = if single && lead == "Adding the relations above gives " { "Hence " } else { lead };
+    let goal_raw_pts = names.disp_all(&names.mentioned(goal, false));
+    let typeset = format!("{}{}.", names.rename_text(&fractions(lead), true), pretty_metric(goal, names));
+    let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&typeset)], Vec::new());
+    f.ro = Some(vec![crate::i18n::prose_ro(&typeset)]);
+    let mut pts = names.disp_all(&names.mentioned(lead, true));
+    for p in goal_raw_pts {
+        if !pts.contains(&p) {
+            pts.push(p);
+        }
+    }
+    f.points = pts;
+    f
+}
+
+fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView {
+    let introduced: Vec<String> = text
+        .lines()
+        .filter_map(|l| {
+            let t = l.trim();
+            let digits = t.chars().take_while(|c| c.is_ascii_digit()).count();
+            let body = t.get(digits..)?.strip_prefix(". Let ")?;
+            body.split_whitespace().next().map(str::to_string)
+        })
+        .collect();
+    let names = &names.with_points(&introduced);
+    let none = HashSet::new();
+    let mut steps: Vec<Step> = Vec::new();
+    let mut closures: HashMap<usize, Vec<Step>> = HashMap::new();
+    let mut last_line = None;
     for line in text.lines() {
         let t = line.trim();
+        if let Some(r) = t.strip_prefix('\u{21b3}') {
+            if let (Some(st), Some(owner)) = (ddar_line(r.trim(), problem, names, &none), steps.last()) {
+                closures.entry(owner.n).or_default().push(st);
+            }
+            continue;
+        }
+        if let Some(r) = t.strip_prefix('\u{b7}') {
+            if let Some(owner) = steps.last_mut() {
+                owner.subs.push(euclid_sub(r.trim(), names));
+            }
+            continue;
+        }
         let digits: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
-        let prose = |s: &str| {
-            let typeset = fractions(&pretty_metric_inline(&as_drawn(s), names));
-            let shown = names.rename_text(&typeset, true);
-            let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&shown)], names.disp_all(&names.mentioned(s, true)));
-            f.ro = Some(vec![crate::i18n::prose_ro(&shown)]);
-            f
-        };
         if !digits.is_empty() && t[digits.len()..].starts_with(". ") {
-            let body = &t[digits.len() + 2..];
-            let rule_name = cited_theorem(body);
-            let (kind, rule) = match (&rule_name, body.contains("(given)")) {
-                (Some(_), _) => ("step", "theorem"),
-                (None, true) => ("given", "given"),
-                (None, false) => ("step", "algebra"),
-            };
+            let (body, deps) = split_from(&t[digits.len() + 2..]);
+            let body = smooth_euclid(&body);
+            let (kind, rule, rule_name) = euclid_rule(&body);
             let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
             steps.push(Step {
                 n: digits.parse().unwrap_or(0),
@@ -1065,13 +1281,47 @@ fn parse_euclid_proof(text: &str, names: &Names) -> ProofView {
                 rule,
                 rule_name,
                 rule_name_ro,
-                fact: prose(body),
-                deps: Vec::new(),
+                fact: euclid_prose(&body, names),
+                deps,
+                subs: Vec::new(),
             });
-        } else if ["Combining", "Adding"].iter().any(|w| t.starts_with(w)) {
-            conclusion = Some(prose(&drop_value_echo(t.trim_end_matches('\u{220e}').trim())));
+        } else if t.ends_with('\u{220e}') {
+            last_line = Some(t.to_string());
         }
     }
+    let mut gone: HashSet<usize> = HashSet::new();
+    for st in steps.iter_mut() {
+        if st.rule == "closure" {
+            let derived: Vec<SubStep> = drop_restatements(closures.remove(&st.n).unwrap_or_default())
+                .into_iter()
+                .filter(|s| s.kind == "step")
+                .map(|s| SubStep { rule: s.rule, rule_name: s.rule_name, rule_name_ro: s.rule_name_ro, fact: s.fact })
+                .collect();
+            if derived.is_empty() {
+                gone.insert(st.n);
+            }
+            st.subs = derived;
+        }
+        for sub in st.subs.iter() {
+            for p in &sub.fact.points {
+                if !st.fact.points.contains(p) {
+                    st.fact.points.push(p.clone());
+                }
+            }
+        }
+    }
+    let kept: Vec<Step> = steps.into_iter().filter(|s| !gone.contains(&s.n)).collect();
+    let renum: HashMap<usize, usize> = kept.iter().enumerate().map(|(i, s)| (s.n, i + 1)).collect();
+    let steps: Vec<Step> = kept
+        .into_iter()
+        .map(|mut s| {
+            s.n = renum[&s.n];
+            s.deps = s.deps.iter().filter_map(|d| renum.get(d).copied()).collect();
+            s
+        })
+        .collect();
+    let relations = steps.iter().filter(|s| s.kind != "construction" && s.rule != "closure").count();
+    let conclusion = last_line.map(|l| euclid_conclusion(&l, names, relations == 1));
     ProofView { steps, conclusion, style: "euclidean" }
 }
 
@@ -1364,6 +1614,16 @@ pub fn source_goal(src: &str) -> Option<String> {
     None
 }
 
+/// The metric relations a program states with `assume` (`assume angle(B, A1, C)
+/// + … = 480`), as written.
+fn source_assumes(src: &str) -> Vec<String> {
+    src.lines()
+        .flat_map(|raw| raw.split('#').next().unwrap_or("").split(';').map(str::trim).map(str::to_string).collect::<Vec<_>>())
+        .filter_map(|s| s.strip_prefix("assume ").map(|a| a.trim().to_string()))
+        .filter(|a| a.contains('=') && ["dist(", "angle(", "area("].iter().any(|k| a.contains(k)))
+        .collect()
+}
+
 /// A title from the program's leading comment (`# Stewart's theorem — …`).
 pub fn source_title(src: &str) -> Option<String> {
     let line = src.lines().map(str::trim).find(|l| !l.is_empty())?;
@@ -1512,6 +1772,16 @@ pub fn build(sol: &Solution) -> View {
             given.push(f);
         }
     }
+    let assumed = source_assumes(&sol.input);
+    if !assumed.is_empty() && given.iter().any(|f| f.kind == "raw") {
+        given.retain(|f| f.kind != "raw");
+        for a in &assumed {
+            let f = Fact::new("formula", vec![pretty_metric(a, &names)], names.disp_all(&names.mentioned(a, false)));
+            if !given.contains(&f) {
+                given.push(f);
+            }
+        }
+    }
     for (a, b, v) in source_lengths(&sol.input) {
         let seg = format!("{}{}", names.get(&a), names.get(&b));
         let f = Fact::new("length", vec![seg, v], vec![names.get(&a), names.get(&b)]);
@@ -1542,7 +1812,7 @@ pub fn build(sol: &Solution) -> View {
     };
 
     let proof = match (&sol.proof, sol.method) {
-        (Some(p), Method::Euclidean) => parse_euclid_proof(p, &names),
+        (Some(p), Method::Euclidean) => parse_euclid_proof(p, &fig, &names),
         (Some(p), _) => {
             let aux_names: HashSet<String> = points.iter().filter(|p| p.aux).map(|p| p.name.clone()).collect();
             parse_ddar_proof(p, &fig, &names, &aux_names)
@@ -1612,33 +1882,46 @@ fn quoted(msg: &str) -> Option<String> {
 
 fn found_token(msg: &str) -> Option<Option<String>> {
     let at = msg.find("found ").map(|i| i + 6).or_else(|| msg.find("unexpected token ").map(|i| i + 17))?;
-    let rest = &msg[at..];
+    let rest = msg[at..].trim_end();
     if rest.starts_with("None") {
         return Some(None);
     }
-    let inner = rest.strip_prefix("Some(")?.trim_end_matches(')');
-    let tok = if let Some(q) = inner.strip_prefix("Ident(\"") {
-        q.trim_end_matches('"').to_string()
-    } else if let Some(n) = inner.strip_prefix("Num(") {
-        n.trim_end_matches(".0").to_string()
-    } else {
-        match inner {
-            "Comma" => ",".into(),
-            "LParen" => "(".into(),
-            "RParen" => ")".into(),
-            "Eq" => "=".into(),
-            "Colon" => ":".into(),
-            "Star" => "*".into(),
-            "Plus" => "+".into(),
-            "Minus" => "-".into(),
-            "Slash" => "/".into(),
-            "Caret" => "^".into(),
-            "Question" => "?".into(),
-            "Sep" => return Some(None),
-            other => other.to_string(),
+    let inner = rest.strip_prefix("Some(")?;
+    let inner = inner.strip_suffix(')').unwrap_or(inner);
+    Some(token_text(inner))
+}
+
+/// The source text of a lexer token written in its `Debug` form (`Op('*')`,
+/// `Ident("x")`, `Num(2.0)`, `LParen`, …); `None` for an end-of-line token.
+fn token_text(debug: &str) -> Option<String> {
+    let wrapped = |prefix: &str| debug.strip_prefix(prefix).and_then(|x| x.strip_suffix(')'));
+    if let Some(q) = wrapped("Ident(") {
+        return Some(q.trim_matches('"').to_string());
+    }
+    if let Some(n) = wrapped("Num(") {
+        return Some(n.strip_suffix(".0").unwrap_or(n).to_string());
+    }
+    if let Some(c) = wrapped("Op(") {
+        return Some(c.trim_matches('\'').to_string());
+    }
+    Some(
+        match debug {
+            "Comma" => ",",
+            "LParen" => "(",
+            "RParen" => ")",
+            "Eq" => "=",
+            "Colon" => ":",
+            "Star" => "*",
+            "Plus" => "+",
+            "Minus" => "-",
+            "Slash" => "/",
+            "Caret" => "^",
+            "Question" => "?",
+            "Sep" => return None,
+            other => other,
         }
-    };
-    Some(Some(tok))
+        .to_string(),
+    )
 }
 
 fn word_positions(line: &str, word: &str) -> Vec<usize> {
@@ -1661,6 +1944,19 @@ fn word_positions(line: &str, word: &str) -> Vec<usize> {
         i += 1;
     }
     out
+}
+
+/// The metric prover's `angle got 2 arguments`: (function, expected, got).
+fn metric_arity(msg: &str) -> Option<(String, usize, usize)> {
+    let (f, rest) = msg.split_once(" got ")?;
+    let got: usize = rest.strip_suffix(" arguments").or_else(|| rest.strip_suffix(" argument"))?.trim().parse().ok()?;
+    let expected = match f {
+        "dist" => 2,
+        "angle" | "area" => 3,
+        "sin" | "cos" | "tan" | "sqrt" => 1,
+        _ => return None,
+    };
+    Some((f.to_string(), expected, got))
 }
 
 fn diagnosis_key(msg: &str) -> &'static str {
@@ -1687,7 +1983,7 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "unknown_name"
     } else if starts("unknown construction") {
         "unknown_construction"
-    } else if msg.contains(" expects ") && msg.contains(" argument") {
+    } else if (msg.contains(" expects ") && msg.contains(" argument")) || metric_arity(msg).is_some() {
         "arity"
     } else if msg.contains("is already defined") {
         "redefined"
@@ -1727,7 +2023,11 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
         key = if whole_rhs { "unknown_shape" } else { "unknown_construction" };
     }
     let mut d = Diagnosis { key, line: 0, col: 0, len: 0, token: None, expected: None, got: None };
-    if key == "arity" {
+    let arity = metric_arity(msg);
+    if let Some((_, e, g)) = &arity {
+        d.expected = Some(*e);
+        d.got = Some(*g);
+    } else if key == "arity" {
         let nums: Vec<usize> = msg
             .split(|c: char| !c.is_ascii_digit())
             .filter_map(|x| x.parse().ok())
@@ -1739,7 +2039,13 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
         key,
         "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "unknown_shape" | "arity" | "redefined" | "bad_number"
     );
-    d.token = if by_name { named } else { found_token(msg).flatten() };
+    d.token = if let Some((f, _, _)) = &arity {
+        Some(f.clone())
+    } else if by_name {
+        named
+    } else {
+        found_token(msg).flatten()
+    };
     let lines: Vec<&str> = input.lines().collect();
     let code_of = |l: &str| l.split('#').next().unwrap_or("").to_string();
     let goal_line = || lines.iter().rposition(|l| code_of(l).trim_start().starts_with("prove"));
@@ -1774,7 +2080,11 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
         _ if metric && by_name => d
             .token
             .as_ref()
-            .and_then(|t| lines.iter().position(|l| !word_positions(&code_of(l), t).is_empty()))
+            .and_then(|t| {
+                goal_line()
+                    .filter(|&i| !word_positions(&code_of(lines[i]), t).is_empty())
+                    .or_else(|| lines.iter().position(|l| !word_positions(&code_of(l), t).is_empty()))
+            })
             .or_else(goal_line),
         _ if metric => goal_line(),
         "redefined" => d.token.as_ref().and_then(|t| {
@@ -1996,5 +2306,140 @@ mod tests {
         assert_eq!(source_title("# Stewart's theorem (additive engine): x\nB = free").as_deref(), Some("Stewart's theorem"));
         assert_eq!(source_title("A B C = triangle"), None);
         assert_eq!(source_title("# THEOREM (Euler line): O, G, H are collinear").as_deref(), Some("Euler line"));
+    }
+
+    #[test]
+    fn equal_chords_are_stated_as_an_equality() {
+        let sol = solve("A B C = triangle\nprove coll(A, B, A)", &SolveOptions::default()).expect("solve");
+        let problem = Problem::parse(&sol.low_level).expect("low level");
+        let names = Names::build(&problem);
+        let st = ddar_line("056. equal arcs \u{21d4} equal chords: AB and CA [003 & 004]", &problem, &names, &HashSet::new())
+            .expect("a step");
+        assert_eq!(st.rule, "arcchord");
+        assert_eq!(st.fact.kind, "cong");
+        assert_eq!(st.fact.plain(), "AB = CA");
+        assert_eq!(st.deps, vec![3, 4]);
+    }
+
+    /// Every Euclidean proof the provers produce for these programs, as shown.
+    fn euclidean_views() -> Vec<(String, View)> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../alphageometry-rs/examples/metric");
+        let mut programs: Vec<(String, String)> = std::fs::read_dir(&dir)
+            .expect("examples/metric")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "geo"))
+            .map(|p| (p.display().to_string(), std::fs::read_to_string(&p).unwrap()))
+            .collect();
+        programs.sort();
+        for (name, src) in [
+            ("law of sines", "A B C = triangle\nO = circumcenter(A, B, C)\nprove dist(B,C) = 2*dist(O,A)*sin(angle(B,A,C))"),
+            ("law of cosines", "A = free\nB = free\nC = point: perp(A,B,A,C)\nH = foot(A, line(B,C))\nprove dist(A,B)*cos(angle(A,B,C)) = dist(B,H)"),
+            ("supplementary", "A B C = triangle\nD = reflect(C, B)\nprove cos(angle(A,B,C)) = -cos(angle(A,B,D))"),
+            (
+                "sine areas",
+                "A B C = triangle\nM = midpoint(A, C)\nD = meet(line(B, M), circumcircle(A, B, C))\nprove dist(A,C)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = dist(B,D)*(dist(A,B)*dist(A,D) + dist(B,C)*dist(C,D))",
+            ),
+            (
+                "euler oi",
+                "A B C = triangle\nO = circumcenter(A, B, C)\nI = incenter(A, B, C)\nT = foot(I, line(B, C))\nprove dist(O, I)^2 = dist(O, A)^2 - 2*dist(O, A)*dist(I, T)",
+            ),
+        ] {
+            programs.push((name.to_string(), src.to_string()));
+        }
+        programs
+            .into_iter()
+            .filter_map(|(name, src)| {
+                let sol = solve(&src, &SolveOptions::default()).ok()?;
+                (sol.proved && sol.method == Method::Euclidean).then(|| (name, build(&sol)))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn euclidean_proofs_show_every_fact_and_reach_the_goal() {
+        let views = euclidean_views();
+        assert!(views.len() >= 12, "only {} Euclidean proofs", views.len());
+        for name in ["law of sines", "law of cosines", "supplementary", "sine areas", "euler oi"] {
+            assert!(views.iter().any(|(n, _)| n == name), "{name} was not proved Euclidean");
+        }
+        assert!(views.iter().any(|(_, v)| v.proof.steps.iter().any(|s| s.rule == "closure" && !s.subs.is_empty())));
+        assert!(views.iter().any(|(_, v)| v.proof.steps.iter().any(|s| s.rule == "trig" && !s.subs.is_empty())));
+        for (name, v) in &views {
+            for st in &v.proof.steps {
+                let text = &st.fact.args[0];
+                assert!(st.subs.is_empty() == !(text.ends_with(':') || text.contains("below:")), "{name}: {text} with {} sub-items", st.subs.len());
+                assert!(!text.contains("[from"), "{name}: {text}");
+                assert!(st.rule != "algebra", "{name}: {text}");
+                assert!(st.deps.iter().all(|&d| d >= 1 && d < st.n), "{name}: {} cites {:?}", st.n, st.deps);
+            }
+            let concl = v.proof.conclusion.as_ref().unwrap_or_else(|| panic!("{name}: no conclusion"));
+            let goal = &v.goal.as_ref().expect("goal").args[0];
+            assert!(concl.args[0].contains(goal.as_str()), "{name}: {:?} does not end at {goal}", concl.args[0]);
+            assert!(!concl.args[0].contains('*') && !concl.args[0].contains(" - ") && !concl.args[0].contains("dist("), "{name}: {}", concl.args[0]);
+        }
+    }
+
+    #[test]
+    fn euclidean_proofs_read_in_romanian_without_english_left_over() {
+        const ENGLISH: &[&str] = &[
+            " the ", " of ", " with ", " from ", "below", "above", " through ", "Law ", " law ", "Let ", " is ", " are ",
+            " by ", " gives ", "which", "inside", "outside", "Multiply", "relations", "triangle", "circle ", " between ",
+            " so ", "times", "derived", "(given)", "hypothes", "Adding", "Combining", "Hence", " and ", " lies ",
+        ];
+        for (name, v) in euclidean_views() {
+            let mut texts: Vec<String> = Vec::new();
+            for st in &v.proof.steps {
+                texts.extend(st.fact.ro.clone().unwrap_or_default());
+                for sub in &st.subs {
+                    texts.extend(sub.fact.ro.clone().unwrap_or_default());
+                }
+                if st.rule == "theorem" {
+                    assert!(st.rule_name_ro.is_some(), "{name}: no Romanian name for {:?}", st.rule_name);
+                }
+            }
+            texts.extend(v.proof.conclusion.as_ref().and_then(|c| c.ro.clone()).unwrap_or_default());
+            for t in texts {
+                let padded = format!(" {t} ");
+                for w in ENGLISH {
+                    assert!(!padded.contains(w), "{name}: English {w:?} left in {t:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn metric_arity_and_operator_errors_name_the_source_text() {
+        let src = "A B C = triangle\nprove dist(B,C) = 2**dist(A,B)";
+        let d = diagnose(src, "metric prover: unexpected token Some(Op('*'))");
+        assert_eq!((d.token.as_deref(), d.line, d.col), (Some("*"), 2, 21), "{d:?}");
+        let src = "A B C = triangle\nprove dist(B,C) = sin(angle(A,B))";
+        let d = diagnose(src, "metric prover: angle got 2 arguments");
+        assert_eq!((d.key, d.token.as_deref(), d.expected, d.got, d.line), ("arity", Some("angle"), Some(3), Some(2), 2), "{d:?}");
+        for (src, msg) in [
+            ("A B C = triangle\nprove dist(B,C) = 2**dist(A,B)", "metric prover: unexpected token Some(Op('*'))"),
+            ("A B C = triangle\nprove dist(B,C) = 2*/dist(A,B)", "metric prover: unexpected token Some(Op('/'))"),
+            ("A B C = triangle\nprove dist(B,C) = 2*(dist(A,B)", "metric prover: unexpected token Some(LParen)"),
+            ("A B C = triangle\nprove dist(B,C) = 2 x", "metric prover: unexpected token Some(Ident(\"x\"))"),
+        ] {
+            let d = diagnose(src, msg);
+            for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
+                let text = crate::i18n::compile_message(lang, &d);
+                assert!(!["Op(", "Some(", "Ident(", "LParen"].iter().any(|w| text.contains(w)), "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_angle_sum_hypothesis_is_shown_as_written() {
+        let src = "A B = segment\nC = eq_triangle(A, B)\nA1 = on_line(A, midpoint(B, C))\nB1 = on_line(B, midpoint(C, A))\n\
+                   C1 = on_line(C, midpoint(A, B))\nassume angle(B, A1, C) + angle(C, B1, A) + angle(A, C1, B) = 480\nprove coll(A, B, C)";
+        let sol = solve(src, &SolveOptions::default()).expect("compiles");
+        let v = build(&sol);
+        assert!(v.given.iter().all(|f| f.kind != "raw"), "{:?}", v.given);
+        assert!(
+            v.given.iter().any(|f| f.args.iter().any(|a| a.contains("\u{2220}BA\u{2081}C") && a.contains("480"))),
+            "{:?}",
+            v.given
+        );
     }
 }

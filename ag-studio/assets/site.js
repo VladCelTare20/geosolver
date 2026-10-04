@@ -58,11 +58,20 @@
     var s = String(text == null ? "" : text);
     if (!prose) return esc(s).replace(NAME_RE, nameHtml);
     return s.split(/(\s+|[(),.;:!?—–])/).map(function (tok) {
-      if (/^[A-Z][A-Z₀-₉′″]*[²³]?$/.test(tok) || /^[A-Z][₀-₉′″]+$/.test(tok) ||
-          (/[A-Z]/.test(tok) && !/[a-zăâîșțşţ]/.test(tok) && /^[A-Z₀-₉′″²³|·⁄/+−=<>≤≥√\[\]0-9]+$/.test(tok)))
-        return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
-      return esc(tok);
+      if (isNameTok(tok)) return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
+      if (/[A-Z]/.test(tok) && /[·/]/.test(tok)) return tok.split(/([·/])/).map(mathPart).join("");
+      return mathPart(tok);
     }).join("");
+  }
+  function isNameTok(tok) {
+    return /^[A-Z][A-Z₀-₉′″]*[²³]?$/.test(tok) || /^[A-Z][₀-₉′″]+$/.test(tok) ||
+      (/[A-Z]/.test(tok) && !/[a-zăâîșțşţ]/.test(tok) && /^[A-Z₀-₉′″²³|·⁄/+−=<>≤≥√∠△\[\]0-9]+$/.test(tok));
+  }
+  function mathPart(tok) {
+    if (isNameTok(tok)) return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
+    var m = /^(sin|cos|tan)?([∠△])([A-Z][A-Z₀-₉′″]*)([²³]?)$/.exec(tok);
+    if (m) return esc((m[1] || "") + m[2]) + m[3].replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml) + m[4];
+    return esc(tok);
   }
 
   var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "∠": "sr.angle" };
@@ -119,37 +128,76 @@
     return window.i18n && window.i18n.has(k) ? t(k) : (step.rule_name || step.rule);
   }
 
+  /** Step numbers as ranges: [1,2,3,5] → "1–3, 5". */
+  function ranges(ns) {
+    var out = [], i = 0;
+    while (i < ns.length) {
+      var j = i;
+      while (j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+      out.push(j > i ? ns[i] + "–" + ns[j] : String(ns[i]));
+      i = j + 1;
+    }
+    return out.join(", ");
+  }
+  function stepHtml(s, hidden) {
+    var cites = (s.deps || []).map(function (d, k) {
+      var a = '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
+      return k === 0 ? '<span class="nw"><span class="cite-arrow" aria-hidden="true">←</span><span class="sr-only">' + esc(t("proof.from")) + " </span>" + a + "</span>" : a;
+    }).join(" ");
+    var subs = (s.subs || []).map(function (u) {
+      return '<li><span class="math">' + fact(u.fact) + '</span> <span class="rule">' + esc(ruleLabel(u)) + "</span></li>";
+    }).join("");
+    return '<li class="step' + (s.kind === "given" ? " is-given" : "") + '" id="step-' + s.n + '" data-n="' + s.n + '"' + (hidden ? ' data-restated hidden' : "") +
+      ' data-points="' + esc((s.fact.points || []).join(" ")) + '" tabindex="-1">' +
+      '<span class="step-n" aria-hidden="true">' + s.n + "</span>" +
+      '<div class="step-body"><div class="step-stmt math"><span class="sr-only">' + esc(t("proof.step_sr", { n: s.n })) + " </span>" + fact(s.fact) + "</div>" +
+      (subs ? '<ul class="step-subs" role="list">' + subs + "</ul>" : "") +
+      '<p class="step-meta"><span class="rule">' + esc(ruleLabel(s)) + "</span>" + (cites ? " " + cites : "") + "</p></div></li>";
+  }
+  /** One row standing for every step that only restates a hypothesis or a
+   * construction (they stay in the list, hidden, so citations still land). */
+  function groupHtml(given) {
+    var pts = [];
+    given.forEach(function (s) { (s.fact.points || []).forEach(function (p) { if (pts.indexOf(p) < 0) pts.push(p); }); });
+    return '<li class="step is-given is-group" data-points="' + esc(pts.join(" ")) + '" tabindex="-1">' +
+      '<span class="step-n" aria-hidden="true"></span>' +
+      '<div class="step-body"><div class="step-stmt">' + esc(t("proof.hyps", { list: ranges(given.map(function (s) { return s.n; })) })) + "</div>" +
+      '<p class="step-meta"><button type="button" class="link-btn group-toggle" aria-expanded="false" tabindex="-1">' + esc(t("proof.hyps.show")) + "</button></p></div></li>";
+  }
   /** Render the numbered, cited steps into `ol`. `hooks.focus(points)` is
    * called with the step's points on hover/focus (null on leave). */
   function renderSteps(ol, proof, hooks) {
     hooks = hooks || {};
     var steps = (proof && proof.steps) || [];
-    var html = steps.map(function (s, i) {
-      var cites = (s.deps || []).map(function (d) {
-        return '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
-      }).join("");
-      return '<li class="step' + (s.kind === "given" ? " is-given" : "") + '" id="step-' + s.n + '" data-n="' + s.n + '" data-points="' + esc((s.fact.points || []).join(" ")) + '" tabindex="' + (i === 0 ? 0 : -1) + '">' +
-        '<span class="step-n" aria-hidden="true">' + s.n + "</span>" +
-        '<div class="step-body"><div class="step-stmt math"><span class="sr-only">' + esc(t("proof.step_sr", { n: s.n })) + " </span>" + fact(s.fact) + "</div>" +
-        '<div class="step-meta"><span class="rule">' + esc(ruleLabel(s)) + "</span>" +
-        (cites ? '<span class="cites"><span class="sr-only">' + esc(t("proof.from")) + " </span>" + cites + "</span>" : "") +
-        "</div></div></li>";
-    }).join("");
+    var given = steps.filter(function (s) { return s.kind === "given"; });
+    var fold = given.length >= 2, html = "";
+    steps.forEach(function (s) {
+      if (fold && s === given[0]) html += groupHtml(given);
+      html += stepHtml(s, fold && s.kind === "given");
+    });
     if (proof && proof.conclusion) {
       html += '<li class="step is-conclusion" data-points="' + esc((proof.conclusion.points || []).join(" ")) + '" tabindex="-1"><span class="step-n" aria-hidden="true">∎</span><div class="step-body"><div class="step-stmt math"><span class="sr-only">' + esc(t("proof.conclusion")) + ": </span>" + fact(proof.conclusion) + "</div></div></li>";
     }
     ol.innerHTML = html;
     ol.setAttribute("role", "list");
     var items = Array.prototype.slice.call(ol.querySelectorAll(".step"));
+    var firstShown = items.filter(function (x) { return !x.hidden; })[0];
+    if (firstShown) firstShown.tabIndex = 0;
+    function shown() { return items.filter(function (x) { return !x.hidden; }); }
     function pts(li) { var p = li.getAttribute("data-points"); return p ? p.split(" ") : []; }
     function activate(li) {
       items.forEach(function (x) {
         x.classList.toggle("is-active", x === li);
-        x.querySelectorAll(".cite").forEach(function (c) { c.tabIndex = x === li ? 0 : -1; });
+        x.querySelectorAll(".cite, .group-toggle").forEach(function (c) { c.tabIndex = x === li ? 0 : -1; });
       });
       if (hooks.focus) hooks.focus(li ? pts(li) : null);
     }
-    items.forEach(function (li, i) {
+    function setGroup(open) {
+      items.forEach(function (x) { if (x.hasAttribute("data-restated")) x.hidden = !open; });
+      var b = ol.querySelector(".group-toggle");
+      if (b) { b.setAttribute("aria-expanded", open ? "true" : "false"); b.textContent = t(open ? "proof.hyps.hide" : "proof.hyps.show"); }
+    }
+    items.forEach(function (li) {
       li.addEventListener("mouseenter", function () { activate(li); });
       li.addEventListener("mouseleave", function () { if (document.activeElement !== li) activate(null); });
       li.addEventListener("focus", function () {
@@ -158,13 +206,16 @@
         activate(li);
       });
       li.addEventListener("keydown", function (e) {
-        var j = null;
-        if (e.key === "ArrowDown") j = Math.min(items.length - 1, i + 1);
+        var vis = shown(), i = vis.indexOf(li), j = null;
+        if (e.key === "ArrowDown") j = Math.min(vis.length - 1, i + 1);
         else if (e.key === "ArrowUp") j = Math.max(0, i - 1);
         else if (e.key === "Home") j = 0;
-        else if (e.key === "End") j = items.length - 1;
-        if (j != null && e.target === li) { e.preventDefault(); items[j].focus(); }
+        else if (e.key === "End") j = vis.length - 1;
+        if (j != null && e.target === li) { e.preventDefault(); vis[j].focus(); }
       });
+    });
+    ol.querySelectorAll(".group-toggle").forEach(function (b) {
+      b.addEventListener("click", function () { setGroup(b.getAttribute("aria-expanded") !== "true"); });
     });
     if (ol._gsFocusOut) ol.removeEventListener("focusout", ol._gsFocusOut);
     ol._gsFocusOut = function (e) {
@@ -178,6 +229,7 @@
       e.preventDefault();
       var target = ol.querySelector("#step-" + a.getAttribute("data-step"));
       if (!target) return;
+      if (target.hidden && target.hasAttribute("data-restated")) setGroup(true);
       target.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       target.classList.remove("flash");
       void target.offsetWidth;
@@ -289,7 +341,7 @@
     if (els.zoomIn) els.zoomIn.addEventListener("click", function () { var c = center(); me.zoomAt(c[0], c[1], 1.4); });
     if (els.zoomOut) els.zoomOut.addEventListener("click", function () { var c = center(); me.zoomAt(c[0], c[1], 1 / 1.4); });
     if (els.fit) els.fit.addEventListener("click", function () { me.reset(); });
-    if (els.full) els.full.addEventListener("click", function () { me.toggleFull(); });
+    if (els.full) els.full.addEventListener("click", function (e) { me.toggleFull(undefined, e.detail > 0); });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && me.isFull() && !e.defaultPrevented) { e.preventDefault(); me.toggleFull(false); } });
     if (window.ResizeObserver) new ResizeObserver(function () { me.restyle(); }).observe(vp);
   }
@@ -334,24 +386,104 @@
     var fs = Math.max(13, Math.min(17, r.width / 28));
     var k = Math.max(0.35, Math.min(4.5, fs / s / 18));
     svg.style.setProperty("--lbl-fs", (18 * k).toFixed(2) + "px");
-    svg.querySelectorAll(".f-lbl").forEach(function (el) {
-      var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx = +el.getAttribute("data-dx"), dy = +el.getAttribute("data-dy");
-      el.setAttribute("x", (x + dx * k).toFixed(1));
-      el.setAttribute("y", (y + dy * k + 18 * k * 0.34).toFixed(1));
+    var dotR = Math.max(1.2, Math.min(8, (r.width < 500 ? 3.2 : 3.8) / s));
+    var offsets = placeLabels(svg, k, dotR, s);
+    svg.querySelectorAll(".f-lbl").forEach(function (el, i) {
+      var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), o = offsets[i];
+      el.setAttribute("x", (x + o.dx).toFixed(1));
+      el.setAttribute("y", (y + o.dy + 18 * k * 0.34).toFixed(1));
       el.setAttribute("stroke-width", (5 * k).toFixed(2));
     });
-    var dotR = Math.max(1.2, Math.min(8, (r.width < 500 ? 3.2 : 3.8) / s));
     svg.querySelectorAll(".f-dot").forEach(function (el) { el.setAttribute("r", dotR.toFixed(2)); });
+    var byName = {};
+    svg.querySelectorAll(".f-lbl").forEach(function (el, i) { byName[el.getAttribute("data-p")] = offsets[i]; });
     svg.querySelectorAll(".f-lead").forEach(function (el) {
-      var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx = +el.getAttribute("data-dx"), dy = +el.getAttribute("data-dy"), e = +el.getAttribute("data-e");
-      var L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
-      var a = dotR + 1.5 / s, b = L * k - e * k;
-      el.style.display = b - a < 3 / s ? "none" : "";
+      var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), o = byName[el.getAttribute("data-p")];
+      if (!o) { el.style.display = "none"; return; }
+      var L = Math.hypot(o.dx, o.dy) || 1, ux = o.dx / L, uy = o.dy / L;
+      var a = dotR + 1.5 / s, b = L - o.ext;
+      el.style.display = b - a < 3 / s ? "none" : "inline";
       el.setAttribute("x1", (x + ux * a).toFixed(1));
       el.setAttribute("y1", (y + uy * a).toFixed(1));
       el.setAttribute("x2", (x + ux * b).toFixed(1));
       el.setAttribute("y2", (y + uy * b).toFixed(1));
     });
+  }
+
+  function segHitsBox(ax, ay, bx, by, b) {
+    if (Math.max(ax, bx) < b[0] || Math.min(ax, bx) > b[2] || Math.max(ay, by) < b[1] || Math.min(ay, by) > b[3]) return false;
+    if (ax >= b[0] && ax <= b[2] && ay >= b[1] && ay <= b[3]) return true;
+    if (bx >= b[0] && bx <= b[2] && by >= b[1] && by <= b[3]) return true;
+    var side = function (x, y) { return (bx - ax) * (y - ay) - (by - ay) * (x - ax); };
+    var s1 = side(b[0], b[1]), s2 = side(b[2], b[1]), s3 = side(b[0], b[3]), s4 = side(b[2], b[3]);
+    return !((s1 > 0 && s2 > 0 && s3 > 0 && s4 > 0) || (s1 < 0 && s2 < 0 && s3 < 0 && s4 < 0));
+  }
+  function overlapArea(p, q) {
+    var ox = Math.min(p[2], q[2]) - Math.max(p[0], q[0]), oy = Math.min(p[3], q[3]) - Math.max(p[1], q[1]);
+    return ox > 0 && oy > 0 ? ox * oy : 0;
+  }
+  /** Lay the labels out again at label scale `k`: the server placed them for
+   * k = 1, and at a larger k (a small panel) labels of near points grow into
+   * each other. Each label keeps the server's spot unless that now collides
+   * with a placed label (kept a small gap apart), a dot, or a leader line;
+   * then the least-colliding spot around its point is taken. */
+  function placeLabels(svg, k, dotR, s) {
+    var labels = Array.prototype.slice.call(svg.querySelectorAll(".f-lbl"));
+    var leadOf = {};
+    svg.querySelectorAll(".f-lead").forEach(function (el) { leadOf[el.getAttribute("data-p")] = true; });
+    var dots = Array.prototype.map.call(svg.querySelectorAll(".f-dot"), function (el) { return [+el.getAttribute("cx"), +el.getAttribute("cy")]; });
+    var segs = [];
+    svg.querySelectorAll("line.f-line, line.f-seg, line.f-goal, line.f-aux").forEach(function (el) {
+      segs.push([+el.getAttribute("x1"), +el.getAttribute("y1"), +el.getAttribute("x2"), +el.getAttribute("y2")]);
+    });
+    var gap = 3 / s, placed = [], leads = [], out = [];
+    labels.forEach(function (el) {
+      var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx0 = +el.getAttribute("data-dx"), dy0 = +el.getAttribute("data-dy");
+      if (el._wpf == null) {
+        var n = (el.textContent || "").length;
+        try { el._wpf = el.getComputedTextLength() / (parseFloat(getComputedStyle(el).fontSize) || 18); } catch (e) { el._wpf = 0; }
+        if (!(el._wpf > 0.2)) el._wpf = 0.62 * n + 0.15;
+      }
+      var w = (el._wpf + 0.15) * 18 * k, h = 18 * k * 0.9;
+      var crowded = dots.some(function (d) { var dd = Math.hypot(d[0] - x, d[1] - y); return dd > 1e-6 && dd < 18 * k * 1.6; });
+      function cost(cx, cy, ring) {
+        var b = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], c = ring * 0.35;
+        placed.forEach(function (q) { var a = overlapArea(b, [q[0] - gap, q[1] - gap, q[2] + gap, q[3] + gap]); if (a > 0) c += 12 + a / (k * k) * 0.05; });
+        dots.forEach(function (d) {
+          if (Math.hypot(d[0] - x, d[1] - y) < 1e-6) return;
+          if (d[0] > b[0] - dotR && d[0] < b[2] + dotR && d[1] > b[1] - dotR && d[1] < b[3] + dotR) c += 10;
+        });
+        leads.forEach(function (l) { if (segHitsBox(l[0], l[1], l[2], l[3], b)) c += 9; });
+        var L = Math.hypot(cx - x, cy - y) || 1, ux = (cx - x) / L, uy = (cy - y) / L;
+        var ext = Math.max(Math.abs(ux) * w / 2, Math.abs(uy) * h / 2) + 2 * k;
+        if (L - ext > dotR + 3 / s) {
+          var lx = x + ux * (L - ext), ly = y + uy * (L - ext);
+          placed.forEach(function (q) { if (segHitsBox(x, y, lx, ly, q)) c += 9; });
+        }
+        var hard = c - ring * 0.35;
+        segs.forEach(function (g) { if (segHitsBox(g[0], g[1], g[2], g[3], b)) c += 1.2; });
+        return { c: c, hard: hard, b: b, ext: ext, lead: L - ext > dotR + 3 / s ? [x, y, x + ux * (L - ext), y + uy * (L - ext)] : null };
+      }
+      var best = cost(x + dx0 * k, y + dy0 * k, 0);
+      best.dx = dx0 * k; best.dy = dy0 * k;
+      if (best.hard > 0.01) {
+        var rings = crowded || leadOf[el.getAttribute("data-p")] ? 5 : 3, th0 = Math.atan2(dy0, dx0);
+        for (var ring = 0; ring < rings; ring++) {
+          for (var j = 0; j < 16; j++) {
+            var th = j * Math.PI / 8 + (ring % 2 ? Math.PI / 16 : 0), ux = Math.cos(th), uy = Math.sin(th);
+            var reach = (7 + ring * 7) * k + Math.max(Math.abs(ux) * w / 2, Math.abs(uy) * h / 2);
+            var cand = cost(x + ux * reach, y + uy * reach, ring);
+            var turn = Math.abs(Math.atan2(Math.sin(th - th0), Math.cos(th - th0)));
+            cand.c += turn * 0.15;
+            if (cand.c < best.c - 1e-9) { best = cand; best.dx = ux * reach; best.dy = uy * reach; }
+          }
+        }
+      }
+      placed.push(best.b);
+      if (best.lead && (crowded || leadOf[el.getAttribute("data-p")])) leads.push(best.lead);
+      out.push({ dx: best.dx, dy: best.dy, ext: best.ext });
+    });
+    return out;
   }
   Viewer.prototype.restyle = function () {
     if (!this.svg || !this.vb) return;
@@ -421,7 +553,7 @@
     if (this.onPointAnnounce) this.onPointAnnounce(names[i], used || []);
   };
   Viewer.prototype.isFull = function () { return this.els.frame.classList.contains("is-full"); };
-  Viewer.prototype.toggleFull = function (on) {
+  Viewer.prototype.toggleFull = function (on, byPointer) {
     var f = this.els.frame;
     if (!this.els.full) return;
     on = on == null ? !this.isFull() : on;
@@ -437,7 +569,7 @@
     }
     var me = this;
     requestAnimationFrame(function () { me.reset(); });
-    if (on) this.els.viewport.focus({ preventScroll: true });
+    if (on) this.els.viewport.focus({ preventScroll: true, focusVisible: !byPointer });
   };
 
   /** Make `el` modal (everything outside it inert, `el` a labelled dialog);
@@ -458,7 +590,7 @@
       var list = [];
       for (var n = el; n && n.parentElement && n !== document.body; n = n.parentElement) {
         Array.prototype.forEach.call(n.parentElement.children, function (sib) {
-          if (sib !== n && !sib.inert && sib.tagName !== "SCRIPT" && sib.id !== "toasts" && sib.id !== "announce") { sib.inert = true; list.push(sib); }
+          if (sib !== n && !sib.inert && sib.tagName !== "SCRIPT" && sib.id !== "toasts" && sib.id !== "announce" && sib.id !== "announce-status") { sib.inert = true; list.push(sib); }
         });
       }
       inerted.set(el, list);

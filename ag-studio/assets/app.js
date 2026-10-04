@@ -267,7 +267,9 @@
       pre.scrollTop = ta.scrollTop;
       pre.scrollLeft = ta.scrollLeft;
       gutter.scrollTop = ta.scrollTop;
+      ta.parentNode.classList.toggle("can-scroll-x", ta.scrollWidth - ta.clientWidth - ta.scrollLeft > 2);
     }
+    if (window.ResizeObserver) new ResizeObserver(function () { sync(); }).observe(ta);
     ta.addEventListener("input", function () {
       if (err) setError(null);
       render();
@@ -555,7 +557,7 @@
       S.abort = null;
       if (e && e.name === "AbortError") {
         show("state-empty");
-        GS.toast(t("cancelled", { s: S.deadline }), { ms: 6000 });
+        GS.toast(t("cancelled"), { ms: 6000 });
         if (lost) $("solve").focus();
         return;
       }
@@ -602,7 +604,7 @@
     var actions = "";
     if (e.retry) actions += '<button type="button" class="btn btn-secondary btn-sm" id="err-retry">' + icons.retry + "<span>" + esc(t("err.retry")) + "</span></button>";
     if (e.signin) actions += '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("nav.signin")) + "</a>";
-    box.innerHTML = '<div class="err-head">' + icons.alert + '<div><h3 id="err-title" tabindex="-1">' + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
+    box.innerHTML = '<div class="err-head"><span class="err-icon">' + icons.alert + '</span><div class="grow"><h3 id="err-title" tabindex="-1">' + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
       (actions ? '<div class="err-actions">' + actions + "</div>" : "") +
       (e.detail ? '<details class="err-detail"><summary>' + icons.chevron + "<span>" + esc(t("err.details")) + "</span></summary><pre>" + esc(e.detail) + "</pre></details>" : "");
     show("state-error");
@@ -628,6 +630,13 @@
     a.textContent = "";
     if (msg) announceTimer = setTimeout(function () { a.textContent = msg; }, 50);
   }
+  var statusTimer = null;
+  function announceStatus(msg) {
+    var a = $("announce-status");
+    clearTimeout(statusTimer);
+    a.textContent = "";
+    if (msg) statusTimer = setTimeout(function () { a.textContent = msg; }, 400);
+  }
   function scrollToStatus() {
     if (window.matchMedia("(max-width: 1199px)").matches) {
       var el = $("status-area");
@@ -647,7 +656,7 @@
       case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
       case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: tp("v.numeric.x", sol.numeric_samples || (v.evidence && v.evidence.samples) || 0) };
       default:
-        if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: note.secs || S.deadline }) };
+        if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: Math.round(note.secs || S.deadline) }) };
         var text = t("v.not.x");
         if (note.key === "budget" && note.runs != null) text = t("v.not.budget", { runs: tp("runs", note.runs) });
         else if (["metric_error", "unsound", "replay"].indexOf(note.key) >= 0) text = t("v.not." + note.key);
@@ -656,7 +665,7 @@
   }
   function stepCount(sol) {
     if (sol.status !== "proved" || !sol.view || !sol.view.proof) return 0;
-    return (sol.view.proof.steps || []).filter(function (s) { return s.kind !== "given"; }).length;
+    return (sol.view.proof.steps || []).filter(function (s) { return s.kind === "step"; }).length;
   }
   function methodText(sol) {
     if (sol.status === "holds-numerically") return t("meta.method.numeric");
@@ -866,6 +875,7 @@
     out.push(t("proof.title") + ":");
     (v.proof.steps || []).forEach(function (s) {
       out.push(s.n + ". " + GS.factText(s.fact) + " — " + GS.ruleLabel(s) + (s.deps && s.deps.length ? " [" + s.deps.join(", ") + "]" : ""));
+      (s.subs || []).forEach(function (u) { out.push("   • " + GS.factText(u.fact) + " — " + GS.ruleLabel(u)); });
     });
     if (v.proof.conclusion) out.push("∎ " + GS.factText(v.proof.conclusion));
     return out.join("\n");
@@ -875,6 +885,7 @@
     var v = S.sol.view, lines = [];
     (v.proof.steps || []).forEach(function (s) {
       lines.push(s.n + ". " + GS.factText(s.fact) + " (" + GS.ruleLabel(s) + (s.deps && s.deps.length ? "; from " + s.deps.join(", ") : "") + ")");
+      (s.subs || []).forEach(function (u) { lines.push("   - " + GS.factText(u.fact) + " (" + GS.ruleLabel(u) + ")"); });
     });
     if (v.proof.conclusion) lines.push("QED: " + GS.factText(v.proof.conclusion));
     return lines.join("\n");
@@ -886,7 +897,7 @@
     var lang = window.i18n.current();
     var key = (sol.id || sol.input) + "|" + lang;
     var box = $("ai-text");
-    if (!force && S.aiCache[key]) { box.innerHTML = S.aiCache[key]; return; }
+    if (!force && S.aiCache[key]) { if (box.innerHTML !== S.aiCache[key]) box.innerHTML = S.aiCache[key]; return; }
     var seq = ++S.aiSeq;
     box.innerHTML = '<p class="ai-loading"><span class="spinner" aria-hidden="true"></span>' + esc(t("proof.ai.loading")) + "</p>";
     var v = sol.view;
@@ -898,9 +909,11 @@
       var html = markdown(r.data.proof);
       S.aiCache[key] = html;
       box.innerHTML = html;
+      announceStatus(t("proof.ai.ready"));
     }).catch(function () {
       if (seq !== S.aiSeq) return;
       box.innerHTML = '<p class="muted">' + esc(t("proof.ai.fail")) + "</p>";
+      announceStatus(t("proof.ai.fail"));
     });
   }
   function delatex(s) {
@@ -971,6 +984,7 @@
     el.hidden = false;
     el.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>' + esc(t("shorter.searching")) + '</span> <button type="button" class="link-btn" id="refine-stop">' + esc(t("shorter.stop")) + "</button>";
     $("refine-stop").addEventListener("click", stopRefining);
+    announceStatus(t("shorter.searching"));
     api("/api/solve", { method: "POST", body: { input: first.input, title: first.title, best: true, budget_secs: 20, record: false }, signal: ctl.signal }).then(function (r) {
       if (S.refining !== ctl) return;
       S.refining = null;
@@ -978,7 +992,9 @@
       var better = r.ok && r.data.status === "proved" && stepCount(r.data) && stepCount(r.data) < stepCount(first);
       if (better) {
         var msg = t("shorter.found", { n: tp("meta.steps", stepCount(r.data)), m: tp("meta.steps", stepCount(first)) });
+        var keep = focusMark();
         renderSolution(r.data, {});
+        restoreFocus(keep);
         GS.toast(msg);
         if (first.history_id && r.data.id) {
           r.data.history_id = first.history_id;
@@ -986,11 +1002,15 @@
         }
       } else {
         var e2 = $("refine");
+        var hadFocus = e2 && e2.contains(document.activeElement);
         if (e2) { e2.innerHTML = '<span>' + esc(t("shorter.none")) + "</span>"; }
+        if (hadFocus) focusVerdictHead();
+        announceStatus(t("shorter.none"));
       }
     }).catch(function () {
       if (S.refining === ctl) S.refining = null;
       var e3 = $("refine");
+      if (e3 && e3.contains(document.activeElement)) focusVerdictHead();
       if (e3) e3.hidden = true;
     });
   }
@@ -999,7 +1019,33 @@
     S.refining.abort();
     S.refining = null;
     var el = $("refine");
+    if (el && el.contains(document.activeElement)) focusVerdictHead();
     if (el) el.hidden = true;
+  }
+  function focusVerdictHead() {
+    var h = $("verdict-head");
+    if (h) h.focus({ preventScroll: true });
+  }
+  /** Where keyboard focus is inside the result (a control id, or a step
+   * index), so it can be put back after the result is re-rendered. */
+  function focusMark() {
+    var ae = document.activeElement;
+    if (!ae || ae === document.body) return null;
+    if (ae.id && ($("verdict").contains(ae) || $("proof-area").contains(ae))) return { id: ae.id };
+    var li = ae.closest && ae.closest("#steps .step");
+    if (li) return { step: Array.prototype.indexOf.call($("steps").querySelectorAll(".step:not([hidden])"), li) };
+    if ($("verdict").contains(ae) || $("proof-area").contains(ae)) return { head: true };
+    return null;
+  }
+  function restoreFocus(mark) {
+    if (!mark) return;
+    var el = mark.id ? $(mark.id) : null;
+    if (!el && mark.step != null) {
+      var steps = $("steps").querySelectorAll(".step:not([hidden])");
+      el = steps.length ? steps[Math.min(mark.step, steps.length - 1)] : null;
+    }
+    if (el && !el.hidden && el.offsetParent !== null) el.focus({ preventScroll: true });
+    else focusVerdictHead();
   }
 
   // ---------------------------------------------------------------- export --
@@ -1109,16 +1155,25 @@
     var empty = $("hist-empty");
     var live = S.history.filter(function (r) { return !S.pendingDeletes.has(r.id); }).length;
     if (!live) { empty.hidden = false; empty.textContent = t("hist.empty"); }
-    else if (!rows.length) { empty.hidden = false; empty.textContent = t("hist.none_match"); }
+    else if (!rows.length) { empty.hidden = false; empty.textContent = t(q ? "hist.none_match" : "hist.none_filter"); }
     else empty.hidden = true;
+    return { rows: rows.length, live: live, query: q };
+  }
+  var histAnnounceTimer = null;
+  function announceHistory(res) {
+    clearTimeout(histAnnounceTimer);
+    histAnnounceTimer = setTimeout(function () {
+      if (!res.live) return;
+      announceStatus(res.rows ? tp("hist.count", res.rows) : t(res.query ? "hist.none_match" : "hist.none_filter"));
+    }, 500);
   }
   function wireHistory() {
-    $("hist-search").addEventListener("input", function (e) { S.query = e.target.value; renderHistory(); });
+    $("hist-search").addEventListener("input", function (e) { S.query = e.target.value; announceHistory(renderHistory()); });
     document.querySelectorAll("#hist-filters .filter").forEach(function (b) {
       b.addEventListener("click", function () {
         S.filter = b.getAttribute("data-filter");
         document.querySelectorAll("#hist-filters .filter").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
-        renderHistory();
+        announceHistory(renderHistory());
       });
     });
     $("hist-list").addEventListener("click", function (e) {
@@ -1331,6 +1386,8 @@
   }
 
   document.addEventListener("langchange", function () {
+    clearTimeout(announceTimer); clearTimeout(statusTimer);
+    $("announce").textContent = ""; $("announce-status").textContent = "";
     paintAiPill(); paintGates(); paintEffortHint(); paintExamples(); paintAccount();
     var ex = exampleOf(editor.get());
     if (ex && editor.get() !== exampleSrc(ex)) editor.set(exampleSrc(ex));

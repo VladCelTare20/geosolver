@@ -19,6 +19,8 @@ const SPAN: f64 = 520.0;
 const PAD: f64 = 22.0;
 const LABEL_FS: f64 = 18.0;
 const DOT_R: f64 = 4.0;
+/// Clear space kept between two label boxes.
+const LABEL_GAP: f64 = 3.0;
 
 const INK: &str = "#1b1f24";
 const CONSTRUCTION: &str = "#6e7a86";
@@ -207,6 +209,20 @@ fn arc_path(v: Pt, p1: Pt, p2: Pt, r: f64) -> Option<(String, Vec<Pt>)> {
         pts.push(p);
     }
     Some((d, pts))
+}
+
+/// The thin line from a crowded point to a label placed away from it (the
+/// segment drawn as `f-lead`), if one is drawn.
+fn leader(p: Pt, off: Pt, w: f64, crowded: bool) -> Option<(Pt, Pt)> {
+    if !crowded {
+        return None;
+    }
+    let u = unit(off);
+    let ext = (u.0.abs() * w / 2.0).max(u.1.abs() * LABEL_FS * 0.45) + 2.0;
+    if len(off) < ext + DOT_R + 4.0 {
+        return None;
+    }
+    Some((add(p, mul(u, DOT_R + 1.5)), sub(add(p, off), mul(u, ext))))
 }
 
 fn label_width(name: &str) -> f64 {
@@ -689,6 +705,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     // Labels: every point, at the candidate offset that collides least with
     // other labels, dots, lines and circles.
     let mut placed: Vec<(f64, f64, f64, f64)> = Vec::new();
+    let mut leads: Vec<(Pt, Pt)> = Vec::new();
     let dots: Vec<Pt> = (0..n).map(|i| scr[i]).filter(|p| finite(*p)).collect();
     let mut labels: Vec<(usize, String, Pt, Pt)> = Vec::new();
     let mut order: Vec<usize> = (0..n).filter(|&i| finite(scr[i])).collect();
@@ -748,11 +765,20 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 let bx = (c.0 - w / 2.0 - 1.5, c.1 - h / 2.0 - 1.5, c.0 + w / 2.0 + 1.5, c.1 + h / 2.0 + 1.5);
                 let mut penalty = ring as f64 * 0.35;
                 for q in &placed {
-                    let ox = (bx.2.min(q.2) - bx.0.max(q.0)).max(0.0);
-                    let oy = (bx.3.min(q.3) - bx.1.max(q.1)).max(0.0);
+                    let ox = (bx.2.min(q.2 + LABEL_GAP) - bx.0.max(q.0 - LABEL_GAP)).max(0.0);
+                    let oy = (bx.3.min(q.3 + LABEL_GAP) - bx.1.max(q.1 - LABEL_GAP)).max(0.0);
                     if ox * oy > 0.0 {
-                        penalty += 8.0 + ox * oy * 0.05;
+                        penalty += 14.0 + ox * oy * 0.05;
                     }
+                }
+                for (a, b) in &leads {
+                    if seg_hits_box(*a, *b, bx) {
+                        penalty += 9.0;
+                    }
+                }
+                let lead = leader(p, sub(c, p), w, crowded);
+                if let Some((a, b)) = lead {
+                    penalty += 9.0 * placed.iter().filter(|q| seg_hits_box(a, b, **q)).count() as f64;
                 }
                 for d in &dots {
                     if len(sub(*d, p)) < 1e-6 {
@@ -780,6 +806,9 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         }
         let (_, c) = best.unwrap_or((0.0, add(p, (10.0, -10.0))));
         placed.push((c.0 - w / 2.0, c.1 - h / 2.0, c.0 + w / 2.0, c.1 + h / 2.0));
+        if let Some(l) = leader(p, sub(c, p), w, crowded) {
+            leads.push(l);
+        }
         labels.push((i, name, p, sub(c, p)));
     }
 
@@ -901,18 +930,17 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         }
         let u = unit(*off);
         let ext = (u.0.abs() * label_width(name) / 2.0).max(u.1.abs() * LABEL_FS * 0.45) + 2.0;
-        if len(*off) < ext + DOT_R + 4.0 {
-            continue;
-        }
+        let shown = len(*off) >= ext + DOT_R + 4.0;
         let a = add(*p, mul(u, DOT_R + 1.5));
-        let b = sub(add(*p, *off), mul(u, ext));
+        let b = if shown { sub(add(*p, *off), mul(u, ext)) } else { a };
         let _ = writeln!(
             s,
-            r#"<line class="f-lead" x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{MARK}" stroke-width="0.9" vector-effect="non-scaling-stroke" data-p="{}" data-x="{:.1}" data-y="{:.1}" data-dx="{:.1}" data-dy="{:.1}" data-e="{ext:.1}"/>"#,
+            r#"<line class="f-lead" x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{MARK}" stroke-width="0.9" vector-effect="non-scaling-stroke"{} data-p="{}" data-x="{:.1}" data-y="{:.1}" data-dx="{:.1}" data-dy="{:.1}" data-e="{ext:.1}"/>"#,
             a.0,
             a.1,
             b.0,
             b.1,
+            if shown { "" } else { r#" display="none""# },
             esc(name),
             p.0,
             p.1,

@@ -613,11 +613,26 @@ fn err_code(status: StatusCode, code: &str, msg: impl Into<String>) -> Response 
 fn compile_err(lang: i18n::Lang, input: &str, raw: &str) -> Response {
     let d = present::diagnose(input, raw);
     let msg = i18n::compile_message(lang, &d);
+    let detail = compile_detail(&d, raw);
     (
         StatusCode::BAD_REQUEST,
-        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": raw })),
+        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": detail })),
     )
         .into_response()
+}
+
+/// The engine's words for the "technical details" toggle, when they add
+/// something: none for an empty `no attempt`, and the relation compiler's
+/// message rather than the metric fallback's when the relation is unknown.
+fn compile_detail(d: &present::Diagnosis, raw: &str) -> Option<String> {
+    let bare = raw.trim_start_matches("compile error: ").trim_start_matches("metric prover: ").trim();
+    if bare.is_empty() || bare == "no attempt" {
+        return None;
+    }
+    if d.key == "unknown_relation" && bare.contains("is not a metric value here") {
+        return d.token.as_ref().map(|t| format!("compile error: unknown relation `{t}`"));
+    }
+    Some(raw.to_string())
 }
 
 /// Reject empty or over-long programs early. (The `Response` error is axum's
@@ -640,8 +655,25 @@ fn check_input(state: &Shared, headers: &HeaderMap, input: &str) -> Result<(), R
 /// Trim a client-supplied title and cut it to [`MAX_TITLE_CHARS`]; blank → none.
 fn clean_title(title: Option<String>) -> Option<String> {
     let t = title?;
-    let t: String = t.trim().chars().take(MAX_TITLE_CHARS).collect();
-    (!t.is_empty()).then_some(t)
+    let t = t.trim();
+    if t.chars().count() <= MAX_TITLE_CHARS {
+        return (!t.is_empty()).then(|| t.to_string());
+    }
+    let cut: String = t.chars().take(MAX_TITLE_CHARS - 1).collect();
+    let at_word = match cut.rfind(char::is_whitespace) {
+        Some(i) if cut[..i].chars().count() > MAX_TITLE_CHARS / 2 => &cut[..i],
+        _ => cut.as_str(),
+    };
+    Some(format!("{}\u{2026}", at_word.trim_end_matches(|c: char| c.is_whitespace() || ",;:-".contains(c))))
+}
+
+/// A time-limit verdict states the limit the caller was promised (the engine
+/// measures from after compiling, so it would say 58 s for a 60 s limit).
+fn advertise_limit(mut value: serde_json::Value, limit: Duration) -> serde_json::Value {
+    if value["view"]["note"]["key"] == "time_limit" {
+        value["view"]["note"]["secs"] = serde_json::json!(limit.as_secs_f64().round());
+    }
+    value
 }
 
 /// Seconds a client is told to wait after a 503 for a full server.
@@ -756,6 +788,7 @@ fn input_error_note(note: &str) -> bool {
     .iter()
     .any(|p| m.starts_with(p))
         || m.contains(" expects ")
+        || (m.contains(" got ") && (m.ends_with(" arguments") || m.ends_with(" argument")))
 }
 
 fn split_args(s: &str) -> Vec<String> {
@@ -897,7 +930,7 @@ async fn api_solve(
     drop(slot);
     match solution_of(outcome, &job, &headers) {
         Ok((sol, reply)) => {
-            let value = view_of(&sol, reply.as_deref(), history_title.as_deref());
+            let value = advertise_limit(view_of(&sol, reply.as_deref(), history_title.as_deref()), job.limit());
             let (_, value) = cache_put(value);
             let mut out = value.as_ref().clone();
             if let (Caller::User(user), true) = (&caller, req.record) {
@@ -2741,6 +2774,7 @@ mod tests {
             assert_eq!(sol["proved"], false);
             assert_eq!(sol["status"], "not-proved");
             assert!(sol["note"].as_str().unwrap().contains("time limit"), "{sol}");
+            assert_eq!(sol["view"]["note"]["secs"], 1.0, "the verdict states the configured limit: {sol}");
             assert!(took < Duration::from_secs(1) + worker::GRACE + Duration::from_secs(2), "{took:?}");
             let pid = wait_for_pid(&pidfile).await;
             assert!(reaped(pid), "worker {pid} outlived its request");
@@ -3036,6 +3070,41 @@ mod tests {
         let ro = format!("{cookie}; lang=ro");
         let (_, _, body) = call(&state, "POST", "/api/solve", Some(&ro), serde_json::json!({"input": bad})).await;
         assert!(body["error"].as_str().unwrap().starts_with("Lipsește"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn metric_typos_are_compile_errors_in_the_users_words() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "typo").await;
+        let arity = "A B C = triangle\nprove dist(B,C) = sin(angle(A,B))";
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": arity})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["diagnosis"]["key"], "arity", "{body}");
+        assert_eq!(body["diagnosis"]["line"], 2, "{body}");
+        assert_eq!(body["error"], "“angle” takes 3 arguments, but 2 were given.", "{body}");
+        let ops = "A B C = triangle\nprove dist(B,C) = 2**dist(A,B)";
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ops})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
+        let msg = body["error"].as_str().unwrap();
+        assert!(!msg.contains("Op(") && msg.contains("*"), "{body}");
+        assert_eq!((body["diagnosis"]["line"].as_u64(), body["diagnosis"]["col"].as_u64()), (Some(2), Some(21)), "{body}");
+        let (_, _, hist) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(hist.as_array().map(Vec::len), Some(0), "typos are not history: {hist}");
+        let degenerate = "A B C = triangle\nM = midpoint(A, A)\nprove coll(A, B, M)";
+        let (_, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": degenerate})).await;
+        assert!(body["detail"].as_str().is_none_or(|d| !d.contains("no attempt")), "{body}");
+    }
+
+    #[test]
+    fn long_titles_are_cut_at_a_word_with_an_ellipsis() {
+        let long = "In every non-degenerate triangle consider the reflection of the orthocentre in each side; ".repeat(4);
+        let t = clean_title(Some(long)).unwrap();
+        assert!(t.chars().count() <= MAX_TITLE_CHARS, "{t}");
+        assert!(t.ends_with('\u{2026}'), "{t}");
+        let word = t.trim_end_matches('\u{2026}').rsplit(' ').next().unwrap();
+        assert!(["In", "every", "non-degenerate", "triangle", "consider", "the", "reflection", "of", "orthocentre", "in", "each", "side"].contains(&word), "{t}");
+        assert_eq!(clean_title(Some("  Euler line ".into())).as_deref(), Some("Euler line"));
+        assert_eq!(clean_title(Some("   ".into())), None);
     }
 
     #[tokio::test]

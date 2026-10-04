@@ -19,7 +19,12 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `app.js:deleteHistory` — deletion is deferred 6 s for Undo; pending deletes are flushed with `keepalive` on `pagehide`.
 - Colour tokens were checked for WCAG AA (text ≥ 4.5:1, borders/graphics ≥ 3:1) in both themes.
 - `site.js:modal` — full-screen figure and the history drawer: everything outside is `inert`, the element becomes `role=dialog aria-modal=true`, Tab wraps inside, and closing restores exactly what was made inert.
-- `site.js:renderSteps` — roving tabindex on steps; a step's cites are tab stops only while that step is active; a `focusout` that leaves the list clears the highlight.
+- `site.js:renderSteps` — roving tabindex on steps; a step's cites are tab stops only while that step is active; a `focusout` that leaves the list clears the highlight. Steps of kind `given` (restated hypotheses) are folded into one "Steps 1–8, 10 restate …" row with Show/Hide; they stay in the list hidden (`data-restated`), and a cite to one unfolds them. `subs` render as a bordered list under the step. The rule, `←` and cite chips are one inline flow; the arrow is glued to the first chip.
+- `site.js:math` — prose tokens split at `·` and `/`, and `sin∠ABC` / `△ABC` italicise the point run, so trig steps use the same type as the facts.
+- `site.js:placeLabels` — at a label scale above the server's (`k` > 1 in a small panel or the hero) labels of close points grow into each other; each keeps the server's spot unless that now hits a placed label (with a gap), a dot or a leader, else takes the least-colliding spot around its point. Leaders follow the new spot.
+- `app.js:announceStatus` — `#announce-status` (role=status) carries secondary messages (shorter-proof search, history search/filter counts, "explanation ready") so they never cut the verdict announcement in `#announce`. `#ai-text` is not a live region. Both regions are cleared on a language switch.
+- `app.js:refineShorter` — focus inside `#refine` goes to `#verdict-head` when the line is hidden; when a shorter proof is swapped in, `focusMark`/`restoreFocus` put focus back on the same control or step index.
+- `app.js` editor — a right-edge fade (`.code.can-scroll-x`) shows while a line runs past the editor's edge.
 - `site.js:fitLabels` — the constant-screen-size label logic, shared by the Viewer and the landing hero; `Viewer.reset` pads the view box when labels are drawn larger than the figure was framed for (high zoom, small panels).
 - `site.js:toast` — the timer pauses while the toast is hovered or focused; no `role=status` (the region is the live region).
 - `app.js:EXAMPLES` — each example has a comment per language; the editor is re-seeded on a language switch only while it still holds an untouched example.
@@ -35,4 +40,4 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `site.js:Viewer.stepPoint` — P / Shift+P in the focused figure walk the points in name order, highlight the steps using each and announce them.
 - `site.js:toggleFull` — the figure panel gets `has-full` (z-index above the sticky header) while full screen.
 - `auth.js` — server errors carry a `code`; field codes (`user_taken`, `username_rule`, `pw_len`) mark the field instead of a banner and are repainted on a language switch. Field hints are not live regions.
-- `landing.js` — stats and the showcase blurb come from `showcase.json` (`first_secs`, `budget_secs`); the step count excludes restated hypotheses.
+- `landing.js` — stats and the showcase blurb come from `showcase.json` (`first_secs`, `budget_secs`); the step count excludes restated hypotheses; the folded preview ends after `FIRST_DEDUCTIONS` deductions. `showcase.json`'s figure predates server-side leaders; its crowded labels had `f-lead` lines added to the stored SVG.

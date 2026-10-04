@@ -4,7 +4,7 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var t = function (k, v) { return window.i18n.t(k, v); };
-  var FIRST = 12;
+  var FIRST_DEDUCTIONS = 6;
   var data = null, expanded = false, viewer = null;
 
   document.querySelectorAll("[data-icon]").forEach(function (el) { el.innerHTML = GS.icons[el.getAttribute("data-icon")] || ""; });
@@ -15,17 +15,26 @@
   function paintSteps() {
     if (!data) return;
     var proof = data.view.proof;
-    var steps = expanded ? proof.steps : proof.steps.slice(0, FIRST);
+    var cut = previewEnd(proof.steps);
+    var steps = expanded ? proof.steps : proof.steps.slice(0, cut);
     GS.renderSteps($("steps"), { steps: steps, conclusion: expanded ? proof.conclusion : null }, {
       focus: function (pts) { viewer.highlight(pts); },
     });
     var more = $("more");
-    more.hidden = proof.steps.length <= FIRST;
+    more.hidden = proof.steps.length <= cut;
     more.textContent = expanded ? t("show.fewer") : t("show.steps", { lines: window.i18n.tp("show.lines", proof.steps.length) });
   }
 
+  function previewEnd(steps) {
+    var seen = 0;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].kind === "step") seen++;
+      if (seen >= FIRST_DEDUCTIONS) return i + 1;
+    }
+    return steps.length;
+  }
   function derived() {
-    return data.view.proof.steps.filter(function (s) { return s.kind !== "given"; }).length;
+    return data.view.proof.steps.filter(function (s) { return s.kind === "step"; }).length;
   }
   function paintStats() {
     if (!data) return;
