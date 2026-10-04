@@ -438,10 +438,6 @@ impl Ddar {
         &self.names[p as usize]
     }
 
-    /// Whether `a, b, c` are numerically flat by `force_collinear`'s criterion:
-    /// the smallest vertex-to-opposite-side distance (`|det| / longest side`)
-    /// is below [`ATOM`]. This is *stricter about degeneracy* than
-    /// [`orientation`], which only compares the raw determinant to `ATOM`.
     /// Whether the centre of `circle` lies left of chord `a → b`, by a margin
     /// relative to the chord and radius. A chord through the centre (a
     /// diameter, up to rounding) has no reliable side.
@@ -452,6 +448,10 @@ impl Ddar {
         scale > 0.0 && det > 1e-9 * scale
     }
 
+    /// Whether `a, b, c` are numerically flat by `force_collinear`'s criterion:
+    /// the smallest vertex-to-opposite-side distance (`|det| / longest side`)
+    /// is below [`ATOM`]. This is *stricter about degeneracy* than
+    /// [`orientation`], which only compares the raw determinant to `ATOM`.
     fn numerically_flat(&self, a: PointId, b: PointId, c: PointId) -> bool {
         let (pa, pb, pc) = (self.coord(a), self.coord(b), self.coord(c));
         let det = (pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x);
