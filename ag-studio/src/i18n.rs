@@ -118,6 +118,7 @@ fn en(key: &str) -> &'static str {
         "compile.no_goal" => "Add a goal line, for example “prove perp(A, H, B, C)”.",
         "compile.point_one" => "“point:” defines exactly one point.",
         "compile.other" => "The program could not be compiled.",
+        "compile.multiple_goals" => "Only one goal is allowed. Remove or comment out the extra prove line.",
         // export report
         "report.verdict.proved" => "Proved",
         "report.verdict.refuted" => "The statement is false",
@@ -159,6 +160,10 @@ fn en(key: &str) -> &'static str {
         "report.samples.one" => "{n} sampled figure",
         "report.samples.other" => "{n} sampled figures",
         "fact.oncircle" => "{pts} lie on a circle centered at {o}",
+        "fact.concur" => "{lines} pass through {p}",
+        "fact.incenter" => "{i} is the incenter of △{tri}",
+        "fact.excenter" => "{i} is an excenter of △{tri}",
+        "fact.in_or_excenter" => "{i} is the incenter or an excenter of △{tri}",
         "fact.ratio_fixed" => "the ratio {a} : {b} is fixed",
         "report.default_title" => "Geometry problem",
         "fact.coll" => "{pts} are collinear",
@@ -183,6 +188,10 @@ fn en(key: &str) -> &'static str {
         "aux.bisector_foot" => "foot of the bisector from {0} in △{1}",
         "aux.circumcircle" => "circumcircle of △{0}{1}{2}",
         "aux.circle" => "circle ({0}, {0}{1})",
+        "aux.line.para" => "the parallel to {1} through {0}",
+        "aux.line.perp" => "the perpendicular to {1} through {0}",
+        "aux.line.tangent_at" => "the tangent at {0} to the circle centered at {1}",
+        "aux.line.isogonal" => "the isogonal of {0} in \u{2220}{1}",
         "rule.similar" => "similar triangles",
         "rule.collinear" => "collinearity",
         "rule.concyclic" => "inscribed angles",
@@ -202,7 +211,10 @@ fn en(key: &str) -> &'static str {
         "counter.angle" => "In the sampled figure the angle between {a} and {b} is {lhs}°, not {rhs}°.",
         "counter.length" => "In the sampled figure {a} = {lhs} but {b} = {rhs}.",
         "counter.angles" => "In the sampled figure {a} = {lhs}° but {b} = {rhs}°.",
-        "counter.values" => "In the sampled figure the left side is {lhs} and the right side is {rhs}.",
+        "counter.angles_oriented" => "In the sampled figure {a} and {b} both measure {lhs}°, but they turn in opposite directions.",
+        "counter.line_angles" => "In the sampled figure the directed angle {a} is {lhs}° but {b} is {rhs}°.",
+        "counter.ratios" => "In the sampled figure {a} = {lhs} but {b} = {rhs}.",
+        "counter.values" => "In one sampled figure the left side is {lhs} and the right side is {rhs}.",
         "counter.off_line" => "In the sampled figure {a} is not on line {b}.",
         "counter.off_circle" => "In the sampled figure {a} is not on the circle through {b}.",
         _ => "something went wrong",
@@ -287,6 +299,7 @@ fn ro(key: &str) -> &'static str {
         "compile.no_goal" => "Adaugă un rând cu concluzia, de exemplu „prove perp(A, H, B, C)”.",
         "compile.point_one" => "„point:” definește exact un punct.",
         "compile.other" => "Programul nu a putut fi compilat.",
+        "compile.multiple_goals" => "Este permisă o singură concluzie. Șterge rândul prove în plus sau transformă-\u{2060}l în comentariu.",
         // export report
         "report.verdict.proved" => "Demonstrat",
         "report.verdict.refuted" => "Afirmația este falsă",
@@ -333,6 +346,10 @@ fn ro(key: &str) -> &'static str {
         "report.samples.few" => "{n} figuri eșantionate",
         "report.samples.other" => "{n} de figuri eșantionate",
         "fact.oncircle" => "{pts} se află pe un cerc cu centrul {o}",
+        "fact.concur" => "{lines} trec prin {p}",
+        "fact.incenter" => "{i} este centrul cercului înscris în triunghiul {tri}",
+        "fact.excenter" => "{i} este centrul unui cerc exînscris al triunghiului {tri}",
+        "fact.in_or_excenter" => "{i} este centrul cercului înscris sau al unui cerc exînscris al triunghiului {tri}",
         "fact.ratio_fixed" => "raportul {a} : {b} este fix",
         "report.default_title" => "Problemă de geometrie",
         "fact.coll" => "{pts} sunt coliniare",
@@ -357,6 +374,10 @@ fn ro(key: &str) -> &'static str {
         "aux.bisector_foot" => "piciorul bisectoarei din {0} în △{1}",
         "aux.circumcircle" => "cercul circumscris triunghiului {0}{1}{2}",
         "aux.circle" => "cercul ({0}, {0}{1})",
+        "aux.line.para" => "paralela prin {0} la {1}",
+        "aux.line.perp" => "perpendiculara prin {0} pe {1}",
+        "aux.line.tangent_at" => "tangenta în {0} la cercul cu centrul {1}",
+        "aux.line.isogonal" => "izogonala dreptei {0} în \u{2220}{1}",
         "rule.similar" => "triunghiuri asemenea",
         "rule.collinear" => "coliniaritate",
         "rule.concyclic" => "unghiuri înscrise",
@@ -376,7 +397,10 @@ fn ro(key: &str) -> &'static str {
         "counter.angle" => "În figura eșantionată unghiul dintre {a} și {b} este {lhs}°, nu {rhs}°.",
         "counter.length" => "În figura eșantionată {a} = {lhs}, dar {b} = {rhs}.",
         "counter.angles" => "În figura eșantionată {a} = {lhs}°, dar {b} = {rhs}°.",
-        "counter.values" => "În figura eșantionată membrul stâng este {lhs}, iar cel drept {rhs}.",
+        "counter.angles_oriented" => "În figura eșantionată {a} și {b} măsoară amândouă {lhs}°, dar sunt orientate în sensuri opuse.",
+        "counter.line_angles" => "În figura eșantionată unghiul orientat {a} este {lhs}°, dar {b} este {rhs}°.",
+        "counter.ratios" => "În figura eșantionată {a} = {lhs}, dar {b} = {rhs}.",
+        "counter.values" => "Într-una dintre figurile eșantionate membrul stâng este {lhs}, iar cel drept {rhs}.",
         "counter.off_line" => "În figura eșantionată {a} nu se află pe dreapta {b}.",
         "counter.off_circle" => "În figura eșantionată {a} nu se află pe cercul prin {b}.",
         _ => "ceva n-a mers",
@@ -585,11 +609,23 @@ pub fn prose_ro(s: &str) -> String {
 
 /// A cited theorem's Romanian name, for the theorems the provers cite.
 pub fn theorem_ro(name: &str) -> Option<&'static str> {
-    Some(match name.to_lowercase().as_str() {
+    Some(match name.to_lowercase().replace('\u{2019}', "'").replace("centre", "center").as_str() {
         "stewart's theorem" => "teorema lui Stewart",
         "pythagorean theorem" => "teorema lui Pitagora",
         "apollonius's median theorem" => "teorema medianei",
-        "menelaus's theorem" => "teorema lui Menelaus",
+        "menelaus's theorem" | "menelaus' theorem" => "teorema lui Menelaus",
+        "menelaus' theorem (converse)" | "menelaus's theorem (converse)" => "reciproca teoremei lui Menelaus",
+        "ceva's theorem (converse)" => "reciproca teoremei lui Ceva",
+        "angle bisectors concur (incenter/excenter)" => "bisectoarele sunt concurente (centrul cercului înscris sau exînscris)",
+        "perpendicular \u{21d2} squared lengths (pythagoras)" => "perpendicularitate \u{21d2} pătrate de lungimi (Pitagora)",
+        "perpendicular from squared lengths" => "perpendicularitate din pătrate de lungimi",
+        "squares of proportional lengths" => "pătratele unor lungimi proporționale",
+        "lengths from squared lengths" => "lungimi din pătratele lor",
+        "equal or supplementary angles have equal sines" => "unghiurile egale sau suplementare au sinusuri egale",
+        "sine of 30°" | "sine of 30°: 1/2" => "sinusul lui 30°",
+        "sine of 45°" | "sine of 45°: √2/2" => "sinusul lui 45°",
+        "sine of 60°" | "sine of 60°: √3/2" => "sinusul lui 60°",
+        "sine of 90°" | "sine of 90°: 1" => "sinusul lui 90°",
         "ceva's theorem" => "teorema lui Ceva",
         "angle-bisector theorem" => "teorema bisectoarei",
         "basic proportionality (intercept) theorem" => "teorema lui Thales",
@@ -655,5 +691,35 @@ mod tests {
         let ro = prose_ro("Combining the equations above gives AD² = 14.");
         assert!(ro.starts_with("Combinând"), "{ro}");
         assert_eq!(theorem_ro("Stewart's theorem"), Some("teorema lui Stewart"));
+    }
+
+    #[test]
+    fn every_ddar_theorem_has_a_romanian_name() {
+        let sources = [
+            include_str!("../../alphageometry-rs/src/engine.rs"),
+            include_str!("../../alphageometry-rs/src/engine/classics.rs"),
+            include_str!("../../alphageometry-rs/src/engine/sqlen.rs"),
+            include_str!("../../alphageometry-rs/src/engine/trig.rs"),
+        ];
+        let mut names: Vec<String> = Vec::new();
+        for src in sources {
+            for part in src.split("Reason::Theorem(").skip(1) {
+                let rest = part.trim_start();
+                if let Some(lit) = rest.strip_prefix('"').and_then(|r| r.split_once('"')).map(|(n, _)| n.to_string()) {
+                    names.push(lit);
+                }
+            }
+            for part in src.split("\"sine of ").skip(1) {
+                if let Some((n, _)) = part.split_once('"') {
+                    names.push(format!("sine of {n}"));
+                }
+            }
+        }
+        assert!(names.len() >= 15, "{names:?}");
+        for n in &names {
+            let shown = prose_en(n);
+            assert!(theorem_ro(&shown).is_some(), "no Romanian name for {shown:?}");
+        }
+        assert_eq!(theorem_ro("Menelaus\u{2019} theorem"), Some("teorema lui Menelaus"));
     }
 }

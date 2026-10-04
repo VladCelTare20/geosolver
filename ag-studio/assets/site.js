@@ -95,6 +95,8 @@
       case "midp": return esc(t("fact.midp", { m: "\u0001", seg: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "circle": return esc(t("fact.circle", { o: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "oncircle": return esc(t("fact.oncircle", { o: "\u0001", pts: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", a.slice(1).join(", "));
+      case "concur": return esc(t("fact.concur", { lines: "\u0001", p: "\u0002" })).replace("\u0001", a.slice(0, -1).join(", ")).replace("\u0002", a[a.length - 1] || "");
+      case "incenter": case "excenter": case "in_or_excenter": return esc(t("fact." + f.kind, { i: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "cong": case "length": case "eqangle": case "coincide": return g(0) + " = " + g(1);
       case "perp": return g(0) + " ⟂ " + g(1);
       case "para": return g(0) + " ∥ " + g(1);
@@ -276,8 +278,37 @@
       e.preventDefault();
       me.zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0016));
     }, { passive: false });
+    var pad = document.createElement("div");
+    pad.className = "pan-pad";
+    pad.hidden = true;
+    [["up", 0, 1], ["left", 1, 0], ["right", -1, 0], ["down", 0, -1]].forEach(function (d) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "pan-btn pan-" + d[0];
+      b.setAttribute("data-pan", d[0]);
+      b.innerHTML = icons.chevron;
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var r = vp.getBoundingClientRect();
+        me.panBy(d[1] * r.width * 0.3, d[2] * r.height * 0.3);
+      });
+      b.addEventListener("dblclick", function (e) { e.stopPropagation(); e.preventDefault(); });
+      pad.appendChild(b);
+    });
+    vp.appendChild(pad);
+    this.pad = pad;
+    function paintPad() {
+      pad.querySelectorAll(".pan-btn").forEach(function (b) {
+        var k = "fig.pan." + b.getAttribute("data-pan");
+        b.setAttribute("aria-label", t(k));
+        b.title = t(k);
+      });
+    }
+    paintPad();
+    document.addEventListener("langchange", paintPad);
     vp.addEventListener("pointerdown", function (e) {
       if (!me.svg || e.button > 0) return;
+      if (e.target.closest && e.target.closest(".pan-pad")) return;
       if (e.pointerType === "touch" && pointers.size === 0) {
         var now = Date.now();
         if (now - lastTap < 300) { me.zoomed() ? me.reset() : me.zoomAt(e.clientX, e.clientY, 2.5); lastTap = 0; return; }
@@ -317,9 +348,10 @@
     }
     vp.addEventListener("pointerup", lift);
     vp.addEventListener("pointercancel", lift);
-    vp.addEventListener("dblclick", function (e) { if (!me.svg) return; e.preventDefault(); me.zoomed() ? me.reset() : me.zoomAt(e.clientX, e.clientY, 2.5); });
+    vp.addEventListener("dblclick", function (e) { if (!me.svg || (e.target.closest && e.target.closest(".pan-pad"))) return; e.preventDefault(); me.zoomed() ? me.reset() : me.zoomAt(e.clientX, e.clientY, 2.5); });
     vp.addEventListener("keydown", function (e) {
       if (!me.svg || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.target !== vp && e.target.closest && e.target.closest(".pan-pad") && (e.key === "Enter" || e.key === " ")) return;
       var r = vp.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
       var handled = true;
       if (e.key === "+" || e.key === "=") me.zoomAt(cx, cy, 1.4);
@@ -352,10 +384,11 @@
   }
   Viewer.prototype.setSvg = function (svgText, ariaLabel) {
     var vp = this.els.viewport;
-    var old = vp.querySelector("svg");
+    var old = vp.querySelector(":scope > svg");
     if (old) old.remove();
-    if (svgText) vp.insertAdjacentHTML("beforeend", svgText);
-    this.svg = vp.querySelector("svg");
+    if (svgText) vp.insertAdjacentHTML(this.pad ? "afterbegin" : "beforeend", svgText);
+    this.svg = vp.querySelector(":scope > svg");
+    if (!this.svg && this.pad) this.pad.hidden = true;
     this.kbPoint = null;
     if (!this.svg) { this.base = this.vb = null; return; }
     var b = (this.svg.getAttribute("viewBox") || "0 0 100 100").split(/\s+/).map(Number);
@@ -376,6 +409,11 @@
     var v = this.vb;
     this.svg.setAttribute("viewBox", v.x.toFixed(2) + " " + v.y.toFixed(2) + " " + v.w.toFixed(2) + " " + v.h.toFixed(2));
     this.els.viewport.classList.toggle("is-zoomed", this.zoomed());
+    if (this.pad) {
+      var hide = !this.zoomed();
+      if (hide && this.pad.contains(document.activeElement)) this.els.viewport.focus({ preventScroll: true });
+      this.pad.hidden = hide;
+    }
     if (this.els.label) {
       var z = Math.round((this.base.w / v.w) * 100);
       this.els.label.textContent = z + "%";
@@ -385,10 +423,11 @@
   };
   /** Keep a figure's labels and dots a constant on-screen size while the
    * `vb` part of it is shown in a box of size `r`. */
+  function labelPx(r) { return Math.max(15, Math.min(17, r.width / 26)); }
   function fitLabels(svg, vb, r) {
     if (!svg || !vb || !r.width || !r.height) return;
     var s = Math.min(r.width / vb.w, r.height / vb.h);
-    var fs = Math.max(13, Math.min(17, r.width / 28));
+    var fs = labelPx(r);
     var k = Math.max(0.35, Math.min(4.5, fs / s / 18));
     svg.style.setProperty("--lbl-fs", (18 * k).toFixed(2) + "px");
     var dotR = Math.max(1.2, Math.min(8, (r.width < 500 ? 3.2 : 3.8) / s));
@@ -400,6 +439,12 @@
       el.setAttribute("stroke-width", (5 * k).toFixed(2));
     });
     svg.querySelectorAll(".f-dot").forEach(function (el) { el.setAttribute("r", dotR.toFixed(2)); });
+    var mk = Math.max(1, Math.min(2.2, k));
+    svg.querySelectorAll(".f-mark[data-a]").forEach(function (el) {
+      var a = el.getAttribute("data-a").split(",").map(Number);
+      if (mk === 1) el.removeAttribute("transform");
+      else el.setAttribute("transform", "translate(" + a[0] + " " + a[1] + ") scale(" + mk.toFixed(3) + ") translate(" + -a[0] + " " + -a[1] + ")");
+    });
     var byName = {};
     svg.querySelectorAll(".f-lbl").forEach(function (el, i) { byName[el.getAttribute("data-p")] = offsets[i]; });
     svg.querySelectorAll(".f-lead").forEach(function (el) {
@@ -439,7 +484,7 @@
     var dots = Array.prototype.map.call(svg.querySelectorAll(".f-dot"), function (el) { return [+el.getAttribute("cx"), +el.getAttribute("cy")]; });
     var segs = [];
     svg.querySelectorAll("line.f-line, line.f-seg, line.f-ext, line.f-goal, line.f-aux").forEach(function (el) {
-      segs.push([+el.getAttribute("x1"), +el.getAttribute("y1"), +el.getAttribute("x2"), +el.getAttribute("y2"), el.classList.contains("f-goal") ? 12 : 1.2]);
+      segs.push([+el.getAttribute("x1"), +el.getAttribute("y1"), +el.getAttribute("x2"), +el.getAttribute("y2"), el.classList.contains("f-goal") ? 12 : 8]);
     });
     var gap = 3 / s, placed = [], leads = [], out = [];
     labels.forEach(function (el) {
@@ -503,7 +548,7 @@
     var r = this.els.viewport.getBoundingClientRect();
     if (r.width && r.height) {
       var s0 = Math.min(r.width / b0.w, r.height / b0.h);
-      var k = Math.max(0.35, Math.min(4.5, Math.max(13, Math.min(17, r.width / 28)) / s0 / 18));
+      var k = Math.max(0.35, Math.min(4.5, labelPx(r) / s0 / 18));
       var pad = Math.max(0, (k - 1) * 32);
       this.base = { x: b0.x - pad, y: b0.y - pad, w: b0.w + 2 * pad, h: b0.h + 2 * pad };
     }

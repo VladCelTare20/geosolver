@@ -274,6 +274,8 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
         "midp" => i18n::tf(lang, "fact.midp", &[("m", g(0)), ("seg", g(1))]),
         "circle" => i18n::tf(lang, "fact.circle", &[("o", g(0)), ("tri", g(1))]),
         "oncircle" => i18n::tf(lang, "fact.oncircle", &[("o", g(0)), ("pts", a[1..].join(", "))]),
+        "concur" if !a.is_empty() => i18n::tf(lang, "fact.concur", &[("lines", a[..a.len() - 1].join(", ")), ("p", g(a.len() - 1))]),
+        k @ ("incenter" | "excenter" | "in_or_excenter") => i18n::tf(lang, &format!("fact.{k}"), &[("i", g(0)), ("tri", g(1))]),
         "prose" => {
             let ro = f["ro"].as_array().and_then(|r| r.first()).and_then(Value::as_str);
             match (lang, ro) {
@@ -302,6 +304,30 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
 
 /// An auxiliary construction in words (`midpoint of BC`), falling back to the
 /// engine's own notation for kinds without a template.
+pub fn shape_words(x: &str, lang: Lang) -> String {
+    let shapes = [
+        ("circumcircle(", "aux.circumcircle", ","),
+        ("circle(", "aux.circle", ","),
+        ("para(", "aux.line.para", ","),
+        ("perp(", "aux.line.perp", ","),
+        ("tangent_at(", "aux.line.tangent_at", ","),
+        ("isogonal(", "aux.line.isogonal", " in "),
+    ];
+    for (f, k, sep) in shapes {
+        if let Some(inner) = x.trim().strip_prefix(f).and_then(|r| r.strip_suffix(')')) {
+            let mut s = i18n::t(lang, k).to_string();
+            for (i, p) in inner.split(sep).map(str::trim).enumerate() {
+                let p = p.strip_prefix("centre ").or_else(|| p.strip_prefix("center ")).unwrap_or(p);
+                s = s.replace(&format!("{{{i}}}"), p);
+            }
+            if !s.contains('{') {
+                return s;
+            }
+        }
+    }
+    x.to_string()
+}
+
 pub fn aux_text(a: &Value, lang: Lang) -> String {
     let raw = a["text"].as_str().unwrap_or("").to_string();
     let kind = a["kind"].as_str().unwrap_or("");
@@ -321,21 +347,9 @@ pub fn aux_text(a: &Value, lang: Lang) -> String {
     if template == i18n::t(lang, "aux.__none__") {
         return raw;
     }
-    let circle_words = |x: &str| -> String {
-        for (f, k) in [("circumcircle(", "aux.circumcircle"), ("circle(", "aux.circle")] {
-            if let Some(inner) = x.strip_prefix(f).and_then(|r| r.strip_suffix(')')) {
-                let mut s = i18n::t(lang, k).to_string();
-                for (i, p) in inner.split(',').map(str::trim).enumerate() {
-                    s = s.replace(&format!("{{{i}}}"), p);
-                }
-                return s;
-            }
-        }
-        x.to_string()
-    };
     let mut args: Vec<String> = a["args"]
         .as_array()
-        .map(|v| v.iter().filter_map(|x| x.as_str()).map(circle_words).collect())
+        .map(|v| v.iter().filter_map(|x| x.as_str()).map(|x| shape_words(x, lang)).collect())
         .unwrap_or_default();
     if matches!(kind, "midpoint" | "circumcenter" | "orthocenter" | "parallelogram") {
         args = args.iter().flat_map(|x| x.split(',').map(|s| s.trim().to_string()).collect::<Vec<_>>()).collect();
@@ -384,7 +398,7 @@ fn counter_text(c: &Value, lang: Lang) -> Option<String> {
         .unwrap_or_default();
     let l = |i: usize| labels.get(i).cloned().unwrap_or_default();
     let (lhs, rhs) = (c["lhs"].as_f64()?, c["rhs"].as_f64()?);
-    let digits = if kind == "values" || kind == "length" { 4 } else { 1 };
+    let digits = if matches!(kind, "values" | "length" | "ratios") { 4 } else { 1 };
     Some(i18n::tf(
         lang,
         &format!("counter.{kind}"),
@@ -479,6 +493,8 @@ const FIG_MAX_H: f32 = 330.0;
 /// A report that would spill onto a second page gets a figure down to this
 /// height instead.
 const FIG_MIN_H: f32 = 190.0;
+const FIG_ONE_PAGE_MIN_H: f32 = 150.0;
+const BESIDE_GAIN: f32 = 220.0;
 const UI: &str = "'GeoSolver Sans', 'DejaVu Sans', sans-serif";
 const MATH: &str = "'GeoSolver Math', 'DejaVu Serif', serif";
 const INK: &str = "#16191d";
@@ -518,7 +534,10 @@ fn method_text(v: &Value, lang: Lang) -> Option<String> {
     let method = v["method"].as_str().unwrap_or("");
     match status {
         "holds-numerically" => return Some(i18n::t(lang, "report.method.numeric").to_string()),
-        "refuted" => return Some(i18n::t(lang, "report.method.counter").to_string()),
+        "refuted" => {
+            let key = if v["view"]["counterexample"].is_null() { "report.method.numeric" } else { "report.method.counter" };
+            return Some(i18n::t(lang, key).to_string());
+        }
         _ => {}
     }
     if method == "euclidean" {
@@ -906,6 +925,16 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
     let total: f32 = blocks.iter().map(|b| b.h).sum();
     let overflow = total - (bottom - (MARGIN - 10.0));
     if paginate && overflow > 0.0 && fig_h > 0.0 && fig_max_h >= FIG_MAX_H {
+        if overflow <= fig_h - FIG_ONE_PAGE_MIN_H + BESIDE_GAIN {
+            let mut h = fig_h - 10.0;
+            while h >= FIG_ONE_PAGE_MIN_H {
+                let pages = report_pages_fit(v, lang, paginate, h);
+                if pages.len() == 1 {
+                    return pages;
+                }
+                h -= 15.0;
+            }
+        }
         let smaller = fig_h - overflow - 8.0;
         if smaller >= FIG_MIN_H {
             return report_pages_fit(v, lang, paginate, smaller);
@@ -1167,7 +1196,10 @@ mod tests {
     fn report_copy_matches_the_app() {
         let refuted = serde_json::json!({"status": "refuted", "method": "ddar", "view": {"note": {"key": "false"}}});
         assert_eq!(verdict_copy(&refuted, Lang::En).1, "A sampled figure contradicts it, so no proof can exist.");
-        assert_eq!(method_text(&refuted, Lang::En).as_deref(), Some("Numerical counterexample"));
+        assert_eq!(method_text(&refuted, Lang::En).as_deref(), Some("Numerical check"), "no counterexample to show");
+        let shown = serde_json::json!({"status": "refuted", "method": "ddar", "view": {"counterexample": {"kind": "ratios", "lhs": 1.0, "rhs": 2.0, "labels": ["AM : MB", "AC : CB"]}}});
+        assert_eq!(method_text(&shown, Lang::En).as_deref(), Some("Numerical counterexample"));
+        assert_eq!(counter_text(&shown["view"]["counterexample"], Lang::En).as_deref(), Some("In the sampled figure AM : MB = 1.0000 but AC : CB = 2.0000."));
         let numeric = serde_json::json!({"status": "holds-numerically", "numeric_samples": 48, "view": {"note": {"key": "no_euclid"}}});
         assert_eq!(
             verdict_copy(&numeric, Lang::Ro).1,
@@ -1246,5 +1278,14 @@ mod tests {
         let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"90000000\"/>";
         assert!(pdf_from_pages(&[svg.to_string()]).is_err());
         assert!(svg_to_png(svg, 1.0).is_err());
+    }
+
+    #[test]
+    fn a_short_proof_fits_one_page() {
+        let src = "# The reflection of the orthocenter in a side lies on the circumcircle.\nA B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))";
+        let v = present::solution_json(&solve(src, &SolveOptions::default()).unwrap(), None);
+        for lang in [Lang::En, Lang::Ro] {
+            assert_eq!(report_pages(&v, lang, true).len(), 1);
+        }
     }
 }

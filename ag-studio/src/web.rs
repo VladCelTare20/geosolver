@@ -49,12 +49,20 @@ const ASSETS: &[(&str, &str, &str, &[u8])] = &[
 /// Recent solutions by id, so export and history reopen use exactly what the
 /// reader saw instead of solving again.
 const SOLUTION_TTL: Duration = Duration::from_secs(30 * 60);
-const SOLUTION_CACHE_MAX: usize = 128;
+const SOLUTION_CACHE_MAX: usize = 256;
+const SOLUTION_CACHE_PER_OWNER: usize = 24;
 /// Solutions larger than this are not stored in history (reopen re-solves).
 const MAX_STORED_SOLUTION_BYTES: usize = 512 * 1024;
 
+struct CachedSolution {
+    id: String,
+    owner: String,
+    at: std::time::Instant,
+    value: std::sync::Arc<serde_json::Value>,
+}
+
 struct SolutionCache {
-    entries: Vec<(String, std::time::Instant, std::sync::Arc<serde_json::Value>)>,
+    entries: Vec<CachedSolution>,
 }
 
 fn solution_cache() -> &'static std::sync::Mutex<SolutionCache> {
@@ -62,17 +70,43 @@ fn solution_cache() -> &'static std::sync::Mutex<SolutionCache> {
     CACHE.get_or_init(|| std::sync::Mutex::new(SolutionCache { entries: Vec::new() }))
 }
 
-fn cache_put(value: serde_json::Value) -> (String, std::sync::Arc<serde_json::Value>) {
+impl SolutionCache {
+    fn evict_for(&mut self, owner: &str, per_owner: usize, max: usize) {
+        self.entries.retain(|e| e.at.elapsed() < SOLUTION_TTL);
+        let mine = self.entries.iter().filter(|e| e.owner == owner).count();
+        if mine >= per_owner {
+            if let Some(i) = self.entries.iter().position(|e| e.owner == owner) {
+                self.entries.remove(i);
+            }
+        }
+        if self.entries.len() >= max {
+            let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            for e in &self.entries {
+                *counts.entry(e.owner.as_str()).or_insert(0) += 1;
+            }
+            let top = counts.iter().max_by_key(|(_, n)| **n).map(|(o, _)| o.to_string());
+            if let Some(top) = top {
+                if let Some(i) = self.entries.iter().position(|e| e.owner == top) {
+                    self.entries.remove(i);
+                }
+            }
+        }
+    }
+}
+
+fn cache_put(owner: &str, value: serde_json::Value) -> (String, std::sync::Arc<serde_json::Value>) {
     let id = auth::new_session_id()[..32].to_string();
     let mut value = value;
     value["id"] = serde_json::Value::String(id.clone());
     let arc = std::sync::Arc::new(value);
     let mut c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    c.entries.retain(|(_, at, _)| at.elapsed() < SOLUTION_TTL);
-    if c.entries.len() >= SOLUTION_CACHE_MAX {
-        c.entries.remove(0);
-    }
-    c.entries.push((id.clone(), std::time::Instant::now(), arc.clone()));
+    c.evict_for(owner, SOLUTION_CACHE_PER_OWNER, SOLUTION_CACHE_MAX);
+    c.entries.push(CachedSolution {
+        id: id.clone(),
+        owner: owner.to_string(),
+        at: std::time::Instant::now(),
+        value: arc.clone(),
+    });
     (id, arc)
 }
 
@@ -80,8 +114,8 @@ fn cache_get(id: &str) -> Option<std::sync::Arc<serde_json::Value>> {
     let c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     c.entries
         .iter()
-        .find(|(k, at, _)| k == id && at.elapsed() < SOLUTION_TTL)
-        .map(|(_, _, v)| v.clone())
+        .find(|e| e.id == id && e.at.elapsed() < SOLUTION_TTL)
+        .map(|e| e.value.clone())
 }
 
 
@@ -846,7 +880,19 @@ fn degenerate_goal(input: &str) -> Option<String> {
     let goal = present::source_goal(input)?;
     let open = goal.find('(')?;
     let name = goal[..open].trim();
-    let args = split_args(goal[open + 1..].trim_end().strip_suffix(')')?);
+    let mut depth = 0i32;
+    let close = goal[open..].char_indices().find_map(|(k, c)| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        (depth == 0).then_some(open + k)
+    })?;
+    if !goal[close + 1..].trim().is_empty() {
+        return None;
+    }
+    let args = split_args(&goal[open + 1..close]);
     let is_pt = |a: &str| a.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '\'');
     let repeated = |xs: &[String]| {
         xs.iter().enumerate().find_map(|(i, a)| (is_pt(a) && xs[..i].contains(a)).then(|| a.clone()))
@@ -964,7 +1010,7 @@ async fn api_solve(
     match solution_of(outcome, &job, &headers) {
         Ok((sol, reply)) => {
             let value = advertise_limit(view_of(&sol, reply.as_deref(), history_title.as_deref()), job.limit());
-            let (_, value) = cache_put(value);
+            let (_, value) = cache_put(&caller_key(&caller, ip.as_ref()), value);
             let mut out = value.as_ref().clone();
             if let (Caller::User(user), true) = (&caller, req.record) {
                 if let Some(id) = save_history(&state, user.id, &sol, history_title.as_deref(), &value).await {
@@ -1146,7 +1192,7 @@ async fn api_history_get(
     match res {
         Ok(Ok(Some(Some(json)))) => match serde_json::from_str::<serde_json::Value>(&json) {
             Ok(v) => {
-                let (_, v) = cache_put(v);
+                let (_, v) = cache_put(&format!("u{}", user.id), v);
                 Json(v.as_ref().clone()).into_response()
             }
             Err(_) => err(StatusCode::GONE, i18n::t(lang, "history.no_solution")),
@@ -3186,5 +3232,37 @@ mod tests {
         assert_eq!(body["signed_in"], false);
         assert_eq!(body["can_translate"], false);
         assert!(body["translate_block"].is_string(), "{body}");
+    }
+
+    #[test]
+    fn one_caller_cannot_evict_anothers_cached_results() {
+        let mut c = SolutionCache { entries: Vec::new() };
+        let mut push = |owner: &str, id: String| {
+            c.evict_for(owner, SOLUTION_CACHE_PER_OWNER, SOLUTION_CACHE_MAX);
+            c.entries.push(CachedSolution {
+                id,
+                owner: owner.to_string(),
+                at: std::time::Instant::now(),
+                value: std::sync::Arc::new(serde_json::json!({})),
+            });
+        };
+        push("u1", "mine".into());
+        for i in 0..1000 {
+            push("u2", format!("flood{i}"));
+        }
+        for k in 0..20 {
+            for i in 0..30 {
+                push(&format!("g{k}"), format!("g{k}-{i}"));
+            }
+        }
+        assert!(c.entries.iter().any(|e| e.id == "mine"), "a flood of other callers' solves evicted u1's result");
+        assert!(c.entries.iter().filter(|e| e.owner == "u2").count() <= SOLUTION_CACHE_PER_OWNER);
+        assert!(c.entries.len() <= SOLUTION_CACHE_MAX);
+    }
+
+    #[test]
+    fn a_goal_joining_two_relations_is_not_called_degenerate() {
+        assert_eq!(degenerate_goal("A B C = triangle\nM = midpoint(A, B)\nprove coll(A, M, B) \u{2227} coll(A, B, M)"), None);
+        assert_eq!(degenerate_goal("A B C = triangle\nprove cyclic(A, B, C, A)").as_deref(), Some("A"));
     }
 }

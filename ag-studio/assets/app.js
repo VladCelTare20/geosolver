@@ -442,7 +442,9 @@
     clearInterval(S.timer);
     var tick = function () {
       var el = (Date.now() - S.started) / 1000;
-      $("solving-elapsed").textContent = t("solving.elapsed", { t: Math.floor(el) + " s", max: maxSecs + " s" });
+      $("solving-elapsed").textContent = el > maxSecs
+        ? t("solving.finishing", { max: maxSecs + " s" })
+        : t("solving.elapsed", { t: Math.floor(el) + " s", max: maxSecs + " s" });
       $("progress-bar").style.width = Math.min(100, (el / maxSecs) * 100) + "%";
     };
     tick();
@@ -489,6 +491,7 @@
 
   function solve() {
     if (S.busy) return;
+    var stoppedRefine = !!S.refining;
     if (S.refining) stopRefining();
     var mode = S.mode;
     var geo = editor.get().trim();
@@ -537,7 +540,19 @@
     }
     chain.then(function (g) {
       S.geo = g;
-      return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
+      var tries = stoppedRefine ? 4 : 0;
+      var post = function () {
+        return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
+          if (r.status === 503 && r.data && r.data.code === "busy_self" && tries-- > 0) {
+            return new Promise(function (res) { setTimeout(res, 350); }).then(function () {
+              if (ctl.signal.aborted) throw new DOMException("aborted", "AbortError");
+              return post();
+            });
+          }
+          return r;
+        });
+      };
+      return post().then(function (r) {
         if (!r.ok) throw httpError(r, "solve");
         if (!validSolution(r.data)) throw unreadable();
         return r.data;
@@ -581,14 +596,16 @@
     S.sessionEnded = true;
     S.history = [];
     S.activeHistory = null;
+    var mark = histFocusMark();
+    $("hist-list").innerHTML = "";
+    $("hist-empty").hidden = false;
+    $("hist-empty").innerHTML = esc(t("hist.session_ended")) + ' <a href="/auth">' + esc(t("nav.signin")) + "</a>";
+    if (mark) histFocusRestore(mark);
     api("/api/status").then(function (r) {
       if (r.ok) { S.status = r.data; S.deadline = r.data.solve_deadline_secs || S.deadline; }
     }).catch(function () {}).then(function () {
       if (S.status) S.status.signed_in = false;
       paintAccount();
-      $("hist-list").innerHTML = "";
-      $("hist-empty").hidden = false;
-      $("hist-empty").innerHTML = esc(t("hist.session_ended")) + ' <a href="/auth">' + esc(t("nav.signin")) + "</a>";
       paintAiPill();
       paintGates();
     });
@@ -691,7 +708,7 @@
   }
   function methodText(sol) {
     if (sol.status === "holds-numerically") return t("meta.method.numeric");
-    if (sol.status === "refuted") return t("meta.method.counter");
+    if (sol.status === "refuted") return t(sol.view && sol.view.counterexample ? "meta.method.counter" : "meta.method.numeric");
     if (sol.method === "euclidean") return sol.status === "proved" ? t("meta.method.euclid") : "";
     var n = (sol.aux_constructions || []).length;
     if (n) return tp("meta.method.aux", n);
@@ -700,7 +717,7 @@
   function counterText(c) {
     if (!c) return "";
     var n = window.i18n.fmtNum;
-    var digits = c.kind === "values" || c.kind === "length" ? 4 : 1;
+    var digits = c.kind === "values" || c.kind === "length" || c.kind === "ratios" ? 4 : 1;
     var L = c.labels || [];
     return t("counter." + c.kind, { a: L[0] || "", b: L[1] || "", lhs: n(c.lhs, digits), rhs: n(c.rhs, digits) });
   }
@@ -765,7 +782,7 @@
     menu.addEventListener("click", function (e) {
       var b = e.target.closest("[data-export]");
       if (!b) return;
-      close();
+      close(true);
       exportAs(b.getAttribute("data-export"));
     });
     document.addEventListener("click", function (e) { if (!menu.hidden && !e.target.closest(".verdict .menu-wrap")) close(); });
@@ -835,13 +852,13 @@
   function auxText(a) {
     var key = "aux." + a.kind;
     var args = (a.args || []).map(function (x) {
-      var mm = /^(circumcircle|circle)\((.*)\)$/.exec(x);
+      var mm = /^(circumcircle|circle|para|perp|tangent_at|isogonal)\((.*)\)$/.exec(String(x).trim());
       if (mm) {
-        var parts = mm[2].split(",").map(function (s) { return s.trim(); });
-        var k2 = "aux." + mm[1];
+        var parts = mm[2].split(mm[1] === "isogonal" ? " in " : ",").map(function (s) { return s.trim().replace(/^cent(re|er) /, ""); });
+        var k2 = /circ/.test(mm[1]) ? "aux." + mm[1] : "aux.line." + mm[1];
         var s2 = t(k2);
         parts.forEach(function (p, i) { s2 = s2.split("{" + i + "}").join(p); });
-        return s2;
+        if (!/\{\d\}/.test(s2)) return s2;
       }
       return x;
     });
@@ -991,13 +1008,14 @@
   function fitViewportToFigure(svg) {
     var vp = $("fig-viewport");
     vp.style.height = "";
-    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    if (!window.matchMedia("(max-width: 1023px)").matches) return;
     var m = /viewBox="([^"]+)"/.exec(svg);
     var b = m ? m[1].split(/\s+/).map(Number) : null;
     var w = vp.getBoundingClientRect().width;
     if (!b || !(b[2] > 0) || !(b[3] > 0) || !w) return;
     var ratio = Math.max(0.6, Math.min(1.25, b[3] / b[2]));
-    vp.style.height = Math.round(Math.min(w * ratio, window.innerHeight * 0.7)) + "px";
+    var cap = window.matchMedia("(max-width: 767px)").matches ? 0.7 : 0.6;
+    vp.style.height = Math.round(Math.min(w * ratio, window.innerHeight * cap)) + "px";
   }
 
   // ------------------------------------------------------- shorter proofs --
@@ -1113,24 +1131,55 @@
       GS.toast(t("export.done", { fmt: "SVG" }));
       return;
     }
+    if (S.exporting) return;
+    S.exporting = true;
     var btn = $("export-btn");
-    btn.disabled = true;
+    btn.setAttribute("aria-disabled", "true");
     var tst = GS.toast(t("export.preparing", { fmt: label }), { ms: 60000 });
-    fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sol.id, format: fmt }) }).then(function (res) {
+    var post = function (body) {
+      return fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    };
+    var recache = function () {
+      if (!sol.history_id || !(S.status && S.status.signed_in)) return Promise.resolve(null);
+      return api("/api/history/" + sol.history_id).then(function (r) {
+        return r.ok && r.data && r.data.id ? r.data.id : null;
+      }).catch(function () { return null; });
+    };
+    var fail = function (msg) {
+      if (tst) tst.close();
+      GS.toast(t("export.failed", { msg: msg }), { ms: 7000 });
+    };
+    post({ id: sol.id, format: fmt }).then(function (res) {
+      if (res.status !== 410) return res;
+      return recache().then(function (id) {
+        if (id) {
+          if (S.sol === sol) sol.id = id;
+          return post({ id: id, format: fmt });
+        }
+        return post({ input: sol.input, title: sol.title || null, format: fmt });
+      });
+    }).then(function (res) {
       if (res.ok) return res.blob().then(function (b) {
         download(b, exportName(sol, fmt));
         if (tst) tst.close();
         GS.toast(t("export.done", { fmt: label }));
       });
       return res.json().catch(function () { return {}; }).then(function (j) {
-        if (tst) tst.close();
-        if (res.status === 401) { sessionEnded(); return; }
-        GS.toast(t("export.failed", { msg: j.error || res.statusText }), { ms: 7000 });
+        if (res.status === 401) {
+          if (tst) tst.close();
+          sessionEnded();
+          GS.toast(t("export.auth"), { ms: 9000 });
+          return;
+        }
+        fail(j.error || res.statusText);
       });
     }).catch(function (e) {
-      if (tst) tst.close();
-      GS.toast(t("export.failed", { msg: e.message }), { ms: 7000 });
-    }).then(function () { btn.disabled = false; });
+      fail(e.message);
+    }).then(function () {
+      S.exporting = false;
+      var b = $("export-btn");
+      if (b) b.removeAttribute("aria-disabled");
+    });
   }
   function copyText(text) {
     var done = function () { GS.toast(t("copied")); };
@@ -1179,13 +1228,40 @@
       if (r.status === 401) { sessionEnded(); return; }
       if (!r.ok) throw new Error();
       S.history = Array.isArray(r.data) ? r.data : [];
-      renderHistory();
+      renderHistory(true);
     }).catch(function () {
       $("hist-empty").hidden = false;
       $("hist-empty").textContent = t("hist.load_fail");
     });
   }
-  function renderHistory() {
+  function histFocusMark() {
+    var list = $("hist-list"), ae = document.activeElement;
+    if (!ae || !list.contains(ae)) return null;
+    var li = ae.closest(".hist-item");
+    var items = Array.prototype.slice.call(list.querySelectorAll(".hist-item"));
+    return { at: Math.max(0, items.indexOf(li)), del: !!ae.closest(".hist-del"), id: li ? +li.getAttribute("data-id") : null };
+  }
+  function histFocusRestore(mark) {
+    if (!mark) return;
+    var ae = document.activeElement;
+    if (ae && ae !== document.body && document.contains(ae)) return;
+    var list = $("hist-list");
+    var same = mark.id != null ? list.querySelector('.hist-item[data-id="' + mark.id + '"]') : null;
+    var items = list.querySelectorAll(".hist-item");
+    var li = same || items[Math.min(mark.at, items.length - 1)];
+    var target = li ? li.querySelector(mark.del && same ? ".hist-del" : ".hist-open") : null;
+    if (target) { target.focus(); return; }
+    var link = $("hist-empty").querySelector("a");
+    if (link && !$("hist-empty").hidden) { link.focus(); return; }
+    if ($("hist-search").offsetParent !== null) $("hist-search").focus();
+  }
+  function renderHistory(keepFocus) {
+    var mark = keepFocus ? histFocusMark() : null;
+    var res = renderHistoryRows();
+    histFocusRestore(mark);
+    return res;
+  }
+  function renderHistoryRows() {
     var q = S.query.trim().toLowerCase();
     var rows = S.history.filter(function (r) {
       if (S.pendingDeletes.has(r.id)) return false;
@@ -1287,7 +1363,7 @@
       if (r.status === 401) { sessionEnded(); GS.toast(t("hist.session_ended")); return; }
       if (!r.ok && r.status !== 404) { GS.toast(t("hist.del_fail")); loadHistory(); return; }
       S.history = S.history.filter(function (x) { return x.id !== id; });
-      renderHistory();
+      renderHistory(true);
     }).catch(function () {});
   }
   function flushDeletes() { Array.from(S.pendingDeletes.keys()).forEach(function (id) { commitDelete(id, true); }); }
@@ -1309,7 +1385,7 @@
     }
     function gone(msg) {
       S.activeHistory = null;
-      renderHistory();
+      renderHistory(true);
       GS.toast(msg);
     }
     api("/api/history/" + id).then(function (r) {
@@ -1317,7 +1393,7 @@
       if (r.ok && validSolution(r.data)) { adopt(); r.data.history_id = id; renderSolution(r.data, { announce: true, focus: true }); return; }
       if (r.ok) { S.activeHistory = null; renderHistory(); showError(unreadable()); return; }
       if (r.status === 410) { adopt(); solveReplay(row); return; }
-      if (r.status === 401) { S.activeHistory = null; showError(httpError(r)); return; }
+      if (r.status === 401) { S.activeHistory = null; showError(httpError(r), true); return; }
       if (r.status === 404) {
         S.history = S.history.filter(function (x) { return x.id !== id; });
         gone(t("hist.gone"));

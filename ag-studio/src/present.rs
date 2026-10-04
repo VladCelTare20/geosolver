@@ -389,6 +389,68 @@ fn angle_sum_text(n: &dyn Fn(u32) -> String, pred: &Predicate) -> Option<String>
     Some(format!("{} = {rhs}\u{b0}", terms.join(" + ")))
 }
 
+fn rational_text(c: &ddar::rational::Rat) -> Option<String> {
+    match (c.numer_i64()?, c.denom_i64()?) {
+        (n, 1) => Some(n.to_string()),
+        (n, d) => Some(format!("{n}/{d}")),
+    }
+}
+
+fn dist_sum_text(n: &dyn Fn(u32) -> String, pred: &Predicate) -> Option<String> {
+    let p = &pred.points;
+    let k = pred.constants.len();
+    if k == 0 || p.len() != 2 * k {
+        return None;
+    }
+    let (mut lhs, mut rhs) = (Vec::new(), Vec::new());
+    for (i, c) in pred.constants.iter().enumerate() {
+        let seg = format!("{}{}", n(p[2 * i]), n(p[2 * i + 1]));
+        let v = c.to_f64();
+        if v == 0.0 {
+            continue;
+        }
+        let mag = rational_text(&c.abs())?;
+        let term = if mag == "1" { seg } else { format!("{mag}\u{b7}{seg}") };
+        if v > 0.0 { lhs.push(term) } else { rhs.push(term) }
+    }
+    if lhs.is_empty() && rhs.is_empty() {
+        return None;
+    }
+    let side = |v: &[String]| if v.is_empty() { "0".to_string() } else { v.join(" + ") };
+    Some(format!("{} = {}", side(&lhs), side(&rhs)))
+}
+
+fn dist_product_text(n: &dyn Fn(u32) -> String, pred: &Predicate) -> Option<String> {
+    let p = &pred.points;
+    let k = pred.constants.len().checked_sub(1)?;
+    if k == 0 || p.len() != 2 * k {
+        return None;
+    }
+    let (mut num, mut den) = (Vec::new(), Vec::new());
+    for (i, c) in pred.constants[..k].iter().enumerate() {
+        let seg = format!("{}{}", n(p[2 * i]), n(p[2 * i + 1]));
+        let (e, d) = (c.numer_i64()?, c.denom_i64()?);
+        if e == 0 {
+            continue;
+        }
+        let pow = match (e.abs(), d) {
+            (1, 1) => seg,
+            (m, 1) => format!("{seg}{}", superscript(&m.to_string())),
+            (m, d) => format!("{seg}^({m}/{d})"),
+        };
+        if e > 0 { num.push(pow) } else { den.push(pow) }
+    }
+    let konst = &pred.constants[k];
+    let kt = rational_text(konst)?;
+    let side = |v: &[String]| if v.is_empty() { "1".to_string() } else { v.join(" \u{b7} ") };
+    let rhs = match (kt.as_str(), den.is_empty()) {
+        ("1", _) => side(&den),
+        (_, true) => kt,
+        _ => format!("{kt} \u{b7} {}", side(&den)),
+    };
+    Some(format!("{} = {rhs}", side(&num)))
+}
+
 fn const_str(pred: &Predicate) -> String {
     pred.constants
         .first()
@@ -462,6 +524,12 @@ fn fact_of_pred(problem: &Problem, names: &Names, pred: &Predicate) -> Fact {
         ),
         "angeq" if angle_sum_text(&n, pred).is_some() => {
             Fact::new("formula", vec![angle_sum_text(&n, pred).unwrap_or_default()], pts)
+        }
+        "distseq" if dist_sum_text(&n, pred).is_some() => {
+            Fact::new("formula", vec![dist_sum_text(&n, pred).unwrap_or_default()], pts)
+        }
+        "distmeq" if dist_product_text(&n, pred).is_some() => {
+            Fact::new("formula", vec![dist_product_text(&n, pred).unwrap_or_default()], pts)
         }
         _ => {
             let mut parts: Vec<String> = vec![pred.name.clone()];
@@ -886,7 +954,7 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
         let ab: Vec<&str> = r.split(" coincide").next().unwrap_or("").split(" and ").collect();
         let a: Vec<String> = ab.iter().map(|x| names.get(x.trim())).collect();
         ("step", "coincide", None, Fact::new("coincide", a.clone(), a))
-    } else if let Some((rule, stmt)) = body.split_once(": ") {
+    } else if let Some((rule, stmt)) = if body.starts_with("sine of ") { body.rsplit_once(": ") } else { body.split_once(": ") } {
         match rule {
             "assumption" | "construction" => {
                 let f = fact_of_pred_text(problem, names, stmt).unwrap_or_else(|| formula(stmt));
@@ -944,8 +1012,10 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
                 ("step", "arcchord", None, fact)
             }
             other => {
-                let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
-                let fact = theorem_fact(other, &v).unwrap_or_else(|| Fact::new("points", v.clone(), v));
+                let raws: Vec<&str> = stmt.split_whitespace().collect();
+                let v: Vec<String> = raws.iter().map(|x| names.get(x)).collect();
+                let at: Vec<Option<Pt>> = raws.iter().map(|r| coord(problem, r)).collect();
+                let fact = theorem_fact(other, &v, &at).unwrap_or_else(|| Fact::new("points", v.clone(), v));
                 ("step", "theorem", Some(crate::i18n::prose_en(other)), fact)
             }
         }
@@ -956,10 +1026,131 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
     Some(Step { n, kind, rule, rule_name, rule_name_ro, fact, deps, subs: Vec::new() })
 }
 
-fn theorem_fact(name: &str, p: &[String]) -> Option<Fact> {
+fn ratio_text(r: f64) -> Option<String> {
+    let (p, q) = simple_ratio(r)?;
+    Some(if q == 1 { p.to_string() } else { format!("{p}/{q}") })
+}
+
+fn square_ratio_text(r2: f64) -> Option<String> {
+    if let Some(t) = ratio_text(r2) {
+        return Some(t);
+    }
+    if !(r2.is_finite() && r2 > 0.0) {
+        return None;
+    }
+    let q = (1..=144u64).find(|&q| {
+        let p = (r2 * q as f64).round();
+        p >= 1.0 && near(p / q as f64, r2)
+    })?;
+    let p = (r2 * q as f64).round() as u64;
+    let g = (1..=p.min(q)).rev().find(|g| p % g == 0 && q % g == 0).unwrap_or(1);
+    Some(if q / g == 1 { (p / g).to_string() } else { format!("{}/{}", p / g, q / g) })
+}
+
+fn len_at(at: &[Option<Pt>], a: usize, b: usize) -> Option<f64> {
+    let (p, q) = (at.get(a).copied()??, at.get(b).copied()??);
+    Some(((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt())
+}
+
+fn strictly_inside(p: Pt, a: Pt, b: Pt, c: Pt) -> bool {
+    let side = |u: Pt, v: Pt| (v.0 - u.0) * (p.1 - u.1) - (v.1 - u.1) * (p.0 - u.0);
+    let (s1, s2, s3) = (side(a, b), side(b, c), side(c, a));
+    (s1 > 0.0 && s2 > 0.0 && s3 > 0.0) || (s1 < 0.0 && s2 < 0.0 && s3 < 0.0)
+}
+
+fn unique(p: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = Vec::new();
+    for x in p {
+        if !v.contains(x) {
+            v.push(x.clone());
+        }
+    }
+    v
+}
+
+fn theorem_fact(name: &str, p: &[String], at: &[Option<Pt>]) -> Option<Fact> {
     let seg = |a: usize, b: usize| format!("{}{}", p[a], p[b]);
     let pts = |idx: &[usize]| idx.iter().map(|&i| p[i].clone()).collect::<Vec<_>>();
+    let sq = |a: usize, b: usize| format!("{}\u{b2}", seg(a, b));
+    let formula = |text: String| Fact::new("formula", vec![text], unique(p));
+    if let Some(value) = name.strip_prefix("sine of ").and_then(|r| r.split_once(": ")).map(|(_, v)| v) {
+        if p.len() == 3 {
+            return Some(formula(format!("sin\u{2220}{}{}{} = {value}", p[0], p[1], p[2])));
+        }
+    }
     Some(match (name, p.len()) {
+        ("Menelaus' theorem", 6) => {
+            formula(format!("{} \u{b7} {} \u{b7} {} = {} \u{b7} {} \u{b7} {}", seg(1, 3), seg(2, 4), seg(0, 5), seg(3, 2), seg(4, 0), seg(5, 1)))
+        }
+        ("Menelaus' theorem (converse)", 6) => Fact::new("coll", pts(&[3, 4, 5]), pts(&[3, 4, 5])),
+        ("Ceva's theorem (converse)", 7) => Fact::new("concur", vec![seg(0, 3), seg(1, 4), seg(2, 5), p[6].clone()], unique(p)),
+        ("angle bisectors concur (incentre/excentre)", 4) => {
+            let inside = match (at[0], at[1], at[2], at[3]) {
+                (Some(i), Some(a), Some(b), Some(c)) => Some(strictly_inside(i, a, b, c)),
+                _ => None,
+            };
+            let kind = match inside {
+                Some(true) => "incenter",
+                Some(false) => "excenter",
+                None => "in_or_excenter",
+            };
+            Fact::new(kind, vec![p[0].clone(), format!("{}{}{}", p[1], p[2], p[3])], unique(p))
+        }
+        ("perpendicular \u{21d2} squared lengths (Pythagoras)", 4) => {
+            let terms = |x: &[(usize, usize)]| -> String {
+                x.iter().filter(|(a, b)| p[*a] != p[*b]).map(|(a, b)| sq(*a, *b)).collect::<Vec<_>>().join(" + ")
+            };
+            formula(format!("{} = {}", terms(&[(0, 2), (1, 3)]), terms(&[(0, 3), (1, 2)])))
+        }
+        ("perpendicular from squared lengths", 4) => Fact::new("perp", vec![seg(0, 1), seg(2, 3)], unique(p)),
+        ("squares of proportional lengths", 4) => {
+            let q = len_at(at, 2, 3).zip(len_at(at, 0, 1)).and_then(|(x, y)| square_ratio_text((x / y).powi(2)))?;
+            let rhs = if q == "1" { sq(0, 1) } else { format!("{q}\u{b7}{}", sq(0, 1)) };
+            formula(format!("{} = {rhs}", sq(2, 3)))
+        }
+        ("lengths from squared lengths", 4) => {
+            let r = len_at(at, 2, 3)? / len_at(at, 0, 1)?;
+            match ratio_text(r) {
+                Some(k) if k == "1" => Fact::new("cong", vec![seg(2, 3), seg(0, 1)], unique(p)),
+                Some(k) => Fact::new("rconst", vec![seg(2, 3), seg(0, 1), k], unique(p)),
+                None => {
+                    let k2 = square_ratio_text(r * r)?;
+                    Fact::new("rconst", vec![seg(2, 3), seg(0, 1), format!("\u{221a}({k2})")], unique(p))
+                }
+            }
+        }
+        ("Stewart's theorem", 4) => {
+            let (b, d, c) = (at[1]?, at[2]?, at[3]?);
+            let bc2 = (c.0 - b.0).powi(2) + (c.1 - b.1).powi(2);
+            let t = ((d.0 - b.0) * (c.0 - b.0) + (d.1 - b.1) * (c.1 - b.1)) / bc2;
+            let signed = |x: f64| -> Option<String> {
+                if x.abs() < 1e-9 {
+                    return Some("0".into());
+                }
+                let r = ratio_text(x.abs())?;
+                Some(if x < 0.0 { format!("\u{2212}{r}") } else { r })
+            };
+            let coef = |x: f64, s: String| -> Option<String> {
+                Some(match signed(x)?.as_str() {
+                    "0" => String::new(),
+                    "1" => s,
+                    k => format!("{k}\u{b7}{s}"),
+                })
+            };
+            let terms: Vec<String> = [coef(1.0 - t, sq(0, 1))?, coef(t, sq(0, 3))?, coef(-t * (1.0 - t), sq(1, 3))?]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect();
+            let rhs = terms.join(" + ").replace("+ \u{2212}", "\u{2212} ");
+            formula(format!("{} = {rhs}", sq(0, 2)))
+        }
+        ("law of sines", 3) => formula(format!(
+            "{} : sin\u{2220}{}{}{} = {} : sin\u{2220}{}{}{} = {} : sin\u{2220}{}{}{}",
+            seg(1, 2), p[1], p[0], p[2], seg(2, 0), p[0], p[1], p[2], seg(0, 1), p[0], p[2], p[1]
+        )),
+        ("equal or supplementary angles have equal sines", 6) => {
+            formula(format!("sin\u{2220}{}{}{} = sin\u{2220}{}{}{}", p[0], p[1], p[2], p[3], p[4], p[5]))
+        }
         ("angle bisector theorem", 4) => {
             Fact::new("eqratio", vec![seg(1, 2), seg(1, 3), seg(0, 2), seg(0, 3)], pts(&[0, 1, 2, 3]))
         }
@@ -1257,7 +1448,7 @@ const CLOSURE_HEADING: &str ="Facts derived from the hypotheses by the deductive
 /// A Euclidean sentence as a `prose` fact, typeset, renamed and translated.
 fn euclid_prose(s: &str, names: &Names) -> Fact {
     let typeset = fractions(&pretty_metric_inline(&as_drawn(&circle_through(&unbar(s), names)), names));
-    let shown = trig_powers(&names.rename_text(&typeset, true));
+    let shown = caret_powers(&trig_powers(&names.rename_text(&typeset, true)));
     let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&shown)], names.disp_all(&names.mentioned(s, true)));
     f.ro = Some(vec![crate::i18n::prose_ro(&shown)]);
     f
@@ -1319,8 +1510,12 @@ fn product(k: &str, side: &str) -> String {
 
 fn scaled_relation(rel: &str, k: &str) -> Option<String> {
     let rel = rel.trim().trim_end_matches('.');
+    let rel = rel.rsplit_once(": ").map_or(rel, |(_, r)| r).trim();
+    let wordy = rel
+        .split(|c: char| !c.is_alphabetic())
+        .any(|w| w.chars().count() >= 3 && w.chars().all(char::is_lowercase) && !matches!(w, "sin" | "cos" | "tan" | "cot"));
     let (l, r) = rel.split_once(" = ")?;
-    if r.contains(" = ") || k.is_empty() {
+    if wordy || r.contains(" = ") || k.is_empty() {
         return None;
     }
     Some(format!("{} = {}", product(k, l), product(k, r)))
@@ -1656,11 +1851,16 @@ pub struct Note {
 
 fn first_number_after(s: &str, marker: &str) -> Option<f64> {
     let at = s.find(marker)? + marker.len();
-    let num: String = s[at..]
-        .trim_start()
-        .chars()
-        .take_while(|c| c.is_ascii_digit() || *c == '.')
-        .collect();
+    let rest = s[at..].trim_start();
+    let mut num = String::new();
+    for (i, c) in rest.chars().enumerate() {
+        let sign_ok = i == 0 || num.ends_with(['e', 'E']);
+        if c.is_ascii_digit() || c == '.' || ((c == '-' || c == '+') && sign_ok) || ((c == 'e' || c == 'E') && !num.is_empty()) {
+            num.push(c);
+        } else {
+            break;
+        }
+    }
     num.parse().ok()
 }
 
@@ -1742,6 +1942,26 @@ fn line_angle(a: Pt, b: Pt, c: Pt, d: Pt) -> f64 {
     t
 }
 
+fn vertex_angle(at: &dyn Fn(u32) -> Pt, a: u32, b: u32, c: u32, d: u32) -> Option<f64> {
+    let (mut a, mut b, mut c, mut d) = (a, b, c, d);
+    if b == c || b == d {
+        std::mem::swap(&mut a, &mut b);
+    }
+    if a == d {
+        std::mem::swap(&mut c, &mut d);
+    }
+    if a != c || b == d {
+        return None;
+    }
+    let (v, p, q) = (at(a), at(b), at(d));
+    let (u1, u2) = ((p.0 - v.0, p.1 - v.1), (q.0 - v.0, q.1 - v.1));
+    let n = (u1.0.hypot(u1.1)) * (u2.0.hypot(u2.1));
+    if n < 1e-18 {
+        return None;
+    }
+    Some(((u1.0 * u2.0 + u1.1 * u2.1) / n).clamp(-1.0, 1.0).acos().to_degrees())
+}
+
 /// Directed angle between lines mod 180°.
 fn dir_angle(a: Pt, b: Pt, c: Pt, d: Pt) -> f64 {
     (dirn(c, d) - dirn(a, b)).to_degrees().rem_euclid(180.0)
@@ -1793,9 +2013,31 @@ fn counterexample(problem: &Problem, names: &Names, sol: &Solution) -> Option<Co
         }),
         ("eqangle", 8) => {
             let f = fact_of_pred(problem, names, goal);
-            let a1 = dir_angle(c(0), c(1), c(2), c(3));
-            let a2 = dir_angle(c(4), c(5), c(6), c(7));
-            Some(Counter { kind: "angles", lhs: a1, rhs: a2, labels: f.args })
+            let p = &goal.points;
+            let at = |i: u32| {
+                let v = problem.points[i as usize].value;
+                (v.x, v.y)
+            };
+            let vertex = |k: usize| vertex_angle(&at, p[k], p[k + 1], p[k + 2], p[k + 3]);
+            match (vertex(0), vertex(4)) {
+                (Some(x), Some(y)) if (x - y).abs() > 0.05 => Some(Counter { kind: "angles", lhs: x, rhs: y, labels: f.args }),
+                (Some(x), Some(_)) => Some(Counter { kind: "angles_oriented", lhs: x, rhs: x, labels: f.args }),
+                _ => {
+                    let a1 = dir_angle(c(0), c(1), c(2), c(3));
+                    let a2 = dir_angle(c(4), c(5), c(6), c(7));
+                    Some(Counter { kind: "line_angles", lhs: a1, rhs: a2, labels: f.args })
+                }
+            }
+        }
+        ("eqratio", 8) => {
+            let r1 = dist(c(0), c(1)) / dist(c(2), c(3));
+            let r2 = dist(c(4), c(5)) / dist(c(6), c(7));
+            (r1.is_finite() && r2.is_finite()).then(|| Counter {
+                kind: "ratios",
+                lhs: r1,
+                rhs: r2,
+                labels: vec![format!("{} : {}", seg(0), seg(2)), format!("{} : {}", seg(4), seg(6))],
+            })
         }
         ("coll", k) if k >= 3 => {
             let (a, b) = (c(0), c(1));
@@ -1905,6 +2147,53 @@ fn source_lengths(src: &str) -> Vec<(String, String, String)> {
             }
             rest = &after[close + 1..];
         }
+    }
+    out
+}
+
+fn is_plain_length(c: &str) -> bool {
+    let Some(rest) = c.trim().strip_prefix("dist(") else { return false };
+    let Some((args, tail)) = rest.split_once(')') else { return false };
+    let num = tail.trim_start().strip_prefix('=').map(str::trim).unwrap_or("");
+    args.split(',').count() == 2 && !num.is_empty() && num.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '/')
+}
+
+fn source_point_metrics(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in src.lines() {
+        for stmt in raw.split('#').next().unwrap_or("").split(';') {
+            let Some((_, cons)) = stmt.split_once("point:") else { continue };
+            for c in split_top(cons, &[","]) {
+                let c = c.trim();
+                let metric_only = ['^', '*', '+'].iter().any(|k| c.contains(*k)) || ["sqrt(", "sin(", "cos(", "tan("].iter().any(|k| c.contains(k));
+                if c.contains('=') && metric_only && ["dist(", "angle(", "area("].iter().any(|k| c.contains(k)) && !is_plain_length(c) {
+                    out.push(c.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+fn caret_powers(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let after_base = i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == ')' || chars[i - 1] == '\u{2032}');
+        if chars[i] == '^' && after_base && chars.get(i + 1).is_some_and(char::is_ascii_digit) {
+            let mut j = i + 1;
+            let mut n = String::new();
+            while j < chars.len() && chars[j].is_ascii_digit() {
+                n.push(chars[j]);
+                j += 1;
+            }
+            out.push_str(&superscript(&n));
+            i = j;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
     }
     out
 }
@@ -2321,6 +2610,12 @@ pub fn build(sol: &Solution) -> View {
             given.push(f);
         }
     }
+    for c in source_point_metrics(&sol.input) {
+        let f = Fact::new("formula", vec![pretty_metric(&c, &names)], names.disp_all(&names.mentioned(&c, false)));
+        if !given.contains(&f) {
+            given.push(f);
+        }
+    }
 
     let goal = match orig.goal.as_ref() {
         Some(g) if g.name != "angeq" && !matches!(fact_of_pred(&orig, &names, g).kind, "raw") => Some(fact_of_pred(&orig, &names, g)),
@@ -2371,17 +2666,22 @@ pub fn build(sol: &Solution) -> View {
         polygons: source_polygons(&sol.input),
         metric_goal: if orig.goal.is_none() { sol.goal.clone() } else { None },
     };
-    let svg = if fig.points.is_empty() {
-        String::new()
-    } else {
-        figure::render(&fig, aux_from, &names, &extras)
-    };
-
     let as_drawn = sol.proved
         && proof
             .steps
             .iter()
             .any(|st| st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)")));
+    let redrawn = if !as_drawn && introduced.is_empty() && sol.status != Status::Refuted {
+        crate::spread::respread(&fig, aux_from, &sol.input)
+    } else {
+        None
+    };
+    let drawn = redrawn.as_ref().unwrap_or(&fig);
+    let svg = if drawn.points.is_empty() {
+        String::new()
+    } else {
+        figure::render(drawn, aux_from, &names, &extras)
+    };
     View {
         as_drawn,
         points,
@@ -2545,6 +2845,8 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "no_goal"
     } else if msg.contains("`point:` defines exactly one point") {
         "point_one"
+    } else if msg.contains("multiple goals") {
+        "multiple_goals"
     } else {
         "other"
     }
@@ -2712,6 +3014,16 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     let goal_line = || lines.iter().rposition(|l| code_of(l).trim_start().starts_with("prove"));
     let line_idx: Option<usize> = match key {
         "degenerate" | "empty" | "no_goal" | "other" => None,
+        "multiple_goals" => {
+            let goals: Vec<usize> = lines
+                .iter()
+                .enumerate()
+                .filter(|(_, l)| code_of(l).split(';').any(|s| s.trim_start().starts_with("prove")))
+                .map(|(i, _)| i)
+                .collect();
+            d.token = Some("prove".to_string());
+            goals.get(1).or(goals.first()).copied()
+        }
         "trailing" => {
             let i = goal_line();
             if let Some(i) = i {
@@ -2928,10 +3240,10 @@ mod tests {
             assert_eq!(s.rule_name_ro.as_deref(), Some("teorema bisectoarei"));
         }
         assert_eq!(
-            theorem_fact("intercept theorem (parallel rungs)", &["A", "B", "M", "N", "D", "C"].map(String::from)).unwrap().plain(),
+            theorem_fact("intercept theorem (parallel rungs)", &["A", "B", "M", "N", "D", "C"].map(String::from), &[None; 6]).unwrap().plain(),
             "AM : BN = MD : NC = AD : BC"
         );
-        assert_eq!(theorem_fact("radical axis", &["X", "U", "V"].map(String::from)).unwrap().plain(), "X, U, V are collinear");
+        assert_eq!(theorem_fact("radical axis", &["X", "U", "V"].map(String::from), &[None; 3]).unwrap().plain(), "X, U, V are collinear");
     }
 
     #[test]
@@ -3202,5 +3514,133 @@ mod tests {
         );
         assert_eq!(readable_engine_message("compile error: expected LParen, found Some(RParen)"), "compile error: expected \u{201c}(\u{201d}, found \u{201c})\u{201d}");
         assert_eq!(readable_engine_message("metric prover: unexpected token None"), "metric prover: unexpected token the end of the line");
+    }
+
+    #[test]
+    fn a_labelled_relation_is_multiplied_without_its_label() {
+        let s = smooth_euclid("ABCD is convex in the figure, so its area splits along either diagonal: [ABC] + [ACD] = [ABD] + [BCD]; times BC.");
+        assert_eq!(
+            s,
+            "ABCD is convex in the figure, so its area splits along either diagonal: [ABC] + [ACD] = [ABD] + [BCD], hence BC\u{b7}([ABC] + [ACD]) = BC\u{b7}([ABD] + [BCD])."
+        );
+    }
+
+    fn interior(v: &View, sol: &Solution, a: &str, b: &str, c: &str) -> f64 {
+        let fig = &sol.figure.as_ref().unwrap().problem;
+        let at = |n: &str| {
+            let p = fig.points.iter().find(|p| p.name == n).unwrap().value;
+            (p.x, p.y)
+        };
+        let (p, q, r) = (at(a), at(b), at(c));
+        let (u, w) = ((p.0 - q.0, p.1 - q.1), (r.0 - q.0, r.1 - q.1));
+        let _ = v;
+        ((u.0 * w.0 + u.1 * w.1) / (u.0.hypot(u.1) * w.0.hypot(w.1))).acos().to_degrees()
+    }
+
+    #[test]
+    fn an_angle_counterexample_states_the_angles_drawn() {
+        let (sol, v) = view("A B C = triangle\nprove eqangle(A, B, B, C, B, C, C, A)");
+        assert!(!sol.proved);
+        assert_eq!(sol.status, Status::Refuted);
+        let c = v.counterexample.as_ref().expect("a counterexample");
+        assert_eq!(c.kind, "angles");
+        assert_eq!(c.labels, vec!["\u{2220}ABC".to_string(), "\u{2220}BCA".to_string()]);
+        assert!((c.lhs - interior(&v, &sol, "A", "B", "C")).abs() < 1e-6, "{c:?}");
+        assert!((c.rhs - interior(&v, &sol, "B", "C", "A")).abs() < 1e-6, "{c:?}");
+        assert!(c.lhs + c.rhs < 180.0, "two angles of one triangle: {c:?}");
+    }
+
+    #[test]
+    fn ratio_and_formula_goals_get_a_counterexample() {
+        let (sol, v) = view("A B C = triangle\nM = midpoint(A, B)\nprove eqratio(A, M, M, B, A, C, C, B)");
+        assert_eq!(sol.status, Status::Refuted);
+        let c = v.counterexample.as_ref().expect("a ratio counterexample");
+        assert_eq!((c.kind, c.labels.clone()), ("ratios", vec!["AM : MB".to_string(), "AC : CB".to_string()]));
+        assert!((c.lhs - 1.0).abs() < 1e-9 && (c.rhs - 1.0).abs() > 1e-3, "{c:?}");
+        let (sol, v) = view("A B C = triangle\nprove tan(angle(A,B,C)) = 1");
+        assert_eq!(sol.status, Status::Refuted);
+        let c = v.counterexample.as_ref().expect("a values counterexample");
+        assert_eq!(c.kind, "values");
+        assert!((c.rhs - 1.0).abs() < 1e-9 && (c.lhs - 1.0).abs() > 1e-3, "{c:?}");
+        assert_eq!(first_number_after("LHS = -34.4 , RHS", "LHS ="), Some(-34.4));
+        assert_eq!(first_number_after("LHS = 1.5e-3 ,", "LHS ="), Some(1.5e-3));
+    }
+
+    #[test]
+    fn distance_relations_are_typeset_never_raw() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/monge_dalembert.geo")).unwrap();
+        let (_, v) = view(&src);
+        let all: Vec<&Fact> = v.given.iter().chain(v.proof.steps.iter().map(|s| &s.fact)).collect();
+        assert!(all.iter().all(|f| f.kind != "raw"), "{all:?}");
+        assert!(all.iter().any(|f| f.kind == "formula" && f.args[0].contains(" \u{b7} ")), "a product of lengths: {all:?}");
+        let n = |i: u32| ["A", "B", "C", "D", "E", "F"][i as usize].to_string();
+        let one = || ddar::rational::Rat::new(1, 1);
+        let neg = || ddar::rational::Rat::new(-1, 1);
+        let p = Predicate { name: "distmeq".into(), points: vec![0, 1, 2, 3, 0, 2, 1, 3], constants: vec![one(), one(), neg(), neg(), one()] };
+        assert_eq!(dist_product_text(&n, &p).as_deref(), Some("AB \u{b7} CD = AC \u{b7} BD"));
+        let p = Predicate { name: "distseq".into(), points: vec![0, 1, 1, 2, 0, 2], constants: vec![one(), one(), neg()] };
+        assert_eq!(dist_sum_text(&n, &p).as_deref(), Some("AB + BC = AC"));
+    }
+
+    #[test]
+    fn ddar_theorems_show_the_fact_they_derive() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let none = [None; 7];
+        let f = theorem_fact("Menelaus' theorem", &s(&["A", "B", "C", "D", "E", "F"]), &none).unwrap();
+        assert_eq!(f.plain(), "BD \u{b7} CE \u{b7} AF = DC \u{b7} EA \u{b7} FB");
+        let f = theorem_fact("Menelaus' theorem (converse)", &s(&["A", "B", "C", "D", "E", "F"]), &none).unwrap();
+        assert_eq!((f.kind, f.args.clone()), ("coll", s(&["D", "E", "F"])));
+        let f = theorem_fact("Ceva's theorem (converse)", &s(&["A", "B", "C", "D", "E", "F", "P"]), &none).unwrap();
+        assert_eq!((f.kind, f.args.clone()), ("concur", s(&["AD", "BE", "CF", "P"])));
+        let f = theorem_fact("perpendicular \u{21d2} squared lengths (Pythagoras)", &s(&["C", "A", "C", "B"]), &none).unwrap();
+        assert_eq!(f.plain(), "AB\u{b2} = CB\u{b2} + AC\u{b2}");
+        assert!(!f.plain().contains("CC"), "{}", f.plain());
+        let f = theorem_fact("perpendicular from squared lengths", &s(&["A", "B", "C", "D"]), &none).unwrap();
+        assert_eq!((f.kind, f.args.clone()), ("perp", s(&["AB", "CD"])));
+        let tri = [Some((0.0, 0.0)), Some((4.0, 0.0)), Some((0.0, 3.0))];
+        let at = [Some((1.0, 1.0)), tri[0], tri[1], tri[2]];
+        assert_eq!(theorem_fact("angle bisectors concur (incentre/excentre)", &s(&["I", "A", "B", "C"]), &at).unwrap().kind, "incenter");
+        let at = [Some((-6.0, 6.0)), tri[0], tri[1], tri[2]];
+        assert_eq!(theorem_fact("angle bisectors concur (incentre/excentre)", &s(&["J", "A", "B", "C"]), &at).unwrap().kind, "excenter");
+        let f = theorem_fact("law of sines", &s(&["A", "B", "C"]), &none).unwrap();
+        assert!(f.plain().starts_with("BC : sin\u{2220}BAC"), "{}", f.plain());
+        let f = theorem_fact("sine of 30°: 1/2", &s(&["A", "B", "C"]), &none).unwrap();
+        assert_eq!(f.plain(), "sin\u{2220}ABC = 1/2");
+        let at = [Some((0.0, 0.0)), Some((1.0, 0.0)), Some((0.0, 0.0)), Some((2.0, 0.0))];
+        let f = theorem_fact("lengths from squared lengths", &s(&["A", "B", "C", "D"]), &at).unwrap();
+        assert_eq!((f.kind, f.args.clone()), ("rconst", s(&["CD", "AB", "2"])));
+    }
+
+    #[test]
+    fn nested_line_constructors_read_as_words() {
+        let a = serde_json::json!({ "kind": "intersect", "args": ["para(I, BA)", "CA"], "text": "intersect(para(I, BA), CA)" });
+        let en = crate::render::aux_text(&a, crate::i18n::Lang::En);
+        assert_eq!(en, "intersection of the parallel to BA through I and CA");
+        let ro = crate::render::aux_text(&a, crate::i18n::Lang::Ro);
+        assert_eq!(ro, "intersecția dintre paralela prin I la BA și CA");
+        let t = serde_json::json!({ "kind": "intersect", "args": ["tangent_at(P, centre O)", "AB"], "text": "" });
+        assert!(!crate::render::aux_text(&t, crate::i18n::Lang::En).contains('('));
+    }
+
+    #[test]
+    fn imposed_squared_lengths_are_given_and_typeset() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/metric/universal_imposed_length.geo")).unwrap();
+        let (sol, v) = view(&src);
+        assert!(sol.proved);
+        let given: Vec<String> = v.given.iter().map(Fact::plain).collect();
+        assert!(given.contains(&"PA\u{b2} = 9".to_string()), "{given:?}");
+        assert!(given.contains(&"PB\u{b2} = 16".to_string()), "{given:?}");
+        for t in step_texts(&v) {
+            assert!(!t.contains('^'), "{t}");
+        }
+        assert_eq!(caret_powers("PA^2 = 9 and x^ 2"), "PA\u{b2} = 9 and x^ 2");
+    }
+
+    #[test]
+    fn a_second_goal_line_is_its_own_diagnosis() {
+        let src = "A B C = triangle\nprove coll(A, B, C)\nprove coll(A, B, C)";
+        let d = diagnose(src, "compile error: multiple goals specified");
+        assert_eq!((d.key, d.line, d.col), ("multiple_goals", 3, 1));
+        assert!(crate::i18n::compile_message(crate::i18n::Lang::Ro, &d).starts_with("Este permisă o singură concluzie"));
     }
 }

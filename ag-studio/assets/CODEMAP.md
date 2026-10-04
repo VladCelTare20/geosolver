@@ -41,7 +41,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `site.js:toggleFull` — the figure panel gets `has-full` (z-index above the sticky header) while full screen.
 - `auth.js` — server errors carry a `code`; field codes (`user_taken`, `username_rule`, `pw_len`) mark the field instead of a banner and are repainted on a language switch. Field hints are not live regions.
 - `landing.js` — stats and the showcase blurb come from `showcase.json` (`first_secs`, `budget_secs`); the step count excludes restated hypotheses; the folded preview ends after `FIRST_DEDUCTIONS` deductions. `showcase.json`'s figure predates server-side leaders; its crowded labels had `f-lead` lines added to the stored SVG.
-- `site.js:placeLabels` — goal lines (`line.f-goal`, weight 12) count as collisions that send a label away from the server's spot; a leader crossing a placed label and a spot nearer another dot than its own each cost 14. `f-ext` (dashed extensions to right-angle feet) are obstacles too.
+- `site.js:placeLabels` — goal lines (`line.f-goal`, weight 12) and construction lines (weight 8) count as collisions that send a label away from the server's spot; a leader crossing a placed label and a spot nearer another dot than its own each cost 14. `f-ext` (dashed extensions to right-angle feet) are obstacles too.
 - `app.css` figure focus — dimmed labels keep opacity 1 and switch to `--fig-lbl-dim` / `--fig-aux-dim` (≥ 5.8:1 on `--fig-bg` in both themes); lines and dots still fade.
 - `app.css` header — `.seg`, `.icon-btn` and `.btn-sm` in `.site-header` share `--hdr-ctl` (36 px, 44 px on coarse pointers).
 - `app.css` verdict actions — a wrapping flex row (buttons grow, never truncate); meta items may wrap. Toasts sit bottom-right from 1200 px so they never cover the verdict actions; `.toast :focus-visible` uses `--bg` for its ring.
@@ -50,4 +50,13 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `app.js:exportName` — downloads are named by title and verdict (`-proof`, `-counterexample`, `-numerical`, `-not-proved`).
 - `app.js:histStatus` — `proved-drawn` (stored `as_drawn`) shows “Proved (as drawn)” under the Proved filter.
 - `app.js:verdictModel` — a proof with no steps says it follows at once and offers no Copy proof.
+- `site.js:fitLabels` — labels are at least 15 px on screen (`labelPx`); marks with `data-a` are scaled about their anchor by the label scale (1–2.2) so right angles and ticks stay visible in small panels.
+- `site.js:Viewer` — while zoomed, a pan pad (four `.pan-btn` at the viewport edges, `fig.pan.*` labels) pans by 30 % of the view without dragging (WCAG 2.5.7); it is `hidden` at fit, and focus inside it moves to the viewport when it hides. The figure SVG is the viewport's direct `svg` child (`:scope > svg`), not the icons' SVGs.
+- `app.css` layout — below 1024 px the app is one column (composer, status, figure, proof) and the figure panel takes the full width; `fitViewportToFigure` sizes it (≤ 60 % of the screen on tablets, 70 % on phones).
+- `app.js:exportAs` — the menu click closes with focus back on Export; the button is `aria-disabled` (never `disabled`, which would drop focus) while an export runs. A 410 re-caches the stored history copy (`GET /api/history/{id}`) and retries, otherwise exports by `{input, title}`; a 401 toasts `export.auth`.
+- `app.js:renderHistory(keepFocus)` — when the focused row disappears (stale 404, delete flush, reload) focus goes to the same row, the next one, the rail's Sign in link, or the search box; `sessionEnded` empties the rail synchronously and keeps focus there; a 401 on open focuses the error heading.
+- `app.js:solve` — a solve that aborts a running shorter-proof search retries up to 4 × 350 ms on `busy_self`, since the server frees the aborted request's slot only once it notices the disconnect.
+- `app.js:startTimer` — past its maximum the solving card reads “Finishing up · time limit N s” with a full bar instead of counting over the limit (queue wait and the worker's grace are not part of the deadline).
+- `landing.js` — `#more` carries `aria-expanded`; expanding focuses the first newly shown step, collapsing keeps the button where it was on screen.
+- `app.css` forced colors — `.editor:focus-within`, `.input:focus`, `.textarea:focus` get a `Highlight` outline (their normal ring is a box-shadow, which forced colors removes).
 - `i18n.js` RO — hyphenated clitics (`fotografiaz-o`, `s-a`) carry a word joiner (U+2060) after the hyphen so lines never break there.

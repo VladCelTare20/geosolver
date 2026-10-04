@@ -22,7 +22,9 @@
     });
     var more = $("more");
     more.hidden = proof.steps.length <= cut;
+    more.setAttribute("aria-expanded", expanded ? "true" : "false");
     more.textContent = expanded ? t("show.fewer") : t("show.steps", { lines: window.i18n.tp("show.lines", proof.steps.length) });
+    return cut;
   }
 
   function previewEnd(steps) {
@@ -51,9 +53,20 @@
   }
 
   $("more").addEventListener("click", function () {
+    var more = $("more");
+    var before = more.getBoundingClientRect().top;
     expanded = !expanded;
-    paintSteps();
-    if (!expanded) $("showcase").scrollIntoView({ block: "start" });
+    var cut = paintSteps();
+    if (expanded) {
+      var li = null, all = data.view.proof.steps;
+      for (var i = cut; i < all.length && !li; i++) {
+        var el = document.getElementById("step-" + all[i].n);
+        if (el && !el.hidden) li = el;
+      }
+      if (li) { li.focus({ preventScroll: true }); li.scrollIntoView({ block: "nearest" }); return; }
+    }
+    window.scrollBy(0, more.getBoundingClientRect().top - before);
+    more.scrollIntoView({ block: "nearest" });
   });
 
   fetch("/assets/showcase.json").then(function (r) { return r.json(); }).then(function (d) {

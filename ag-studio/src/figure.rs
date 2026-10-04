@@ -50,6 +50,7 @@ struct El {
     width: f64,
     pts: Vec<String>,
     centre: Option<String>,
+    anchor: Option<Pt>,
 }
 
 type RightAngle = (String, Vec<Pt>, Vec<(Pt, Pt, u32, u32)>);
@@ -346,7 +347,8 @@ fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<
                             (Role::Goal, Shape::Path(..)) => 2.2,
                             (Role::Goal, _) => 12.0,
                             (_, Shape::Path(..)) => 4.0,
-                            _ => 1.4,
+                            (_, Shape::Line(..)) => 8.0,
+                            _ => 3.0,
                         };
                     }
                 }
@@ -473,7 +475,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             dashed: aux,
             width: 1.6,
             pts: ids.iter().map(|&i| dn(i)).collect(),
-            centre: None,
+            centre: None, anchor: None,
         });
     }
 
@@ -549,6 +551,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             width: 1.5,
             pts: on.iter().map(|&i| dn(i)).collect(),
             centre: centre.map(dn),
+            anchor: None,
         });
     }
 
@@ -591,7 +594,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             dashed: aux,
             width: 1.3,
             pts: vec![dn(a), dn(b)],
-            centre: None,
+            centre: None, anchor: None,
         });
     }
 
@@ -634,7 +637,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         let p1 = add(x, mul(u, t));
         let p2 = add(add(x, mul(u, t)), mul(v, t));
         let p3 = add(x, mul(v, t));
-        Some((format!("M{:.1},{:.1} L{:.1},{:.1} L{:.1},{:.1}", p1.0, p1.1, p2.0, p2.1, p3.0, p3.1), vec![p1, p2, p3], exts))
+        Some((format!("M{:.1},{:.1} L{:.1},{:.1} L{:.1},{:.1}", p1.0, p1.1, p2.0, p2.1, p3.0, p3.1), vec![p1, p2, p3, x], exts))
     };
     let extension = |(from, to, a, b): (Pt, Pt, u32, u32), aux: bool| El {
         shape: Shape::Line(from, to),
@@ -643,15 +646,16 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         dashed: true,
         width: 1.0,
         pts: vec![dn(a), dn(b)],
-        centre: None,
+        centre: None, anchor: None,
     };
     for pred in problem.preds.iter().filter(|p| p.name == "perp" && p.points.len() == 4) {
         let p = &pred.points;
-        if let Some((d, pts, exts)) = right_angle(p[0], p[1], p[2], p[3]) {
+        if let Some((d, mut pts, exts)) = right_angle(p[0], p[1], p[2], p[3]) {
             let aux = p.iter().any(|&i| is_aux(i));
             for e in exts {
                 els.push(extension(e, aux));
             }
+            let vertex = pts.pop();
             els.push(El {
                 shape: Shape::Path(d, pts),
                 class: "f-mark",
@@ -660,6 +664,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 width: 1.2,
                 pts: p.iter().map(|&i| dn(i)).collect(),
                 centre: None,
+                anchor: vertex,
             });
         }
     }
@@ -722,6 +727,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 width: 1.3,
                 pts: vec![dn(a), dn(b)],
                 centre: None,
+                anchor: Some(mid),
             });
         }
     }
@@ -757,6 +763,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                     width: 1.3,
                     pts: ids.iter().map(|&i| dn(i)).collect(),
                     centre: None,
+                    anchor: Some(scr[ids[0] as usize]),
                 });
             }
         }
@@ -774,7 +781,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 dashed: false,
                 width: 2.4,
                 pts: vec![dn(a), dn(b)],
-                centre: None,
+                centre: None, anchor: None,
             });
         }
     };
@@ -792,7 +799,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                             dashed: true,
                             width: 2.2,
                             pts: gp.clone(),
-                            centre: None,
+                            centre: None, anchor: None,
                         });
                     }
                 }
@@ -815,7 +822,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                     dashed: false,
                     width: 2.4,
                     pts: gp.clone(),
-                    centre: None,
+                    centre: None, anchor: None,
                 });
             }
             ("perp", 4) => {
@@ -828,7 +835,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                     for e in exts {
                         goal_els.push(extension(e, false));
                     }
-                    goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 1.8, pts: gp.clone(), centre: None });
+                    goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 1.8, pts: gp.clone(), centre: None, anchor: None });
                 }
             }
             ("midp", 3) => {
@@ -848,7 +855,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                                 dashed: false,
                                 width: 2.0,
                                 pts: ids.iter().map(|&i| dn(i)).collect(),
-                                centre: None,
+                                centre: None, anchor: None,
                             });
                         }
                         None => {
@@ -883,7 +890,7 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 gseg(ib, ia, &mut goal_els);
                 gseg(ib, ic, &mut goal_els);
                 if let Some((d, pts)) = arc_path(scr[ib as usize], scr[ia as usize], scr[ic as usize], 24.0) {
-                    goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 2.0, pts: vec![dn(ia), dn(ib), dn(ic)], centre: None });
+                    goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 2.0, pts: vec![dn(ia), dn(ib), dn(ic)], centre: None, anchor: None });
                 }
             }
         }
@@ -991,6 +998,9 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             let mut d = format!(r#" data-p="{}""#, esc(&el.pts.join(" ")));
             if let Some(c) = &el.centre {
                 let _ = write!(d, r#" data-c="{}""#, esc(c));
+            }
+            if let Some(a) = el.anchor.filter(|a| finite(*a)) {
+                let _ = write!(d, r#" data-a="{:.1},{:.1}""#, a.0, a.1);
             }
             d
         };
@@ -1119,7 +1129,7 @@ pub fn relabel(svg: &str, k: f64) -> String {
     for l in &lines {
         let c = class(l);
         let role = if c.starts_with("f-goal") { Role::Goal } else { Role::Base };
-        let el = |shape| El { shape, class: "f-seg", role, dashed: false, width: 1.0, pts: Vec::new(), centre: None };
+        let el = |shape| El { shape, class: "f-seg", role, dashed: false, width: 1.0, pts: Vec::new(), centre: None, anchor: None };
         if l.starts_with("<circle") && c.starts_with("f-dot") {
             if let (Some(x), Some(y)) = (num_attr(l, "cx"), num_attr(l, "cy")) {
                 dots.push((x, y));
