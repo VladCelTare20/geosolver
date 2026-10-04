@@ -85,6 +85,10 @@ Options:
   --svg <file>            write an SVG figure
   --theme dark|light      figure color scheme (default dark)
   --title <text>          title atop the figure's construction panel
+  --trig <mode>           law of sines in the DDAR closure: off (default),
+                          fallback (only when a length goal is left unproved
+                          by the base closure), lazy (every closure, after its
+                          trig-free fixpoint), always; also env GEO_TRIG
   -h, --help              print this help
 
 Corpus options:
@@ -185,6 +189,13 @@ fn main() {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--proof" => opts.proof = true,
+            "--trig" => {
+                let m = it.next().unwrap_or_else(|| fail("--trig needs off|fallback|lazy|always"));
+                if !matches!(m.as_str(), "off" | "fallback" | "lazy" | "always") {
+                    fail("--trig needs off|fallback|lazy|always");
+                }
+                std::env::set_var("GEO_TRIG", m);
+            }
             "--svg" => {
                 opts.svg_path = Some(it.next().unwrap_or_else(|| fail("--svg needs a file path")))
             }

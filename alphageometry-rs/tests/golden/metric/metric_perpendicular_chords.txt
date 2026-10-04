@@ -1,0 +1,13 @@
+EUCLIDEAN PROOF
+  Goal:  dist(A,C)^2 + dist(B,D)^2 = 144
+
+  1. Let A' be the point diametrically opposite A on the circle (so AA' is a diameter through the centre O).
+  2. |OA| = 6 (given), so OA² = 36.
+  3. O is the midpoint of AA', so AO² = ¼·AA'².  [from 1]
+  4. AA' is a diameter of the circle, so ∠ABA' = 90° (Thales' theorem — an angle in a semicircle is right).  [from 1]
+  5. AA' is a diameter of the circle, so ∠ACA' = 90° (Thales' theorem — an angle in a semicircle is right).  [from 1]
+  6. CD ⟂ AB and BA' ⟂ AB, so CD ∥ BA'  (two lines perpendicular to the same line are parallel).  [from 4]
+  7. In right triangle ACA' (right angle at C), by the Pythagorean theorem AA'² = CA² + CA'².  [from 5]
+  8. CD ∥ BA' are parallel chords of the circle, so they cut equal arcs and CA' = BD (equal chords): CA'² = BD².  [from 6]
+
+  Combining the equations above gives dist(A,C)^2 + dist(B,D)^2 = 144  (= 144). ∎

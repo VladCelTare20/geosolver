@@ -54,6 +54,8 @@ struct FormalCircle {
     fact: Option<FactId>,
 }
 
+pub mod trig;
+
 type Triple = (PointId, PointId, PointId);
 
 /// The main logical engine.
@@ -101,6 +103,7 @@ pub struct Ddar {
 
     classics: classics::Done,
     rules_off: u8,
+    trig: trig::TrigState,
 }
 
 impl Ddar {
@@ -361,6 +364,7 @@ impl Ddar {
             log: ProofLog::new(),
             classics: classics::Done::default(),
             rules_off: classics::env_disabled_mask(),
+            trig: trig::TrigState::default(),
         }
     }
 
@@ -922,7 +926,10 @@ impl Ddar {
             if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
                 return false;
             }
-            if !self.classical_rules() {
+            if self.classical_rules() {
+                continue;
+            }
+            if !self.trig_activate_at_fixpoint() {
                 return true;
             }
         }
@@ -988,6 +995,7 @@ impl Ddar {
             changed |= self.search_intercept_theorem();
             changed |= self.search_similitude();
             changed |= self.search_radical_axis();
+            changed |= self.search_trig();
         }
         true
     }
@@ -2057,8 +2065,8 @@ impl Ddar {
             if circle.points.len() <= 3 {
                 continue;
             }
-            let mut dist_to_src: FxHashMap<DistMul, (Angle, Pair)> = FxHashMap::default();
-            let mut arc_to_src: FxHashMap<Angle, (DistMul, Pair)> = FxHashMap::default();
+            let mut dist_to_src: FxHashMap<DistMul, (Angle, DistMul, Pair)> = FxHashMap::default();
+            let mut arc_to_src: FxHashMap<Angle, (DistMul, Angle, Pair)> = FxHashMap::default();
             for &a in &circle.points {
                 for &b in &circle.points {
                     if orientation(self.coord(a), self.coord(b), circle.value.center) != 1 {
@@ -2069,25 +2077,27 @@ impl Ddar {
                     let dist = self.raw_dist_mul(a, b);
                     let (dist_val, dist_deps) = self.dmul.simplify_deps(&dist);
 
-                    if let Some((dist2, pair2)) = arc_to_src.get(&arc_val).cloned() {
+                    if let Some((dist2, arc_src, pair2)) = arc_to_src.get(&arc_val).cloned() {
                         let mut prem: Vec<FactId> = circle.fact.into_iter().collect();
                         prem.extend(arc_deps.iter().copied());
+                        prem.extend(self.angle.simplify_deps(&arc_src).1);
                         prem.extend(self.dmul.simplify_deps(&dist2).1);
                         prem.extend(dist_deps.iter().copied());
                         let fact = self.log.add(Reason::TransferArcChord(pair2, (a, b)), prem);
                         changed = self.dmul.force_one(&dist.div(&dist2), Some(fact)) || changed;
                     } else {
-                        arc_to_src.insert(arc.clone(), (dist.clone(), (a, b)));
+                        arc_to_src.insert(arc_val.clone(), (dist.clone(), arc.clone(), (a, b)));
                     }
-                    if let Some((arc2, pair2)) = dist_to_src.get(&dist_val).cloned() {
+                    if let Some((arc2, dist_src, pair2)) = dist_to_src.get(&dist_val).cloned() {
                         let mut prem: Vec<FactId> = circle.fact.into_iter().collect();
                         prem.extend(dist_deps.iter().copied());
+                        prem.extend(self.dmul.simplify_deps(&dist_src).1);
                         prem.extend(self.angle.simplify_deps(&arc2).1);
                         prem.extend(arc_deps.iter().copied());
                         let fact = self.log.add(Reason::TransferArcChord(pair2, (a, b)), prem);
                         changed = self.angle.force_zero(&arc.sub(&arc2), Some(fact)) || changed;
                     } else {
-                        dist_to_src.insert(dist.clone(), (arc.clone(), (a, b)));
+                        dist_to_src.insert(dist_val.clone(), (arc.clone(), dist.clone(), (a, b)));
                     }
                 }
             }

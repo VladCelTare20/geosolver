@@ -1,0 +1,20 @@
+EUCLIDEAN PROOF (sum of products)
+  Goal:  dist(A, I) * dist(B, C) = dist(I, X) * (dist(A, B) + dist(A, C))
+
+  1. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. assumption: eqangle A B A I A I A C
+       ↳ 002. assumption: eqangle B A B I B I B C
+       ↳ 003. assumption: eqangle A B A _5 A _5 A C
+       ↳ 004. assumption: coll A _5 X
+       ↳ 005. collinear: A _5 X [004]
+       ↳ 006. assumption: coll B C X
+       ↳ 007. collinear: B X C [006]
+       ↳ 008. collinear: A I _5 X [001 & 003 & 005]
+       ↳ 009. angle bisector theorem: A X B C [001 & 003 & 005 & 007]
+       ↳ 010. angle bisector theorem: B I A X [001 & 002 & 007 & 008]
+       ↳ 011. angle bisector theorem (converse): C I A X [008 & 009 & 010]
+  2. BI bisects ∠ABX with I on AX (derived from the hypotheses), so by the angle-bisector theorem AI·BX = IX·BA.  [from 1]
+  3. CI bisects ∠ACX with I on AX (derived from the hypotheses), so by the angle-bisector theorem AI·CX = IX·CA.  [from 1]
+  4. X lies on BC, so BX + XC = BC; times AI: BX·AI + XC·AI = BC·AI.
+
+  Adding the relations above gives dist(A, I) * dist(B, C) = dist(I, X) * (dist(A, B) + dist(A, C))  (= 1.0169). ∎

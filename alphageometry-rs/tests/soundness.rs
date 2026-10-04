@@ -593,3 +593,183 @@ fn rollouts_do_not_assume_numeric_circle_membership() {
         panic!("a free point was proved on a circle using {used:?}");
     }
 }
+
+const TRAPEZOID: &str = "A B C = triangle\nD = reflect(C, perp_bisector(A, B))";
+const CYCLIC_QUAD: &str = "A B C = triangle\nO = circumcenter(A, B, C)\nD = on_circle(O, A)";
+
+/// Neither prover may return a proof of `goal`; checked directly, because the
+/// `checked_proof` backstop in `metric::solve` would hide an unsound derivation.
+fn provers_reject(cons: &str, goal: &str) {
+    if let Ok(Outcome::Proved(p)) = prove_euclidean(cons, goal) {
+        panic!("additive prover proved a false statement:\n{goal}\n{p}");
+    }
+    if let Ok(Outcome::Proved(p)) = ddar::ratio::prove_ratio(cons, goal) {
+        panic!("ratio prover proved a false statement:\n{goal}\n{p}");
+    }
+    match metric::check_numerically(cons, goal, 48) {
+        Ok(ev) => panic!("{goal}: expected a false statement, it holds numerically: {}", ev.report),
+        Err(e) => assert!(e.is_refuted(), "{goal}: expected a refutation, got {e}"),
+    }
+}
+
+const SYMMEDIAN: &str = "A B C = triangle\nO = circumcenter(A, B, C)\n\
+     T = meet(perp_line(B, line(O, B)), perp_line(C, line(O, C)))\n\
+     X = meet(line(A, T), line(B, C))";
+
+/// TRIG_PLAN §3, items 1–3: false neighbours of the symmedian ratio.
+#[test]
+fn symmedian_false_neighbours_are_never_proved() {
+    provers_reject(SYMMEDIAN, "dist(B,X)*dist(A,C) = dist(X,C)*dist(A,B)");
+    provers_reject(SYMMEDIAN, "dist(B,X)*dist(A,B)^2 = dist(X,C)*dist(A,C)^2");
+    provers_reject(
+        "A B C = triangle\nX = midpoint(B, C)",
+        "dist(B,X)*dist(A,C)^2 = dist(X,C)*dist(A,B)^2",
+    );
+}
+
+const EULER: &str = "A B C = triangle\nO = circumcenter(A, B, C)\nI = incenter(A, B, C)\n\
+     T = foot(I, line(B, C))";
+
+/// TRIG_PLAN §3, items 4–6: false neighbours of Euler's OI² = R² − 2Rr.
+#[test]
+fn euler_false_neighbours_are_never_proved() {
+    provers_reject(EULER, "dist(O,I)^2 = dist(O,A)^2 + 2*dist(O,A)*dist(I,T)");
+    provers_reject(EULER, "dist(O,I)^2 = dist(O,A)^2 - dist(O,A)*dist(I,T)");
+    provers_reject(
+        &format!("{EULER}\nN = meet(line(B, I), circumcircle(A, B, C))"),
+        "dist(I,B)*dist(N,C) = 3*dist(O,A)*dist(I,T)",
+    );
+}
+
+/// TRIG_PLAN §3, item 9: power of a point outside the circle with the sign of
+/// the inside case. The correct sign is proved.
+#[test]
+fn power_of_a_point_sign_is_read_from_the_configuration() {
+    let cons = "O = free\nA = free\nP = point: dist(O,P) = 2*dist(O,A)\nX = on_circle(O, A)\n\
+                Y = meet(line(P, X), circle(O, A))";
+    provers_reject(cons, "dist(P,X)*dist(P,Y) = dist(O,A)^2 - dist(O,P)^2");
+    let proof = metric::solve(cons, "dist(P,X)*dist(P,Y) = dist(O,P)^2 - dist(O,A)^2", 48)
+        .expect("the outside power of a point is proved");
+    assert!(proof.starts_with("EUCLIDEAN PROOF"), "{proof}");
+}
+
+/// TRIG_PLAN §3, item 16 and P5: goals stated with `sin(angle(..))`. The law
+/// of sines never proves its own restatement, the extended law of sines is
+/// not a lone citation, and wrong constants or angles stay unproved.
+#[test]
+fn sine_goals_are_not_lone_citations_and_false_ones_fail() {
+    let tri = "A B C = triangle";
+    let restated = "dist(B,C)*sin(angle(A,B,C)) = dist(A,C)*sin(angle(B,A,C))";
+    match metric::solve(tri, restated, 48) {
+        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.numerically_holds(), Some(true)),
+        other => panic!("the law of sines must not prove its own restatement: {other:?}"),
+    }
+    let circ = "A B C = triangle\nO = circumcenter(A, B, C)";
+    let proof = metric::solve(circ, "dist(B,C) = 2*dist(O,A)*sin(angle(B,A,C))", 48)
+        .expect("BC = 2R sin A is derived");
+    assert!(proof.contains("Law of sines in") && proof.contains("Extended law of sines"), "{proof}");
+    provers_reject(circ, "dist(B,C) = dist(O,A)*sin(angle(B,A,C))");
+    provers_reject(circ, "dist(B,C) = 2*dist(O,A)*sin(angle(A,B,C))");
+    provers_reject(
+        "A = free\nB = free\nC = point: angle(B, A, C) = 30",
+        "dist(B,C) = dist(A,B)*sin(angle(B,A,C))",
+    );
+}
+
+/// TRIG_PLAN §3, item 17 and T7: an equal-or-supplementary angle pair has
+/// equal sines but cosines of opposite sign; the law of cosines does not prove
+/// its own restatement, even spread over multiples of `sin² + cos² = 1`.
+#[test]
+fn cosine_sign_trap_and_restatement() {
+    let supp = "A B C = triangle\nD = reflect(C, B)";
+    provers_reject(supp, "cos(angle(A,B,C)) = cos(angle(A,B,D))");
+    for goal in [
+        "sin(angle(A,B,C)) = sin(angle(A,B,D))",
+        "cos(angle(A,B,C)) = -cos(angle(A,B,D))",
+    ] {
+        let proof = metric::solve(supp, goal, 48).unwrap_or_else(|e| panic!("{goal}: {e}"));
+        assert!(proof.starts_with("EUCLIDEAN PROOF"), "{proof}");
+    }
+    let restated = "dist(B,C)^2 = dist(A,B)^2 + dist(A,C)^2 - 2*dist(A,B)*dist(A,C)*cos(angle(B,A,C))";
+    match metric::solve("A B C = triangle", restated, 48) {
+        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.numerically_holds(), Some(true)),
+        other => panic!("the law of cosines must not prove its own restatement: {other:?}"),
+    }
+    provers_reject(
+        "A B C = triangle",
+        "dist(B,C)^2 = dist(A,B)^2 + dist(A,C)^2 + 2*dist(A,B)*dist(A,C)*cos(angle(B,A,C))",
+    );
+    let right = "A = free\nB = free\nC = point: perp(A,B,A,C)\nH = foot(A, line(B,C))";
+    let proof = metric::solve(right, "dist(A,B)*cos(angle(A,B,C)) = dist(B,H)", 48).expect("projection is proved");
+    assert!(proof.contains("Law of cosines"), "{proof}");
+    provers_reject(right, "dist(A,B)*cos(angle(A,B,C)) = dist(C,H)");
+}
+
+/// TRIG_PLAN §3, items 7–8: false neighbours of Ptolemy's second theorem.
+#[test]
+fn ptolemy_second_false_neighbours_are_never_proved() {
+    provers_reject(
+        TRAPEZOID,
+        "dist(A,C)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(B,D)*(dist(A,B)*dist(A,D) + 2*dist(B,C)*dist(C,D))",
+    );
+    // In the isosceles trapezoid the diagonals are equal, so the swap is only
+    // false on a general cyclic quadrilateral.
+    provers_reject(
+        CYCLIC_QUAD,
+        "dist(B,D)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(A,C)*(dist(A,B)*dist(A,D) + dist(B,C)*dist(C,D))",
+    );
+    // The convex general case the sine-area stage proves: its neighbours.
+    let convex = "A B C = triangle\nM = midpoint(A, C)\nD = meet(line(B, M), circumcircle(A, B, C))";
+    provers_reject(
+        convex,
+        "dist(B,D)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(A,C)*(dist(A,B)*dist(A,D) + dist(B,C)*dist(C,D))",
+    );
+    provers_reject(
+        convex,
+        "dist(A,C)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
+         dist(B,D)*(dist(A,B)*dist(A,D) + 2*dist(B,C)*dist(C,D))",
+    );
+    // Ptolemy's first theorem with a minus sign.
+    provers_reject(
+        convex,
+        "dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) - dist(A,D)*dist(B,C)",
+    );
+}
+
+/// The DDAR closure with the law-of-sines rows switched on for this figure
+/// (independent of `GEO_TRIG`), and whether it proves the goal.
+fn ddar_trig_proves(src: &str, trig: bool) -> bool {
+    let c = compile(src).expect("a DDAR goal");
+    let mut d = ddar::Ddar::new(&c.problem.points);
+    for p in &c.problem.preds {
+        d.force_pred(p);
+    }
+    if trig {
+        d.enable_trig();
+    }
+    d.deduction_closure();
+    let (_, _, _, rejected) = d.trig_stats();
+    assert_eq!(rejected, 0, "a trig row failed the residual guard");
+    d.check_pred(c.problem.goal.as_ref().unwrap())
+}
+
+/// TRIG_PLAN P7 and §3 items 11–12 on the DDAR side: the known-sine rows need
+/// the tabulated angle, and the law of sines needs real triangles.
+#[test]
+fn ddar_trig_rows_prove_only_what_follows() {
+    let right30 = "A = free\nB = free\nC = point: angle(B,A,C) = 30, perp(C,A,C,B)\n\
+                   prove dist(B,C) = dist(A,B) / 2";
+    assert!(!ddar_trig_proves(right30, false), "plain DDAR was not expected to prove it");
+    assert!(ddar_trig_proves(right30, true));
+    for false_goal in [
+        "A = free\nB = free\nC = point: angle(B,A,C) = 30\nprove dist(B,C) = dist(A,B) / 2",
+        "A = free\nB = free\nC = point: angle(B,A,C) = 72, perp(C,A,C,B)\nprove dist(B,C) = dist(A,B) / 2",
+        "A = free\nB = free\nC = point: angle(B,A,C) = 30, perp(C,A,C,B)\nprove dist(A,C) = dist(A,B) / 2",
+        "A B C = triangle\nO = circumcenter(A, B, C)\nprove dist(B,C) = dist(O,A)",
+    ] {
+        assert!(!ddar_trig_proves(false_goal, true), "trig DDAR proved a false goal:\n{false_goal}");
+    }
+}

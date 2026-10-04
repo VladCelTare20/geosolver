@@ -1,0 +1,6 @@
+EUCLIDEAN PROOF
+  Goal:  dist(A,B)^2 = dist(A,C)^2
+
+  1. |AB| = |AC| (given), so AB² = AC².
+
+  Combining the equations above gives dist(A,B)^2 = dist(A,C)^2  (= 0.2115). ∎

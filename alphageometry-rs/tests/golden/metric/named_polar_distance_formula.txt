@@ -1,0 +1,28 @@
+EUCLIDEAN PROOF (sum of products)
+  Goal:  dist(O, P) * dist(O, F) = dist(O, A) ^ 2
+
+  1. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. assumption: para A P O A
+       ↳ 002. assumption: cong A P O A
+       ↳ 003. assumption: cong O T1 O A
+       ↳ 004. assumption: perp O T1 T1 P
+       ↳ 005. assumption: cong O T2 O A
+       ↳ 006. assumption: perp O T2 T2 P
+       ↳ 007. assumption: coll T1 T2 F
+       ↳ 008. collinear: T1 F T2 [007]
+       ↳ 009. assumption: coll O P F
+       ↳ 010. collinear: O F P [009]
+       ↳ 011. similar triangles: △T1PO ∼ △T2PO [003 & 004 & 005 & 006 & 010]
+       ↳ 012. similar triangles: △OAT1 ∼ △OT1A [001 & 002 & 003 & 004 & 011]
+       ↳ 013. similar triangles: △OAT2 ∼ △OT2A [001 & 002 & 005 & 006]
+       ↳ 014. similar triangles: △OT1T2 ∼ △OT2T1 [003 & 004 & 005 & 006 & 008 & 011]
+       ↳ 015. collinear: O F A P [001 & 010]
+       ↳ 016. angle bisector theorem: O F T1 T2 [004 & 006 & 008 & 011]
+       ↳ 017. angle bisector theorem: A F T1 T2 [001 & 008 & 010 & 011 & 012 & 013 & 015]
+       ↳ 018. angle bisector theorem: T1 A F P [001 & 010 & 011 & 012 & 014 & 015]
+       ↳ 019. similar triangles: △OPT1 ∼ △OT1F [003 & 004 & 005 & 010 & 011 & 014 & 016]
+       ↳ 020. similar triangles: △T1OP ∼ △FAT1 [001 & 003 & 004 & 005 & 010 & 011 & 012 & 014 & 015 & 016 & 017 & 018 & 019]
+  2. ∠T1OA = ∠AOT1 and ∠OAT1 = ∠OT1A (derived from the hypotheses), so △OAT1 ~ △OT1A (AA): OA·T1A = OT1·AT1, AT1·AO = T1A·T1O, OA·AO = OT1·T1O.  [from 1]
+  3. ∠T1OP = ∠FOT1 and ∠OPT1 = ∠OT1F (derived from the hypotheses), so △OPT1 ~ △OT1F (AA): OP·T1F = OT1·PT1, PT1·FO = T1F·T1O, OP·FO = OT1·T1O.  [from 1]
+
+  Adding the relations above gives dist(O, P) * dist(O, F) = dist(O, A) ^ 2  (= 0.2882). ∎
