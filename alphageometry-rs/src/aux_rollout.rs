@@ -506,7 +506,7 @@ fn lemmas_enabled() -> bool {
 
 /// Share of the budget after which the lemma phase starts, and where it ends.
 const LEMMA_START: f64 = 0.4;
-const LEMMA_END: f64 = 0.7;
+const LEMMA_END: f64 = 0.8;
 /// Lemmas tried per phase, and the share of the phase one lemma may use.
 const LEMMA_MAX: usize = 8;
 

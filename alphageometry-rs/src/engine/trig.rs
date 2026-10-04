@@ -10,10 +10,10 @@ const MAX_TRIANGLES: usize = 4000;
 /// How the DDAR closure uses the law of sines (`GEO_TRIG`, or `ddar --trig`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TrigMode {
-    /// Never (the default): the closure is exactly the trig-free one.
+    /// Never: the closure is exactly the trig-free one.
     Off,
     /// Only when a closed figure leaves an eligible goal unproved
-    /// ([`crate::runner`]); the aux search stays trig-free.
+    /// ([`crate::runner`]); the aux search stays trig-free. The default.
     Fallback,
     /// In every closure, once its trig-free fixpoint is reached (base and aux).
     Lazy,
@@ -24,10 +24,10 @@ pub enum TrigMode {
 pub fn mode() -> TrigMode {
     static MODE: OnceLock<TrigMode> = OnceLock::new();
     *MODE.get_or_init(|| match std::env::var("GEO_TRIG").as_deref() {
-        Ok("fallback") => TrigMode::Fallback,
+        Ok("off") => TrigMode::Off,
         Ok("lazy") => TrigMode::Lazy,
         Ok("always") => TrigMode::Always,
-        _ => TrigMode::Off,
+        _ => TrigMode::Fallback,
     })
 }
 
@@ -44,12 +44,24 @@ pub(crate) struct TrigState {
     los_done: FxHashSet<((VarId, VarId), (VarId, VarId))>,
     eq_done: FxHashSet<((VarId, VarId), (VarId, VarId))>,
     known_done: FxHashSet<(VarId, VarId)>,
+    /// `|sin|` of an angle class (a reduced angle up to sign), whether or not
+    /// a corner of the figure has it.
+    vsvar: FxHashMap<Class, DistMul>,
+    vlink_done: FxHashSet<(Class, (VarId, VarId))>,
+    mult_done: FxHashSet<(Class, u8)>,
+    conv_done: FxHashSet<((VarId, VarId), (VarId, VarId), Class)>,
     rows: usize,
     eq_rows: usize,
     pub(crate) rejected: usize,
     pub(crate) admitted: usize,
     pub(crate) candidates: usize,
 }
+
+/// An angle class: the reduced directed angle up to sign, as its terms.
+type Class = Vec<(VarId, Rat)>;
+
+const MAX_MULT_ROWS: usize = 400;
+const MAX_CONVERSE: usize = 200;
 
 /// One corner of a candidate triangle: vertex and the two other points.
 #[derive(Clone, Copy)]
@@ -207,7 +219,9 @@ impl Ddar {
             }
             classes.push(cl);
         }
-        let is_const = |c: &[(VarId, Rat)]| c.iter().all(|(v, _)| *v == ANGLE_UNIT);
+        let mut changed = self.trig_multiple_angles(&tris, &classes);
+        let virt: FxHashSet<Class> = self.trig.vsvar.keys().cloned().collect();
+        let is_const = |c: &[(VarId, Rat)]| c.iter().all(|(v, _)| *v == ANGLE_UNIT) || virt.contains(c);
         let mut count: FxHashMap<Vec<(VarId, Rat)>, usize> = FxHashMap::default();
         for cl in &classes {
             for c in cl {
@@ -234,7 +248,6 @@ impl Ddar {
                 break;
             }
         }
-        let mut changed = false;
         let mut admitted = 0;
         let mut buckets: FxHashMap<Vec<(VarId, Rat)>, Vec<Corner>> = FxHashMap::default();
         for i in 0..tris.len() {
@@ -274,7 +287,18 @@ impl Ddar {
         keys.sort();
         for k in keys {
             let corners = buckets[&k].clone();
-            if is_const(&k) {
+            if let (Some(vs), Some(c)) = (self.trig.vsvar.get(&k).cloned(), corners.first().copied()) {
+                if self.trig.vlink_done.insert((k.clone(), c.key)) {
+                    let s = self.sin_var(&c);
+                    let deps = angles[&c.key].1.clone();
+                    changed |= self.trig_force(
+                        &vs.div(&s),
+                        Reason::Theorem("equal or supplementary angles have equal sines", vec![c.p, c.v, c.q]),
+                        deps,
+                    );
+                }
+            }
+            if k.iter().all(|(v, _)| *v == ANGLE_UNIT) {
                 let frac = k.first().map(|(_, r)| r.mod_one()).unwrap_or_else(Rat::zero);
                 if let Some((value, name)) = self.known_sine(&frac) {
                     for c in &corners {
@@ -305,6 +329,247 @@ impl Ddar {
                     Reason::Theorem("equal or supplementary angles have equal sines", vec![c1.p, c1.v, c1.q, c2.p, c2.v, c2.q]),
                     deps,
                 );
+            }
+        }
+        changed |= self.trig_converse(&tris, &classes, &angles);
+        changed
+    }
+}
+
+impl Ddar {
+    fn class_angle(class: &[(VarId, Rat)]) -> Angle {
+        Angle::new(LinComb {
+            terms: class.iter().cloned().collect(),
+        })
+    }
+
+    /// The class of `class + k·π`, or of `n·class`.
+    fn class_shift(&self, class: &[(VarId, Rat)], k: Rat) -> Class {
+        let a = Self::class_angle(class).add(&self.angle.const_frac(k));
+        Self::corner_class(&self.angle.simplify(&a))
+    }
+
+    fn class_times(&self, class: &[(VarId, Rat)], n: i64) -> Class {
+        let mut c = Self::class_angle(class).0;
+        c.mul_assign_scalar(&Rat::from_int(n));
+        Self::corner_class(&self.angle.simplify(&Angle::new(c)))
+    }
+
+    /// `|sin|` of a class as a sine variable (LHS, rank 0, like the corner
+    /// ones), linked to the first corner of `corners` in that class by an
+    /// equal-sines row. `None` for a class whose sine is (numerically) zero.
+    fn class_sine(&mut self, class: &Class, corners: &FxHashMap<Class, Corner>) -> Option<DistMul> {
+        let value = (std::f64::consts::PI * self.angle.value_of(&Self::class_angle(class))).sin().abs();
+        if value < 1e-9 {
+            return None;
+        }
+        let s = match self.trig.vsvar.get(class) {
+            Some(s) => s.clone(),
+            None => {
+                let v = self.dmul.core.new_var_ranked(value, true, 0);
+                let s = DistMul(LinComb::singleton(v, Rat::one()));
+                self.trig.vsvar.insert(class.clone(), s.clone());
+                s
+            }
+        };
+        if let Some(c) = corners.get(class).copied() {
+            if self.trig.vlink_done.insert((class.clone(), c.key)) {
+                let corner = self.sin_var(&c);
+                let (_, deps) = self.corner_angle(&c);
+                self.trig_force(
+                    &s.div(&corner),
+                    Reason::Theorem("equal or supplementary angles have equal sines", vec![c.p, c.v, c.q]),
+                    deps,
+                );
+            }
+        }
+        Some(s)
+    }
+
+    /// The first corner (in triangle order) of every class.
+    fn corners_by_class(tris: &[[Corner; 3]], classes: &[[Class; 3]]) -> FxHashMap<Class, Corner> {
+        let mut out: FxHashMap<Class, Corner> = FxHashMap::default();
+        for (t, cl) in tris.iter().zip(classes) {
+            for k in 0..3 {
+                out.entry(cl[k].clone()).or_insert(t[k]);
+            }
+        }
+        out
+    }
+
+    /// **Multiple-angle product rows**: for a class `x` whose `n·x` (n = 2, 3)
+    /// is the class of a corner, `∏_{j<n} |sin(x + jπ/n)| = |sin(n·x)| / 2^(n−1)`
+    /// — for n = 2, `sin 2x = 2 sin x cos x`; for n = 3,
+    /// `sin 3x = 4 sin x sin(60° + x) sin(60° − x)`. An identity for every real
+    /// `x`, unchanged by `x → x + π/n` and `x → −x`, so it holds for the class
+    /// whatever representative the figure has.
+    fn trig_multiple_angles(&mut self, tris: &[[Corner; 3]], classes: &[[Class; 3]]) -> bool {
+        let corners = Self::corners_by_class(tris, classes);
+        let mut keys: Vec<Class> = corners.keys().cloned().collect();
+        keys.sort();
+        let mut changed = false;
+        for x in &keys {
+            for n in [2i64, 3] {
+                if self.trig.mult_done.len() >= MAX_MULT_ROWS {
+                    return changed;
+                }
+                let nx = self.class_times(x, n);
+                if !corners.contains_key(&nx) || nx.is_empty() {
+                    continue;
+                }
+                if !self.trig.mult_done.insert((x.clone(), n as u8)) {
+                    continue;
+                }
+                let Some(sn) = self.class_sine(&nx, &corners) else {
+                    continue;
+                };
+                let mut row = self.dmul.frac_value(&Rat::from_int(1 << (n - 1))).div(&sn);
+                let mut ok = true;
+                for j in 0..n {
+                    let c = self.class_shift(x, Rat::new(j, n));
+                    match self.class_sine(&c, &corners) {
+                        Some(sj) => row = row.mul(&sj),
+                        None => ok = false,
+                    }
+                }
+                if !ok {
+                    continue;
+                }
+                let name = if n == 2 {
+                    "double-angle formula: sin x·sin(x + 90°) = sin 2x / 2"
+                } else {
+                    "triple-angle formula: sin x·sin(x + 60°)·sin(x + 120°) = sin 3x / 4"
+                };
+                changed |= self.trig_force(&row, Reason::Theorem(name, Vec::new()), Vec::new());
+            }
+        }
+        changed
+    }
+
+    /// **Converse of the law of sines.** In a triangle `PQR` whose angle at
+    /// `P` is known as a class, a class `w` with `|PQ|·|sin v| = |PR|·|sin w|`
+    /// in the ratio table, `v = −∠P − w` (so `∠P + v + w ≡ 0`), fixes the angle
+    /// at `R`: `t ↦ sin t / sin(π − p − t)` is strictly increasing on
+    /// `(0, π − p)`, and the law of sines gives the interior angle `r` the same
+    /// value as the representative `r'` of `w`, hence `r = r'` and
+    /// `∠(RP, RQ) ≡ w`. The figure proposes `w` (equal `|sin|`) and reads the
+    /// configuration: the orientation `σ` (`∠P ≡ σ·p`) and `0 < r' < π − p`,
+    /// both with margins; the triangle is not flat.
+    fn trig_converse(
+        &mut self,
+        tris: &[[Corner; 3]],
+        classes: &[[Class; 3]],
+        angles: &FxHashMap<(VarId, VarId), (Angle, Vec<FactId>)>,
+    ) -> bool {
+        let corners = Self::corners_by_class(tris, classes);
+        let mut pool: Vec<(f64, Class)> = corners
+            .keys()
+            .chain(self.trig.vsvar.keys())
+            .map(|c| {
+                let v = (std::f64::consts::PI * self.angle.value_of(&Self::class_angle(c))).sin().abs();
+                (v, c.clone())
+            })
+            .collect();
+        pool.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        pool.dedup_by(|a, b| a.1 == b.1);
+        let wrap = |x: f64| x.rem_euclid(1.0);
+        let near = |x: f64, y: f64| {
+            let d = wrap(x - y);
+            d.min(1.0 - d) < 1e-7
+        };
+        let interior = |s: &Ddar, c: &Corner| -> f64 {
+            let (o, p, q) = (s.coord(c.v), s.coord(c.p), s.coord(c.q));
+            let (u, w) = (p - o, q - o);
+            (u.dot(w) / (u.norm() * w.norm())).clamp(-1.0, 1.0).acos() / std::f64::consts::PI
+        };
+        let mut changed = false;
+        let mut fired = 0;
+        for (t, cl) in tris.iter().zip(classes) {
+            for k in 0..3 {
+                let r = t[k];
+                let r_int = interior(self, &r);
+                let a_r = wrap(self.angle.value_of(&angles[&r.key].0));
+                let s_r = (std::f64::consts::PI * a_r).sin().abs();
+                let lo = pool.partition_point(|e| e.0 < s_r - 1e-9);
+                let cands: Vec<Class> = pool[lo..]
+                    .iter()
+                    .take_while(|e| e.0 <= s_r + 1e-9)
+                    .map(|e| e.1.clone())
+                    .filter(|c| *c != cl[k])
+                    .collect();
+                if cands.is_empty() {
+                    continue;
+                }
+                for (pi, qi) in [((k + 1) % 3, (k + 2) % 3), ((k + 2) % 3, (k + 1) % 3)] {
+                    let (p, q) = (t[pi], t[qi]);
+                    let p_int = interior(self, &p);
+                    let a_p = wrap(self.angle.value_of(&angles[&p.key].0));
+                    let sigma = if near(a_p, p_int) {
+                        1.0
+                    } else if near(a_p, -p_int) {
+                        -1.0
+                    } else {
+                        continue;
+                    };
+                    for w in &cands {
+                        if fired >= MAX_CONVERSE {
+                            return changed;
+                        }
+                        let w_pos = Self::class_angle(w);
+                        let w_s = if near(self.angle.value_of(&w_pos), a_r) {
+                            w_pos
+                        } else if near(self.angle.value_of(&w_pos.neg()), a_r) {
+                            w_pos.neg()
+                        } else {
+                            continue;
+                        };
+                        let r_rep = wrap(sigma * self.angle.value_of(&w_s));
+                        if !near(r_rep, r_int) || r_rep < 1e-6 || 1.0 - p_int - r_rep < 1e-6 {
+                            continue;
+                        }
+                        if self.trig.conv_done.contains(&(r.key, p.key, w.clone())) {
+                            continue;
+                        }
+                        let a_p_form = &angles[&p.key].0;
+                        let v = Self::corner_class(&self.angle.simplify(&a_p_form.neg().sub(&w_s)));
+                        let known = |s: &Ddar, c: &Class| corners.contains_key(c) || s.trig.vsvar.contains_key(c);
+                        if !known(self, &v) || !known(self, w) {
+                            continue;
+                        }
+                        let (Some(sv), Some(sw)) = (self.class_sine(&v, &corners), self.class_sine(w, &corners)) else {
+                            continue;
+                        };
+                        // Side opposite R is PQ, opposite Q is PR.
+                        let row = self
+                            .raw_dist_mul(p.v, q.v)
+                            .mul(&sv)
+                            .div(&self.raw_dist_mul(p.v, r.v).mul(&sw));
+                        let (red, mut prem) = self.dmul.simplify_deps(&row);
+                        if !red.is_one() {
+                            continue;
+                        }
+                        let rel = self.raw_dir(r.v, r.p).sub(&self.raw_dir(r.v, r.q)).sub(&w_s);
+                        if self.angle.simplify(&rel).is_zero() {
+                            continue;
+                        }
+                        let val = self.angle.value_of(&rel);
+                        if !near(val, 0.0) {
+                            debug_assert!(false, "converse law of sines disagrees with the figure");
+                            continue;
+                        }
+                        self.trig.conv_done.insert((r.key, p.key, w.clone()));
+                        prem.extend(angles[&p.key].1.iter().copied());
+                        let fact = self.log.add(
+                            Reason::Theorem(
+                                "law of sines, converse (sin t / sin(S − t) is increasing, so the side ratio fixes the angle)",
+                                vec![p.v, q.v, r.v],
+                            ),
+                            prem,
+                        );
+                        fired += 1;
+                        changed |= self.angle.force_zero(&rel, Some(fact));
+                    }
+                }
             }
         }
         changed

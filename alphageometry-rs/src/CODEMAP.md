@@ -71,6 +71,6 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `fuzz.rs:verdict` — a non-degenerate case is false as a theorem, so any proof is `UNSOUND`, even when the goal holds on the pinned figure (`hyp-special`).
 
 ## Subfolders
-- [engine/](engine/CODEMAP.md) — classical closure rules (squared lengths, Menelaus/Ceva, bisector concurrency) and the law-of-sines rows of the DDAR closure (`--trig`, off by default).
+- [engine/](engine/CODEMAP.md) — classical closure rules (squared lengths, Menelaus/Ceva, bisector concurrency, triangle equality) and the trig rows of the DDAR closure (law of sines, multiple-angle products, converse; `--trig`, fallback by default).
 - `bin/` — `ddar.rs`, the engine CLI (`--help` lists modes).
 - [ratio/](ratio/CODEMAP.md) — the trigonometric layer of the metric ratio prover.

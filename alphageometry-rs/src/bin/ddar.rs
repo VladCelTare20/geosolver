@@ -85,8 +85,8 @@ Options:
   --svg <file>            write an SVG figure
   --theme dark|light      figure color scheme (default dark)
   --title <text>          title atop the figure's construction panel
-  --trig <mode>           law of sines in the DDAR closure: off (default),
-                          fallback (only when a length goal is left unproved
+  --trig <mode>           law of sines in the DDAR closure: off, fallback
+                          (default: only when a length goal is left unproved
                           by the base closure), lazy (every closure, after its
                           trig-free fixpoint), always; also env GEO_TRIG
   -h, --help              print this help

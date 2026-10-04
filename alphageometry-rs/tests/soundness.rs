@@ -916,3 +916,146 @@ fn double_points_do_not_assume_numeric_coincidences() {
         panic!("a double point proved a coincidence with {used:?}:\n{src}");
     }
 }
+
+/// A low-level problem through the DDAR closure with the law-of-sines rows on
+/// (independent of `GEO_TRIG`).
+fn ddar_trig_proves_low(src: &str) -> bool {
+    let p = Problem::parse(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    let mut d = ddar::Ddar::new(&p.points);
+    for pred in &p.preds {
+        d.force_pred(pred);
+    }
+    d.enable_trig();
+    d.deduction_closure();
+    let (_, _, _, rejected) = d.trig_stats();
+    assert_eq!(rejected, 0, "a trig row failed the residual guard:\n{src}");
+    d.check_pred(p.goal.as_ref().unwrap())
+}
+
+/// The double-angle row `sin x · sin(x + 90°) = sin 2x / 2`: an isosceles
+/// triangle OAB with apex angle 2x has AB/OA = 2 sin x, a right triangle PQR
+/// with angle x at P has QR/PQ = sin x, so AB·PQ = 2·OA·QR. Plain DDAR cannot
+/// get it; with the row it does. Every neighbour with a hypothesis dropped (on
+/// the same figure, where the goal still holds numerically) or with the wrong
+/// constant stays unproved.
+#[test]
+fn double_angle_row_fires_and_needs_its_premises() {
+    let pts = |rest: &str| {
+        format!(
+            "o@0.3_2.0 a@1.3_2.0 = ; b@0.6623577544766737_1.0679609140327737 = {}; p@0_0 r@1_0 = ; \
+             q@1_0.6841368083416923 = {} ? {}",
+            if rest.contains("NO_ISO") { "" } else { "cong o a o b" },
+            match (rest.contains("NO_PERP"), rest.contains("NO_ANG")) {
+                (false, false) => "perp r p r q, angeq p q p r o a o b 2 -2 -1 1 0",
+                (true, false) => "angeq p q p r o a o b 2 -2 -1 1 0",
+                (false, true) => "perp r p r q",
+                (true, true) => "",
+            },
+            if rest.contains("WRONG") {
+                "distmeq a b p q o a q r 1 1 -1 -1 1"
+            } else {
+                "distmeq a b p q o a q r 1 1 -1 -1 1/2"
+            }
+        )
+    };
+    assert!(ddar_trig_proves_low(&pts("")), "the double-angle row no longer fires");
+    assert!(!ddar_claims_low(&pts("")), "plain DDAR proves it: the test does not exercise the row");
+    for tag in ["NO_ISO", "NO_PERP", "NO_ANG", "WRONG"] {
+        assert!(!ddar_trig_proves_low(&pts(tag)), "proved a false neighbour ({tag}):\n{}", pts(tag));
+    }
+}
+
+fn ddar_claims_low(src: &str) -> bool {
+    let p = Problem::parse(src).unwrap();
+    let mut d = ddar::Ddar::new(&p.points);
+    for pred in &p.preds {
+        d.force_pred(pred);
+    }
+    d.deduction_closure();
+    d.check_pred(p.goal.as_ref().unwrap())
+}
+
+/// Morley's trisector theorem by the triple-angle rows and the converse of
+/// the law of sines, on all 27 figures of the same hypotheses: each trisector
+/// is fixed only up to π/3, and on the 9 figures whose choices sum to 2 mod 3
+/// JKL is not equilateral (JL = 1.998, JK = 2.316 for choice 0 0 2). The 18
+/// true figures are proved, the 9 false ones are not; and on the true corpus
+/// figure, dropping one trisection hypothesis (the goal still holds there)
+/// proves nothing.
+#[test]
+fn morley_by_trig_rows_only_where_true() {
+    use std::f64::consts::PI;
+    type C = (f64, f64);
+    let (a, b, c): (C, C, C) = (
+        (0.1343253817924288, 0.719445251994107),
+        (-0.5210702983270747, -0.8349066943186165),
+        (0.13033572228610057, -0.8094323774776992),
+    );
+    let ang = |p: C, q: C| (q.1 - p.1).atan2(q.0 - p.0);
+    let meet = |p: C, t1: f64, q: C, t2: f64| -> C {
+        let (d1, d2) = ((t1.cos(), t1.sin()), (t2.cos(), t2.sin()));
+        let r = (q.0 - p.0, q.1 - p.1);
+        let den = d1.0 * (-d2.1) - d1.1 * (-d2.0);
+        let s = (r.0 * (-d2.1) - r.1 * (-d2.0)) / den;
+        (p.0 + s * d1.0, p.1 + s * d1.1)
+    };
+    let third = |v: C, x: C, y: C, k: f64| {
+        let (u, w) = (ang(v, x), ang(v, y));
+        (u, (w - u).rem_euclid(PI) / 3.0 + k * PI / 3.0)
+    };
+    let preds = "coll d b c, coll e b c, eqangle a b a d a d a e, eqangle a d a e a e a c, coll f c a, \
+                 coll g c a, eqangle b c b f b f b g, eqangle b f b g b g b a, coll h a b, coll i a b, \
+                 eqangle c a c h c h c i, eqangle c h c i c i c b, coll j b f, coll j c i, coll k a e, \
+                 coll k c h, coll l a d, coll l b g";
+    let dist = |p: C, q: C| ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt();
+    let (mut proved, mut refused) = (0, 0);
+    for ia in 0..3 {
+        for ib in 0..3 {
+            for ic in 0..3 {
+                let (ua, ta) = third(a, b, c, ia as f64);
+                let (ub, tb) = third(b, c, a, ib as f64);
+                let (uc, tc) = third(c, a, b, ic as f64);
+                let (bc, ca, ab) = (ang(b, c), ang(c, a), ang(a, b));
+                let pts: Vec<(&str, C)> = vec![
+                    ("a", a),
+                    ("b", b),
+                    ("c", c),
+                    ("d", meet(a, ua + ta, b, bc)),
+                    ("e", meet(a, ua + 2.0 * ta, b, bc)),
+                    ("f", meet(b, ub + tb, c, ca)),
+                    ("g", meet(b, ub + 2.0 * tb, c, ca)),
+                    ("h", meet(c, uc + tc, a, ab)),
+                    ("i", meet(c, uc + 2.0 * tc, a, ab)),
+                    ("j", meet(b, ub + tb, c, uc + 2.0 * tc)),
+                    ("k", meet(a, ua + 2.0 * ta, c, uc + tc)),
+                    ("l", meet(a, ua + ta, b, ub + 2.0 * tb)),
+                ];
+                let get = |n: &str| pts.iter().find(|p| p.0 == n).unwrap().1;
+                let truth = (dist(get("j"), get("l")) - dist(get("j"), get("k"))).abs() < 1e-9;
+                let head: Vec<String> = pts.iter().map(|(n, p)| fmt_pt(n, p.0, p.1)).collect();
+                let src = format!("{} = {preds} ? cong j l j k", head.join(" "));
+                let got = bounded(120, move || ddar_trig_proves_low(&src));
+                assert_eq!((ia + ib + ic) % 3 != 2, truth, "figure {ia} {ib} {ic}: unexpected truth value");
+                if truth {
+                    assert!(got, "true Morley figure {ia} {ib} {ic} not proved");
+                    proved += 1;
+                } else {
+                    assert!(!got, "false Morley figure {ia} {ib} {ic} proved");
+                    refused += 1;
+                }
+            }
+        }
+    }
+    assert_eq!((proved, refused), (18, 9));
+    let fig = "a@0.1343253817924288_0.719445251994107 b@-0.5210702983270747_-0.8349066943186165 \
+               c@0.13033572228610057_-0.8094323774776992 d@-0.28816543221817836_-0.825798561809395 \
+               e@-0.07403070417618249_-0.8174244667961947 f@0.13102232498787159_-0.5463193199830535 \
+               g@0.13200375239858442_-0.1702264702525801 h@-0.24396157915667044_-0.17770908065078395 \
+               i@-0.39075010291486945_-0.525836226619042 j@-0.13598988595056216_-0.6644871233213832 \
+               k@-0.03509469205440549_-0.5302258581151602 l@-0.20181595541531305_-0.5099786896844436";
+    assert!(ddar_trig_proves_low(&format!("{fig} = {preds} ? cong j l j k")));
+    for dropped in ["eqangle a d a e a e a c, ", "eqangle b f b g b g b a, ", "eqangle c h c i c i c b, "] {
+        let src = format!("{fig} = {} ? cong j l j k", preds.replace(dropped, ""));
+        assert!(!ddar_trig_proves_low(&src), "proved Morley without `{dropped}`");
+    }
+}
