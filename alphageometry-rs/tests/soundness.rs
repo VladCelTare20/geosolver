@@ -787,3 +787,132 @@ fn arc_chord_transfer_reads_no_side_off_a_diameter() {
     let problem = Problem::parse(low).unwrap();
     assert!(!solve_problem(&problem).unwrap(), "proved GE = EF without the tangent at B");
 }
+
+/// jgex `complete_010_Other_gao_Y_yL182-1` (corpus figure): F = C + A − E is
+/// pinned to line AC only by FC = AE and FA = CE, so `|AF| + |FC| = |AC|`, the
+/// equality case of the triangle inequality, is what puts F on AC. The rule
+/// fires on the problem; with any one of its three premises dropped (the
+/// figure kept, so F still lies on AC numerically) nothing is proved.
+#[test]
+fn triangle_equality_needs_all_its_premises() {
+    let pts = "a@0.1343253817924288_0.719445251994107 c@-0.5210702983270747_-0.8349066943186165 \
+               d@0.13033572228610057_-0.8094323774776992 b@-0.5170806388207465_0.6939709351531897 \
+               e@0.11522266674292991_0.6741407997102106 f@-0.5019675832775758_-0.7896022420347201";
+    let full = "para b c d a, para b a d c, coll e a c, cong f c a e, cong f a c e";
+    for goal in ["para d e f b", "coll f a c"] {
+        let p = Problem::parse(&format!("{pts} = {full} ? {goal}")).unwrap();
+        assert!(
+            solve_problem(&p).unwrap(),
+            "the rule no longer proves {goal}"
+        );
+    }
+    for hyps in [
+        "para b c d a, para b a d c, cong f c a e, cong f a c e",
+        "para b c d a, para b a d c, coll e a c, cong f c a e",
+        "para b c d a, para b a d c, coll e a c, cong f a c e",
+    ] {
+        for goal in ["para d e f b", "coll f a c"] {
+            let src = format!("{pts} = {hyps} ? {goal}");
+            let p = Problem::parse(&src).unwrap();
+            assert!(
+                !solve_problem(&p).unwrap(),
+                "proved without a premise:\n{src}"
+            );
+        }
+    }
+}
+
+/// Two circles through a numerically identical pair x, k are tangent there.
+/// The merge x = k is a theorem only when the tangency is proved: k on the
+/// line of centres (circle–circle) or the line ⟂ the radius (line–circle).
+/// Each control is proved; each decoy, where the same figure has the
+/// tangency only numerically, is not — by DDAR or by the aux search.
+#[test]
+fn tangent_merge_needs_a_proved_tangency() {
+    let proved = [
+        // External tangency at k, k on the line of centres by hypothesis.
+        "o@0.0_0.0 p@3.0_0.0 = ; k@1.0_0.0 = coll o p k; x@1.0_0.0 = cong o x o k, cong p x p k ? coll x o p",
+        // Tangent line at t: tq ⟂ ot by hypothesis.
+        "o@0.0_0.0 a@1.0_0.0 = ; t@0.6_0.8 = cong o t o a; q@0.2_1.1 = perp o t t q; \
+         x@0.6_0.8 = cong o x o a, coll x t q ? perp o x x q",
+    ];
+    for src in proved {
+        let p = Problem::parse(src).unwrap();
+        assert!(
+            solve_problem(&p).unwrap(),
+            "tangent merge no longer fires:\n{src}"
+        );
+    }
+    let decoys = [
+        // k is on circle o and on line op, but b is free: circle p touches
+        // circle o at k only in this figure.
+        "o@0.0_0.0 p@3.0_0.0 a@0.6_0.8 = ; k@1.0_0.0 = coll o p k, cong o k o a; b@4.2_1.6 = ; \
+         x@1.0_0.0 = cong o x o a, cong p x p b ? coll x o p",
+        // The same with x off the line of centres symbolically and k on both
+        // circles but not on the line.
+        "o@0.0_0.0 p@3.0_0.0 a@0.6_0.8 b@4.2_1.6 = ; k@1.0_0.0 = cong o k o a, cong p k p b; \
+         x@1.0_0.0 = cong o x o a, cong p x p b ? coll x o p",
+        // q free: tq touches the circle only in this figure.
+        "o@0.0_0.0 a@1.0_0.0 = ; t@0.6_0.8 = cong o t o a; q@0.2_1.1 = ; \
+         x@0.6_0.8 = cong o x o a, coll x t q ? perp o x x q",
+    ];
+    for src in decoys {
+        let p = Problem::parse(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert!(
+            !solve_problem(&p).unwrap(),
+            "DDAR merged without a proved tangency:\n{src}"
+        );
+        let found = bounded(120, move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(4);
+            ddar::aux_search::solve_max_until(&p, false, Some(deadline)).0
+        });
+        if let Some(found) = found {
+            let used: Vec<String> = found.constructions.iter().map(|c| c.desc.clone()).collect();
+            panic!("the aux search proved a decoy with {used:?}:\n{src}");
+        }
+    }
+}
+
+/// IMO 2011 P6 in AG1's form: the goal point x is the meeting point of two
+/// tangent circles (a double point). The proof needs the aux point K = the
+/// second construction of x (circle(pc, pb, a1) ∩ ω) and the tangent merge.
+#[test]
+fn double_point_candidate_proves_imo_2011_p6() {
+    let text = "a b c = triangle a b c; o = circle o a b c; p = on_circle p o a; q = on_tline q p o p; \
+        pa = reflect pa p b c; pb = reflect pb p c a; pc = reflect pc p a b; qa = reflect qa q b c; \
+        qb = reflect qb q c a; qc = reflect qc q a b; a1 = on_line a1 pb qb, on_line a1 pc qc; \
+        b1 = on_line b1 pa qa, on_line b1 pc qc; c1 = on_line c1 pa qa, on_line c1 pb qb; \
+        o1 = circle o1 a1 b1 c1; x = on_circle x o a, on_circle x o1 a1 ? coll x o o1";
+    let o = bounded(200, move || {
+        ddar::fuzz::solve_case("imo_2011_p6", text, Duration::from_secs(120), true)
+    });
+    assert!(o.proved, "{} {}", o.status, o.detail);
+    assert!(o.proof.unwrap_or_default().contains("proved tangent there"));
+}
+
+/// A double point must never stand in for a numeric coincidence: k is a
+/// point of line pq that only happens to sit on circle o. The candidate
+/// pq ∩ circle(o) lands on k and is kept as a double point (line pq holds k
+/// symbolically), yet only one object holds both, so nothing may identify
+/// them, and the goal stays unproved.
+#[test]
+fn double_points_do_not_assume_numeric_coincidences() {
+    let src = "o@0.0_0.0 a@1.0_0.0 = ; b@-0.6_0.8 = cong o b o a; c@0.0_-1.0 = cong o c o a; \
+               p@1.6_1.3 q@-0.4_0.3 = ; k@0.6_0.8 = coll p q k ? cong o k o a";
+    let p = Problem::parse(src).unwrap();
+    assert!(!solve_problem(&p).unwrap());
+    let pool = ddar::aux_search::candidate_pool(&p, 1.0);
+    assert!(
+        pool.iter()
+            .any(|(_, c)| (c.coord.x - 0.6).abs() < 1e-12 && (c.coord.y - 0.8).abs() < 1e-12),
+        "no double point on k was generated"
+    );
+    let found = bounded(120, move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(6);
+        ddar::aux_search::solve_max_until(&p, false, Some(deadline)).0
+    });
+    if let Some(found) = found {
+        let used: Vec<String> = found.constructions.iter().map(|c| c.desc.clone()).collect();
+        panic!("a double point proved a coincidence with {used:?}:\n{src}");
+    }
+}

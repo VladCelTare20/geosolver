@@ -4,8 +4,8 @@
 
 use crate::aux_score::{DefObj, Scorer};
 use crate::aux_search::{
-    circle3, known_circles, natural_name, pred, render_tpl, salient_lines, taken_names, tok,
-    Construction, Kind,
+    circle3, coincident_args, double_key, known_circles, landing, natural_name, pred, render_tpl,
+    salient_lines, taken_names, tok, Construction, Kind, Landing,
 };
 use crate::numerics::{distance, intersect_ll, NumCircle, NumLine, Vec2};
 use crate::predicate::{PointId, Predicate};
@@ -167,6 +167,7 @@ pub(crate) fn virtual_candidates(
     min_score: f64,
     must: Option<P>,
     parallel: bool,
+    doubles: bool,
 ) -> Vec<(f64, Construction)> {
     let n = problem.points.len();
     let new_id = n as P;
@@ -353,16 +354,20 @@ pub(crate) fn virtual_candidates(
         }
     }
 
-    let near_existing = |x: Vec2| {
-        distance(x, c(0)) > 100.0 * scale
-            || (0..n).any(|i| distance(x, problem.points[i].value) < 1e-6 * scale.max(1.0))
-    };
-    let keep = |x: Vec2, defs: [DefObj; 2]| -> Option<f64> {
-        if !x.x.is_finite() || !x.y.is_finite() || near_existing(x) {
+    // A double point (a candidate on an existing point) is snapped onto it
+    // and scored by `aux_rollout::build_pool`, which also vets it.
+    let keep = |x: Vec2, defs: [DefObj; 2]| -> Option<(f64, Vec2)> {
+        if !x.x.is_finite() || !x.y.is_finite() || distance(x, c(0)) > 100.0 * scale {
             return None;
         }
-        let s = scorer.score(x, &defs);
-        (s >= min_score).then_some(s)
+        match landing(problem, x, scale, 1e-6 * scale.max(1.0)) {
+            Landing::Clear => {
+                let s = scorer.score(x, &defs);
+                (s >= min_score).then_some((s, x))
+            }
+            Landing::On(p) if doubles => Some((0.0, c(p))),
+            _ => None,
+        }
     };
 
     let t_pts: Vec<Vec<P>> = tlines.iter().map(|t| t.def.points()).collect();
@@ -382,7 +387,7 @@ pub(crate) fn virtual_candidates(
                 continue;
             };
 
-            if let Some(score) = keep(x, [DefObj::Line(v.dir), DefObj::Line(t.dir)]) {
+            if let Some((score, x)) = keep(x, [DefObj::Line(v.dir), DefObj::Line(t.dir)]) {
                 out.push(Raw {
                     score,
                     coord: x,
@@ -403,7 +408,7 @@ pub(crate) fn virtual_candidates(
             }
             let kp = &k_pts[ki];
             for x in line_circle(&v.num, &k.num) {
-                if let Some(score) = keep(
+                if let Some((score, x)) = keep(
                     x,
                     [DefObj::Line(v.dir), DefObj::Circle(k.num.center, k.num.r)],
                 ) {
@@ -441,7 +446,7 @@ pub(crate) fn virtual_candidates(
                 continue;
             }
             for x in line_circle(&t.num, &k.num) {
-                if let Some(score) = keep(
+                if let Some((score, x)) = keep(
                     x,
                     [DefObj::Line(t.dir), DefObj::Circle(k.num.center, k.num.r)],
                 ) {
@@ -469,7 +474,7 @@ pub(crate) fn virtual_candidates(
                 continue;
             }
             for x in circle_circle(&k.num, &j.num) {
-                if let Some(score) = keep(
+                if let Some((score, x)) = keep(
                     x,
                     [
                         DefObj::Circle(k.num.center, k.num.r),
@@ -520,7 +525,7 @@ pub(crate) fn virtual_candidates(
                         points: vec![cc, a, cc, b, new_id, a, new_id, b],
                         constants: Vec::<Rat>::new(),
                     };
-                    if let Some(score) = keep(x, [DefObj::Line(t.dir), DefObj::Line(t.dir)]) {
+                    if let Some((score, x)) = keep(x, [DefObj::Line(t.dir), DefObj::Line(t.dir)]) {
                         raws.push(Raw {
                             score,
                             coord: x,
@@ -540,11 +545,18 @@ pub(crate) fn virtual_candidates(
     let mut seen: FxHashSet<(Kind, i64, i64)> = FxHashSet::default();
     let mut out = Vec::new();
     for r in raws {
-        let key = (
-            r.kind,
-            (r.coord.x * 1e6).round() as i64,
-            (r.coord.y * 1e6).round() as i64,
-        );
+        if coincident_args(problem, &r.args, scale) {
+            continue;
+        }
+        let on = (0..n as P).find(|&i| c(i) == r.coord);
+        let key = match on {
+            None => (
+                r.kind,
+                (r.coord.x * 1e6).round() as i64,
+                (r.coord.y * 1e6).round() as i64,
+            ),
+            Some(p) => double_key(r.kind, p, &r.args),
+        };
         if !seen.insert(key) {
             continue;
         }

@@ -10,16 +10,23 @@ pub(crate) enum Rule {
     BisectorConcurrency,
     MenelausCeva,
     SquaredLengths,
+    TriangleEquality,
 }
 
 impl Rule {
-    const ALL: [Rule; 3] = [Rule::BisectorConcurrency, Rule::MenelausCeva, Rule::SquaredLengths];
+    const ALL: [Rule; 4] = [
+        Rule::BisectorConcurrency,
+        Rule::MenelausCeva,
+        Rule::SquaredLengths,
+        Rule::TriangleEquality,
+    ];
 
     fn key(self) -> &'static str {
         match self {
             Rule::BisectorConcurrency => "bisconc",
             Rule::MenelausCeva => "menelaus",
             Rule::SquaredLengths => "sqlen",
+            Rule::TriangleEquality => "trieq",
         }
     }
 
@@ -32,7 +39,7 @@ impl Rule {
     }
 }
 
-/// The rules switched off for this process: `DDAR_DISABLE_RULES=sqlen,menelaus,bisconc`
+/// The rules switched off for this process: `DDAR_DISABLE_RULES=sqlen,menelaus,bisconc,trieq`
 /// (A/B measurement). All are on by default.
 pub(crate) fn env_disabled_mask() -> u8 {
     static OFF: OnceLock<u8> = OnceLock::new();
@@ -54,10 +61,11 @@ pub(crate) enum Pass {
     SqFromStewart,
     SqDeriveRatios,
     SqDerivePerps,
+    TriangleEquality,
 }
 
 impl Pass {
-    const COUNT: usize = 7;
+    const COUNT: usize = 8;
 }
 
 impl Ddar {
@@ -66,6 +74,7 @@ impl Ddar {
     /// unchanged input means nothing new to find.
     pub(super) fn inputs_changed(&mut self, pass: Pass) -> bool {
         let (ang, dm, sq) = (self.angle.core.rows(), self.dmul.core.rows(), self.dsq.core.rows());
+        let da = self.dadd.core.rows();
         let (lines, active) = (self.lines.len(), self.active.len());
         let key = match pass {
             Pass::BisectorConcurrency => [ang, active, 0],
@@ -74,6 +83,7 @@ impl Ddar {
             Pass::SqFromRatios => [dm, active, 0],
             Pass::SqFromStewart => [dm, lines, active],
             Pass::SqDeriveRatios | Pass::SqDerivePerps => [sq, active, 0],
+            Pass::TriangleEquality => [da, lines, active],
         };
         let slot = &mut self.classics.seen[pass as usize];
         let changed = *slot != Some(key);
@@ -85,7 +95,7 @@ impl Ddar {
         self.rules_off & rule.bit() == 0
     }
 
-    /// Switch one closure rule (`sqlen`, `menelaus`, `bisconc`) on or off for
+    /// Switch one closure rule (`sqlen`, `menelaus`, `bisconc`, `trieq`) on or off for
     /// this engine; `false` for an unknown name.
     pub fn set_rule(&mut self, name: &str, on: bool) -> bool {
         let Some(rule) = Rule::by_name(name) else {
@@ -465,5 +475,61 @@ impl Ddar {
     fn is_bisector(&self, a: PointId, b: PointId, c: PointId, i: PointId) -> bool {
         let ai = self.cached_dir(a, i);
         self.cached_dir(a, b).add(self.cached_dir(a, c)).sub(ai).sub(ai).is_zero()
+    }
+
+    /// **Equality case of the triangle inequality**: `|XM| + |MY| = |XY|` in
+    /// the additive length table forces `M` onto segment `XY`, so `X, M, Y`
+    /// are collinear. The lengths are unsigned, so no configuration branch is
+    /// read; the figure only proposes the triples (numerically flat, not yet
+    /// collinear in the line table) and which point is the middle one.
+    #[inline(never)]
+    pub(super) fn search_triangle_equality(&mut self) -> bool {
+        let active = self.active.clone();
+        let mut cands: Vec<[PointId; 3]> = Vec::new();
+        for (i, &a) in active.iter().enumerate() {
+            for (j, &b) in active.iter().enumerate().skip(i + 1) {
+                if self.num_identical(a, b) {
+                    continue;
+                }
+                for &c in active.iter().skip(j + 1) {
+                    if self.num_identical(a, c)
+                        || self.num_identical(b, c)
+                        || !self.numerically_flat(a, b, c)
+                        || self.check_collinear(&[a, b, c])
+                    {
+                        continue;
+                    }
+                    let (pa, pb, pc) = (self.coord(a), self.coord(b), self.coord(c));
+                    let tri = if strictly_between(pb, pa, pc) {
+                        [a, b, c]
+                    } else if strictly_between(pa, pb, pc) {
+                        [b, a, c]
+                    } else {
+                        [a, c, b]
+                    };
+                    cands.push(tri);
+                }
+            }
+        }
+        let mut changed = false;
+        for [x, m, y] in cands {
+            if self.check_collinear(&[x, m, y]) {
+                continue;
+            }
+            let rel = self
+                .raw_dist_add(x, m)
+                .add(&self.raw_dist_add(m, y))
+                .sub(&self.raw_dist_add(x, y));
+            let (r, deps) = self.dadd.simplify_deps(&rel);
+            if !r.is_zero() {
+                continue;
+            }
+            let fact = self.log.add(
+                Reason::Theorem("equality case of the triangle inequality", vec![x, m, y]),
+                deps,
+            );
+            changed |= self.force_collinear(&[x, m, y], vec![fact]);
+        }
+        changed
     }
 }

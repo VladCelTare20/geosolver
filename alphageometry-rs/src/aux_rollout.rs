@@ -2,8 +2,8 @@
 
 use crate::aux_score::{defs_of, Scorer};
 use crate::aux_search::{
-    augment, candidates_ranked, env_usize, heuristic_score, natural_name, past, render_tpl,
-    taken_names, AuxProof, Construction, Kind, RankContext, SearchStats, WarmBase,
+    augment, candidates_ranked, double_key, env_usize, heuristic_score, natural_name, past,
+    render_tpl, taken_names, AuxProof, Construction, Kind, RankContext, SearchStats, WarmBase,
 };
 use crate::aux_virtual::virtual_candidates;
 use crate::numerics::{distance, Vec2};
@@ -99,24 +99,47 @@ pub(crate) fn build_pool(
         let inc = scorer.score(c.coord, &defs_of(&c.preds, new_id, coord));
         Item { c, inc, heur: h }
     };
-    let old = candidates_ranked(problem, true, must);
+    let doubles = must.is_none() && ddar.is_some() && doubles_enabled();
+    let on_point = |c: &Construction| (0..n).find(|&i| pts[i] == c.coord).map(|i| i as PointId);
+    let old = candidates_ranked(problem, true, must, doubles);
+    let (old_dbl, old): (Vec<_>, Vec<_>) =
+        old.into_iter().partition(|(_, c)| on_point(c).is_some());
     let mut items: Vec<Item> = if parallel {
         old.into_par_iter().map(|(h, c)| score_of(h, c)).collect()
     } else {
         old.into_iter().map(|(h, c)| score_of(h, c)).collect()
     };
-    let key = |c: &Construction| {
-        (
+    let key = |c: &Construction| match on_point(c) {
+        Some(p) => double_key(c.kind, p, &c.args),
+        None => (
             c.kind,
             (c.coord.x * 1e6).round() as i64,
             (c.coord.y * 1e6).round() as i64,
-        )
+        ),
     };
     let mut seen: FxHashSet<(Kind, i64, i64)> = items.iter().map(|it| key(&it.c)).collect();
-    for (s, c) in virtual_candidates(problem, ddar, &scorer, min_new, must, parallel) {
-        if seen.insert(key(&c)) {
+    let mut dbl: Vec<(f64, Construction)> = old_dbl;
+    for (s, c) in virtual_candidates(problem, ddar, &scorer, min_new, must, parallel, doubles) {
+        if on_point(&c).is_some() {
+            let heur = heuristic_score(problem, &c, &ctx);
+            dbl.push((heur, c));
+        } else if seen.insert(key(&c)) {
             let heur = heuristic_score(problem, &c, &ctx);
             items.push(Item { c, inc: s, heur });
+        }
+    }
+    if let (true, Some(d)) = (doubles, ddar) {
+        let mut d = d.clone();
+        for (heur, c) in dbl {
+            let p = on_point(&c).unwrap();
+            if seen.insert(key(&c)) && double_point_ok(problem, &mut d, p, &c) {
+                let inc = if goal.contains(&p) {
+                    DOUBLE_INC + 2.0
+                } else {
+                    DOUBLE_INC
+                };
+                items.push(Item { c, inc, heur });
+            }
         }
     }
     let mut pool = Pool::new(items);
@@ -127,6 +150,61 @@ pub(crate) fn build_pool(
         pool.cum.shrink_to_fit();
     }
     pool
+}
+
+/// Coincidence score given to a double point instead of [`Scorer::score`],
+/// which would count every figure object through the point it doubles and
+/// flood the sampler (+2 when that point is a goal point).
+const DOUBLE_INC: f64 = 3.0;
+
+/// `AUX_DOUBLES=0` turns double-point candidates off (A/B measurement).
+fn doubles_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AUX_DOUBLES").map_or(true, |v| v != "0"))
+}
+
+/// Whether `c`, snapped onto the existing point `p`, is a useful and honest
+/// double point: no defining predicate takes a direction or length between
+/// the new point and a point at `p` (that would be degenerate there — a
+/// foot of `p` landing on `p`, say), every defining predicate holds
+/// numerically, at least one holds of `p` in the base closure `d` (so a
+/// proof can identify the two through a shared object, `Ddar::merge_points`),
+/// and at least one does not (otherwise it is `p` itself). Only symbolic
+/// merges ever identify the two points; this only filters and ranks.
+fn double_point_ok(problem: &Problem, d: &mut Ddar, p: PointId, c: &Construction) -> bool {
+    let new_id = problem.points.len() as PointId;
+    let at_p = |i: PointId| i == new_id || problem.points[i as usize].value == c.coord;
+    let degenerate = c.preds.iter().any(|q| {
+        !matches!(q.name.as_str(), "coll" | "cyclic")
+            && q.points.chunks(2).any(|w| w.len() == 2 && w[0] != w[1] && at_p(w[0]) && at_p(w[1]))
+    });
+    let aug = augment(problem, c);
+    if degenerate
+        || c.preds
+            .iter()
+            .any(|q| crate::geo::numeric_holds(&aug, q) != Some(true))
+    {
+        return false;
+    }
+    let mut symbolic = 0;
+    for q in &c.preds {
+        let on_p = crate::predicate::Predicate {
+            name: q.name.clone(),
+            points: q
+                .points
+                .iter()
+                .map(|&i| if i == new_id { p } else { i })
+                .collect(),
+            constants: q.constants.clone(),
+        };
+        let by_definition = matches!(q.name.as_str(), "coll" | "cyclic")
+            && q.points.iter().any(|&i| i != new_id && at_p(i));
+        let holds = by_definition
+            || std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| d.check_pred(&on_p)))
+                .unwrap_or(false);
+        symbolic += holds as usize;
+    }
+    symbolic >= 1 && symbolic < c.preds.len()
 }
 
 struct Rng(u64);
@@ -417,6 +495,159 @@ pub(crate) fn search(
     deadline: Option<Instant>,
     sweep: bool,
 ) -> Option<(Option<AuxProof>, SearchStats)> {
+    search_with(problem, verbose, deadline, sweep, lemmas_enabled())
+}
+
+/// `AUX_LEMMAS=0` turns the lemma phase off (A/B measurement).
+fn lemmas_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AUX_LEMMAS").map_or(true, |v| v != "0"))
+}
+
+/// Share of the budget after which the lemma phase starts, and where it ends.
+const LEMMA_START: f64 = 0.4;
+const LEMMA_END: f64 = 0.7;
+/// Lemmas tried per phase, and the share of the phase one lemma may use.
+const LEMMA_MAX: usize = 8;
+
+/// Collinear triples and concyclic quadruples of the problem's points that
+/// hold in the figure (relative tolerance 1e-9) but not in the closure `d`:
+/// the facts the figure asserts and DDAR has not explained. The goal is left
+/// out, and so is any set with two numerically identical points. Points of
+/// the goal first, then collinearities, then the order found.
+fn open_lemmas(problem: &Problem, d: &Ddar) -> Vec<crate::predicate::Predicate> {
+    use crate::aux_search::pred;
+    let n = problem.points.len();
+    let v = |i: usize| problem.points[i].value;
+    let scale = Scorer::new(&problem.points.iter().map(|p| p.value).collect::<Vec<_>>(), &[]).scale();
+    let tol = 1e-9 * scale.max(1.0);
+    let goal = problem.goal.as_ref();
+    let goal_pts: Vec<PointId> = goal.map(|g| g.points.clone()).unwrap_or_default();
+    let same_as_goal = |name: &str, pts: &[PointId]| {
+        goal.is_some_and(|g| {
+            g.name == name && {
+                let mut a = g.points.clone();
+                let mut b = pts.to_vec();
+                a.sort_unstable();
+                a.dedup();
+                b.sort_unstable();
+                a == b
+            }
+        })
+    };
+    let ident = |i: usize, j: usize| distance(v(i), v(j)) < tol;
+    let mut d = d.clone();
+    let mut holds = |p: &crate::predicate::Predicate| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| d.check_pred(p))).unwrap_or(true)
+    };
+    let mut out: Vec<(usize, u8, crate::predicate::Predicate)> = Vec::new();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if ident(i, j) {
+                continue;
+            }
+            for k in (j + 1)..n {
+                if ident(i, k) || ident(j, k) {
+                    continue;
+                }
+                let (a, b, c) = (v(i), v(j), v(k));
+                let s = distance(a, b).max(distance(b, c)).max(distance(a, c));
+                let cr = (b - a).x * (c - a).y - (b - a).y * (c - a).x;
+                let pts = vec![i as PointId, j as PointId, k as PointId];
+                if cr.abs() < tol * s {
+                    let p = pred("coll", pts.clone());
+                    if !same_as_goal("coll", &pts) && !holds(&p) {
+                        let g = pts.iter().filter(|q| goal_pts.contains(q)).count();
+                        out.push((g, 0, p));
+                    }
+                    continue;
+                }
+                let Some(circ) = crate::numerics::NumCircle::through(a, b, c) else {
+                    continue;
+                };
+                if circ.r > 100.0 * scale {
+                    continue;
+                }
+                for l in (k + 1)..n {
+                    if ident(i, l) || ident(j, l) || ident(k, l) || circ.distance(v(l)) > tol {
+                        continue;
+                    }
+                    let mut pts = pts.clone();
+                    pts.push(l as PointId);
+                    let p = pred("cyclic", pts.clone());
+                    if !same_as_goal("cyclic", &pts) && !holds(&p) {
+                        let g = pts.iter().filter(|q| goal_pts.contains(q)).count();
+                        out.push((g, 1, p));
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by(|x, y| y.0.cmp(&x.0).then(x.1.cmp(&y.1)));
+    out.into_iter().map(|(_, _, p)| p).collect()
+}
+
+/// **Lemma phase.** Each open lemma ([`open_lemmas`]) becomes the goal of a
+/// short search of its own; the constructions of every lemma proved this way
+/// are added to the problem, one after another, so a later lemma and the
+/// main goal start from them. Depth then adds per lemma, not per point set.
+/// Only constructions are carried over — never the lemma as a premise — so
+/// the final proof is still one DDAR closure over the hypotheses and the
+/// auxiliary definitions. `None` if no lemma was proved.
+fn lemma_phase(
+    problem: &Problem,
+    d: &Ddar,
+    verbose: bool,
+    until: Instant,
+) -> Option<(Problem, Vec<Construction>)> {
+    let lemmas = open_lemmas(problem, d);
+    if verbose {
+        eprintln!("[aux] lemma phase: {} open lemmas", lemmas.len());
+    }
+    let total = until.saturating_duration_since(Instant::now());
+    let mut aug = problem.clone();
+    let mut cons: Vec<Construction> = Vec::new();
+    for lemma in lemmas.into_iter().take(LEMMA_MAX) {
+        let now = Instant::now();
+        if now >= until {
+            break;
+        }
+        let mut lp = aug.clone();
+        lp.goal = Some(lemma);
+        let per = (total / 2).min(until - now);
+        let t = Instant::now();
+        let res = guarded(|| search_with(&lp, false, Some(now + per), true, false)).flatten();
+        let text = lp.goal.as_ref().map(|g| {
+            let names: Vec<&str> = g.points.iter().map(|&i| lp.points[i as usize].name.as_str()).collect();
+            format!("{} {}", g.name, names.join(" "))
+        });
+        if let Some((Some(proof), _)) = res {
+            if verbose {
+                let used: Vec<String> =
+                    proof.constructions.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+                eprintln!(
+                    "[aux] lemma {} proved in {:.2}s with {:?}",
+                    text.unwrap_or_default(),
+                    t.elapsed().as_secs_f64(),
+                    used
+                );
+            }
+            aug = crate::aux_search::apply_constructions(&aug, &proof.constructions);
+            cons.extend(proof.constructions);
+        } else if verbose {
+            eprintln!("[aux] lemma {} not proved ({:.2}s)", text.unwrap_or_default(), t.elapsed().as_secs_f64());
+        }
+    }
+    (!cons.is_empty()).then_some((aug, cons))
+}
+
+fn search_with(
+    problem: &Problem,
+    verbose: bool,
+    deadline: Option<Instant>,
+    sweep: bool,
+    lemmas: bool,
+) -> Option<(Option<AuxProof>, SearchStats)> {
     let t0 = Instant::now();
     let warm = guarded(|| WarmBase::with_slots(problem, MAX_POINTS)).flatten()?;
     if warm.proves_goal() {
@@ -448,11 +679,28 @@ pub(crate) fn search(
     };
     if verbose {
         eprintln!(
-            "[aux] pool {} ({} with incidences) built in {:.2}s",
+            "[aux] pool {} ({} with incidences, {} double points) built in {:.2}s",
             size,
             s.pool.items.iter().filter(|it| it.inc >= 1.0).count(),
+            s.pool
+                .items
+                .iter()
+                .filter(|it| pts.contains(&it.c.coord))
+                .count(),
             t0.elapsed().as_secs_f64()
         );
+        for it in s
+            .pool
+            .items
+            .iter()
+            .filter(|it| pts.contains(&it.c.coord))
+            .take(12)
+        {
+            eprintln!(
+                "    double inc {:.1} heur {:.2}  {} = {}",
+                it.inc, it.heur, it.c.name, it.c.desc
+            );
+        }
         for it in s.pool.items.iter().take(12) {
             eprintln!(
                 "    inc {:.1} heur {:.2}  {} = {}",
@@ -486,7 +734,33 @@ pub(crate) fn search(
     let m = (4 * threads).min(size);
     let r = 48u64;
     let mut round = 0u64;
+    let budget = deadline.map(|d| d.saturating_duration_since(t0));
+    let mut lemma_due = lemmas && budget.is_some();
     while !past(deadline) && round < max_rounds && size >= 2 {
+        if let (true, Some(b)) = (lemma_due, budget) {
+            if t0.elapsed() >= b.mul_f64(LEMMA_START) {
+                lemma_due = false;
+                let until = t0 + b.mul_f64(LEMMA_END);
+                if let Some((aug, cons)) = lemma_phase(problem, warm.ddar(), verbose, until) {
+                    if verbose {
+                        eprintln!(
+                            "[aux] lemma phase added {} points at {:.2}s; main search on them",
+                            cons.len(),
+                            t0.elapsed().as_secs_f64()
+                        );
+                    }
+                    let runs = stats(&s).runs;
+                    drop(s);
+                    let (found, st) = search_with(&aug, verbose, deadline, true, false)?;
+                    let found = found.map(|p| {
+                        let mut all = cons;
+                        all.extend(p.constructions);
+                        AuxProof { constructions: all }
+                    });
+                    return Some((found, SearchStats { runs: runs + st.runs }));
+                }
+            }
+        }
         let firsts = s.sample_firsts(round, m);
         let prefixes: Vec<OnceLock<Option<WarmBase>>> =
             firsts.iter().map(|_| OnceLock::new()).collect();

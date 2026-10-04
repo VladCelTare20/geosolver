@@ -25,6 +25,9 @@ struct FigCircle {
 
 pub(crate) struct Scorer {
     pts: Vec<Vec2>,
+    /// First point at the same coordinates (a double point and the point it
+    /// doubles are one point to the score).
+    rep: Vec<usize>,
     goal: Vec<bool>,
     scale: f64,
     lines: Vec<FigLine>,
@@ -107,8 +110,12 @@ impl Scorer {
             circles.push(FigCircle { circle, goal: g });
         }
 
+        let rep: Vec<usize> = (0..n)
+            .map(|i| (0..i).find(|&j| distance(pts[i], pts[j]) < tol).unwrap_or(i))
+            .collect();
         Scorer {
             pts: pts.to_vec(),
+            rep,
             goal,
             scale,
             lines,
@@ -175,6 +182,14 @@ impl Scorer {
                         x = p[x];
                     }
                     x
+                }
+                for i in 0..members.len() {
+                    for j in 0..i {
+                        if self.rep[members[i]] == self.rep[members[j]] {
+                            let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                            parent[ri] = rj;
+                        }
+                    }
                 }
                 for def in defs {
                     if let DefObj::EqDist(u, v) = *def {

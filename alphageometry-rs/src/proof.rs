@@ -43,6 +43,9 @@ pub enum Reason {
     EqualRadius(PointId, Vec<PointId>),
     /// Two numerically-equal points proved equal and merged.
     PointMerge(PointId, PointId),
+    /// Two numerically-equal points on two objects proved tangent at them
+    /// (a point of the line of centres, or a tangent line ⟂ the radius).
+    TangentMerge(PointId, PointId),
     /// Additive/multiplicative distance transfer on matching segments.
     TransferAddMul(Pair, Pair),
     /// Equal arcs ⇔ equal chords on a circle.
@@ -181,6 +184,11 @@ fn render_reason(r: &Reason, names: &[String]) -> String {
         ),
         Reason::PointMerge(a, b) => format!(
             "points {} and {} coincide (two non-tangent objects share both)",
+            nm(names, *a),
+            nm(names, *b)
+        ),
+        Reason::TangentMerge(a, b) => format!(
+            "points {} and {} coincide (two objects proved tangent there share both)",
             nm(names, *a),
             nm(names, *b)
         ),

@@ -375,6 +375,18 @@ fn circumcenter(a: Vec2, b: Vec2, c: Vec2) -> Res<Vec2> {
     }
 }
 
+/// Half the chord cut from a circle of radius `r`, from its square `h2`. A
+/// square below `1e-12·r²` is a tangency: rounding alone puts `|h2|` there,
+/// and keeping it would split the double point into two points `~1e-6·r`
+/// apart, off the line of centres by far more than `ATOM`.
+fn tangent_half_chord(h2: f64, r: f64) -> f64 {
+    if h2 < 1e-12 * r * r {
+        0.0
+    } else {
+        h2.sqrt()
+    }
+}
+
 fn intersect(o1: &Obj, o2: &Obj) -> Vec<Vec2> {
     use Obj::*;
     let as_line = |o: &Obj| match *o {
@@ -401,7 +413,7 @@ fn intersect(o1: &Obj, o2: &Obj) -> Vec<Vec2> {
             if h2 < -1e-12 * r * r {
                 vec![]
             } else {
-                let h = h2.max(0.0).sqrt();
+                let h = tangent_half_chord(h2, *r);
                 let u = d * (1.0 / d.norm());
                 vec![f + u * h, f - u * h]
             }
@@ -417,7 +429,7 @@ fn intersect(o1: &Obj, o2: &Obj) -> Vec<Vec2> {
                 if h2 < -1e-12 * r1 * r1 {
                     vec![]
                 } else {
-                    let h = h2.max(0.0).sqrt();
+                    let h = tangent_half_chord(h2, *r1);
                     let u = dv * (1.0 / dd);
                     let base = *c1 + u * a;
                     vec![base + rot90(u) * h, base - rot90(u) * h]

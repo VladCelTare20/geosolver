@@ -591,8 +591,55 @@ fn goal_neighborhood(problem: &Problem) -> FxHashSet<PointId> {
 ///
 /// `full` enables the line/line and line/circle intersections; for very large
 /// figures these are skipped to keep the branching factor manageable.
+/// Where a candidate sits relative to the existing points.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Landing {
+    Clear,
+    /// On an existing point up to rounding (`1e-10·max(scale, 1)`): a
+    /// *double point*, a second construction of that point.
+    On(PointId),
+    /// Within `near` of one but not on it: dropped.
+    Near,
+}
+
+pub(crate) fn landing(problem: &Problem, coord: Vec2, scale: f64, near: f64) -> Landing {
+    let on = 1e-10 * scale.max(1.0);
+    let mut out = Landing::Clear;
+    for (i, p) in problem.points.iter().enumerate() {
+        let d = distance(coord, p.value);
+        if d < on {
+            return Landing::On(i as PointId);
+        }
+        if d < near {
+            out = Landing::Near;
+        }
+    }
+    out
+}
+
+/// Whether two of `args` coincide numerically (within `1e-6·max(scale, 1)`).
+/// A construction over such a pair is degenerate — the arc midpoint of a
+/// zero chord, say, satisfies its defining predicates anywhere on the circle —
+/// so it would assert a relation the figure does not determine.
+pub(crate) fn coincident_args(problem: &Problem, args: &[PointId], scale: f64) -> bool {
+    let tol = 1e-6 * scale.max(1.0);
+    let v = |i: PointId| problem.points[i as usize].value;
+    (0..args.len()).any(|i| {
+        ((i + 1)..args.len()).any(|j| args[i] != args[j] && distance(v(args[i]), v(args[j])) < tol)
+    })
+}
+
+/// Dedup key of a double-point candidate: the point it lands on and its
+/// definition (two doubles of one point usually share coordinates and kind).
+pub(crate) fn double_key(kind: Kind, p: PointId, args: &[PointId]) -> (Kind, i64, i64) {
+    use std::hash::{Hash, Hasher};
+    let mut h = rustc_hash::FxHasher::default();
+    args.hash(&mut h);
+    (kind, -1 - p as i64, h.finish() as i64)
+}
+
 pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
-    candidates_ranked(problem, full, None)
+    candidates_ranked(problem, full, None, false)
         .into_iter()
         .map(|(_, c)| c)
         .collect()
@@ -603,6 +650,7 @@ pub(crate) fn candidates_ranked(
     problem: &Problem,
     full: bool,
     must: Option<PointId>,
+    doubles: bool,
 ) -> Vec<(f64, Construction)> {
     let n = problem.points.len();
     let new_id = n as PointId;
@@ -635,22 +683,26 @@ pub(crate) fn candidates_ranked(
                     desc: String,
                     kind: Kind,
                     args: Vec<PointId>| {
-        if must.is_some_and(|m| !args.contains(&m)) {
+        if must.is_some_and(|m| !args.contains(&m)) || coincident_args(problem, &args, span) {
             return;
         }
         if !coord.x.is_finite() || !coord.y.is_finite() || distance(coord, centre) > 100.0 * span {
             return;
         }
-        for i in 0..n {
-            if distance(coord, problem.points[i].value) < 1e-6 {
-                return; // coincides with an existing point
+        let (coord, key) = match landing(problem, coord, span, 1e-6) {
+            Landing::Clear => (
+                coord,
+                (
+                    kind,
+                    (coord.x * 1e6).round() as i64,
+                    (coord.y * 1e6).round() as i64,
+                ),
+            ),
+            Landing::On(p) if doubles => {
+                (problem.points[p as usize].value, double_key(kind, p, &args))
             }
-        }
-        let key = (
-            kind,
-            (coord.x * 1e6).round() as i64,
-            (coord.y * 1e6).round() as i64,
-        );
+            _ => return, // coincides with an existing point
+        };
         if !seen.insert(key) {
             return;
         }

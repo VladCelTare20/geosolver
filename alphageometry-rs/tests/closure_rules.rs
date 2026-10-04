@@ -44,6 +44,13 @@ fn needs(rule: &str, p: &Problem) {
     assert!(!proves(p, &[rule]), "proved without `{rule}`: the test does not exercise it");
 }
 
+/// [`needs`] for a goal another rule also reaches by a different route
+/// (the triangle-equality rule gets `coll` from Stewart's squared lengths).
+fn needs_all(rules: &[&str], p: &Problem) {
+    assert!(proves(p, ALL), "not proved with every rule on");
+    assert!(!proves(p, rules), "proved without {rules:?}: the test does not exercise them");
+}
+
 fn never(p: &Problem) {
     assert!(!proves(p, ALL), "a false goal was proved");
 }
@@ -116,8 +123,8 @@ fn menelaus_ratio_from_a_transversal() {
 
 #[test]
 fn menelaus_converse_needs_the_even_branch() {
-    needs(
-        "menelaus",
+    needs_all(
+        &["menelaus", "trieq"],
         &low(
             "a@0_0 = ; b@4_0 = ; c@0_4 = ; f@2_0 = coll a f b, cong a f f b; \
              e@0_1 = coll c e a, rconst c e e a 3; d@6_-2 = coll b c d, rconst b d d c 1/3 \
@@ -135,8 +142,8 @@ const CEVA_BASE: &str = "a@0_0 = ; b@6_0 = ; c@0_6 = ; d@2_4 = coll b d c, rcons
 
 #[test]
 fn ceva_converse_concurrent_cevians() {
-    needs(
-        "menelaus",
+    needs_all(
+        &["menelaus", "trieq"],
         &low(&format!(
             "{CEVA_BASE}; f@3_0 = coll a f b, cong a f f b; x@1.5_3 = coll a x d, coll b x e ? coll c x f"
         )),

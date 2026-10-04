@@ -56,6 +56,14 @@ struct FormalCircle {
 
 pub mod trig;
 
+/// An object through a numerically identical pair, as the tangent-merge rule
+/// reads it: a line (arena id, fact) or a circle (symbolic centre, the facts
+/// putting the pair on it; empty = recompute from equal radii).
+enum Tangent {
+    Line(usize, Option<FactId>),
+    Circle(Option<PointId>, Vec<FactId>),
+}
+
 type Triple = (PointId, PointId, PointId);
 
 /// The main logical engine.
@@ -740,7 +748,40 @@ impl Ddar {
     /// Like [`Self::check_pred`], additionally returning the proof facts the
     /// goal's reduction relied on. Only meaningful on an engine built with
     /// [`Ddar::new_tracked`]. Returns `None` when the goal does not hold.
+    /// A goal point merged into another is read through `subst`, so the
+    /// merges that retired it are cited too.
     pub fn check_pred_deps(&mut self, pred: &Predicate) -> Option<Vec<FactId>> {
+        let mut deps = self.check_pred_deps_subst(pred)?;
+        if pred.name == "overlap" {
+            return Some(deps);
+        }
+        let mut retired: Vec<PointId> = pred
+            .points
+            .iter()
+            .copied()
+            .filter(|&p| self.subst[p as usize] != p)
+            .collect();
+        let mut i = 0;
+        while i < retired.len() {
+            let b = retired[i];
+            for (f, fact) in self.log.facts.iter().enumerate() {
+                if let Reason::PointMerge(a, x) | Reason::TangentMerge(a, x) = fact.reason {
+                    if x == b {
+                        deps.push(f as FactId);
+                        if self.subst[a as usize] != a && !retired.contains(&a) {
+                            retired.push(a);
+                        }
+                    }
+                }
+            }
+            i += 1;
+        }
+        deps.sort_unstable();
+        deps.dedup();
+        Some(deps)
+    }
+
+    fn check_pred_deps_subst(&mut self, pred: &Predicate) -> Option<Vec<FactId>> {
         if pred.name == "acompute" {
             let pts = self.subst_points(pred);
             let ang = self
@@ -818,7 +859,10 @@ impl Ddar {
             Some(
                 (0..self.log.facts.len() as FactId)
                     .filter(|&f| {
-                        matches!(self.log.facts[f as usize].reason, Reason::PointMerge(_, _))
+                        matches!(
+                            self.log.facts[f as usize].reason,
+                            Reason::PointMerge(_, _) | Reason::TangentMerge(_, _)
+                        )
                     })
                     .collect(),
             )
@@ -965,6 +1009,14 @@ impl Ddar {
                 self.update_cache();
             }
             changed |= self.search_squared_lengths();
+        }
+        if self.rule_on(classics::Rule::TriangleEquality)
+            && self.inputs_changed(classics::Pass::TriangleEquality)
+        {
+            if changed {
+                self.update_cache();
+            }
+            changed |= self.search_triangle_equality();
         }
         changed
     }
@@ -1901,8 +1953,9 @@ impl Ddar {
     fn merge_points(&mut self) -> bool {
         #[derive(Clone, Copy)]
         enum ObjRef {
-            Line(NumLine, Option<FactId>),
-            Circle(Vec2, Option<FactId>),
+            Line(NumLine, Option<FactId>, usize),
+            /// Numeric centre, fact, symbolic centre (if the circle has one).
+            Circle(Vec2, Option<FactId>, Option<PointId>),
             /// Transient equal-distance circle; premises are recomputed lazily
             /// from the center's equal distances if a merge actually fires.
             SmallCircle(Vec2, PointId),
@@ -1940,7 +1993,7 @@ impl Ddar {
             let pts = self.lines[lid].points.clone();
             let val = self.lines[lid].value;
             let fact = self.lines[lid].fact;
-            record(&mut same_pairs, &pts, ObjRef::Line(val, fact));
+            record(&mut same_pairs, &pts, ObjRef::Line(val, fact, lid));
         }
         for k in 0..self.last_small_circles.len() {
             let pts = self.last_small_circles[k].points.clone();
@@ -1956,7 +2009,12 @@ impl Ddar {
             let pts = self.circles[cid].points.clone();
             let center = self.circles[cid].value.center;
             let fact = self.circles[cid].fact;
-            record(&mut same_pairs, &pts, ObjRef::Circle(center, fact));
+            let centre_id = self.circles[cid].centers.first().copied();
+            record(
+                &mut same_pairs,
+                &pts,
+                ObjRef::Circle(center, fact, centre_id),
+            );
         }
 
         // Merge multiple centers of the same circle (does not set `changed`).
@@ -1981,10 +2039,10 @@ impl Ddar {
             let dirs: Vec<f64> = objs
                 .iter()
                 .map(|obj| match obj {
-                    ObjRef::Circle(center, _) | ObjRef::SmallCircle(center, _) => {
+                    ObjRef::Circle(center, _, _) | ObjRef::SmallCircle(center, _) => {
                         direction_of(a_val - *center) + 0.5
                     }
-                    ObjRef::Line(l, _) => l.direction(),
+                    ObjRef::Line(l, _, _) => l.direction(),
                 })
                 .collect();
             let d0 = dirs[0];
@@ -1994,7 +2052,7 @@ impl Ddar {
                     let mut prem: Vec<FactId> = Vec::new();
                     for obj in objs {
                         match obj {
-                            ObjRef::Line(_, f) | ObjRef::Circle(_, f) => prem.extend(*f),
+                            ObjRef::Line(_, f, _) | ObjRef::Circle(_, f, _) => prem.extend(*f),
                             ObjRef::SmallCircle(_, center_id) => {
                                 prem.extend(self.deps_of_ratio_expr(*center_id, a, *center_id, b));
                             }
@@ -2007,10 +2065,107 @@ impl Ddar {
             }
         }
 
+        // Tangent objects through an equal pair, with the tangency proved.
+        for (key, objs) in &same_pairs {
+            let (a, b) = *key;
+            if self.subst[a as usize] == self.subst[b as usize] || objs.len() <= 1 {
+                continue;
+            }
+            if let Some(prem) = self.proved_tangency(
+                a,
+                b,
+                objs.iter().map(|o| match *o {
+                    ObjRef::Line(_, f, lid) => Tangent::Line(lid, f),
+                    ObjRef::Circle(_, Some(f), c) => Tangent::Circle(c, vec![f]),
+                    ObjRef::Circle(_, None, _) => Tangent::Circle(None, Vec::new()),
+                    ObjRef::SmallCircle(_, c) => Tangent::Circle(Some(c), Vec::new()),
+                }),
+            ) {
+                self.force_equal_points_because(a, b, prem, true);
+                changed = true;
+            }
+        }
+
         if changed {
             self.update_cache();
         }
         changed
+    }
+
+    /// Premises of the **tangent uniqueness** argument for a numerically
+    /// identical pair `a, b` lying on every object of `objs`, if some two of
+    /// them are proved tangent at the pair:
+    ///
+    /// * two circles with numerically distinct centres `c₁, c₂`, and `a` or
+    ///   `b` on the proved line `c₁c₂`: two distinct circles meeting at a
+    ///   point of their line of centres touch there and share no other point;
+    /// * a line and a circle with centre `c`, the line proved perpendicular
+    ///   to the radius `ca` (or `cb`): a tangent meets its circle only at the
+    ///   point of contact.
+    ///
+    /// Either way `a = b`. Every premise is symbolic: the facts that put both
+    /// points on both objects, and the line-of-centres or perpendicularity
+    /// fact.
+    fn proved_tangency(
+        &self,
+        a: PointId,
+        b: PointId,
+        objs: impl Iterator<Item = Tangent>,
+    ) -> Option<Vec<FactId>> {
+        let mut circles: Vec<(PointId, Vec<FactId>)> = Vec::new();
+        let mut lines: Vec<(usize, Option<FactId>)> = Vec::new();
+        for o in objs {
+            match o {
+                Tangent::Circle(Some(c), mut prem) => {
+                    if self.num_identical(c, a) {
+                        continue;
+                    }
+                    if prem.is_empty() {
+                        prem = self.deps_of_ratio_expr(c, a, c, b);
+                    }
+                    circles.push((c, prem));
+                }
+                Tangent::Circle(None, _) => {}
+                Tangent::Line(lid, f) => lines.push((lid, f)),
+            }
+        }
+        for i in 0..circles.len() {
+            for j in (i + 1)..circles.len() {
+                let (c1, c2) = (circles[i].0, circles[j].0);
+                if self.num_identical(c1, c2) {
+                    continue;
+                }
+                let Some(lid) = self.pair_line[self.pk(c1, c2)] else {
+                    continue;
+                };
+                let on = &self.lines[lid].points;
+                if !(on.contains(&a) || on.contains(&b)) {
+                    continue;
+                }
+                let mut prem = circles[i].1.clone();
+                prem.extend(circles[j].1.iter().copied());
+                prem.extend(self.lines[lid].fact);
+                return Some(prem);
+            }
+        }
+        for (lid, lf) in &lines {
+            for (c, cprem) in &circles {
+                for p in [a, b] {
+                    let rel = self.lines[*lid]
+                        .direction
+                        .sub(&self.raw_dir(*c, p))
+                        .sub(&self.angle.const_ratio(1, 2));
+                    let (r, deps) = self.angle.simplify_deps(&rel);
+                    if r.is_zero() {
+                        let mut prem = cprem.clone();
+                        prem.extend(*lf);
+                        prem.extend(deps);
+                        return Some(prem);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Facts underlying both representations of the pair's distance.
@@ -2492,12 +2647,27 @@ impl Ddar {
     }
 
     fn force_equal_points(&mut self, a_in: PointId, b_in: PointId, premises: Vec<FactId>) -> bool {
+        self.force_equal_points_because(a_in, b_in, premises, false)
+    }
+
+    fn force_equal_points_because(
+        &mut self,
+        a_in: PointId,
+        b_in: PointId,
+        premises: Vec<FactId>,
+        tangent: bool,
+    ) -> bool {
         let a = self.subst[a_in as usize];
         let b = self.subst[b_in as usize];
         if a == b {
             return false;
         }
-        let fact = self.log.add(Reason::PointMerge(a, b), premises);
+        let reason = if tangent {
+            Reason::TangentMerge(a, b)
+        } else {
+            Reason::PointMerge(a, b)
+        };
+        let fact = self.log.add(reason, premises);
 
         // Extend lines that contain exactly one of a, b.
         for lid in self.live_lines.clone() {
