@@ -505,8 +505,8 @@ fn lemmas_enabled() -> bool {
 }
 
 /// Share of the budget after which the lemma phase starts, and where it ends.
-const LEMMA_START: f64 = 0.3;
-const LEMMA_END: f64 = 0.65;
+const LEMMA_START: f64 = 0.35;
+const LEMMA_END: f64 = 0.7;
 /// Share of the budget by which the search on the lemma-augmented problem
 /// must succeed; afterwards the original rollouts resume where they stopped.
 const AUGMENTED_END: f64 = 0.85;
@@ -514,7 +514,7 @@ const AUGMENTED_END: f64 = 0.85;
 const FIRST_LEMMA: f64 = 0.6;
 /// Pool items a lemma's depth-1 sweep covers (best ranked) before its rollouts.
 const LEMMA_SWEEP: usize = 1000;
-/// Lemmas tried per phase, and the share of the phase one lemma may use.
+/// Lemmas tried per phase.
 const LEMMA_MAX: usize = 8;
 
 /// Collinear triples and concyclic quadruples of the problem's points that
