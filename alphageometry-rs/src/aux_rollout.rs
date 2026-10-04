@@ -495,7 +495,7 @@ pub(crate) fn search(
     deadline: Option<Instant>,
     sweep: bool,
 ) -> Option<(Option<AuxProof>, SearchStats)> {
-    search_with(problem, verbose, deadline, sweep, lemmas_enabled())
+    search_with(problem, verbose, deadline, sweep, usize::MAX, lemmas_enabled())
 }
 
 /// `AUX_LEMMAS=0` turns the lemma phase off (A/B measurement).
@@ -505,8 +505,15 @@ fn lemmas_enabled() -> bool {
 }
 
 /// Share of the budget after which the lemma phase starts, and where it ends.
-const LEMMA_START: f64 = 0.4;
-const LEMMA_END: f64 = 0.8;
+const LEMMA_START: f64 = 0.3;
+const LEMMA_END: f64 = 0.65;
+/// Share of the budget by which the search on the lemma-augmented problem
+/// must succeed; afterwards the original rollouts resume where they stopped.
+const AUGMENTED_END: f64 = 0.85;
+/// Share of the lemma phase the first lemma may use (later ones: half).
+const FIRST_LEMMA: f64 = 0.6;
+/// Pool items a lemma's depth-1 sweep covers (best ranked) before its rollouts.
+const LEMMA_SWEEP: usize = 1000;
 /// Lemmas tried per phase, and the share of the phase one lemma may use.
 const LEMMA_MAX: usize = 8;
 
@@ -607,6 +614,7 @@ fn lemma_phase(
     let total = until.saturating_duration_since(Instant::now());
     let mut aug = problem.clone();
     let mut cons: Vec<Construction> = Vec::new();
+    let mut first = true;
     for lemma in lemmas.into_iter().take(LEMMA_MAX) {
         let now = Instant::now();
         if now >= until {
@@ -614,9 +622,11 @@ fn lemma_phase(
         }
         let mut lp = aug.clone();
         lp.goal = Some(lemma);
-        let per = (total / 2).min(until - now);
+        let share = if first { FIRST_LEMMA } else { 0.5 };
+        first = false;
+        let per = total.mul_f64(share).min(until - now);
         let t = Instant::now();
-        let res = guarded(|| search_with(&lp, false, Some(now + per), true, false)).flatten();
+        let res = guarded(|| search_with(&lp, false, Some(now + per), true, LEMMA_SWEEP, false)).flatten();
         let text = lp.goal.as_ref().map(|g| {
             let names: Vec<&str> = g.points.iter().map(|&i| lp.points[i as usize].name.as_str()).collect();
             format!("{} {}", g.name, names.join(" "))
@@ -646,6 +656,7 @@ fn search_with(
     verbose: bool,
     deadline: Option<Instant>,
     sweep: bool,
+    sweep_cap: usize,
     lemmas: bool,
 ) -> Option<(Option<AuxProof>, SearchStats)> {
     let t0 = Instant::now();
@@ -709,7 +720,7 @@ fn search_with(
         }
     }
 
-    let found1 = (0..size).into_par_iter().find_first(|&i| {
+    let found1 = (0..size.min(sweep_cap)).into_par_iter().find_first(|&i| {
         if !sweep || past(deadline) {
             return false;
         }
@@ -749,15 +760,19 @@ fn search_with(
                             t0.elapsed().as_secs_f64()
                         );
                     }
-                    let runs = stats(&s).runs;
-                    drop(s);
-                    let (found, st) = search_with(&aug, verbose, deadline, true, false)?;
-                    let found = found.map(|p| {
-                        let mut all = cons;
-                        all.extend(p.constructions);
-                        AuxProof { constructions: all }
-                    });
-                    return Some((found, SearchStats { runs: runs + st.runs }));
+                    let aug_until = t0 + b.mul_f64(AUGMENTED_END);
+                    let res = search_with(&aug, verbose, Some(aug_until), true, usize::MAX, false);
+                    if let Some((found, st)) = res {
+                        s.runs.fetch_add(st.runs, Ordering::Relaxed);
+                        if let Some(p) = found {
+                            let mut all = cons;
+                            all.extend(p.constructions);
+                            return Some((Some(AuxProof { constructions: all }), stats(&s)));
+                        }
+                    }
+                    if verbose {
+                        eprintln!("[aux] back to the original rollouts at {:.2}s", t0.elapsed().as_secs_f64());
+                    }
                 }
             }
         }

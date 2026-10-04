@@ -539,7 +539,6 @@ impl Ddar {
                         let (Some(sv), Some(sw)) = (self.class_sine(&v, &corners), self.class_sine(w, &corners)) else {
                             continue;
                         };
-                        // Side opposite R is PQ, opposite Q is PR.
                         let row = self
                             .raw_dist_mul(p.v, q.v)
                             .mul(&sv)

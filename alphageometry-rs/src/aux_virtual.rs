@@ -354,8 +354,6 @@ pub(crate) fn virtual_candidates(
         }
     }
 
-    // A double point (a candidate on an existing point) is snapped onto it
-    // and scored by `aux_rollout::build_pool`, which also vets it.
     let keep = |x: Vec2, defs: [DefObj; 2]| -> Option<(f64, Vec2)> {
         if !x.x.is_finite() || !x.y.is_finite() || distance(x, c(0)) > 100.0 * scale {
             return None;

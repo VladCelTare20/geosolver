@@ -2065,7 +2065,6 @@ impl Ddar {
             }
         }
 
-        // Tangent objects through an equal pair, with the tangency proved.
         for (key, objs) in &same_pairs {
             let (a, b) = *key;
             if self.subst[a as usize] == self.subst[b as usize] || objs.len() <= 1 {
