@@ -12,7 +12,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::OwnedSemaphorePermit;
 
 use crate::engine::{self, InputKind, Method, Solution, SolveOptions, Status};
-use crate::render;
+use crate::i18n::Lang;
+use crate::{present, render};
 use ddar::svg::Theme;
 
 /// The hidden subcommand that runs one solve and exits.
@@ -87,6 +88,13 @@ pub struct Request {
     /// Also render the figure alone as a PNG at this scale.
     #[serde(default)]
     pub figure_png_scale: Option<f32>,
+    /// Also build the web app's presentation (`present::solution_json`): only
+    /// the worker holds the figure source it is drawn from.
+    #[serde(default)]
+    pub present: bool,
+    /// Language of the rendered report.
+    #[serde(default)]
+    pub lang: Lang,
 }
 
 impl Request {
@@ -102,6 +110,8 @@ impl Request {
             secs: limit.as_secs_f64(),
             report: None,
             figure_png_scale: None,
+            present: false,
+            lang: Lang::En,
         }
     }
 
@@ -135,6 +145,9 @@ pub struct Reply {
     pub report: Option<Result<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub figure_png: Option<String>,
+    /// `present::solution_json` of the result, when `Request::present` was set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<serde_json::Value>,
 }
 
 impl Reply {
@@ -190,6 +203,7 @@ pub fn time_limit_solution(input: &str, limit: Duration) -> Solution {
         ),
         proof_steps: None,
         examined: None,
+        figure: None,
     }
 }
 
@@ -510,12 +524,17 @@ fn execute(req: &Request) -> Reply {
         Mode::Solve => engine::solve_within(&req.input, &opts, Some(req.limit())),
         Mode::Best => engine::solve_best(&req.input, &opts, req.limit()),
     };
-    let report = match (&result, req.report) {
-        (Ok(sol), Some(format)) => {
-            let page = render::report_svg(sol, req.title.as_deref(), true);
+    let view = match &result {
+        Ok(sol) if req.present || req.report.is_some() => {
+            Some(present::solution_json(sol, req.title.as_deref()))
+        }
+        _ => None,
+    };
+    let report = match (&view, req.report) {
+        (Some(v), Some(format)) => {
             let bytes = match format {
-                Format::Pdf => render::svg_to_pdf(&page),
-                Format::Png => render::svg_to_png(&page, 2.0),
+                Format::Pdf => render::report_pdf_from_json(v, req.lang),
+                Format::Png => render::report_png_from_json(v, req.lang),
             };
             Some(bytes.map(encode).map_err(|e| format!("{e:#}")))
         }
@@ -525,7 +544,8 @@ fn execute(req: &Request) -> Reply {
         (Ok(sol), Some(scale)) => render::svg_to_png(&sol.svg, scale).ok().map(encode),
         _ => None,
     };
-    Reply { result, report, figure_png }
+    let view = if req.present { view } else { None };
+    Reply { result, report, figure_png, view }
 }
 
 /// Exit the whole process with [`EXIT_HARD_LIMIT`] once `limit` has passed,
@@ -933,6 +953,7 @@ pub(crate) mod tests {
             result: Ok(time_limit_solution("x", Duration::from_secs(3))),
             report: None,
             figure_png: None,
+            view: None,
         };
         let mut out = b"\nrunning 1 test\n".to_vec();
         out.extend(serde_json::to_vec(&reply).unwrap());

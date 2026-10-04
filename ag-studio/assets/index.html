@@ -1,850 +1,236 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#16181b" media="(prefers-color-scheme: dark)" />
-<script>(function(){try{var l=localStorage.getItem('lang')||'en';document.documentElement.lang=l;
-document.documentElement.setAttribute('data-lang',l);if(l!=='en'){document.documentElement.style.visibility='hidden';
-setTimeout(function(){document.documentElement.style.visibility='';},1000);}}catch(e){}})();</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f7f5">
+<meta name="color-scheme" content="light dark">
+<script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);if(localStorage.getItem('lang')==='ro'){d.lang='ro';d.setAttribute('data-lang','ro');d.classList.add('i18n-pending');setTimeout(function(){d.classList.remove('i18n-pending');},800);}}catch(e){}})();</script>
 <title>GeoSolver</title>
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="%232456a6" stroke-width="2"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="%232456a6" stroke-width="2" stroke-linejoin="round"/></svg>' />
-<style>
-  :root {
-    --paper: #f7f7f5; --card: #ffffff; --well: #f2f2ef;
-    --ink: #1b1f24; --muted: #61686f; --line: #e3e4e1; --line-strong: #cfd1cd;
-    --accent: #2456a6; --accent-hover: #1c4589; --accent-ink: #ffffff;
-    --ok: #1e7b34; --err: #b3261e; --num: #8a6100;
-    --warn-bg: #faf6e8; --warn-line: #e5d9a8; --warn-ink: #6b5c1e;
-    --err-bg: #faeeed; --err-line: #e8c4c0;
-    --serif: 'Charter','Bitstream Charter','Iowan Old Style',Georgia,'Times New Roman',serif;
-    --sans: system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-    --mono: ui-monospace,'Cascadia Mono',Consolas,'DejaVu Sans Mono',monospace;
-    --radius: 8px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #16181b; --card: #1d2024; --well: #191c1f;
-      --ink: #e6e8ea; --muted: #9aa2aa; --line: #2b2f34; --line-strong: #3b4046;
-      --accent: #86abdd; --accent-hover: #9dbce6; --accent-ink: #10131a;
-      --ok: #63b077; --err: #e0796f; --num: #d6b25e;
-      --warn-bg: #26231a; --warn-line: #4d452a; --warn-ink: #d8c88a;
-      --err-bg: #2a1d1c; --err-line: #4f302d;
-    }
-  }
-  * { box-sizing: border-box; }
-  button, .seg button, label, summary, select { touch-action: manipulation; }
-  html, body { margin:0; padding:0; background:var(--paper); color:var(--ink); font-family:var(--sans);
-    -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent; overflow-x:hidden; }
-  body { min-height:100vh; font-size:15px; line-height:1.5; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .lang-seg { display:inline-flex; height:30px; align-self:center; background:var(--card);
-    border:1px solid var(--line-strong); border-radius:6px; overflow:hidden; }
-  .lang-seg button { border:none; background:transparent; color:var(--muted); font:inherit; font-size:12px;
-    font-weight:700; letter-spacing:.03em; padding:0 10px; cursor:pointer; }
-  .lang-seg button + button { border-left:1px solid var(--line-strong); }
-  .lang-seg button:hover { color:var(--accent); }
-  .lang-seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
-
-  header {
-    max-width: 1340px; margin: 0 auto; padding: 26px 28px 18px;
-    display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
-  }
-  .wordmark { display:flex; align-items:center; gap:11px; }
-  .wordmark svg { width:26px; height:26px; flex:none; align-self:center; color:var(--accent); }
-  .wordmark .name { font-family:var(--serif); font-size:21px; font-weight:600; letter-spacing:.01em; white-space:nowrap; }
-  header .tag { color:var(--muted); font-size:13.5px; }
-  header .spacer { flex:1; }
-  .pill { font-size:12px; padding:4px 11px; border-radius:999px; border:1px solid var(--line); color:var(--muted); white-space:nowrap; background:var(--card); }
-  .pill .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--line-strong); margin-right:6px; vertical-align:1px; }
-  .pill.on .dot { background:var(--ok); }
-  .pill.warn .dot { background:#c9a227; }
-  /* When the header wraps, the account box takes the right edge of its row
-     instead of dangling at the left. */
-  #user-box { margin-left:auto; }
-
-  main {
-    max-width: 1480px; margin: 0 auto; padding: 8px 28px 56px;
-    display:grid; grid-template-columns: minmax(330px, 390px) 1fr; gap: 20px; align-items:start;
-  }
-  @media (max-width: 940px){ main { grid-template-columns: 1fr; gap:16px; padding:4px 16px 44px; } header { padding:20px 16px 12px; } }
-  @media (max-width: 640px){
-    /* Two balanced rows: wordmark | lang toggle, then AI pill | account. */
-    header { padding: calc(16px + env(safe-area-inset-top)) 16px 10px;
-      display:grid; grid-template-columns:1fr auto; align-items:center; gap:12px 10px; }
-    header .tag, header .spacer { display:none; }
-    .lang-seg { justify-self:end; }
-    #ai-pill { grid-row:2; justify-self:start; }
-    #user-box { grid-row:2; grid-column:2; justify-self:end; }
-    main { padding: 2px 13px calc(36px + env(safe-area-inset-bottom)); gap:13px; }
-    .card .bd { padding:14px; }
-    /* 16px inputs stop iOS Safari from zooming in on focus */
-    textarea, input[type=text] { font-size:16px; }
-    textarea#input { min-height:150px; }
-    button.btn { min-height:46px; }
-    #solve { flex:1; }
-    .seg button { padding:9px 14px; }
-    .proof { max-height:60vh; }
-    footer { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
-  }
-
-  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
-  .card .hd {
-    padding:11px 18px; border-bottom:1px solid var(--line);
-    font-family:var(--serif); font-variant-caps:all-small-caps; letter-spacing:.14em;
-    font-size:15px; color:var(--muted); display:flex; align-items:center; gap:10px;
-  }
-  .card .bd { padding:18px; }
-
-  .seg { display:inline-flex; background:var(--well); border:1px solid var(--line); border-radius:7px; padding:2px; gap:2px; }
-  .seg button { border:0; background:transparent; color:var(--muted); padding:7px 13px; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; font-family:var(--sans); }
-  .seg button.active { background:var(--card); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
-  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .between { justify-content:space-between; }
-  .mt10{margin-top:10px}.mt14{margin-top:14px}.mt18{margin-top:18px}
-
-  textarea, input[type=text] {
-    width:100%; background:var(--card); color:var(--ink); border:1px solid var(--line-strong);
-    border-radius:6px; padding:11px 12px; font-family:var(--mono); font-size:13.5px; line-height:1.55; resize:vertical;
-  }
-  textarea::placeholder { color:var(--muted); opacity:.8; }
-  textarea:focus, input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
-  textarea#input { min-height:170px; }
-  label.lbl { font-size:13px; color:var(--muted); display:block; margin-bottom:6px; }
-
-  .drop {
-    border:1px dashed var(--line-strong); border-radius:6px; padding:13px; text-align:center; color:var(--muted);
-    font-size:13px; cursor:pointer; transition:border-color .15s, color .15s; background:var(--well);
-  }
-  .drop:hover, .drop.hover { border-color:var(--accent); color:var(--ink); }
-  .drop.has { border-style:solid; color:var(--ink); }
-  .thumb { max-height:120px; max-width:100%; border-radius:5px; margin-top:8px; border:1px solid var(--line); }
-
-  button.btn {
-    border:0; border-radius:6px; padding:10px 22px; font-size:14px; font-weight:600; cursor:pointer;
-    background:var(--accent); color:var(--accent-ink); transition:background .12s; font-family:var(--sans);
-  }
-  button.btn:hover { background:var(--accent-hover); }
-  button.btn:disabled { opacity:.55; cursor:not-allowed; }
-  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line-strong); font-weight:500; }
-  button.ghost:hover { border-color:var(--accent); color:var(--accent); background:transparent; }
-
-  select {
-    background:var(--card); color:var(--ink); border:1px solid var(--line-strong); border-radius:6px; padding:7px 9px; font-size:13px; font-family:var(--sans);
-  }
-  .opt { display:flex; align-items:flex-start; gap:9px; cursor:pointer; font-size:13.5px; color:var(--ink); line-height:1.45; }
-  .opt input { width:15px; height:15px; margin-top:2px; flex:none; accent-color:var(--accent); }
-  .opt .hint { color:var(--muted); }
-
-  .status { display:flex; align-items:baseline; gap:10px; font-size:14px; flex-wrap:wrap; }
-  .verdict { font-family:var(--serif); font-size:19px; font-weight:600; }
-  .verdict.ok{ color:var(--ok); } .verdict.no{ color:var(--err); } .verdict.num{ color:var(--num); }
-  .meta { color:var(--muted); font-size:13px; }
-
-  /* --- zoomable / fullscreen figure viewer --- */
-  .figure { position:relative; background:var(--card); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
-  .fig-vp { overflow:hidden; touch-action:pan-y; cursor:grab; -webkit-user-select:none; user-select:none; }
-  .fig-vp.zoomed { touch-action:none; }
-  .fig-vp.panning { cursor:grabbing; }
-  .fig-vp svg { width:100%; height:auto; display:block; transform-origin:0 0; pointer-events:none; }
-  .fig-tools { position:absolute; top:8px; right:8px; display:flex; gap:6px; z-index:5; }
-  .fig-btn {
-    width:36px; height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center;
-    border:1px solid var(--line-strong); border-radius:6px; background:var(--card); color:var(--ink);
-    font-size:17px; line-height:1; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.10); flex:none;
-  }
-  .fig-btn:hover { border-color:var(--accent); color:var(--accent); }
-  .fig-btn svg { width:17px; height:17px; pointer-events:none; }
-  .fig-zoom { position:absolute; left:10px; top:12px; z-index:5; font-size:12px; color:var(--muted);
-    background:var(--card); border:1px solid var(--line); border-radius:999px; padding:3px 9px; opacity:0; transition:opacity .15s; pointer-events:none; }
-  .fig-zoom.show { opacity:1; }
-  .fig-hint { position:absolute; left:0; right:0; bottom:8px; text-align:center; z-index:4; pointer-events:none; }
-  .fig-hint span { font-size:11.5px; color:var(--muted); background:var(--card); border:1px solid var(--line); border-radius:999px; padding:3px 10px; }
-  .figure.fs { position:fixed; inset:0; z-index:1000; border-radius:0; border:0; margin:0; display:flex; flex-direction:column;
-    background:var(--paper); padding:0; }
-  .figure.fs .fig-vp { flex:1; min-height:0; touch-action:none; }
-  .figure.fs .fig-vp svg { width:100%; height:100%; }
-  .figure.fs .fig-tools { top:calc(10px + env(safe-area-inset-top)); right:calc(10px + env(safe-area-inset-right)); }
-  .figure.fs .fig-zoom { left:calc(12px + env(safe-area-inset-left)); top:calc(14px + env(safe-area-inset-top)); }
-  .empty { color:var(--muted); text-align:center; padding:56px 16px; font-size:14px; }
-
-
-  .legend { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; font-size:13.5px; align-items:baseline; }
-  .legend .k { font-family:var(--serif); font-variant-caps:all-small-caps; letter-spacing:.1em; color:var(--muted); font-size:14px; }
-  .legend .v { font-family:var(--mono); font-size:13px; line-height:1.7; word-break:break-word; }
-  .legend .v .sep { color:var(--muted); padding:0 7px; }
-
-  /* The proof reads like a solutions manual: flowing serif prose. */
-  .proof {
-    background:var(--well); border:1px solid var(--line); border-radius:6px; padding:16px 18px;
-    font-family:var(--serif); font-size:15.5px; line-height:1.72; color:var(--ink);
-    overflow:auto; max-height:560px; margin:0;
-  }
-  .proof p { margin:0 0 12px; }
-  .proof p:last-child { margin-bottom:0; }
-  .proof em { font-style:italic; }
-  .proof strong { font-weight:700; }
-  .proof .writing { display:flex; align-items:center; gap:9px; color:var(--muted);
-    font-family:var(--sans); font-size:14px; }
-  .proof .fallback-note { font-family:var(--sans); font-size:12.5px; color:var(--muted); margin:0 0 9px; }
-  .proof.raw { font-family:var(--mono); font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
-  .proof.evidence { border-style:dashed; color:var(--muted); }
-  .proof.err { color:var(--err); font-family:var(--sans); font-size:13.5px; }
-  pre.code {
-    background:var(--well); border:1px solid var(--line); border-radius:6px; padding:14px 16px;
-    font-family:var(--mono); font-size:13px; line-height:1.6; overflow:auto; white-space:pre-wrap; word-break:break-word; margin:0;
-  }
-  .prooflbl { font-family:var(--serif); font-style:italic; font-size:15px; color:var(--ink); display:block; margin-bottom:7px; }
-
-  .hist-item { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); cursor:pointer; }
-  .hist-item:last-child { border-bottom:0; }
-  .hist-item:hover .hist-title { color:var(--accent); }
-  .hist-verdict { flex:none; width:8px; height:8px; border-radius:50%; }
-  .hist-verdict.ok { background:var(--ok); } .hist-verdict.no { background:var(--err); }
-  .hist-verdict.num { background:var(--num); }
-  .hist-verdict.unchecked { background:transparent; box-shadow:inset 0 0 0 1.5px var(--line-strong); }
-  .hist-title { flex:1; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .hist-time { flex:none; font-size:11.5px; color:var(--muted); }
-  .hist-del { flex:none; border:0; background:transparent; color:var(--muted); font-size:15px; line-height:1;
-    padding:4px 7px; border-radius:5px; cursor:pointer; }
-  .hist-del:hover { color:var(--err); background:var(--well); }
-
-  details { border:1px solid var(--line); border-radius:6px; background:var(--card); }
-  details summary { cursor:pointer; padding:10px 14px; font-size:13px; color:var(--muted); }
-  details summary:hover { color:var(--ink); }
-  details[open] summary { border-bottom:1px solid var(--line); }
-  details .dbd { padding:12px 14px; }
-  details pre.code { border:0; padding:0; background:transparent; }
-
-  .aux { border:1px solid var(--line); background:var(--well); border-radius:6px; padding:10px 14px; font-family:var(--mono); font-size:13px; line-height:1.7; }
-
-  .banner { border-radius:6px; padding:11px 14px; font-size:13.5px; margin-bottom:14px; }
-  .banner.err { background:var(--err-bg); border:1px solid var(--err-line); color:var(--err); }
-  .banner.warn { background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn-ink); }
-  .banner code { font-family:var(--mono); font-size:12.5px; }
-  .hidden { display:none !important; }
-
-  .spinner { width:15px; height:15px; border:2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color:currentColor; border-radius:50%; display:inline-block; animation:spin .7s linear infinite; vertical-align:-3px; margin-right:2px; }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
-
-  footer { max-width:1340px; margin:0 auto; color:var(--muted); font-size:12.5px; text-align:center; padding:22px 28px; border-top:1px solid var(--line); }
-</style>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%231f4fa0' stroke-width='2.2'/%3E%3Cpath d='M16 4.6 26.2 22H5.8Z' fill='none' stroke='%231f4fa0' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/stix-two-text-italic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/i18n.js"></script>
 </head>
-<body>
-<header>
-  <div class="wordmark">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-    <span class="name">GeoSolver</span>
+<body class="app">
+<a class="skip-link" href="#composer" data-i18n="nav.skip">Skip to content</a>
+
+<header class="site-header">
+  <div class="inner">
+    <button type="button" class="icon-btn rail-toggle" id="rail-toggle" aria-controls="rail" aria-expanded="false" data-i18n-attr="aria-label:nav.history;title:nav.history" aria-label="History" hidden></button>
+    <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <span>GeoSolver</span>
+    </a>
+    <div class="spacer"></div>
+    <div class="header-tools">
+      <span class="status-pill checking" id="ai-pill" role="status"><span class="dot" aria-hidden="true"></span><span id="ai-pill-text" data-i18n="ai.checking">Checking AI…</span></span>
+      <div class="seg lang-seg" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+        <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
+        <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
+      </div>
+      <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
+      <div class="account" id="account" hidden>
+        <span class="who"><span class="avatar" id="avatar" aria-hidden="true"></span><span id="username"></span></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="logout" data-i18n-attr="aria-label:app.logout;title:app.logout" aria-label="Log out"><span class="lbl-ic" data-icon="logout" aria-hidden="true"></span><span class="lbl" data-i18n="app.logout">Log out</span></button>
+      </div>
+      <a class="btn btn-secondary btn-sm" id="signin" href="/auth" hidden data-i18n="nav.signin">Sign in</a>
+    </div>
   </div>
-  <div class="tag" data-i18n="app.tag">type or photograph a geometry problem — get the labeled figure and a step-by-step proof</div>
-  <div class="spacer"></div>
-  <div class="lang-seg" role="group" aria-label="Language / Limbă">
-    <button type="button" data-lang-set="en" aria-pressed="true">EN</button>
-    <button type="button" data-lang-set="ro" aria-pressed="false">RO</button>
-  </div>
-  <div id="ai-pill" class="pill"><span class="dot"></span>checking…</div>
-  <div id="user-box" class="row hidden">
-    <span class="meta" id="username-label"></span>
-    <button class="ghost btn" id="logout-btn" style="padding:6px 12px" data-i18n="app.logout">Log out</button>
-  </div>
-  <a id="signin-link" class="ghost btn hidden" href="/auth" style="padding:6px 12px" data-i18n="nav.signin">Sign in</a>
 </header>
 
-<main>
-  <!-- INPUT -->
-  <section class="card" aria-label="input">
-    <div class="hd" data-i18n="app.problem">Problem</div>
-    <div class="bd">
-      <div class="row between">
-        <div class="seg" id="mode" role="tablist">
-          <button data-mode="describe" class="active" data-i18n="app.mode_describe">Describe</button>
-          <button data-mode="geo" data-i18n="app.mode_geo">.geo code</button>
-        </div>
-        <div class="row">
-          <label class="lbl" style="margin:0" for="theme" data-i18n="app.figure">Figure</label>
-          <select id="theme">
-            <option value="light" selected data-i18n="app.theme_light">Light</option>
-            <option value="dark" data-i18n="app.theme_dark">Dark</option>
-          </select>
-        </div>
-      </div>
+<main id="main" class="shell">
+  <h1 class="sr-only">GeoSolver</h1>
 
-      <div class="mt14" id="describe-help">
-        <label class="lbl" for="input" data-i18n="app.describe_label">Describe the problem in words, or upload a photo of it:</label>
-      </div>
-      <div class="mt10 hidden" id="geo-help">
-        <label class="lbl" for="input" data-i18n="app.geo_label">Write a .geo program:</label>
-      </div>
+  <aside class="rail" id="rail" aria-labelledby="rail-h" hidden>
+    <div class="rail-head">
+      <h2 id="rail-h" class="label" data-i18n="hist.title">History</h2>
+      <button type="button" class="icon-btn rail-close" id="rail-close" data-i18n-attr="aria-label:hist.close;title:hist.close" aria-label="Close history"></button>
+    </div>
+    <div class="rail-search">
+      <span class="search-icon" aria-hidden="true" data-icon="search"></span>
+      <input type="search" class="input" id="hist-search" data-i18n-attr="placeholder:hist.search;aria-label:hist.search" placeholder="Search history" aria-label="Search history" autocomplete="off">
+    </div>
+    <div class="filters" role="group" data-i18n-attr="aria-label:hist.filter" aria-label="Filter by verdict" id="hist-filters">
+      <button type="button" class="filter" data-filter="all" aria-pressed="true" data-i18n="hist.filter.all">All</button>
+      <button type="button" class="filter" data-filter="proved" aria-pressed="false" data-i18n="hist.filter.proved">Proved</button>
+      <button type="button" class="filter" data-filter="refuted" aria-pressed="false" data-i18n="hist.filter.false">False</button>
+      <button type="button" class="filter" data-filter="holds-numerically" aria-pressed="false" data-i18n="hist.filter.numeric">Numerical</button>
+      <button type="button" class="filter" data-filter="not-proved" aria-pressed="false" data-i18n="hist.filter.not">Not proved</button>
+    </div>
+    <ul class="hist-list" id="hist-list" aria-labelledby="rail-h"></ul>
+    <p class="hist-empty" id="hist-empty" data-i18n="hist.loading">Loading…</p>
+  </aside>
+  <div class="rail-scrim" id="rail-scrim" hidden></div>
 
-      <textarea id="input" spellcheck="false" placeholder="e.g. In triangle ABC, H is the orthocenter. Prove the reflection of H over line BC lies on the circumcircle of ABC."></textarea>
-
-      <div class="mt10" id="upload-wrap">
-        <div class="drop" id="drop">
-          <div id="drop-text" data-i18n="app.drop_text">Drop a photo of the problem here, or click to choose</div>
-          <img id="thumb" class="thumb hidden" alt="uploaded problem" />
-        </div>
-        <input type="file" id="file" accept="image/*" class="hidden" />
-      </div>
-
-      <label class="opt mt14">
-        <input type="checkbox" id="best" />
-        <span><span data-i18n="app.best">Find the shortest proof</span> <span class="hint" data-i18n="app.best_hint">— compares every proof it can reach in up to 20 seconds</span></span>
-      </label>
-
-      <div class="row between mt14">
-        <button class="btn" id="solve" data-i18n="app.solve">Solve</button>
-        <button class="ghost btn" id="clear" style="padding:10px 14px" data-i18n="app.clear">Clear</button>
+  <section class="composer card" id="composer" aria-labelledby="composer-h" tabindex="-1">
+    <div class="composer-head">
+      <h2 id="composer-h" class="label" data-i18n="app.problem">Problem</h2>
+      <div class="seg tabs" role="tablist" id="tabs" data-i18n-attr="aria-label:app.problem" aria-label="Problem">
+        <button type="button" role="tab" id="tab-describe" aria-controls="panel-describe" aria-selected="false" tabindex="-1" data-mode="describe"><span class="tab-ic" aria-hidden="true" data-icon="text"></span><span data-i18n="tab.describe">Describe</span></button>
+        <button type="button" role="tab" id="tab-photo" aria-controls="panel-photo" aria-selected="false" tabindex="-1" data-mode="photo"><span class="tab-ic" aria-hidden="true" data-icon="image"></span><span data-i18n="tab.photo">Photo</span></button>
+        <button type="button" role="tab" id="tab-geo" aria-controls="panel-geo" aria-selected="true" tabindex="0" data-mode="geo"><span class="tab-ic" aria-hidden="true" data-icon="code"></span><span data-i18n="tab.geo">.geo</span></button>
       </div>
     </div>
-  </section>
 
-  <!-- OUTPUT -->
-  <section class="card" aria-label="result">
-    <div class="hd"><span data-i18n="app.solution">Solution</span> <span id="hd-method" class="pill" style="display:none"></span></div>
-    <div class="bd">
-      <div id="banner-slot"></div>
+    <div class="panel" role="tabpanel" id="panel-describe" aria-labelledby="tab-describe" hidden>
+      <div class="ai-gate" data-gate hidden></div>
+      <div class="ai-body">
+        <label class="field-label" for="describe-input" data-i18n="describe.label">Describe the problem in words</label>
+        <textarea class="textarea" id="describe-input" rows="5" data-i18n-attr="placeholder:describe.ph" aria-describedby="describe-err describe-note"></textarea>
+        <p class="editor-error" id="describe-err" role="alert" hidden></p>
+        <p class="hint" id="describe-note"><span class="hint-ic" aria-hidden="true" data-icon="sparkle"></span><span data-i18n="describe.note">An AI model turns your words into a .geo program. The proof itself is machine-checked.</span></p>
+      </div>
+    </div>
 
-      <div id="empty" class="empty" data-i18n="app.empty" data-i18n-html>Enter your problem and press <b>Solve</b>. The labeled figure and the step-by-step proof appear here.</div>
-
-      <div id="result" class="hidden">
-        <div class="status">
-          <span class="verdict" id="verdict"></span>
-          <span class="meta" id="meta"></span>
+    <div class="panel" role="tabpanel" id="panel-photo" aria-labelledby="tab-photo" hidden>
+      <div class="ai-gate" data-gate hidden></div>
+      <div class="ai-body">
+        <span class="field-label" id="photo-label" data-i18n="photo.label">Photo of the problem</span>
+        <label class="dropzone" id="dropzone" for="photo-input">
+          <span class="dz-empty" id="dz-empty"><span class="dz-ic" aria-hidden="true" data-icon="image"></span><span><span data-i18n="photo.drop">Drop a photo here, or</span> <span class="link" data-i18n="photo.choose">choose a file</span></span></span>
+          <span class="dz-full" id="dz-full" hidden><img id="photo-preview" alt=""><span class="dz-name" id="photo-name"></span></span>
+        </label>
+        <input type="file" id="photo-input" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only" aria-labelledby="photo-label" aria-describedby="photo-err photo-hint">
+        <p class="editor-error" id="photo-err" role="alert" hidden></p>
+        <div class="dz-actions" id="dz-actions" hidden>
+          <button type="button" class="btn btn-ghost btn-sm" id="photo-remove"><span data-i18n="photo.remove">Remove photo</span></button>
         </div>
+        <p class="hint" id="photo-hint" data-i18n="photo.hint">PNG, JPG or WebP, up to 8 MB.</p>
+      </div>
+    </div>
 
-        <div class="figure mt14" id="figure-frame">
-          <div class="fig-zoom" id="fig-zoom">100%</div>
-          <div class="fig-tools">
-            <button class="fig-btn" id="z-out" type="button" data-i18n-attr="title:app.zoom_out;aria-label:app.zoom_out" title="Zoom out" aria-label="Zoom out">−</button>
-            <button class="fig-btn" id="z-in" type="button" data-i18n-attr="title:app.zoom_in;aria-label:app.zoom_in" title="Zoom in" aria-label="Zoom in">+</button>
-            <button class="fig-btn" id="z-fit" type="button" data-i18n-attr="title:app.fit;aria-label:app.fit" title="Fit to view" aria-label="Fit to view">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
-            </button>
-            <button class="fig-btn" id="z-full" type="button" data-i18n-attr="title:app.fullscreen;aria-label:app.fullscreen" title="Fullscreen" aria-label="Toggle fullscreen">
-              <svg id="z-full-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
-              <svg id="z-full-close" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-            </button>
+    <div class="panel" role="tabpanel" id="panel-geo" aria-labelledby="tab-geo">
+      <div class="geo-head">
+        <label class="field-label" for="geo-input" data-i18n="geo.label">.geo program</label>
+        <div class="geo-tools">
+          <div class="menu-wrap">
+            <button type="button" class="btn btn-ghost btn-sm" id="examples-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="examples-menu" data-i18n-attr="aria-label:examples"><span class="btn-ic" aria-hidden="true" data-icon="book"></span><span class="btn-txt" data-i18n="examples">Examples</span></button>
+            <div class="menu examples-menu" id="examples-menu" role="menu" aria-labelledby="examples-btn" hidden></div>
           </div>
-          <div class="fig-vp" id="figure"></div>
-          <div class="fig-hint" id="fig-hint"><span data-i18n="app.fig_hint">scroll / pinch to zoom · drag to pan · double-tap to reset</span></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="syntax-btn" aria-expanded="false" aria-controls="syntax-help" data-i18n-attr="aria-label:geo.help"><span class="btn-ic" aria-hidden="true" data-icon="info"></span><span class="btn-txt" data-i18n="geo.help">Syntax</span></button>
         </div>
-
-        <div class="legend mt14" id="legend"></div>
-
-        <div class="row between mt14">
-          <div class="row">
-            <button class="ghost btn" id="dl-pdf" style="padding:8px 14px" data-i18n="app.save_pdf">Save PDF</button>
-            <button class="ghost btn" id="dl-png" style="padding:8px 14px" data-i18n="app.save_png">Save PNG</button>
-          </div>
-          <div class="meta" id="ptsinfo"></div>
+      </div>
+      <div class="syntax-help" id="syntax-help" hidden>
+        <h3 data-i18n="geo.help.title">.geo in one minute</h3>
+        <div data-i18n="geo.help.body" data-i18n-html></div>
+      </div>
+      <div class="editor" id="editor">
+        <div class="gutter" id="gutter" aria-hidden="true"></div>
+        <div class="code">
+          <pre class="hl" id="hl" aria-hidden="true" tabindex="-1"><code id="hl-code"></code></pre>
+          <textarea id="geo-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-describedby="geo-error" aria-invalid="false"></textarea>
         </div>
+      </div>
+      <p class="editor-error" id="geo-error" role="alert" hidden></p>
+    </div>
 
-        <div class="mt14" id="aux-slot"></div>
-
-        <div class="mt18">
-          <span class="prooflbl" id="prooftitle">Proof.</span>
-          <div class="proof" id="proof"></div>
+    <div class="composer-foot">
+      <div class="effort">
+        <span class="label" id="effort-label" data-i18n="effort.label">Search</span>
+        <div class="seg" role="radiogroup" aria-labelledby="effort-label" id="effort">
+          <button type="button" role="radio" aria-checked="true" data-effort="standard" tabindex="0" data-i18n="effort.standard">Standard</button>
+          <button type="button" role="radio" aria-checked="false" data-effort="shortest" tabindex="-1" data-i18n="effort.shortest">Shortest proof</button>
         </div>
-
-        <div class="mt14" id="geo-slot"></div>
+        <p class="hint effort-hint" id="effort-hint"></p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="clear" data-i18n="clear">Clear</button>
+        <button type="button" class="btn btn-secondary" id="cancel" hidden><span data-i18n="cancel">Cancel</span></button>
+        <button type="button" class="btn btn-primary btn-solve" id="solve" aria-describedby="solve-kbd"><span data-i18n="solve">Solve</span><kbd id="solve-kbd" aria-hidden="true">Ctrl ↵</kbd></button>
       </div>
     </div>
   </section>
 
-  <!-- HISTORY -->
-  <section class="card mt18 hidden" id="history-card" aria-label="history" style="grid-column:1">
-    <div class="hd" data-i18n="app.history">History</div>
-    <div class="bd">
-      <div id="history-empty" class="empty" style="padding:20px 8px" data-i18n="app.loading">Loading…</div>
-      <div id="history-list" class="hidden"></div>
+  <section class="status-area" id="status-area" aria-labelledby="result-h">
+    <h2 class="sr-only" id="result-h" data-i18n="result.title">Result</h2>
+    <div id="state-empty" class="state-empty card">
+      <div class="empty-art" aria-hidden="true">
+        <svg viewBox="0 0 120 90"><circle cx="60" cy="46" r="34" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".45"/><path d="M60 12 90 64H30Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M60 12v52" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 3" opacity=".6"/><circle cx="60" cy="12" r="2.6" fill="currentColor"/><circle cx="90" cy="64" r="2.6" fill="currentColor"/><circle cx="30" cy="64" r="2.6" fill="currentColor"/><circle cx="60" cy="64" r="2.6" fill="currentColor"/></svg>
+      </div>
+      <h3 data-i18n="empty.title">Your proof will appear here</h3>
+      <p class="muted" data-i18n="empty.body">Write a .geo program, describe a problem, or start from an example.</p>
+      <p class="label empty-ex-label" data-i18n="empty.examples">Try an example</p>
+      <div class="example-chips" id="example-chips"></div>
+    </div>
+    <div id="state-solving" class="state-solving card" hidden>
+      <div class="solving-top">
+        <span class="spinner" aria-hidden="true"></span>
+        <div class="grow">
+          <p class="solving-title" id="solving-title"></p>
+          <p class="muted solving-time"><span id="solving-elapsed"></span></p>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="cancel-2"><span data-i18n="cancel">Cancel</span></button>
+      </div>
+      <ol class="stepper" id="stepper"></ol>
+      <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+      <div class="skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>
+    <div id="state-error" class="state-error card tone-false" hidden></div>
+    <div id="verdict" class="verdict card" hidden></div>
+  </section>
+
+  <section class="figure-panel" id="figure-panel" aria-labelledby="fig-h">
+    <div class="fig-frame card" id="fig-frame">
+      <div class="fig-head">
+        <h2 class="label" id="fig-h" data-i18n="fig.title">Figure</h2>
+        <div class="fig-tools" role="toolbar" data-i18n-attr="aria-label:fig.title" aria-label="Figure">
+          <span class="zoom-label" id="zoom-label" aria-live="polite" hidden>100%</span>
+          <button type="button" class="icon-btn" id="z-out" data-i18n-attr="aria-label:fig.zoom_out;title:fig.zoom_out" aria-label="Zoom out"></button>
+          <button type="button" class="icon-btn" id="z-in" data-i18n-attr="aria-label:fig.zoom_in;title:fig.zoom_in" aria-label="Zoom in"></button>
+          <button type="button" class="icon-btn" id="z-fit" data-i18n-attr="aria-label:fig.fit;title:fig.fit" aria-label="Fit to view"></button>
+          <button type="button" class="icon-btn" id="z-full" aria-pressed="false" data-i18n-attr="aria-label:fig.full;title:fig.full" aria-label="Full screen"></button>
+          <button type="button" class="icon-btn" id="z-svg" data-i18n-attr="aria-label:fig.download;title:fig.download" aria-label="Download figure (SVG)"></button>
+        </div>
+      </div>
+      <div class="fig-viewport" id="fig-viewport" tabindex="0" role="group" data-i18n-attr="aria-label:fig.region" aria-label="Figure">
+        <p class="fig-empty" id="fig-empty" data-i18n="fig.empty">The figure appears here once a problem is solved.</p>
+      </div>
+      <div class="fig-foot">
+          <ul class="fig-legend" id="fig-legend" hidden>
+            <li><span class="sw sw-given" aria-hidden="true"></span><span data-i18n="fig.legend.given">Construction</span></li>
+            <li class="lg-goal"><span class="sw sw-goal" aria-hidden="true"></span><span data-i18n="fig.legend.goal">Goal</span></li>
+            <li class="lg-aux" hidden><span class="sw sw-aux" aria-hidden="true"></span><span data-i18n="fig.legend.aux">Auxiliary</span></li>
+          </ul>
+        <p class="fig-hint" id="fig-hint"></p>
+      </div>
     </div>
   </section>
+
+  <div class="proof-area" id="proof-area" hidden>
+    <section class="statement card" id="statement" aria-labelledby="st-h"></section>
+    <section class="proof card" aria-labelledby="proof-h">
+      <div class="proof-head">
+        <h2 id="proof-h" class="label" data-i18n="proof.title">Proof</h2>
+        <div class="seg" role="tablist" id="proof-tabs" hidden>
+          <button type="button" role="tab" id="ptab-steps" aria-controls="proof-steps-panel" aria-selected="true" tabindex="0" data-i18n="proof.tab.steps">Verified steps</button>
+          <button type="button" role="tab" id="ptab-ai" aria-controls="proof-ai-panel" aria-selected="false" tabindex="-1"><span data-i18n="proof.tab.ai">AI explanation</span></button>
+        </div>
+      </div>
+      <div role="tabpanel" id="proof-steps-panel" aria-labelledby="ptab-steps">
+        <ol class="steps" id="steps"></ol>
+        <p class="muted" id="steps-none" hidden data-i18n="proof.none">There is no proof to show.</p>
+      </div>
+      <div role="tabpanel" id="proof-ai-panel" aria-labelledby="ptab-ai" hidden>
+        <div class="banner tone-unproved ai-note"><span data-icon="alert" aria-hidden="true"></span><div><strong data-i18n="proof.ai.badge">Not machine-checked</strong> — <span data-i18n="proof.ai.note"></span></div></div>
+        <div class="ai-text" id="ai-text" aria-live="polite"></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="ai-regen"><span data-icon="retry" aria-hidden="true"></span><span data-i18n="proof.ai.regen">Regenerate</span></button>
+      </div>
+    </section>
+    <details class="details card" id="details">
+      <summary><span data-i18n="details.title">Details</span></summary>
+      <div class="details-body" id="details-body"></div>
+    </details>
+  </div>
 </main>
 
-<footer data-i18n="app.footer">
-  GeoSolver · a from-scratch Rust implementation of the AlphaGeometry deduction engine
-</footer>
+<p class="sr-only" id="announce" aria-live="polite"></p>
+<div class="toast-region" id="toasts" aria-live="polite"></div>
 
-<script src="/assets/i18n.js"></script>
-<script>
-const $ = (id) => document.getElementById(id);
-const t = (k, v) => (window.i18n ? window.i18n.t(k, v) : k);
-const curLang = () => (window.i18n ? window.i18n.current() : 'en');
-// Locale-aware number: Romanian uses a decimal comma.
-const fmtNum = (n, digits) => { let s = Number(n).toFixed(digits); return curLang() === 'ro' ? s.replace('.', ',') : s; };
-const state = { signedIn: false, mode: 'describe', translateInstalled: false, translateReady: false, imageB64: null, imageName: null, solvedInput: null, solvedTitle: null, lastSol: null, lastGeo: null };
-let historyItems = []; // last-loaded /api/history rows, indexed by the .hist-item's data-index
+<footer class="site-footer"><p data-i18n="footer">GeoSolver · machine-checked geometry proofs</p></footer>
 
-// ---------- init ----------
-async function init() {
-  // Default the figure theme to the page's own scheme; the select still lets
-  // the user pick either.
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-    $('theme').value = 'dark';
-  try {
-    const s = await (await fetch('/api/status')).json();
-    state.translateInstalled = !!s.translate_installed;
-    state.translateReady = !!s.translate_logged_in;
-  } catch(e) { state.translateInstalled = false; state.translateReady = false; }
-  try {
-    const me = await (await fetch('/api/auth/me')).json();
-    if (me && me.username) {
-      $('username-label').textContent = me.username;
-      $('user-box').classList.remove('hidden');
-      state.signedIn = true;
-    }
-  } catch(e) {}
-  // Guests (shared-password mode) use the solver without an account; history
-  // is per-account, so they get a sign-in link instead of a history panel.
-  if (state.signedIn) $('history-card').classList.remove('hidden');
-  else $('signin-link').classList.remove('hidden');
-  updatePill();
-  applyModeUI();
-  wire();
-  if (state.signedIn) loadHistory();
-}
-
-function updatePill(){
-  const pill=$('ai-pill'); const dot='<span class="dot"></span>';
-  if (state.translateReady){ pill.className='pill on'; pill.innerHTML=dot+t('app.ai_on'); }
-  else if (state.translateInstalled){ pill.className='pill warn'; pill.innerHTML=dot+t('app.ai_signin'); }
-  else { pill.className='pill'; pill.innerHTML=dot+t('app.ai_off'); }
-}
-
-function setMode(m){ state.mode=m; document.querySelectorAll('#mode button').forEach(b=>b.classList.toggle('active', b.dataset.mode===m)); applyModeUI(); }
-function applyModeUI(){
-  const describe = state.mode==='describe';
-  $('describe-help').classList.toggle('hidden', !describe);
-  $('geo-help').classList.toggle('hidden', describe);
-  // image upload only useful once AI translation is ready (installed + signed in)
-  $('upload-wrap').classList.toggle('hidden', !(describe && state.translateReady));
-  $('input').placeholder = describe ? t('app.input_ph_describe') : t('app.input_ph_geo');
-  if (describe && !state.translateReady) {
-    banner('warn', state.translateInstalled ? t('app.warn_login') : t('app.warn_install'));
-  } else { clearBanner(); }
-}
-
-function wire(){
-  document.querySelectorAll('#mode button').forEach(b=> b.onclick=()=>setMode(b.dataset.mode));
-  $('solve').onclick = () => solve();
-  $('clear').onclick = () => { $('input').value=''; clearImage(); $('result').classList.add('hidden'); $('empty').classList.remove('hidden'); clearBanner(); };
-  $('dl-pdf').onclick = () => exportDoc('pdf');
-  $('dl-png').onclick = () => exportDoc('png');
-  // image upload
-  const drop=$('drop'), file=$('file');
-  drop.onclick=()=>file.click();
-  file.onchange=e=>{ if(e.target.files[0]) loadImage(e.target.files[0]); };
-  drop.ondragover=e=>{e.preventDefault();drop.classList.add('hover');};
-  drop.ondragleave=()=>drop.classList.remove('hover');
-  drop.ondrop=e=>{e.preventDefault();drop.classList.remove('hover'); if(e.dataTransfer.files[0]) loadImage(e.dataTransfer.files[0]);};
-  $('logout-btn').onclick = logout;
-  $('history-list').addEventListener('click', e => activateHistItem(e.target));
-  $('history-list').addEventListener('keydown', e => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    if (!e.target.closest('.hist-item')) return;
-    e.preventDefault();
-    activateHistItem(e.target);
-  });
-}
-
-function activateHistItem(target){
-  const del = target.closest('.hist-del');
-  if (del) { deleteHistory(del.dataset.id); return; }
-  const item = target.closest('.hist-item');
-  if (item) reopenHistory(historyItems[+item.dataset.index]);
-}
-
-async function logout(){
-  try { await fetch('/api/auth/logout', { method:'POST' }); } catch(e){}
-  location.href = '/';
-}
-
-// ---------- history ----------
-async function loadHistory(){
-  let rows = [];
-  try { rows = await (await fetch('/api/history')).json(); if (!Array.isArray(rows)) rows = []; } catch(e) { rows = []; }
-  const list = $('history-list'), empty = $('history-empty');
-  if (!rows.length) { list.classList.add('hidden'); empty.textContent = t('app.no_solves'); empty.classList.remove('hidden'); historyItems = []; return; }
-  empty.classList.add('hidden'); list.classList.remove('hidden');
-  historyItems = rows;
-  renderHistoryList();
-}
-
-function renderHistoryList(){
-  const loc = curLang() === 'ro' ? 'ro-RO' : undefined;
-  $('history-list').innerHTML = historyItems.map((r, i) => {
-    const when = new Date(r.created_at*1000).toLocaleString(loc);
-    const label = r.title || (r.input||'').split('\n')[0].slice(0,44) || t('app.untitled');
-    return '<div class="hist-item" data-index="'+i+'" role="button" tabindex="0" aria-label="'+escapeHtml(t('app.reopen',{label}))+'">'
-      + histDot(r)
-      + '<span class="hist-title">'+escapeHtml(label)+'</span>'
-      + '<span class="hist-time">'+escapeHtml(when)+'</span>'
-      + '<button class="hist-del" type="button" data-id="'+r.id+'" aria-label="'+escapeHtml(t('app.delete'))+'" title="'+escapeHtml(t('app.delete'))+'">✕</button></div>';
-  }).join('');
-}
-
-// The verdict dot of a history row. Rows saved before verdicts were stored
-// carry no status; a "proved" metric row from then may have been a numeric
-// check, so it is shown as unchecked rather than as a proof.
-function histDot(r){
-  let kind, label;
-  if (r.status === 'proved') { kind = 'ok'; label = t('app.proven'); }
-  else if (r.status === 'holds-numerically') { kind = 'num'; label = t('app.numeric'); }
-  else if (r.status === 'refuted') { kind = 'no'; label = t('app.refuted'); }
-  else if (r.status) { kind = 'no'; label = t('app.not_proven'); }
-  else if (r.proved && r.method === 'euclidean') { kind = 'unchecked'; label = t('app.unchecked'); }
-  else { kind = r.proved ? 'ok' : 'no'; label = r.proved ? t('app.proven') : t('app.not_proven'); }
-  return '<span class="hist-verdict '+kind+'" role="img" aria-label="'+escapeHtml(label)+'" title="'+escapeHtml(label)+'"></span>';
-}
-
-async function deleteHistory(id){
-  try {
-    const res = await fetch('/api/history/'+encodeURIComponent(id), { method:'DELETE' });
-    if (!res.ok && res.status !== 404) { banner('err',t('app.del_fail')); return; }
-  } catch(e) { banner('err',t('app.del_fail')); return; }
-  loadHistory();
-}
-
-// Re-solve a history entry under its original title, without recording it
-// again (it is already in the list).
-function reopenHistory(entry){
-  setMode('geo');
-  $('input').value = entry.input;
-  clearImage();
-  solve({ title: entry.title || null });
-}
-
-function loadImage(f){
-  const r=new FileReader();
-  r.onload=()=>{ state.imageB64=r.result; state.imageName=f.name;
-    $('thumb').src=r.result; $('thumb').classList.remove('hidden');
-    $('drop-text').textContent=t('app.drop_replace',{name:f.name}); $('drop').classList.add('has'); };
-  r.readAsDataURL(f);
-}
-function clearImage(){ state.imageB64=null; state.imageName=null; $('thumb').classList.add('hidden'); $('drop-text').textContent=t('app.drop_text'); $('drop').classList.remove('has'); if($('file')) $('file').value=''; }
-
-// ---------- banners ----------
-function banner(kind,msg){ $('banner-slot').innerHTML = `<div class="banner ${kind}" role="alert">${msg}</div>`; }
-function clearBanner(){ $('banner-slot').innerHTML=''; }
-
-// ---------- solve pipeline ----------
-async function solve(replay){
-  clearBanner();
-  const btn=$('solve'); const orig=btn.innerHTML;
-  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> '+t('app.working');
-  try {
-    let geo, title=null;
-    if (state.mode==='geo') {
-      geo = $('input').value.trim();
-      if(!geo){ banner('err',t('app.err_write_geo')); return; }
-      if (replay) title = replay.title;
-    } else {
-      // Describe mode → translate (image or text) → geo
-      if (!state.translateReady){ applyModeUI(); return; }
-      const body = state.imageB64 ? { image_base64: state.imageB64, filename: state.imageName } : { text: $('input').value.trim() };
-      if (!state.imageB64 && !body.text){ banner('err',t('app.err_describe')); return; }
-      btn.innerHTML='<span class="spinner"></span> '+t('app.translating');
-      const tr = await postJSON('/api/translate', body);
-      if (tr.error){ banner('err',t('app.err_translation',{msg:escapeHtml(tr.error)})); return; }
-      geo = tr.geo; title = tr.title;
-      if (/cannot translate/i.test(geo)){ banner('err',t('app.err_cannot_translate')+'<br><code>'+escapeHtml(geo)+'</code>'); return; }
-    }
-    const best = $('best').checked;
-    btn.innerHTML='<span class="spinner"></span> '+(best?t('app.finding_shortest'):t('app.solving'));
-    const theme = $('theme').value;
-    const sol = await postJSON('/api/solve', { input: geo, theme, title, best, budget_secs: 20, record: !replay });
-    if (sol.error){ banner('err',t('app.err_solve',{msg:escapeHtml(sol.error)})); return; }
-    state.solvedInput = geo; state.solvedTitle = title || null;
-    render(sol, geo, title);
-    if (state.signedIn && !replay) loadHistory();
-  } catch(e){ banner('err',t('app.err_generic',{msg:escapeHtml(e.message)})); }
-  finally { btn.disabled=false; btn.innerHTML=orig; }
-}
-
-function render(sol, geo, title){
-  state.lastSol = sol; state.lastGeo = geo; state.lastTitle = title || null;
-  $('empty').classList.add('hidden');
-  $('result').classList.remove('hidden');
-  const ok = sol.proved;
-  const status = sol.status || (ok ? 'proved' : 'not-proved');
-  const verdict = {
-    proved: ['ok', t('app.verdict_proven')],
-    'holds-numerically': ['num', t('app.verdict_numeric')],
-    refuted: ['no', t('app.verdict_refuted')],
-  }[status] || ['no', t('app.verdict_not')];
-  $('verdict').className = 'verdict '+verdict[0];
-  $('verdict').textContent = verdict[1];
-  const meta = [fmtNum(sol.elapsed_secs, 3)+' s'];
-  if (sol.numeric_samples!=null) meta.push(t('app.n_figures', {n: sol.numeric_samples}));
-  $('meta').textContent = meta.join(' · ');
-  const method = {ddar:t('app.method_ddar'), 'aux-search':t('app.method_aux'), euclidean:t('app.method_euclid')}[sol.method]||sol.method;
-  const hm=$('hd-method'); hm.style.display='inline-block'; hm.textContent=method; hm.className='pill';
-
-  viewer.setSvg(sol.svg);
-
-  // Given / Prove legend (the figure itself stays clean).
-  const leg = $('legend');
-  const cons = sol.constructions || [];
-  if (cons.length || sol.goal) {
-    let h = '';
-    if (cons.length) h += '<span class="k">'+escapeHtml(t('app.given'))+'</span><span class="v">'
-      + cons.map(escapeHtml).join('<span class="sep">·</span>') + '</span>';
-    if (sol.goal) h += '<span class="k">'+escapeHtml(t('app.prove'))+'</span><span class="v">' + escapeHtml(sol.goal) + '</span>';
-    leg.innerHTML = h; leg.classList.remove('hidden');
-  } else { leg.innerHTML=''; leg.classList.add('hidden'); }
-
-  $('prooftitle').textContent = ok ? t('app.proof')
-    : status === 'holds-numerically' ? t('app.numeric_title')
-    : (status === 'refuted' && sol.numeric_evidence) ? t('app.counterexample')
-    : t('app.search_result');
-  const parts = [t('app.n_points', {n: sol.low_level.split('@').length-1})];
-  if (sol.proof_steps!=null) parts.push(t('app.n_steps', {n: sol.proof_steps}));
-  if (sol.examined!=null && sol.examined>1) parts.push(t('app.n_examined', {n: sol.examined}));
-  $('ptsinfo').textContent = parts.join(' · ');
-
-  // A numeric check is never a proof; say so before anything else.
-  if (status === 'holds-numerically') banner('warn', t('app.numeric_only', {n: sol.numeric_samples}));
-  // warning if the statement looks false
-  else if (sol.goal_holds_numerically===false) banner('warn', t('app.false_stmt'));
-
-  // aux constructions
-  if (sol.aux_constructions && sol.aux_constructions.length){
-    $('aux-slot').innerHTML = '<label class="lbl">'+escapeHtml(t('app.aux_label'))+'</label><div class="aux">'+
-      sol.aux_constructions.map(c=>'+ '+escapeHtml(c)).join('<br>')+'</div>';
-  } else $('aux-slot').innerHTML='';
-
-  // compiled geo (show what was solved, esp. after translation)
-  $('geo-slot').innerHTML = '<details'+(state.mode==='describe'?' open':'')+'><summary>'+escapeHtml(t('app.compiled_geo'))+(title?' — '+escapeHtml(title):'')+'</summary><div class="dbd"><pre class="code">'+escapeHtml(geo)+'</pre></div></details>';
-
-  // The clean, human-readable proof — written by Claude Opus in the active
-  // language. Falls back to the raw machine proof if the writer is unavailable.
-  humanizeProof(sol, geo);
-}
-
-// Rewrite the machine (DDAR) proof into a flowing human proof via Opus.
-let humanizeSeq = 0;
-async function humanizeProof(sol, geo){
-  const el = $('proof');
-  if (!sol.proved || !sol.proof){
-    if (sol.numeric_evidence) { renderRawProof(sol.numeric_evidence); el.classList.add('evidence'); }
-    else renderRawProof(t('app.proof_omitted'));
-    return;
-  }
-  if (!state.translateReady){ renderRawProof(sol.proof, true); return; }
-  const seq = ++humanizeSeq;
-  el.className = 'proof';
-  el.innerHTML = '<div class="writing"><span class="spinner"></span>'+escapeHtml(t('app.writing_proof'))+'</div>';
-  const problem = [
-    (sol.constructions && sol.constructions.length ? 'Given: '+sol.constructions.join('; ') : ''),
-    (sol.goal ? 'Prove: '+sol.goal : ''),
-    '', geo
-  ].join('\n');
-  try {
-    const res = await postJSON('/api/humanize', { problem, proof: sol.proof, aux: sol.aux_constructions||[], lang: curLang() });
-    if (seq !== humanizeSeq) return; // a newer solve or language change superseded this
-    if (res && res.proof && !res.error) renderProofMarkdown(res.proof);
-    else renderRawProof(sol.proof, true);
-  } catch(e) { if (seq === humanizeSeq) renderRawProof(sol.proof, true); }
-}
-
-// Fall back to the raw machine proof (monospace), optionally with a note.
-function renderRawProof(text, fallback){
-  const el = $('proof'); el.className = 'proof raw';
-  el.innerHTML = fallback ? '<div class="fallback-note">'+escapeHtml(t('app.proof_fallback'))+'</div>' : '';
-  el.appendChild(document.createTextNode(text||''));
-}
-
-// Render a constrained Markdown subset — paragraphs, *italic*, **bold** — safely
-// (HTML is escaped first, so only our own tags reach the DOM).
-function renderProofMarkdown(md){
-  const el = $('proof'); el.className = 'proof';
-  el.innerHTML = (md||'').split(/\n{2,}/).map(par => {
-    let p = escapeHtml(par.trim());
-    p = p.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>'); // bold first (may wrap inner italics)
-    p = p.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
-    p = p.replace(/\n/g, '<br>');
-    return p ? '<p>'+p+'</p>' : '';
-  }).join('');
-}
-
-
-async function exportDoc(fmt){
-  if(!state.solvedInput){ return; }
-  const btn = fmt==='pdf'?$('dl-pdf'):$('dl-png'); const orig=btn.innerHTML;
-  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>';
-  try{
-    const res = await fetch('/api/export', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ input: state.solvedInput, title: state.solvedTitle, format: fmt })});
-    if(!res.ok){ const j=await res.json().catch(()=>({error:res.statusText})); banner('err',t('app.err_export',{msg:escapeHtml(j.error||res.statusText)})); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a=document.createElement('a'); a.href=url; a.download='geosolver-proof.'+fmt; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 4000);
-  } catch(e){ banner('err',t('app.err_export',{msg:escapeHtml(e.message)})); }
-  finally { btn.disabled=false; btn.innerHTML=orig; }
-}
-
-async function postJSON(url, body){
-  const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  try { return await res.json(); } catch(e){ return { error: 'HTTP '+res.status }; }
-}
-function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-// ---------- zoom / pan / fullscreen figure viewer ----------
-// One shared viewer over the #figure viewport: CSS transform (translate+scale,
-// origin 0 0) on the injected SVG. Inline, a single touch finger still scrolls
-// the page until you zoom in (no scroll-trap); in fullscreen all gestures
-// belong to the figure.
-let viewerHintT = null;
-const viewer = (() => {
-  const frame = $('figure-frame'), vp = $('figure'), zoomLabel = $('fig-zoom'), hint = $('fig-hint');
-  let s = 1, tx = 0, ty = 0;
-  const MIN = 1, MAX = 12;
-  const svgEl = () => vp.querySelector('svg');
-
-  function apply() {
-    const el = svgEl();
-    if (el) el.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
-    const zoomed = s > 1.001;
-    vp.classList.toggle('zoomed', zoomed || frame.classList.contains('fs'));
-    zoomLabel.textContent = Math.round(s * 100) + '%';
-    zoomLabel.classList.toggle('show', zoomed);
-  }
-  function clampPan() {
-    // Keep at least a third of the drawing inside the viewport.
-    const w = vp.clientWidth, h = vp.clientHeight;
-    tx = Math.min(w * 0.67, Math.max(w - w * s - w * 0.67, tx));
-    ty = Math.min(h * 0.67, Math.max(h - h * s - h * 0.67, ty));
-  }
-  function zoomAt(px, py, k) {
-    const ns = Math.min(MAX, Math.max(MIN, s * k));
-    k = ns / s;
-    tx = px - (px - tx) * k;
-    ty = py - (py - ty) * k;
-    s = ns;
-    if (s <= 1.001) { s = 1; tx = 0; ty = 0; }
-    clampPan();
-    apply();
-  }
-  function reset() { s = 1; tx = 0; ty = 0; apply(); }
-  function center() { return { x: vp.clientWidth / 2, y: vp.clientHeight / 2 }; }
-
-  // Wheel zoom (desktop) — the figure is a viewer, so plain scroll zooms it.
-  vp.addEventListener('wheel', e => {
-    if (!svgEl()) return;
-    e.preventDefault();
-    const r = vp.getBoundingClientRect();
-    zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0018));
-  }, { passive: false });
-
-  // Pointer events: 1 pointer = pan (mouse always; touch when zoomed or fullscreen),
-  // 2 pointers = pinch zoom.
-  const pts = new Map();
-  let pinch0 = null, pan0 = null, lastTap = 0, lastTapAt = null;
-  vp.addEventListener('pointerdown', e => {
-    if (!svgEl()) return;
-    // double-tap (touch) / rely on dblclick for mouse
-    if (e.pointerType === 'touch' && pts.size === 0) {
-      const now = Date.now();
-      const near = lastTapAt && Math.hypot(e.clientX - lastTapAt.x, e.clientY - lastTapAt.y) < 40;
-      if (now - lastTap < 320 && near) { toggleZoom(e); lastTap = 0; return; }
-      lastTap = now; lastTapAt = { x: e.clientX, y: e.clientY };
-    }
-    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    try { vp.setPointerCapture(e.pointerId); } catch (_) {}
-    if (pts.size === 2) {
-      lastTap = 0; // a pinch is not a tap
-      const [a, b] = [...pts.values()];
-      pinch0 = { d: Math.hypot(a.x - b.x, a.y - b.y), s, tx, ty,
-                 mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
-      pan0 = null;
-    } else if (pts.size === 1 && s > 1.001) {
-      // Panning only means something once zoomed in.
-      pan0 = { x: e.clientX, y: e.clientY, tx, ty };
-      vp.classList.add('panning');
-    }
-  });
-  vp.addEventListener('pointermove', e => {
-    if (!pts.has(e.pointerId)) return;
-    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pts.size === 2 && pinch0) {
-      const [a, b] = [...pts.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      const r = vp.getBoundingClientRect();
-      const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
-      let ns = Math.min(MAX, Math.max(MIN, pinch0.s * (d / pinch0.d)));
-      const k = ns / pinch0.s;
-      tx = mx - ((pinch0.mx - r.left) - pinch0.tx) * k;
-      ty = my - ((pinch0.my - r.top) - pinch0.ty) * k;
-      s = ns;
-      if (s <= 1.001) { s = 1; tx = 0; ty = 0; }
-      clampPan(); apply();
-    } else if (pan0) {
-      tx = pan0.tx + (e.clientX - pan0.x);
-      ty = pan0.ty + (e.clientY - pan0.y);
-      clampPan(); apply();
-    }
-  });
-  const lift = e => {
-    pts.delete(e.pointerId);
-    if (pts.size < 2) pinch0 = null;
-    if (pts.size === 0) { pan0 = null; vp.classList.remove('panning'); }
-  };
-  vp.addEventListener('pointerup', lift);
-  vp.addEventListener('pointercancel', lift);
-
-  function toggleZoom(e) {
-    const r = vp.getBoundingClientRect();
-    const px = e.clientX - r.left, py = e.clientY - r.top;
-    if (s > 1.001) reset(); else zoomAt(px, py, 2.5);
-  }
-  vp.addEventListener('dblclick', e => { if (svgEl()) { e.preventDefault(); toggleZoom(e); } });
-
-  // Toolbar
-  $('z-in').onclick = () => { const c = center(); zoomAt(c.x, c.y, 1.4); };
-  $('z-out').onclick = () => { const c = center(); zoomAt(c.x, c.y, 1 / 1.4); };
-  $('z-fit').onclick = reset;
-
-  // Fullscreen: a fixed overlay (works on iOS Safari, which has no element
-  // fullscreen API), body scroll locked, Escape or ✕ to leave.
-  function setFullscreen(on) {
-    frame.classList.toggle('fs', on);
-    document.documentElement.style.overflow = on ? 'hidden' : '';
-    $('z-full-open').classList.toggle('hidden', on);
-    $('z-full-close').classList.toggle('hidden', !on);
-    $('z-full').title = on ? t('app.exit_fullscreen') : t('app.fullscreen');
-    reset();
-  }
-  $('z-full').onclick = () => setFullscreen(!frame.classList.contains('fs'));
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && frame.classList.contains('fs')) setFullscreen(false);
-  });
-
-  return {
-    setSvg(svg) {
-      vp.innerHTML = svg;
-      reset();
-      hint.style.display = '';
-      clearTimeout(viewerHintT);
-      viewerHintT = setTimeout(() => { hint.style.display = 'none'; }, 4200);
-    },
-    exitFullscreen() { if (frame.classList.contains('fs')) setFullscreen(false); },
-  };
-})();
-
-// Re-render everything the JS produced when the language changes.
-document.addEventListener('langchange', () => {
-  updatePill();
-  applyModeUI();
-  if (historyItems.length) renderHistoryList();
-  if (state.lastSol) render(state.lastSol, state.lastGeo, state.lastTitle); // re-writes the proof in the new language
-});
-
-init();
-</script>
+<script src="/assets/site.js"></script>
+<script src="/assets/app.js"></script>
 </body>
 </html>

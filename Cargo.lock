@@ -20,6 +20,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "pdf-writer",
  "rand_core 0.6.4",
  "rayon",
  "resvg",

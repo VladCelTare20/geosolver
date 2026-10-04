@@ -28,5 +28,6 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 ## Subfolders
 - [alphageometry-rs/src/](alphageometry-rs/src/CODEMAP.md) — the engine.
 - [ag-studio/src/](ag-studio/src/CODEMAP.md) — the product binary.
+- [ag-studio/assets/](ag-studio/assets/CODEMAP.md) — the web pages (app, landing, sign-in), design system, fonts.
 - `deploy/` — Docker, nginx, systemd; `DEPLOY.md` mirrors the env table in `ag-studio/src/security.rs`.
 - `corpus/` — AlphaGeometry problem sets (data, not code).

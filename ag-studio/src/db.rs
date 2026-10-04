@@ -43,6 +43,12 @@ pub struct HistoryEntry {
     /// The solve's verdict (`proved`, `holds-numerically`, `refuted`,
     /// `not-proved`); `None` for rows recorded before verdicts were stored.
     pub status: Option<String>,
+    /// The goal as the reader saw it (display names), for list titles.
+    pub goal: Option<String>,
+    /// Whether the full solution was stored, so reopening needs no re-solve.
+    pub has_solution: bool,
+    /// The stored solution's note key (`time_limit`, …), when there is one.
+    pub note: Option<String>,
     pub created_at: i64,
 }
 
@@ -155,6 +161,17 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if !has_status {
         conn.execute_batch("ALTER TABLE history ADD COLUMN status TEXT;")?;
     }
+    for (col, ddl) in [
+        ("goal", "ALTER TABLE history ADD COLUMN goal TEXT;"),
+        ("solution", "ALTER TABLE history ADD COLUMN solution TEXT;"),
+    ] {
+        let has = conn
+            .prepare("SELECT 1 FROM pragma_table_info('history') WHERE name = ?1")?
+            .exists([col])?;
+        if !has {
+            conn.execute_batch(ddl)?;
+        }
+    }
     // Usernames are case-insensitive. A DB from before that rule may already
     // hold `Alice` and `alice`; the index then fails to build and `create_user`'s
     // own check still prevents any new collision.
@@ -235,6 +252,19 @@ pub fn sweep_expired_sessions(conn: &Connection) -> rusqlite::Result<usize> {
     conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", params![now()])
 }
 
+/// A solve to record: the verdict columns, plus optionally the display goal and
+/// the full solution JSON.
+pub struct NewHistory<'a> {
+    pub input: &'a str,
+    pub title: Option<&'a str>,
+    pub proved: bool,
+    pub method: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub goal: Option<&'a str>,
+    pub solution: Option<&'a str>,
+}
+
+#[cfg(test)]
 pub fn insert_history(
     conn: &Connection,
     user_id: i64,
@@ -244,10 +274,22 @@ pub fn insert_history(
     method: Option<&str>,
     status: Option<&str>,
 ) -> rusqlite::Result<i64> {
+    insert_history_full(
+        conn,
+        user_id,
+        &NewHistory { input, title, proved, method, status, goal: None, solution: None },
+    )
+}
+
+pub fn insert_history_full(conn: &Connection, user_id: i64, h: &NewHistory) -> rusqlite::Result<i64> {
     conn.execute(
-        "INSERT INTO history (user_id, input, title, proved, method, status, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![user_id, input, title, proved as i64, method, status, now()],
+        "DELETE FROM history WHERE user_id = ?1 AND input = ?2 AND title IS ?3 AND method IS ?4 AND status IS ?5",
+        params![user_id, h.input, h.title, h.method, h.status],
+    )?;
+    conn.execute(
+        "INSERT INTO history (user_id, input, title, proved, method, status, goal, solution, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![user_id, h.input, h.title, h.proved as i64, h.method, h.status, h.goal, h.solution, now()],
     )?;
     let id = conn.last_insert_rowid();
     // Bound per-user growth: drop the oldest rows past the cap.
@@ -269,7 +311,8 @@ pub fn list_history(
     before: Option<i64>,
 ) -> rusqlite::Result<Vec<HistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, input, title, proved, method, created_at, status \
+        "SELECT id, user_id, input, title, proved, method, created_at, status, goal, \
+         solution IS NOT NULL, CASE WHEN json_valid(solution) THEN json_extract(solution, '$.view.note.key') END \
          FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
     )?;
     let rows = stmt.query_map(params![user_id, before.unwrap_or(i64::MAX), limit], |r| {
@@ -282,9 +325,34 @@ pub fn list_history(
             method: r.get(5)?,
             created_at: r.get(6)?,
             status: r.get(7)?,
+            goal: r.get(8)?,
+            has_solution: r.get::<_, i64>(9)? != 0,
+            note: r.get::<_, Option<String>>(10).ok().flatten(),
         })
     })?;
     rows.collect()
+}
+
+/// The stored solution JSON of one of the user's own rows: `None` if no such
+/// row, `Some(None)` if the row predates stored solutions.
+/// Swap the stored result of one of `user_id`'s entries for `h` (same input
+/// only), keeping its id and position. False when no such row matches.
+pub fn replace_history(conn: &Connection, user_id: i64, id: i64, h: &NewHistory) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "UPDATE history SET title = ?1, proved = ?2, method = ?3, status = ?4, goal = ?5, solution = ?6 \
+         WHERE id = ?7 AND user_id = ?8 AND input = ?9",
+        params![h.title, h.proved as i64, h.method, h.status, h.goal, h.solution, id, user_id, h.input],
+    )?;
+    Ok(n > 0)
+}
+
+pub fn history_solution(conn: &Connection, user_id: i64, id: i64) -> rusqlite::Result<Option<Option<String>>> {
+    conn.query_row(
+        "SELECT solution FROM history WHERE id = ?1 AND user_id = ?2",
+        params![id, user_id],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .optional()
 }
 
 /// Delete one of the user's own history entries. Returns whether a row was
@@ -315,6 +383,27 @@ mod tests {
         assert_eq!(u.id, id);
         assert_eq!(u.password_hash, "hash1");
         assert!(find_user_by_name(&conn, "bob").unwrap().is_none());
+    }
+
+    #[test]
+    fn history_rows_carry_the_note_key() {
+        let conn = mem();
+        let uid = create_user(&conn, "tl", "h").unwrap();
+        let sol = r#"{"view":{"note":{"key":"time_limit","secs":60}}}"#;
+        let h = |s: Option<&'static str>| NewHistory {
+            input: "x",
+            title: None,
+            proved: false,
+            method: Some("aux-search"),
+            status: Some("not-proved"),
+            goal: None,
+            solution: s,
+        };
+        insert_history_full(&conn, uid, &h(Some(sol))).unwrap();
+        insert_history_full(&conn, uid, &NewHistory { input: "y", ..h(Some("not json")) }).unwrap();
+        let rows = list_history(&conn, uid, 10, None).unwrap();
+        assert_eq!(rows[1].note.as_deref(), Some("time_limit"));
+        assert_eq!(rows[0].note, None);
     }
 
     #[test]
@@ -385,6 +474,23 @@ mod tests {
         assert!(hist[1].proved);
         assert_eq!(hist[1].status.as_deref(), Some("proved"));
         assert_eq!(list_history(&conn, b, 1000, None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn resolving_the_same_problem_replaces_its_entry() {
+        let conn = mem();
+        let a = create_user(&conn, "alice", "h").unwrap();
+        let b = create_user(&conn, "bob", "h").unwrap();
+        insert_history(&conn, a, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(&conn, a, "p2", None, true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(&conn, b, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(&conn, a, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
+        let hist = list_history(&conn, a, 1000, None).unwrap();
+        assert_eq!(hist.iter().map(|h| h.input.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+        assert_eq!(list_history(&conn, b, 1000, None).unwrap().len(), 1);
+        insert_history(&conn, a, "p1", None, true, Some("ddar+aux"), Some("proved")).unwrap();
+        insert_history(&conn, a, "p1", None, false, Some("ddar"), Some("not-proved")).unwrap();
+        assert_eq!(list_history(&conn, a, 1000, None).unwrap().len(), 4);
     }
 
     #[test]

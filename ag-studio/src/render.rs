@@ -8,7 +8,11 @@ use anyhow::{anyhow, Result};
 use resvg::tiny_skia;
 use resvg::usvg;
 
+use serde_json::Value;
+
 use crate::engine::Solution;
+use crate::i18n::{self, Lang};
+use crate::present;
 
 /// A font database built once (system fonts), reused for every render. usvg
 /// does per-glyph fallback, so the proof's math symbols (△ ∼ ∎ ⟂ ∥ √ …) are
@@ -21,6 +25,15 @@ fn shared_fontdb() -> Arc<usvg::fontdb::Database> {
         // Bundled fonts guarantee complete, consistent glyph coverage (math
         // symbols △ ∼ ∎ ⟂ ∥ ∠ √ …) regardless of what the host has installed,
         // so figures and proofs render identically everywhere.
+        for font in [
+            &include_bytes!("../assets/fonts/inter-regular.ttf")[..],
+            &include_bytes!("../assets/fonts/inter-semibold.ttf")[..],
+            &include_bytes!("../assets/fonts/stix-two-text-regular.ttf")[..],
+            &include_bytes!("../assets/fonts/stix-two-text-semibold.ttf")[..],
+            &include_bytes!("../assets/fonts/stix-two-text-italic.ttf")[..],
+        ] {
+            db.load_font_data(font.to_vec());
+        }
         db.load_font_data(include_bytes!("../assets/fonts/DejaVuSans.ttf").to_vec());
         db.load_font_data(include_bytes!("../assets/fonts/DejaVuSansMono.ttf").to_vec());
         // Point the generic families at the bundled fonts, so figures and proofs
@@ -50,8 +63,6 @@ pub fn parse_svg(svg: &str) -> Result<usvg::Tree> {
 const MAX_PIXELS: u64 = 40_000_000;
 /// Below this the text of a long proof is no longer legible; refuse instead.
 const MIN_SCALE: f32 = 0.1;
-/// Largest page edge, in points, that common PDF viewers accept (200 in).
-const MAX_PDF_PAGE_PT: f32 = 14_400.0;
 /// Refuse SVGs taller/wider than this (CSS px) outright.
 const MAX_SVG_EDGE: f32 = 4_000_000.0;
 
@@ -94,93 +105,61 @@ pub fn png_bytes(tree: &usvg::Tree, scale: f32) -> Result<Vec<u8>> {
     pixmap.encode_png().map_err(|e| anyhow!("PNG encode error: {e}"))
 }
 
-/// Export a parsed tree to a single-page PDF. A very tall page (a long proof)
-/// is scaled down, via the DPI, so neither edge exceeds what viewers accept.
-pub fn pdf_bytes(tree: &usvg::Tree) -> Result<Vec<u8>> {
-    check_svg_size(tree)?;
-    let size = tree.size();
-    let longest = size.width().max(size.height());
-    let mut page = svg2pdf::PageOptions::default();
-    if longest > MAX_PDF_PAGE_PT {
-        page.dpi = 72.0 * longest / MAX_PDF_PAGE_PT * 1.001;
-    }
-    svg2pdf::to_pdf(tree, svg2pdf::ConversionOptions::default(), page)
-    .map_err(|e| anyhow!("PDF conversion error: {e}"))
-}
-
 /// Convenience: SVG string → PNG bytes.
 pub fn svg_to_png(svg: &str, scale: f32) -> Result<Vec<u8>> {
     png_bytes(&parse_svg(svg)?, scale)
 }
 
-/// Convenience: SVG string → PDF bytes.
-pub fn svg_to_pdf(svg: &str) -> Result<Vec<u8>> {
-    pdf_bytes(&parse_svg(svg)?)
-}
 
 // ---------------------------------------------------------------------------
-// Combined "report" page: figure + numbered proof, laid out as one SVG that can
-// be exported to PDF or PNG — the deliverable a human keeps.
+// Report page: verdict, figure, given/prove, and the machine-checked steps.
 // ---------------------------------------------------------------------------
 
-const PAGE_W: f32 = 820.0;
-const MARGIN: f32 = 40.0;
-// Fallback figure dimensions when the embedded SVG's own aren't parseable.
-const FIG_NATIVE_W: f32 = 1020.0;
-const FIG_NATIVE_H: f32 = 640.0;
-const PROOF_FONT: f32 = 14.0;
-const PROOF_LEADING: f32 = 20.0;
-const WRAP_COLS: usize = 92;
 
-struct Palette {
-    page_bg: &'static str,
+struct Tone {
     ink: &'static str,
-    subtle: &'static str,
-    accent: &'static str,
-    warn: &'static str,
-    bad: &'static str,
-    rule: &'static str,
+    bg: &'static str,
 }
 
-fn palette(light: bool) -> Palette {
-    if light {
-        Palette {
-            page_bg: "#ffffff",
-            ink: "#12161c",
-            subtle: "#5c6b7a",
-            accent: "#1a7f37",
-            warn: "#9a6700",
-            bad: "#b3261e",
-            rule: "#d7dee6",
-        }
-    } else {
-        Palette {
-            page_bg: "#0b0e13",
-            ink: "#e6edf3",
-            subtle: "#8b98a5",
-            accent: "#3fb950",
-            warn: "#d29922",
-            bad: "#e0796f",
-            rule: "#222a35",
-        }
+fn tone(status: &str, time_limited: bool) -> Tone {
+    match status {
+        "proved" => Tone { ink: "#17703a", bg: "#e8f4ec" },
+        "refuted" => Tone { ink: "#b42318", bg: "#fdecea" },
+        "holds-numerically" => Tone { ink: "#8a5a00", bg: "#fff4db" },
+        _ if time_limited => Tone { ink: "#4b525a", bg: "#eef0f2" },
+        _ => Tone { ink: "#4b525a", bg: "#eef0f2" },
     }
 }
 
-/// Map the few math glyphs the bundled monospace font lacks (`⟂`, `∥`) to
-/// equivalents it carries (`⊥`, `‖`), so the whole proof renders in one font
-/// instead of falling back to a proportional face mid-line.
-fn normalize_glyphs(s: &str) -> String {
-    s.replace('⟂', "⊥").replace('∥', "‖")
-}
-
-/// `s` cut to at most `max` characters, with an ellipsis when cut.
-fn clip(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
-    out
+/// A verdict glyph drawn as paths (no font dependency), 20×20 at (x, y).
+fn verdict_icon(status: &str, time_limited: bool, x: f32, y: f32, color: &str) -> String {
+    let c = format!(
+        "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"9\" fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\"/>",
+        x + 10.0,
+        y + 10.0
+    );
+    let path = match (status, time_limited) {
+        ("proved", _) => format!("M{:.1},{:.1} l3.2,3.4 l6,-7", x + 5.6, y + 10.4),
+        ("refuted", _) => format!(
+            "M{:.1},{:.1} l7,7 M{:.1},{:.1} l-7,7",
+            x + 6.5,
+            y + 6.5,
+            x + 13.5,
+            y + 6.5
+        ),
+        ("holds-numerically", _) => format!(
+            "M{:.1},{:.1} q2.5,-2.5 5,0 t5,0 M{:.1},{:.1} q2.5,-2.5 5,0 t5,0",
+            x + 5.0,
+            y + 8.5,
+            x + 5.0,
+            y + 13.0
+        ),
+        (_, true) => format!("M{:.1},{:.1} v5 l3.5,2.5", x + 10.0, y + 5.0),
+        _ => format!("M{:.1},{:.1} h9", x + 5.5, y + 10.0),
+    };
+    format!(
+        "{c}<path d=\"{path}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+    )
 }
 
 fn escape_xml(s: &str) -> String {
@@ -190,204 +169,702 @@ fn escape_xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Word-wrap a proof line to `WRAP_COLS` characters, indenting continuation
-/// lines so they sit under the step text.
-fn wrap_line(line: &str, cols: usize) -> Vec<String> {
-    if line.chars().count() <= cols {
-        return vec![line.to_string()];
-    }
-    let lead = &line[..line.len() - line.trim_start_matches(' ').len()];
-    let indent = format!("{lead}     "); // aligns under "001. "
-    let indent = indent.as_str();
-    let mut out: Vec<String> = Vec::new();
-    let mut cur = lead.to_string();
-    for word in line.trim_start_matches(' ').split(' ') {
-        let prospective = if cur.is_empty() {
-            word.chars().count()
+/// Map the few math glyphs the bundled font lacks to equivalents it carries.
+fn normalize_glyphs(s: &str) -> String {
+    s.replace('\u{27c2}', "\u{22a5}").replace('\u{2225}', "\u{2016}")
+}
+
+/// Greedy word wrap to at most `cols` characters per line; a word longer
+/// than a line is broken at the line length.
+fn wrap(text: &str, cols: usize) -> Vec<String> {
+    let cols = cols.max(4);
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut words: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        let chars: Vec<char> = word.chars().collect();
+        if chars.len() <= cols {
+            words.push(word.to_string());
         } else {
-            cur.chars().count() + 1 + word.chars().count()
-        };
-        if !cur.trim().is_empty() && prospective > cols {
-            out.push(std::mem::take(&mut cur));
-            cur.push_str(indent);
+            words.extend(chars.chunks(cols).map(|c| c.iter().collect::<String>()));
         }
-        if !cur.is_empty() && !cur.ends_with(' ') {
+    }
+    for word in words.iter().map(String::as_str) {
+        let need = cur.chars().count() + usize::from(!cur.is_empty()) + word.chars().count();
+        if !cur.is_empty() && need > cols {
+            out.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
             cur.push(' ');
         }
         cur.push_str(word);
     }
-    if !cur.is_empty() {
+    if !cur.is_empty() || out.is_empty() {
         out.push(cur);
     }
     out
 }
 
-/// Build a standalone report page (figure + proof) as an SVG document.
-///
-/// `light` controls the *page* colours; the embedded figure keeps whatever
-/// theme it was rendered with (pass a light figure for a print-friendly PDF).
-pub fn report_svg(sol: &Solution, title: Option<&str>, light: bool) -> String {
-    let pal = palette(light);
+fn args_of(f: &Value) -> Vec<String> {
+    f["args"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
 
-    // Layout geometry. The figure canvas varies (its legend panel grows with
-    // the hypothesis count), so read its real dimensions — a fixed viewBox
-    // would crop tall figures.
-    let (fig_native_w, fig_native_h) =
-        svg_dimensions(&sol.svg).unwrap_or((FIG_NATIVE_W, FIG_NATIVE_H));
-    let fig_w = PAGE_W - 2.0 * MARGIN;
-    let fig_h = fig_w * (fig_native_h / fig_native_w);
-    let header_h = 84.0;
-    let fig_y = header_h;
-
-    // Assemble the proof body lines (status note, aux points, then the proof).
-    let mut body: Vec<String> = Vec::new();
-    if !sol.aux_constructions.is_empty() {
-        body.push("Auxiliary constructions:".to_string());
-        for c in &sol.aux_constructions {
-            body.push(format!("  + {c}"));
-        }
-        body.push(String::new());
-    }
-    match &sol.proof {
-        Some(p) => {
-            for raw in p.lines() {
-                let raw = normalize_glyphs(raw);
-                for w in wrap_line(&raw, WRAP_COLS) {
-                    body.push(w);
-                }
+/// A typed fact (see `present::Fact`) as a sentence in `lang`.
+pub fn fact_text(f: &Value, lang: Lang) -> String {
+    let a = args_of(f);
+    let g = |i: usize| a.get(i).cloned().unwrap_or_default();
+    match f["kind"].as_str().unwrap_or("") {
+        "coll" => i18n::tf(lang, "fact.coll", &[("pts", a.join(", "))]),
+        "cyclic" => i18n::tf(lang, "fact.cyclic", &[("pts", a.join(", "))]),
+        "midp" => i18n::tf(lang, "fact.midp", &[("m", g(0)), ("seg", g(1))]),
+        "circle" => i18n::tf(lang, "fact.circle", &[("o", g(0)), ("tri", g(1))]),
+        "oncircle" => i18n::tf(lang, "fact.oncircle", &[("o", g(0)), ("pts", a[1..].join(", "))]),
+        "prose" => {
+            let ro = f["ro"].as_array().and_then(|r| r.first()).and_then(Value::as_str);
+            match (lang, ro) {
+                (Lang::Ro, Some(r)) => r.to_string(),
+                _ => g(0),
             }
         }
-        None => {
-            if !sol.proved {
-                let verdict = format!(
-                    "{}: {}.",
-                    sol.status.label(),
-                    sol.status.explain(sol.numeric_samples)
-                );
-                body.extend(wrap_line(&verdict, WRAP_COLS));
-                if let Some(evidence) = &sol.numeric_evidence {
-                    body.push(String::new());
-                    for raw in evidence.lines() {
-                        let raw = normalize_glyphs(raw);
-                        for w in wrap_line(&raw, WRAP_COLS) {
-                            body.push(w);
-                        }
-                    }
-                }
-            }
+        "cong" | "length" | "eqangle" | "coincide" => format!("{} = {}", g(0), g(1)),
+        "perp" => format!("{} \u{27c2} {}", g(0), g(1)),
+        "para" => format!("{} \u{2225} {}", g(0), g(1)),
+        "eqratio" => a.chunks(2).map(|c| c.join(" : ")).collect::<Vec<_>>().join(" = "),
+        "para_ratio" => i18n::tf(
+            lang,
+            "fact.para_ratio",
+            &[("par", format!("{} \u{2225} {}", g(0), g(1))), ("ratio", format!("{} : {} = {} : {}", g(2), g(3), g(4), g(5)))],
+        ),
+        "aconst" => format!("{} = {}\u{b0}", g(0), g(1)),
+        "rconst" => format!("{} : {} = {}", g(0), g(1), g(2)),
+        "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", g(0), g(1)),
+        "contri" => format!("\u{25b3}{} \u{2245} \u{25b3}{}", g(0), g(1)),
+        "eqdist" => a.join(" = "),
+        "points" => a.join(", "),
+        _ => a.join(" "),
+    }
+}
+
+/// An auxiliary construction in words (`midpoint of BC`), falling back to the
+/// engine's own notation for kinds without a template.
+pub fn aux_text(a: &Value, lang: Lang) -> String {
+    let raw = a["text"].as_str().unwrap_or("").to_string();
+    let kind = a["kind"].as_str().unwrap_or("");
+    let mut key = format!("aux.{kind}");
+    let raw_args: Vec<&str> = a["args"].as_array().map(|v| v.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    if kind == "intersect" && raw_args.len() == 2 && raw_args[1].starts_with("circ") {
+        let on: Vec<&str> = raw_args[1]
+            .trim_end_matches(')')
+            .split_once('(')
+            .map(|(_, inner)| inner.split(',').map(str::trim).collect())
+            .unwrap_or_default();
+        if on.iter().any(|p| !p.is_empty() && raw_args[0].contains(p)) {
+            key = "aux.intersect2".to_string();
         }
     }
-
-    let proof_top = fig_y + fig_h + 34.0;
-    let proof_h = body.len() as f32 * PROOF_LEADING;
-    let page_h = proof_top + proof_h + MARGIN + 22.0;
-
-    // Embed the figure SVG as a nested, scaled <svg> (strip its own root tag so
-    // the inner geometry inherits our coordinate box via viewBox).
-    let inner_fig = strip_svg_root(&sol.svg);
-
-    let status = sol.status.label();
-    let status_color = match sol.status {
-        crate::engine::Status::Proved => pal.accent,
-        crate::engine::Status::HoldsNumerically => pal.warn,
-        crate::engine::Status::Refuted | crate::engine::Status::NotProved => pal.bad,
+    let template = i18n::t(lang, &key);
+    if template == i18n::t(lang, "aux.__none__") {
+        return raw;
+    }
+    let circle_words = |x: &str| -> String {
+        for (f, k) in [("circumcircle(", "aux.circumcircle"), ("circle(", "aux.circle")] {
+            if let Some(inner) = x.strip_prefix(f).and_then(|r| r.strip_suffix(')')) {
+                let mut s = i18n::t(lang, k).to_string();
+                for (i, p) in inner.split(',').map(str::trim).enumerate() {
+                    s = s.replace(&format!("{{{i}}}"), p);
+                }
+                return s;
+            }
+        }
+        x.to_string()
     };
-    let default_title = if sol.proved { "GeoSolver proof" } else { "GeoSolver report" };
-    let title_text = escape_xml(title.unwrap_or(default_title));
-    let note = clip(&sol.note, 72usize.saturating_sub(status.chars().count()));
+    let mut args: Vec<String> = a["args"]
+        .as_array()
+        .map(|v| v.iter().filter_map(|x| x.as_str()).map(circle_words).collect())
+        .unwrap_or_default();
+    if matches!(kind, "midpoint" | "circumcenter" | "orthocenter" | "parallelogram") {
+        args = args.iter().flat_map(|x| x.split(',').map(|s| s.trim().to_string()).collect::<Vec<_>>()).collect();
+    }
+    let mut s = template.to_string();
+    for (i, p) in args.iter().enumerate() {
+        s = s.replace(&format!("{{{i}}}"), p);
+    }
+    if s.contains('{') { raw } else { s }
+}
 
-    let mut s = String::new();
-    s.push_str(&format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" \
-         viewBox=\"0 0 {PAGE_W:.0} {page_h:.0}\" font-family=\"Helvetica, Arial, sans-serif\">\n"
-    ));
-    s.push_str(&format!(
-        "<rect width=\"{PAGE_W:.0}\" height=\"{page_h:.0}\" fill=\"{}\"/>\n",
-        pal.page_bg
-    ));
+fn rule_text(step: &Value, lang: Lang) -> String {
+    match (step["rule"].as_str().unwrap_or("other"), step["rule_name"].as_str()) {
+        ("theorem", Some(name)) => match (lang, step["rule_name_ro"].as_str()) {
+            (Lang::Ro, Some(ro)) => ro.to_string(),
+            _ => name.to_string(),
+        },
+        (key, _) => i18n::t(lang, &format!("rule.{key}")).to_string(),
+    }
+}
 
-    // Header.
-    s.push_str(&format!(
-        "<text x=\"{MARGIN:.0}\" y=\"46\" font-size=\"26\" font-weight=\"700\" fill=\"{}\">{}</text>\n",
-        pal.ink, title_text
-    ));
-    s.push_str(&format!(
-        "<text x=\"{MARGIN:.0}\" y=\"70\" font-size=\"14\" fill=\"{}\">\
-         <tspan fill=\"{}\" font-weight=\"700\">{}</tspan> · {} · {:.3}s</text>\n",
-        pal.subtle,
-        status_color,
-        status,
-        escape_xml(&note),
-        sol.elapsed_secs
-    ));
+fn fmt_num(x: f64, lang: Lang, digits: usize) -> String {
+    let s = format!("{x:.digits$}");
+    if lang == Lang::Ro {
+        s.replace('.', ",")
+    } else {
+        s
+    }
+}
 
-    // Figure (nested, scaled to the content box; bordered card).
-    s.push_str(&format!(
-        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"none\" stroke=\"{}\" stroke-width=\"1\" rx=\"8\"/>\n",
-        MARGIN, fig_y, fig_w, fig_h, pal.rule
-    ));
-    s.push_str(&format!(
-        "<svg x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" viewBox=\"0 0 {:.0} {:.0}\" preserveAspectRatio=\"xMidYMid meet\">\n{}\n</svg>\n",
-        MARGIN, fig_y, fig_w, fig_h, fig_native_w, fig_native_h, inner_fig
-    ));
+fn fmt_secs(x: f64, lang: Lang) -> String {
+    if x < 0.001 {
+        "< 1 ms".to_string()
+    } else if x < 1.0 {
+        format!("{} ms", (x * 1000.0).round())
+    } else {
+        format!("{} s", fmt_num(x, lang, if x < 10.0 { 1 } else { 0 }))
+    }
+}
 
-    // Divider above the proof.
-    s.push_str(&format!(
-        "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" stroke-width=\"1\"/>\n",
-        MARGIN,
-        proof_top - 18.0,
-        PAGE_W - MARGIN,
-        proof_top - 18.0,
-        pal.rule
-    ));
+fn counter_text(c: &Value, lang: Lang) -> Option<String> {
+    let kind = c["kind"].as_str()?;
+    let labels: Vec<String> = c["labels"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let l = |i: usize| labels.get(i).cloned().unwrap_or_default();
+    let (lhs, rhs) = (c["lhs"].as_f64()?, c["rhs"].as_f64()?);
+    let digits = if kind == "values" || kind == "length" { 4 } else { 1 };
+    Some(i18n::tf(
+        lang,
+        &format!("counter.{kind}"),
+        &[
+            ("a", l(0)),
+            ("b", l(1)),
+            ("lhs", fmt_num(lhs, lang, digits)),
+            ("rhs", fmt_num(rhs, lang, digits)),
+        ],
+    ))
+}
 
-    // Proof body (monospace for aligned numbering; usvg falls back per glyph).
-    let mut y = proof_top;
-    for line in &body {
-        if !line.is_empty() {
-            s.push_str(&format!(
-                "<text x=\"{MARGIN:.0}\" y=\"{y:.1}\" font-size=\"{PROOF_FONT}\" \
-                 font-family=\"'DejaVu Sans Mono', Consolas, monospace\" fill=\"{}\" xml:space=\"preserve\">{}</text>\n",
-                pal.ink,
-                escape_xml(line)
+/// The export report for a solution as the web app returns it (engine fields
+/// plus `view` and `title`), as one tall page (the PNG report).
+pub fn report_from_json(v: &Value, lang: Lang) -> String {
+    report_pages(v, lang, false).into_iter().next().unwrap_or_default()
+}
+
+/// The report as A4 pages: the figure on page 1, breaks only between blocks
+/// (never inside a step), a running header and page numbers.
+pub fn report_pdf_from_json(v: &Value, lang: Lang) -> Result<Vec<u8>> {
+    pdf_from_pages(&report_pages(v, lang, true))
+}
+
+/// The PNG report: the tall single page at print resolution.
+pub fn report_png_from_json(v: &Value, lang: Lang) -> Result<Vec<u8>> {
+    svg_to_png(&report_from_json(v, lang), 2.75)
+}
+
+/// The report for a [`Solution`] (CLI and MCP exports), in English, as one
+/// tall page.
+pub fn report_svg(sol: &Solution, title: Option<&str>, _light: bool) -> String {
+    report_from_json(&present::solution_json(sol, title), Lang::En)
+}
+
+/// [`report_svg`] as paginated A4 PDF.
+pub fn report_pdf(sol: &Solution, title: Option<&str>) -> Result<Vec<u8>> {
+    report_pdf_from_json(&present::solution_json(sol, title), Lang::En)
+}
+
+/// Assemble one PDF from page SVGs (each converted with svg2pdf and placed as
+/// a full-page form XObject).
+pub fn pdf_from_pages(pages: &[String]) -> Result<Vec<u8>> {
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
+    let mut alloc = Ref::new(1);
+    let catalog = alloc.bump();
+    let tree_id = alloc.bump();
+    let mut pdf = Pdf::new();
+    let mut kids = Vec::new();
+    let mut chunks = Vec::new();
+    let mut page_objs = Vec::new();
+    for svg in pages {
+        let tree = parse_svg(svg)?;
+        check_svg_size(&tree)?;
+        let (w, h) = (tree.size().width(), tree.size().height());
+        let (chunk, root) = svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default())
+            .map_err(|e| anyhow!("PDF conversion error: {e}"))?;
+        let mut map = std::collections::HashMap::new();
+        let chunk = chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
+        let root = *map.get(&root).ok_or_else(|| anyhow!("PDF conversion lost the page"))?;
+        let (page_id, content_id) = (alloc.bump(), alloc.bump());
+        kids.push(page_id);
+        page_objs.push((page_id, content_id, root, w, h));
+        chunks.push(chunk);
+    }
+    pdf.catalog(catalog).pages(tree_id);
+    pdf.pages(tree_id).kids(kids.iter().copied()).count(kids.len() as i32);
+    for (page_id, content_id, root, w, h) in page_objs {
+        let name = Name(b"P0");
+        let mut page = pdf.page(page_id);
+        page.media_box(Rect::new(0.0, 0.0, w, h));
+        page.parent(tree_id);
+        page.contents(content_id);
+        page.resources().x_objects().pair(name, root);
+        page.finish();
+        let mut content = Content::new();
+        content.transform([w, 0.0, 0.0, h, 0.0, 0.0]).x_object(name);
+        pdf.stream(content_id, &content.finish());
+    }
+    for c in &chunks {
+        pdf.extend(c);
+    }
+    Ok(pdf.finish())
+}
+
+const PAGE_W: f32 = 595.0;
+const PAGE_H: f32 = 842.0;
+const MARGIN: f32 = 48.0;
+const BODY_FS: f32 = 11.0;
+const LEADING: f32 = 16.0;
+const FIG_MAX_H: f32 = 330.0;
+const UI: &str = "'GeoSolver Sans', 'DejaVu Sans', sans-serif";
+const MATH: &str = "'GeoSolver Math', 'DejaVu Serif', serif";
+const INK: &str = "#16191d";
+const MUTED: &str = "#4b525a";
+const RULE: &str = "#dadcd8";
+const ACCENT: &str = "#1f4fa0";
+const AUX_INK: &str = "#b45309";
+
+struct Block {
+    h: f32,
+    body: String,
+    keep_next: usize,
+}
+
+fn fmt_int(n: u64, lang: Lang) -> String {
+    let digits = n.to_string();
+    if digits.len() <= 3 {
+        return digits;
+    }
+    let sep = if lang == Lang::Ro { '.' } else { ',' };
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(sep);
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn tpn(lang: Lang, key: &str, n: u64) -> String {
+    i18n::tp(lang, key, n, &[]).replace(&n.to_string(), &fmt_int(n, lang))
+}
+
+fn method_text(v: &Value, lang: Lang) -> Option<String> {
+    let status = v["status"].as_str().unwrap_or("");
+    let method = v["method"].as_str().unwrap_or("");
+    match status {
+        "holds-numerically" => return Some(i18n::t(lang, "report.method.numeric").to_string()),
+        "refuted" => return Some(i18n::t(lang, "report.method.counter").to_string()),
+        _ => {}
+    }
+    if method == "euclidean" {
+        return (status == "proved").then(|| i18n::t(lang, "report.method.euclid").to_string());
+    }
+    let aux = v["aux_constructions"].as_array().map_or(0, Vec::len) as u64;
+    Some(if aux > 0 {
+        tpn(lang, "report.method.aux", aux)
+    } else if method == "aux-search" {
+        i18n::t(lang, "report.method.aux_search").to_string()
+    } else {
+        i18n::t(lang, "report.method.ddar").to_string()
+    })
+}
+
+fn verdict_copy(v: &Value, lang: Lang) -> (String, String) {
+    let status = v["status"].as_str().unwrap_or("not-proved");
+    let view = &v["view"];
+    let note = view["note"]["key"].as_str().unwrap_or("");
+    let samples = v["numeric_samples"].as_u64().unwrap_or(0);
+    let secs = fmt_num(view["note"]["secs"].as_f64().unwrap_or(60.0), lang, 0);
+    let t = |k: &str| i18n::t(lang, k).to_string();
+    match status {
+        "proved" if view["as_drawn"].as_bool() == Some(true) => (t("report.verdict.as_drawn"), t("report.explain.as_drawn")),
+        "proved" => (t("report.verdict.proved"), t("report.explain.proved")),
+        "refuted" => (t("report.verdict.refuted"), t("report.explain.refuted")),
+        "holds-numerically" => (t("report.verdict.holds-numerically"), tpn(lang, "report.explain.holds-numerically", samples)),
+        _ if note == "time_limit" => (t("report.verdict.time_limit"), i18n::tf(lang, "report.explain.time_limit", &[("secs", secs)])),
+        _ => {
+            let explain = match (note, view["note"]["runs"].as_u64()) {
+                ("budget", Some(runs)) => i18n::tf(lang, "report.explain.budget", &[("runs", tpn(lang, "report.runs", runs))]),
+                ("metric_error" | "unsound" | "replay", _) => t(&format!("report.explain.{note}")),
+                _ => t("report.explain.not-proved"),
+            };
+            (t("report.verdict.not-proved"), explain)
+        }
+    }
+}
+
+struct Typeset<'a> {
+    names: Vec<&'a str>,
+}
+
+impl Typeset<'_> {
+    fn is_name_run(&self, tok: &str) -> bool {
+        let mut rest = tok.trim_end_matches(['²', '³']);
+        if rest.is_empty() || !rest.starts_with(|c: char| c.is_uppercase()) {
+            return false;
+        }
+        while !rest.is_empty() {
+            let Some(n) = self.names.iter().filter(|n| rest.starts_with(**n)).max_by_key(|n| n.len()) else {
+                return false;
+            };
+            rest = &rest[n.len()..];
+        }
+        true
+    }
+
+    fn spans(&self, text: &str) -> String {
+        let text = normalize_glyphs(text);
+        let mut out = String::new();
+        let mut tok = String::new();
+        let flush = |tok: &mut String, out: &mut String| {
+            if tok.is_empty() {
+                return;
+            }
+            let lead: String = tok.chars().take_while(|c| matches!(c, '△' | '∠' | '|' | '(' | '[')).collect();
+            let core = &tok[lead.len()..];
+            let trail_len = core.chars().rev().take_while(|c| matches!(c, '|' | ')' | ']' | '²' | '³')).map(char::len_utf8).sum::<usize>();
+            let (name, trail) = core.split_at(core.len() - trail_len);
+            if self.is_name_run(name) {
+                out.push_str(&escape_xml(&lead));
+                out.push_str(&format!("<tspan font-style=\"italic\">{}</tspan>", escape_xml(name)));
+                out.push_str(&escape_xml(trail));
+            } else {
+                out.push_str(&escape_xml(tok));
+            }
+            tok.clear();
+        };
+        for c in text.chars() {
+            if c.is_whitespace() || matches!(c, ',' | '.' | ';' | ':' | '=' | '+' | '−' | '·' | '∼' | '≅' | '⊥' | '‖' | '∥' | '⟂' | '/') {
+                flush(&mut tok, &mut out);
+                out.push_str(&escape_xml(&c.to_string()));
+            } else {
+                tok.push(c);
+            }
+        }
+        flush(&mut tok, &mut out);
+        out
+    }
+}
+
+fn txt(x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, inner: &str) -> String {
+    format!(
+        "<text x=\"{x:.1}\" y=\"{y:.1}\" font-size=\"{size}\" font-weight=\"{weight}\" fill=\"{fill}\" font-family=\"{family}\" xml:space=\"preserve\">{inner}</text>\n"
+    )
+}
+
+fn plain(x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, s: &str) -> String {
+    txt(x, y, size, weight, fill, family, &escape_xml(&normalize_glyphs(s)))
+}
+
+fn wordmark(x: f32, y: f32) -> String {
+    format!(
+        "<g transform=\"translate({x:.1},{:.1}) scale(0.75)\" fill=\"none\" stroke=\"{ACCENT}\" stroke-width=\"2\" stroke-linejoin=\"round\"><circle cx=\"16\" cy=\"16\" r=\"13\"/><path d=\"M16 4.6 26.2 22H5.8Z\"/></g>\n{}",
+        y - 18.0,
+        plain(x + 31.0, y, 16.0, 600, INK, MATH, "GeoSolver")
+    )
+}
+
+fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
+    report_pages_fit(v, lang, paginate, FIG_MAX_H)
+}
+
+fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Vec<String> {
+    let status = v["status"].as_str().unwrap_or("not-proved");
+    let view = &v["view"];
+    let time_limited = view["note"]["key"].as_str() == Some("time_limit");
+    let t = tone(status, time_limited);
+    let (headline, explain) = verdict_copy(v, lang);
+    let samples = v["numeric_samples"].as_u64().unwrap_or(0);
+    let title = v["title"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| i18n::t(lang, "report.default_title").to_string());
+    let point_names: Vec<String> = view["points"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|p| p["name"].as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let ts = Typeset { names: point_names.iter().map(String::as_str).collect() };
+    let content_w = PAGE_W - 2.0 * MARGIN;
+    let cols = (content_w / (BODY_FS * 0.5)) as usize;
+    let mut blocks: Vec<Block> = Vec::new();
+
+    let mut head = wordmark(MARGIN, 18.0);
+    let mut y = 52.0;
+    for line in wrap(&title, 44) {
+        head.push_str(&plain(MARGIN, y, 19.0, 600, INK, UI, &line));
+        y += 25.0;
+    }
+    y += 2.0;
+    let explain_lines = wrap(&explain, ((content_w - 56.0) / (10.0 * 0.5)) as usize);
+    let card_h = 40.0 + explain_lines.len() as f32 * 15.0;
+    head.push_str(&format!(
+        "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{card_h:.1}\" rx=\"8\" fill=\"{}\" stroke=\"{}\" stroke-opacity=\"0.35\"/>\n<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"3.5\" height=\"{card_h:.1}\" fill=\"{}\"/>\n",
+        t.bg, t.ink, t.ink
+    ));
+    head.push_str(&verdict_icon(status, time_limited, MARGIN + 14.0, y + 10.0, t.ink));
+    head.push_str(&plain(MARGIN + 42.0, y + 24.0, 14.0, 600, t.ink, UI, &headline));
+    for (i, l) in explain_lines.iter().enumerate() {
+        head.push_str(&plain(MARGIN + 42.0, y + 41.0 + i as f32 * 15.0, 10.0, 400, INK, UI, l));
+    }
+    y += card_h + 18.0;
+    let mut meta: Vec<String> = method_text(v, lang).into_iter().collect();
+    meta.push(fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang));
+    let shown_steps = view["proof"]["steps"].as_array().map_or(0, |a| a.iter().filter(|s| s["kind"] != "given").count());
+    if status == "proved" && shown_steps > 0 {
+        meta.push(tpn(lang, "report.steps", shown_steps as u64));
+    }
+    if status == "holds-numerically" && samples > 0 {
+        meta.push(tpn(lang, "report.samples", samples));
+    }
+    if status == "proved" && view["as_drawn"].as_bool() == Some(true) {
+        meta.push(i18n::t(lang, "report.as_drawn").to_string());
+    }
+    head.push_str(&plain(MARGIN, y, 9.5, 400, MUTED, UI, &meta.join("  \u{b7}  ")));
+    y += 12.0;
+    let svg = v["svg"].as_str().unwrap_or("");
+    let mut fig_h = 0.0;
+    if let Some((fw, fh)) = svg_dimensions(svg).or_else(|| viewbox_size(svg)) {
+        let inner_w = content_w - 24.0;
+        let scale = (inner_w / fw).min(fig_max_h / fh);
+        let (w, h) = (fw * scale, fh * scale);
+        let x = MARGIN + (content_w - w) / 2.0;
+        let vb = viewbox_attr(svg).unwrap_or_else(|| format!("0 0 {fw} {fh}"));
+        head.push_str(&format!(
+            "<rect x=\"{MARGIN}\" y=\"{y:.1}\" width=\"{content_w}\" height=\"{:.1}\" rx=\"8\" fill=\"#ffffff\" stroke=\"{RULE}\"/>\n<svg x=\"{x:.1}\" y=\"{:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"xMidYMid meet\" font-family=\"{MATH}\">\n{}\n</svg>\n",
+            h + 24.0,
+            y + 12.0,
+            strip_svg_root(svg)
+        ));
+        y += h + 24.0 + 10.0;
+        fig_h = h;
+    }
+    blocks.push(Block { h: y, body: head, keep_next: 0 });
+
+    let section = |blocks: &mut Vec<Block>, label: &str, items: usize| {
+        let mut b = plain(MARGIN, 22.0, 9.0, 600, MUTED, UI, &label.to_uppercase());
+        b.push_str(&format!(
+            "<line x1=\"{MARGIN}\" y1=\"28\" x2=\"{:.1}\" y2=\"28\" stroke=\"{RULE}\"/>\n",
+            PAGE_W - MARGIN
+        ));
+        let keep = if items <= 3 { items } else { 2 };
+        blocks.push(Block { h: 44.0, body: b, keep_next: keep });
+    };
+    let lines_block = |blocks: &mut Vec<Block>, lines: &[String], fill: &str, weight: u32, bullet: bool, ts: &Typeset, keep_next: usize| {
+        let mut b = String::new();
+        for (i, l) in lines.iter().enumerate() {
+            let lead = if bullet && i == 0 { "\u{2022}  " } else if bullet { "   " } else { "" };
+            b.push_str(&txt(MARGIN, 12.0 + i as f32 * LEADING, BODY_FS, weight, fill, MATH, &format!("{}{}", escape_xml(lead), ts.spans(l))));
+        }
+        blocks.push(Block { h: lines.len() as f32 * LEADING + 2.0, body: b, keep_next });
+    };
+    let penultimate = |i: usize, n: usize| usize::from(n >= 2 && i + 2 == n);
+
+    let given: Vec<String> = view["given"]
+        .as_array()
+        .map(|a| a.iter().map(|f| fact_text(f, lang)).collect())
+        .unwrap_or_default();
+    if !given.is_empty() {
+        section(&mut blocks, i18n::t(lang, "report.given"), given.len());
+        for (i, g) in given.iter().enumerate() {
+            lines_block(&mut blocks, &wrap(g, cols - 4), INK, 400, true, &ts, penultimate(i, given.len()));
+        }
+    }
+    if !view["goal"].is_null() {
+        section(&mut blocks, i18n::t(lang, "report.prove"), 1);
+        lines_block(&mut blocks, &wrap(&fact_text(&view["goal"], lang), cols), INK, 600, false, &ts, 0);
+    }
+    if let Some(c) = view.get("counterexample").filter(|c| !c.is_null()).and_then(|c| counter_text(c, lang)) {
+        section(&mut blocks, i18n::t(lang, "report.counter"), 1);
+        lines_block(&mut blocks, &wrap(&c, cols), t.ink, 400, false, &ts, 0);
+    }
+    if let Some(aux) = view["aux"].as_array().filter(|a| !a.is_empty()) {
+        section(&mut blocks, i18n::t(lang, "report.aux"), aux.len());
+        for (i, a) in aux.iter().enumerate() {
+            let name = a["name"].as_str().unwrap_or("");
+            let lines = wrap(&format!("{name}: {}", aux_text(a, lang)), cols);
+            let mut b = String::new();
+            for (k, l) in lines.iter().enumerate() {
+                let inner = match l.strip_prefix(&format!("{name}:")).filter(|_| k == 0) {
+                    Some(rest) => format!("<tspan fill=\"{AUX_INK}\" font-weight=\"600\">{}</tspan>:{}", ts.spans(name), ts.spans(rest)),
+                    None => ts.spans(l),
+                };
+                b.push_str(&txt(MARGIN, 12.0 + k as f32 * LEADING, BODY_FS, 400, INK, MATH, &inner));
+            }
+            blocks.push(Block { h: lines.len() as f32 * LEADING + 2.0, body: b, keep_next: penultimate(i, aux.len()) });
+        }
+    }
+    let steps = view["proof"]["steps"].as_array().cloned().unwrap_or_default();
+    if status == "proved" && !steps.is_empty() {
+        section(&mut blocks, i18n::t(lang, "report.proof"), steps.len());
+        let gutter = 28.0;
+        let step_cols = ((content_w - gutter) / (BODY_FS * 0.5)) as usize;
+        for st in &steps {
+            let fact = fact_text(&st["fact"], lang);
+            let rule = rule_text(st, lang);
+            let deps: Vec<String> = st["deps"]
+                .as_array()
+                .map(|d| d.iter().filter_map(|x| x.as_u64().map(|n| n.to_string())).collect())
+                .unwrap_or_default();
+            let mut meta = rule;
+            if !deps.is_empty() {
+                meta.push_str(&format!("  \u{2190} {}", deps.join(", ")));
+            }
+            let lines = wrap(&fact, step_cols);
+            let n = st["n"].as_u64().unwrap_or(0);
+            let mut b = plain(MARGIN, 12.0, 9.5, 600, MUTED, UI, &format!("{n}."));
+            for (i, l) in lines.iter().enumerate() {
+                b.push_str(&txt(MARGIN + gutter, 12.0 + i as f32 * LEADING, BODY_FS, 400, INK, MATH, &ts.spans(l)));
+            }
+            let my = 12.0 + lines.len() as f32 * LEADING - 2.0;
+            b.push_str(&plain(MARGIN + gutter, my, 8.5, 400, MUTED, UI, &meta));
+            blocks.push(Block { h: lines.len() as f32 * LEADING + 16.0, body: b, keep_next: 0 });
+        }
+        if let Some(c) = view["proof"].get("conclusion").filter(|c| !c.is_null()) {
+            if let Some(last) = blocks.last_mut() {
+                last.keep_next = 1;
+            }
+            let lines = wrap(&format!("\u{220e}  {}", fact_text(c, lang)), cols);
+            lines_block(&mut blocks, &lines, INK, 600, false, &ts, 0);
+        }
+    }
+
+    let footer_text = i18n::t(lang, "report.footer");
+    let page_svg = |body: &str, h: f32| {
+        format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{PAGE_W:.0}\" height=\"{h:.0}\" viewBox=\"0 0 {PAGE_W:.0} {h:.0}\" font-family=\"{UI}\">\n<rect width=\"{PAGE_W:.0}\" height=\"{h:.0}\" fill=\"#ffffff\"/>\n{body}</svg>\n"
+        )
+    };
+    let footer = |h: f32, page: Option<(usize, usize)>| {
+        let fy = h - 28.0;
+        let mut f = format!(
+            "<line x1=\"{MARGIN}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{RULE}\"/>\n",
+            fy - 12.0,
+            PAGE_W - MARGIN,
+            fy - 12.0
+        );
+        f.push_str(&plain(MARGIN, fy, 8.5, 400, MUTED, UI, footer_text));
+        if let Some((i, n)) = page {
+            let s = format!("{i} / {n}");
+            f.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{fy:.1}\" font-size=\"8.5\" fill=\"{MUTED}\" font-family=\"{UI}\" text-anchor=\"end\">{s}</text>\n",
+                PAGE_W - MARGIN
             ));
         }
-        y += PROOF_LEADING;
+        f
+    };
+
+    if !paginate {
+        let mut body = String::new();
+        let mut y = MARGIN - 10.0;
+        for b in &blocks {
+            body.push_str(&format!("<g transform=\"translate(0,{y:.1})\">\n{}</g>\n", b.body));
+            y += b.h;
+        }
+        let h = y + 70.0;
+        body.push_str(&footer(h, None));
+        return vec![page_svg(&body, h)];
     }
 
-    // Footer.
-    s.push_str(&format!(
-        "<text x=\"{MARGIN:.0}\" y=\"{:.1}\" font-size=\"11\" fill=\"{}\">Generated by GeoSolver · {} points · low-level: {}</text>\n",
-        page_h - 18.0,
-        pal.subtle,
-        count_points(&sol.low_level),
-        // At 11px the footer fits ~110 chars on the 820px page; the fixed
-        // prefix uses ~60 of them.
-        escape_xml(&truncate(&sol.low_level, 48))
-    ));
-
-    s.push_str("</svg>\n");
-    s
+    let bottom = PAGE_H - MARGIN - 24.0;
+    let total: f32 = blocks.iter().map(|b| b.h).sum();
+    let overflow = total - (bottom - (MARGIN - 10.0));
+    if paginate && overflow > 0.0 && overflow < 170.0 && fig_h > 0.0 && fig_max_h >= FIG_MAX_H {
+        let smaller = fig_h - overflow - 8.0;
+        if smaller >= 150.0 {
+            return report_pages_fit(v, lang, paginate, smaller);
+        }
+    }
+    let running = |title: &str| {
+        let short: String = if title.chars().count() > 70 {
+            format!("{}\u{2026}", title.chars().take(69).collect::<String>().trim_end())
+        } else {
+            title.to_string()
+        };
+        let mut r = plain(MARGIN, 34.0, 8.5, 500, MUTED, UI, &short);
+        r.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"34\" font-size=\"8.5\" font-weight=\"600\" fill=\"{}\" font-family=\"{UI}\" text-anchor=\"end\">{}</text>\n<line x1=\"{MARGIN}\" y1=\"42\" x2=\"{:.1}\" y2=\"42\" stroke=\"{RULE}\"/>\n",
+            PAGE_W - MARGIN,
+            t.ink,
+            escape_xml(&headline),
+            PAGE_W - MARGIN
+        ));
+        r
+    };
+    let mut pages: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut y = MARGIN - 10.0;
+    let mut i = 0;
+    while i < blocks.len() {
+        let b = &blocks[i];
+        let mut need = b.h;
+        for k in 1..=b.keep_next {
+            if let Some(n) = blocks.get(i + k) {
+                need += n.h;
+            }
+        }
+        let top = if pages.is_empty() { MARGIN - 10.0 } else { 54.0 };
+        if y + need > bottom && y > top + 1.0 {
+            pages.push(std::mem::take(&mut cur));
+            y = 54.0;
+        }
+        cur.push_str(&format!("<g transform=\"translate(0,{y:.1})\">\n{}</g>\n", b.body));
+        y += b.h;
+        i += 1;
+    }
+    pages.push(cur);
+    let n = pages.len();
+    pages
+        .into_iter()
+        .enumerate()
+        .map(|(k, body)| {
+            let mut full = if k > 0 { running(&title) } else { String::new() };
+            full.push_str(&body);
+            full.push_str(&footer(PAGE_H, Some((k + 1, n))));
+            page_svg(&full, PAGE_H)
+        })
+        .collect()
 }
 
 /// Read the `width`/`height` attributes off an SVG document's root tag.
 fn svg_dimensions(svg: &str) -> Option<(f32, f32)> {
-    let open = svg.find("<svg")?;
-    let end = svg[open..].find('>')? + open;
-    let tag = &svg[open..end];
-    let attr = |name: &str| -> Option<f32> {
-        let key = format!("{name}=\"");
-        let at = tag.find(&key)? + key.len();
-        let rest = &tag[at..];
-        let close = rest.find('"')?;
-        rest[..close].trim().parse().ok()
-    };
-    let (w, h) = (attr("width")?, attr("height")?);
+    let (w, h) = (root_attr(svg, "width")?, root_attr(svg, "height")?);
+    let (w, h): (f32, f32) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
     (w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite()).then_some((w, h))
 }
 
-/// Strip the outer `<svg ...>` … `</svg>` wrapper, returning just the inner
-/// markup (which we re-wrap in a nested, scaled <svg>).
+fn root_attr(svg: &str, name: &str) -> Option<String> {
+    let open = svg.find("<svg")?;
+    let end = svg[open..].find('>')? + open;
+    let tag = &svg[open..end];
+    let key = format!(" {name}=\"");
+    let at = tag.find(&key)? + key.len();
+    let rest = &tag[at..];
+    let close = rest.find('"')?;
+    Some(rest[..close].to_string())
+}
+
+fn viewbox_attr(svg: &str) -> Option<String> {
+    root_attr(svg, "viewBox")
+}
+
+fn viewbox_size(svg: &str) -> Option<(f32, f32)> {
+    let vb = viewbox_attr(svg)?;
+    let n: Vec<f32> = vb.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    (n.len() == 4 && n[2] > 0.0 && n[3] > 0.0).then(|| (n[2], n[3]))
+}
+
+/// Strip the outer `<svg ...>` … `</svg>` wrapper, returning the inner markup.
 fn strip_svg_root(svg: &str) -> String {
     let after_open = match svg.find("<svg") {
         Some(i) => match svg[i..].find('>') {
@@ -400,19 +877,6 @@ fn strip_svg_root(svg: &str) -> String {
     svg.get(after_open..before_close).unwrap_or("").trim().to_string()
 }
 
-fn count_points(low_level: &str) -> usize {
-    low_level.split('@').count().saturating_sub(1)
-}
-
-fn truncate(s: &str, n: usize) -> String {
-    let one_line = s.replace(['\n', '\r'], " ");
-    if one_line.chars().count() <= n {
-        one_line
-    } else {
-        let cut: String = one_line.chars().take(n).collect();
-        format!("{cut}…")
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -452,26 +916,53 @@ mod tests {
     }
 
     #[test]
-    fn long_proof_pdf_pages_stay_within_viewer_limits() {
-        let pdf = svg_to_pdf(&long_report(3000)).expect("pdf");
-        let text = String::from_utf8_lossy(&pdf);
-        let at = text.find("/MediaBox").expect("MediaBox");
-        let nums: Vec<f32> = text[at + 9..]
-            .trim_start_matches([' ', '['])
-            .split(']')
-            .next()
-            .unwrap()
-            .split_whitespace()
-            .filter_map(|n| n.parse().ok())
-            .collect();
-        assert_eq!(nums.len(), 4, "{nums:?}");
-        assert!(nums[3] - nums[1] <= MAX_PDF_PAGE_PT + 1.0, "{nums:?}");
+    fn pdf_reports_are_paginated_a4() {
+        let mut sol = solve(
+            "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
+            &SolveOptions::default(),
+        )
+        .expect("solve");
+        let short = report_pdf(&sol, Some("short")).unwrap();
+        let text = String::from_utf8_lossy(&short);
+        assert!(text.contains("/MediaBox [0 0 595 842]"), "A4 pages");
+        assert!(text.contains("/Count 1") || text.contains("/Count 2"), "a short proof fits on a page or two");
+        let proof: Vec<String> = (1..=150usize).map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1))).collect();
+        sol.proof = Some(proof.join("\n"));
+        let pages = report_pages(&present::solution_json(&sol, Some("long")), Lang::En, true);
+        assert!(pages.len() >= 3, "{} pages", pages.len());
+        assert!(pages.iter().all(|p| p.contains("height=\"842\"")));
+        assert!(pages[1].contains(" / "), "page numbers");
+        let pdf = pdf_from_pages(&pages).unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains(&format!("/Count {}", pages.len())));
+    }
+
+    #[test]
+    fn report_copy_matches_the_app() {
+        let refuted = serde_json::json!({"status": "refuted", "method": "ddar", "view": {"note": {"key": "false"}}});
+        assert_eq!(verdict_copy(&refuted, Lang::En).1, "A sampled figure contradicts it, so no proof can exist.");
+        assert_eq!(method_text(&refuted, Lang::En).as_deref(), Some("Numerical counterexample"));
+        let numeric = serde_json::json!({"status": "holds-numerically", "numeric_samples": 48, "view": {"note": {"key": "no_euclid"}}});
+        assert_eq!(
+            verdict_copy(&numeric, Lang::Ro).1,
+            "Adevărat în toate cele 48 de figuri eșantionate, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație."
+        );
+        let budget = serde_json::json!({"status": "not-proved", "method": "aux-search", "view": {"note": {"key": "budget", "runs": 5000}}});
+        assert!(verdict_copy(&budget, Lang::Ro).1.contains("(5.000 de rulări deductive)"), "{:?}", verdict_copy(&budget, Lang::Ro));
+        let drawn = serde_json::json!({"status": "proved", "method": "euclidean", "view": {"as_drawn": true, "note": {"key": "euclid"}}});
+        assert_eq!(verdict_copy(&drawn, Lang::En).0, "Proved for the configuration shown");
+    }
+
+    #[test]
+    fn long_words_are_broken_to_fit() {
+        let lines = wrap("Supercalifragilisticexpialidocious_reflection_of_the_orthocenter", 20);
+        assert!(lines.iter().all(|l| l.chars().count() <= 20), "{lines:?}");
+        assert_eq!(lines.concat(), "Supercalifragilisticexpialidocious_reflection_of_the_orthocenter");
     }
 
     #[test]
     fn absurd_svgs_are_refused() {
         let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"90000000\"/>";
-        assert!(svg_to_pdf(svg).is_err());
+        assert!(pdf_from_pages(&[svg.to_string()]).is_err());
         assert!(svg_to_png(svg, 1.0).is_err());
     }
 }

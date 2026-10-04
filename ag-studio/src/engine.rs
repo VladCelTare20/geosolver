@@ -23,7 +23,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
 use ddar::aux_search::{
-    apply_constructions, candidates, solve_max, solve_with_aux, Construction, WarmBase,
+    apply_constructions, candidates, solve_with_aux_until, AuxProof, Construction, SearchStats,
+    WarmBase,
 };
 use ddar::geo;
 use ddar::runner::{solve_problem, solve_problem_with_proof};
@@ -118,22 +119,6 @@ impl Status {
             Status::NotProved => "Not proven",
         }
     }
-
-    /// A one-line explanation of the verdict (`samples` = sampled figures).
-    pub fn explain(self, samples: Option<usize>) -> String {
-        match self {
-            Status::Proved => "classical Euclidean proof".to_string(),
-            Status::HoldsNumerically => format!(
-                "no Euclidean proof found; the goal holds numerically in {} sampled \
-                 figures — evidence, not a proof",
-                samples.unwrap_or(0)
-            ),
-            Status::Refuted => {
-                "the goal fails in a sampled figure — the statement appears to be false".to_string()
-            }
-            Status::NotProved => "no proof found within the search budget".to_string(),
-        }
-    }
 }
 
 /// The full outcome of a solve: proof, figure, and metadata.
@@ -182,6 +167,19 @@ pub struct Solution {
     /// (`solve_best` only; `None` for a plain solve).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub examined: Option<usize>,
+    /// The problem the figure was drawn from — search-augmented when the proof
+    /// needed auxiliary points — for the web app's presentation layer, which
+    /// draws its own interactive figure. Never serialized.
+    #[serde(skip)]
+    pub figure: Option<FigureSource>,
+}
+
+/// What a figure is drawn from: the (possibly augmented) problem, and the index
+/// of its first auxiliary point when the search added some.
+#[derive(Clone)]
+pub struct FigureSource {
+    pub problem: Problem,
+    pub aux_from: Option<usize>,
 }
 
 /// Solve one problem end to end. Never panics: the engine's degenerate-figure
@@ -199,9 +197,10 @@ pub fn solve(input: &str, opts: &SolveOptions) -> Result<Solution, String> {
 pub const DEFAULT_SOLVE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// [`solve`] with an optional wall-clock `timeout`. When it expires the result
-/// is `proved: false` with a "time limit" note; the abandoned search thread
-/// keeps running until its run cap, so long-lived callers should also bound
-/// `AUX_MAX_RUNS` (see `security::apply_process_limits`).
+/// is `proved: false` with a "time limit" note. The deadline is also handed to
+/// the auxiliary search, so the abandoned worker starts no new DDAR run after
+/// it and exits once the runs in flight finish; [`with_keepalive`] lets a
+/// caller see when that has happened.
 pub fn solve_within(
     input: &str,
     opts: &SolveOptions,
@@ -246,9 +245,54 @@ fn is_placeholder_goal(goal: &ddar::Predicate) -> bool {
     goal.name == "cong" && goal.points.len() == 4 && goal.points[..2] == goal.points[2..]
 }
 
+fn solve_max_until(problem: &Problem, deadline: Option<Instant>) -> (Option<AuxProof>, SearchStats) {
+    if problem.goal.is_none() {
+        return (None, SearchStats { runs: 0 });
+    }
+    let env = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+    let max_depth = env("AUX_MAX_DEPTH", 3).max(1);
+    let deep_budget = env("AUX_MAX_RUNS", 2_000_000).max(10_000);
+    let mut runs = 0usize;
+    for depth in 2..=max_depth {
+        if deadline.is_some_and(|d| Instant::now() >= d) {
+            break;
+        }
+        let budget = if depth == max_depth {
+            deep_budget
+        } else {
+            (deep_budget / 8).max(200_000).min(deep_budget)
+        };
+        let (res, stats) = solve_with_aux_until(problem, depth, budget, false, true, deadline);
+        runs += stats.runs;
+        if res.is_some() {
+            return (res, SearchStats { runs });
+        }
+    }
+    (None, SearchStats { runs })
+}
+
+type Keepalive = std::sync::Arc<dyn std::any::Any + Send + Sync>;
+
+thread_local! {
+    static KEEPALIVE: std::cell::RefCell<Option<Keepalive>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` (a solve) so that every worker thread it starts holds a clone of
+/// `guard` until that thread really exits: how the tests observe that a search
+/// abandoned at its deadline really winds down. (Servers no longer need it:
+/// every server solve runs in a worker process that is killed at its limit.)
+#[cfg(test)]
+pub fn with_keepalive<R>(guard: Keepalive, f: impl FnOnce() -> R) -> R {
+    let prev = KEEPALIVE.with(|k| k.replace(Some(guard)));
+    let out = f();
+    KEEPALIVE.with(|k| *k.borrow_mut() = prev);
+    out
+}
+
 /// Run `f` to completion, or until `deadline` passes. `None` means the deadline
-/// expired first (the worker thread is abandoned, not killed); `Some(Err(_))`
-/// means `f` panicked.
+/// expired first (the worker thread is abandoned, not killed — callers hand the
+/// deadline to the work itself so it winds down; see [`solve_max_until`]);
+/// `Some(Err(_))` means `f` panicked.
 fn run_until<T: Send + 'static>(
     deadline: Option<Instant>,
     f: impl FnOnce() -> T + Send + 'static,
@@ -257,9 +301,11 @@ fn run_until<T: Send + 'static>(
         return Some(catch_unwind(AssertUnwindSafe(f)));
     };
     let (tx, rx) = std::sync::mpsc::channel();
+    let keep = KEEPALIVE.with(|k| k.borrow().clone());
     let spawned = std::thread::Builder::new()
         .name("solve-deadline".into())
         .spawn(move || {
+            let _keep = keep;
             let _ = tx.send(catch_unwind(AssertUnwindSafe(f)));
         });
     if spawned.is_err() {
@@ -417,6 +463,7 @@ fn best_deductive(
             note,
             proof_steps,
             examined: Some(examined),
+            figure: Some(FigureSource { problem: problem.clone(), aux_from: None }),
         }
     };
 
@@ -538,6 +585,7 @@ fn best_deductive(
                 if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                     sol.svg = aux_svg;
                 }
+                sol.figure = Some(FigureSource { problem: aug, aux_from: Some(problem.points.len()) });
             }
         }
         return Ok(sol);
@@ -563,8 +611,10 @@ fn best_deductive(
     let run_budget = ((rate * remaining.as_secs_f64()) as usize).clamp(1, 5_000_000);
     // The run estimate is only a rate guess; the wall clock is the real bound.
     let search_problem = problem.clone();
-    let searched = run_until(Some(Instant::now() + remaining), move || {
-        solve_with_aux(&search_problem, 3, run_budget, false)
+    let stop_at = Instant::now() + remaining;
+    let searched = run_until(Some(stop_at), move || {
+        let full = search_problem.points.len() <= 14;
+        solve_with_aux_until(&search_problem, 3, run_budget, false, full, Some(stop_at))
     });
     let Some(searched) = searched else {
         return Ok(build(
@@ -619,6 +669,7 @@ fn best_deductive(
             if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                 sol.svg = aux_svg;
             }
+            sol.figure = Some(FigureSource { problem: aug, aux_from: Some(problem.points.len()) });
             Ok(sol)
         }
         None => Ok(build(
@@ -705,6 +756,7 @@ fn deductive_flow(
 ) -> Result<Solution, String> {
     let start = Instant::now();
     let mut svg = render_figure(&problem, opts, None)?;
+    let mut figure = FigureSource { problem: problem.clone(), aux_from: None };
     let (legend_cons, legend_goal) = ddar::svg::legend_lines(&problem);
     let limit_note = || {
         let secs = deadline.map_or(0.0, |d| d.duration_since(start).as_secs_f64());
@@ -739,7 +791,7 @@ fn deductive_flow(
         ),
         Ok(None) => {
             let search_problem = problem.clone();
-            let searched = run_until(deadline, move || solve_max(&search_problem, false));
+            let searched = run_until(deadline, move || solve_max_until(&search_problem, deadline));
             let (res, stats) = match searched {
                 Some(r) => r.map_err(|_| "auxiliary search panicked".to_string())?,
                 None => (None, ddar::aux_search::SearchStats { runs: 0 }),
@@ -774,6 +826,10 @@ fn deductive_flow(
                     {
                         svg = aux_svg;
                     }
+                    figure = FigureSource {
+                        problem: augmented.clone(),
+                        aux_from: Some(problem.points.len()),
+                    };
                     let proof = if opts.want_proof {
                         catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&augmented)))
                             .ok()
@@ -819,6 +875,7 @@ fn deductive_flow(
         note,
         proof_steps,
         examined: None,
+        figure: Some(figure),
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -832,13 +889,15 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
 
     // Figure + low-level form: compile the construction lines alone (the metric
     // goal is not a DDAR predicate, so it is dropped from the drawing).
-    let (svg, low_level, goal_holds, legend_cons) = match geo::compile(&cons) {
+    let (svg, low_level, goal_holds, legend_cons, figure) = match geo::compile(&cons) {
         Ok(c) => {
             let svg = render_figure(&c.problem, opts, None).unwrap_or_default();
             let (lc, _) = ddar::svg::legend_lines(&c.problem);
-            (svg, c.problem.to_ag_string(), c.goal_numerically_holds, lc)
+            let ll = c.problem.to_ag_string();
+            let fig = FigureSource { problem: c.problem, aux_from: None };
+            (svg, ll, c.goal_numerically_holds, lc, Some(fig))
         }
-        Err(_) => (String::new(), String::new(), None, Vec::new()),
+        Err(_) => (String::new(), String::new(), None, Vec::new(), None),
     };
 
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -900,6 +959,7 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
         note,
         proof_steps,
         examined: None,
+        figure,
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -1447,6 +1507,46 @@ mod tests {
         assert!(sol.note.contains("time limit"), "{}", sol.note);
     }
 
+    #[test]
+    fn an_abandoned_worker_holds_the_keepalive_until_it_exits() {
+        let guard = std::sync::Arc::new(());
+        let weak = std::sync::Arc::downgrade(&guard);
+        let r = with_keepalive(guard, || {
+            run_until(Some(Instant::now() + Duration::from_millis(50)), || {
+                std::thread::sleep(Duration::from_millis(500))
+            })
+        });
+        assert!(r.is_none(), "the deadline passes first");
+        assert!(weak.upgrade().is_some(), "the still-running worker owns the guard");
+        let t = Instant::now();
+        while weak.upgrade().is_some() && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(weak.upgrade().is_none(), "released when the worker exits");
+    }
+
+    #[test]
+    fn a_time_limited_search_stops_soon_after_the_deadline() {
+        const HARD: &str = "A B C = triangle\nH = orthocenter(A, B, C)\nD = midpoint(B, C)\n\
+            E = midpoint(C, A)\nF = midpoint(A, B)\nA1 = point: coll(B, C, A1), cong(D, A1, D, H)\n\
+            B1 = point: coll(C, A, B1), cong(E, B1, E, H)\nC1 = point: coll(A, B, C1), cong(F, C1, F, H)\n\
+            C2 = point: coll(A, B, C2), cong(F, C2, F, H)\nprove cyclic(C1, C2, B1, A1)";
+        let guard = std::sync::Arc::new(());
+        let weak = std::sync::Arc::downgrade(&guard);
+        let sol = with_keepalive(guard, || {
+            solve_within(HARD, &SolveOptions::default(), Some(Duration::from_secs(2))).unwrap()
+        });
+        if sol.proved {
+            return;
+        }
+        assert!(sol.note.contains("time limit"), "{}", sol.note);
+        let t = Instant::now();
+        while weak.upgrade().is_some() && t.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(weak.upgrade().is_none(), "the search was still running {:?} after the deadline", t.elapsed());
+    }
+
     fn blank_solution() -> Solution {
         Solution {
             input: String::new(),
@@ -1466,6 +1566,7 @@ mod tests {
             note: String::new(),
             proof_steps: None,
             examined: None,
+            figure: None,
         }
     }
 }

@@ -1,19 +1,21 @@
 # ag-studio/src — the `agstudio` binary: CLI, web app, MCP server
 
-Up: [../../CODEMAP.md](../../CODEMAP.md)
+Up: [../../CODEMAP.md](../../CODEMAP.md) · Web assets: [../assets/](../assets/CODEMAP.md)
 
 ## Files
 - `main.rs` — subcommands `render`/`best`/`translate`/`serve`/`mcp`, plus the hidden `__solve-worker`; unknown flags exit 2.
-- `engine.rs` — solve wrapper: routes DDAR vs metric goals, reconciles a proof against the numeric check, `solve_within` deadline. `Status` (`proved` / `holds-numerically` / `refuted` / `not-proved`) is set only in `reconcile`; `proof` is `Some` only when proved, numeric reports go in `numeric_evidence`.
-- `worker.rs` — killable solves: `run` (parent) spawns `agstudio __solve-worker`, `worker_main` (child) solves one JSON request and prints one JSON reply line; `arm_watchdog` is the hard-exit timer shared with the CLI.
-- `render.rs` — SVG→PNG/PDF and the combined report page; scales long proofs down to fit pixel/page limits.
+- `engine.rs` — solve wrapper: routes DDAR vs metric goals, reconciles a proof against the numeric check, `solve_within` deadline. `Status` (`proved` / `holds-numerically` / `refuted` / `not-proved`) is set only in `reconcile`; `proof` is `Some` only when proved, numeric reports go in `numeric_evidence`. `Solution.figure` (never serialized) carries the problem the figure is drawn from, search-augmented when aux points were added.
+- `worker.rs` — killable solves: `run` (parent) spawns `agstudio __solve-worker`, `worker_main` (child) solves one JSON request and prints one JSON reply line (with the `present` view and/or a rendered report when asked); `arm_watchdog` is the hard-exit timer shared with the CLI.
+- `present.rs` — presentation only, never changes a verdict: readable names for anonymous points, typed facts (`Fact {kind, args, points}`), the proof as numbered cited steps, classified notes, numeric counterexamples, compile-error diagnosis, and `solution_json` (engine fields + `view` + `title`).
+- `figure.rs` — the web/export figure SVG: framed to the points, labels and every circle up to 1.5× the construction's size (only larger circles are clipped), every element classed and tagged with `data-p` (its points); light colours as attributes so exports render without CSS. Labels of points with a neighbour closer than 1.6 label heights may sit farther out and get a thin leader line (`f-lead`, re-laid out by `site.js:fitLabels`).
+- `render.rs` — SVG→PNG/PDF and the report built from `solution_json` (verdict tone per status, localized, verified steps only): A4 pages for PDF (`report_pdf_from_json`, assembled with `pdf-writer` from one svg2pdf chunk per page), one tall page for PNG.
 - `translate.rs` — photo/text → `.geo` via `claude -p`, locked down (no tools or Read-one-file, no settings/MCP/hooks, empty cwd, no API-key env).
-- `web.rs` — axum routes and handlers.
+- `web.rs` — axum routes and handlers; static assets table; recent-solution cache for export/reopen.
 - `security.rs` — env config (the env table is the source for `deploy/DEPLOY.md`), Basic auth, guest mode, rate limits, Host/Origin guards, CSP.
 - `auth.rs` — argon2 (gated, dummy-hash for unknown users), session ids, cookies.
-- `db.rs` — SQLite: users, sessions (hashed), history (with the verdict `status`; `NULL` on rows from before it existed); files created 0600.
+- `db.rs` — SQLite: users, sessions (hashed), history (verdict `status`, display `goal`, full `solution` JSON; older rows have `NULL`s). Solving the same input again with the same title, method and verdict replaces the old row rather than stacking a duplicate; `replace_history` swaps a row's result in place (same input only); listings carry the stored note key (`json_extract`); files created 0600.
 - `mcp.rs` — stdio JSON-RPC MCP server; exports confined to `AGSTUDIO_EXPORT_DIR`.
-- `i18n.rs` — server-side EN/RO strings.
+- `i18n.rs` — server-side EN/RO strings: errors (full sentences with an action), compile diagnoses, report text; `tf` fills `{placeholders}`, `tp` picks `.one/.few/.other` (Romanian CLDR rules); `prose_ro`/`theorem_ro` translate the Euclidean prover's closed set of English sentence templates and theorem names.
 
 ## Notes
 - `worker.rs` — why processes: a DDAR closure is not interruptible and `solve_within` checks its deadline only between closures, so an in-process timeout abandoned a thread that kept the CPU (and, in `web.rs`, its semaphore permit). Every web/MCP solve and export now runs in a worker; only the CLI solves in-process.
@@ -30,4 +32,26 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `main.rs:arm_hard_limit` — `render`/`best`/`translate --solve` exit 124 with a message if the solve overruns `--timeout`/`--budget` + `GRACE`.
 - `translate.rs:run_with_timeout` — after the child exits, its output is awaited only 2 s; a process it left holding the pipes gets its group killed, then the call fails rather than hanging.
 - `security.rs:client_ip` — rightmost X-Forwarded-For, honoured only from a loopback/private peer with `AGSTUDIO_TRUST_PROXY=1`.
+- `security.rs:translate_status_now` — `/api/status` never waits for the `claude` probe: it answers from the last result (or `translate_checking`) and refreshes in the background; `serve` warms it before binding.
+- `web.rs:cache_put` — every solve answer gets a random `id`; `/api/export {id}` renders exactly that result (no re-solve) for 30 min, 128 entries. History rows store the full JSON (≤ 512 KB) and `GET /api/history/{id}` re-registers it.
+- `web.rs:compile_err` — `{error, code: "compile", diagnosis: {key, line, col, len, token}, detail}`; `error` is the localized sentence, `detail` the engine's words.
+- `present.rs:Names::build` — `_5` from `reflect(H, …)` becomes `H′`, a midpoint `M`/`N`, else `P₁, P₂…`; the same map renames figure, facts, steps and aux text, so engine names never reach the page (raw `proof`/`low_level` keep them).
+- `present.rs:drop_restatements` — the engine re-states hypotheses (`collinear: A I M [003]` after `assumption: coll A I M`); those steps are folded into the cited one and citations renumbered. The step count shown is the folded one; `proof_steps` stays the engine's.
+- `present.rs:diagnose` — the engine's compile errors carry no position: by-name errors are found by token; parse errors by compiling growing prefixes until the same message appears (≤ 1.5 s).
+- `worker.rs:execute` — `present::solution_json` needs `Solution.figure`, which is not serialized, so the view (`Request.present`) and every report (`Request.report`, rendered from that view in `Request.lang`) are built inside the worker; the server only caches the returned JSON. `web.rs:view_of` builds the view itself only for the time-limit verdict of a killed worker (no figure).
+- `web.rs:api_export` — `{id}` renders a cached view in-process under the `render` semaphore (no solve; the JSON came from a worker); `{input}` is a fresh solve and runs in a worker like `/api/solve`.
 - `translate.rs` — `--bare` is deliberately absent: it limits auth to `ANTHROPIC_API_KEY`, breaking subscription login.
+- `engine.rs:solve_max_until` — mirrors `ddar::aux_search::solve_max` (same depths and run budgets) but hands the deadline to every level, so a time-limited search stops starting DDAR runs at the deadline.
+- `engine.rs:with_keepalive` (tests only) — every `run_until` thread holds a clone of the guard, so a test can see that a search abandoned at its deadline really exits. Servers do not need it: their solves are worker processes.
+- `security.rs:claim_caller` — caps each caller (user id, or guest IP) at half the solve slots, so one account cannot lock others out (503 `busy_self`). Exports of cached results use their own `render` semaphore, not solver slots.
+- `web.rs:page` — HTML pages are `Cache-Control: no-store`, so Back after logout re-asks the server (302 to `/auth`) instead of showing the previous user's page from cache.
+- `web.rs:api_solve` — a metric-prover parse or name error (`input_error_note`: bad number, trailing tokens, unexpected token, non-numeric exponent, unknown name, …) is answered as a compile error, never as a verdict and never recorded; `degenerate_goal` refuses goals that repeat a point (`cyclic(A, B, C, A)`, `perp(A, A, …)`, `cong(A, B, B, A)`) as `degenerate_goal` before solving. Recorded solves return `history_id`; `PUT /api/history/{id} {id: <cached solution id>}` replaces that row (the client does this when "Shortest proof" swaps in a shorter proof).
+- `present.rs:disp` — names written with a capital keep their case (`Ma` stays `Ma`, the client sets the lower-case suffix as a subscript); low-level lower-case names are upper-cased as before.
+- `present.rs:transfer_fact` — the engine's `|AN| ↔ |CN|` (a fixed length ratio moved between its tables) is shown as `AN = CN` or `AC : AN = 2`; the constant is read from the figure and accepted only as a small-denominator rational (p/q, q ≤ 12) matching to 1e-6.
+- `present.rs:three_on_a_circle` — a three-point "concyclic" step names the circle's centre among the figure's points (`F, B, A lie on a circle centered at Mc`).
+- `present.rs:as_drawn` — the metric prover reads betweenness off the sampled figure; the step says "(as drawn)" instead of letting it pass as a hypothesis, and `View.as_drawn` makes the app and the report say "Proved for the configuration shown".
+- `present.rs:theorem_fact` — DDAR's named theorems (angle bisector and its converse, radical axis, Monge–d'Alembert, homothety, intercept theorem) are shown as the fact they derive, not a bare point list; `i18n.rs:theorem_ro` names them in Romanian.
+- `present.rs:diagnose` — metric-goal errors are located on the `prove` line; an unknown lower-case name that is a whole definition right-hand side is `unknown_shape` (only `triangle`/`segment` define several points), otherwise `unknown_construction`.
+- `render.rs:verdict_copy` / `method_text` — the report's verdict sentence and meta line use the same wording as `app.js:verdictModel` / `methodText` (keep `report.*` in `i18n.rs` and `v.*` in `i18n.js` in step). Pagination keeps a heading with its first lines and never leaves one list item alone; a report that spills a little onto page 2 gets a smaller figure instead.
+- `present.rs:Fact.ro` / `Step.rule_name_ro` — Romanian text for Euclidean prose steps and cited theorems; client and report pick them by language.
+- `render.rs:Typeset` — point names in report lines are set in "GeoSolver Math" italic. A font change inside one `<text>` makes resvg reshape the whole run with a fallback font, so the bundled export fonts (`assets/fonts/LICENSES.md`) carry the math symbols themselves rather than mixing families.
