@@ -23,8 +23,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
 use ddar::aux_search::{
-    apply_constructions, candidates, solve_with_aux_until, AuxProof, Construction, SearchStats,
-    WarmBase,
+    apply_constructions, candidates, depth1_solvers, rollouts_until, solve_max_until,
+    Construction, WarmBase,
 };
 use ddar::geo;
 use ddar::runner::{solve_problem, solve_problem_with_proof};
@@ -245,32 +245,6 @@ fn is_placeholder_goal(goal: &ddar::Predicate) -> bool {
     goal.name == "cong" && goal.points.len() == 4 && goal.points[..2] == goal.points[2..]
 }
 
-fn solve_max_until(problem: &Problem, deadline: Option<Instant>) -> (Option<AuxProof>, SearchStats) {
-    if problem.goal.is_none() {
-        return (None, SearchStats { runs: 0 });
-    }
-    let env = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
-    let max_depth = env("AUX_MAX_DEPTH", 3).max(1);
-    let deep_budget = env("AUX_MAX_RUNS", 2_000_000).max(10_000);
-    let mut runs = 0usize;
-    for depth in 2..=max_depth {
-        if deadline.is_some_and(|d| Instant::now() >= d) {
-            break;
-        }
-        let budget = if depth == max_depth {
-            deep_budget
-        } else {
-            (deep_budget / 8).max(200_000).min(deep_budget)
-        };
-        let (res, stats) = solve_with_aux_until(problem, depth, budget, false, true, deadline);
-        runs += stats.runs;
-        if res.is_some() {
-            return (res, SearchStats { runs });
-        }
-    }
-    (None, SearchStats { runs })
-}
-
 type Keepalive = std::sync::Arc<dyn std::any::Any + Send + Sync>;
 
 thread_local! {
@@ -291,8 +265,8 @@ pub fn with_keepalive<R>(guard: Keepalive, f: impl FnOnce() -> R) -> R {
 
 /// Run `f` to completion, or until `deadline` passes. `None` means the deadline
 /// expired first (the worker thread is abandoned, not killed — callers hand the
-/// deadline to the work itself so it winds down; see [`solve_max_until`]);
-/// `Some(Err(_))` means `f` panicked.
+/// deadline to the work itself so it winds down); `Some(Err(_))` means `f`
+/// panicked.
 fn run_until<T: Send + 'static>(
     deadline: Option<Instant>,
     f: impl FnOnce() -> T + Send + 'static,
@@ -392,9 +366,12 @@ fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), S
 ///     by length;
 ///   * with budget left, it deepens from the shortest working bases (adding a
 ///     second construction) to hunt for an even shorter proof;
-///   * if nothing at depth ≤ 1 even *solves*, the deepening MAX search finds a
-///     feasible proof (rank-first — from-scratch depth-≥2 minimisation is
-///     intractable), clearly labelled.
+///   * if nothing at depth ≤ 1 even *solves*, the default solver's randomised
+///     multi-point rollouts find a feasible proof (rank-first — from-scratch
+///     depth-≥2 minimisation is intractable), clearly labelled.
+///
+/// Depth 1 is the default solver's own pool (`depth1_solvers`: the classical
+/// library plus the coincidence-ranked new kinds), swept once and in parallel.
 pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<Solution, String> {
     let euclid = |opts: &SolveOptions| -> Result<Solution, String> {
         let mut sol = euclidean_flow(input, opts)?;
@@ -495,16 +472,18 @@ fn best_deductive(
 
     // Depth 1: every single auxiliary construction that solves, compared by
     // length. Collect the working ones as bases for the depth-2 hunt.
-    let full = problem.points.len() <= 14;
-    let cands = catch_unwind(AssertUnwindSafe(|| candidates(&problem, full))).unwrap_or_default();
-    let warm = WarmBase::new(&problem);
+    let deadline = start + budget;
+    let swept = catch_unwind(AssertUnwindSafe(|| depth1_solvers(&problem, Some(deadline))))
+        .ok()
+        .flatten();
+    let (solvers, swept_all) = match swept {
+        Some((solvers, complete, _)) => (solvers, complete),
+        None => (Vec::new(), false),
+    };
     let mut bases: Vec<(Construction, usize)> = Vec::new();
-    for cand in &cands {
-        if start.elapsed() >= budget {
+    for cand in &solvers {
+        if Instant::now() >= deadline {
             break;
-        }
-        if !solves_with(&warm, &problem, cand) {
-            continue;
         }
         let Some(aug) = safe_apply(&problem, std::slice::from_ref(cand)) else {
             continue;
@@ -522,7 +501,7 @@ fn best_deductive(
     if !bases.is_empty() {
         bases.sort_by_key(|(_, steps)| *steps);
         'outer: for (base, _) in &bases {
-            if start.elapsed() >= budget {
+            if Instant::now() >= deadline {
                 break;
             }
             let Some(base_problem) = safe_apply(&problem, std::slice::from_ref(base)) else {
@@ -535,10 +514,10 @@ fn best_deductive(
                 .ok()
                 .flatten();
             for c2 in &cands2 {
-                if start.elapsed() >= budget {
+                if Instant::now() >= deadline {
                     break 'outer;
                 }
-                if !solves_with(&warm2, &base_problem, c2) {
+                if !solves_with(&warm2, &base_problem, c2, deadline) {
                     continue;
                 }
                 let Some(aug2) = safe_apply(&base_problem, std::slice::from_ref(c2)) else {
@@ -591,12 +570,10 @@ fn best_deductive(
         return Ok(sol);
     }
 
-    // Nothing at depth ≤ 1 even solves — find a feasible proof with the deepening
-    // MAX search (rank-first). Convert remaining time to a run budget from the
-    // observed rate.
-    let elapsed = start.elapsed();
-    let remaining = budget.saturating_sub(elapsed);
-    if remaining.is_zero() {
+    // Nothing at depth ≤ 1 even solves — find a feasible proof with the default
+    // solver's rollouts (its depth-1 sweep is skipped when ours covered the
+    // same pool), bounded by the rest of the budget.
+    if Instant::now() >= deadline {
         return Ok(build(
             false,
             Method::AuxSearch,
@@ -607,14 +584,13 @@ fn best_deductive(
                 .to_string(),
         ));
     }
-    let rate = (cands.len().max(1) as f64 / elapsed.as_secs_f64().max(1e-3)).max(1_000.0);
-    let run_budget = ((rate * remaining.as_secs_f64()) as usize).clamp(1, 5_000_000);
-    // The run estimate is only a rate guess; the wall clock is the real bound.
     let search_problem = problem.clone();
-    let stop_at = Instant::now() + remaining;
-    let searched = run_until(Some(stop_at), move || {
-        let full = search_problem.points.len() <= 14;
-        solve_with_aux_until(&search_problem, 3, run_budget, false, full, Some(stop_at))
+    let searched = run_until(Some(deadline), move || {
+        if swept_all {
+            rollouts_until(&search_problem, false, Some(deadline))
+        } else {
+            solve_max_until(&search_problem, false, Some(deadline))
+        }
     });
     let Some(searched) = searched else {
         return Ok(build(
@@ -707,11 +683,17 @@ fn safe_apply(problem: &Problem, cons: &[Construction]) -> Option<Problem> {
     catch_unwind(AssertUnwindSafe(|| apply_constructions(problem, cons))).ok()
 }
 
-/// Does adding `cand` to `problem` let DDAR prove the goal? Uses the warm-start
-/// fast path when available, else a full solve; degenerate candidates are caught.
-fn solves_with(warm: &Option<WarmBase>, problem: &Problem, cand: &Construction) -> bool {
+/// Does adding `cand` to `problem` let DDAR prove the goal before `deadline`?
+/// Uses the warm-start fast path when available, else a full solve; degenerate
+/// candidates are caught.
+fn solves_with(
+    warm: &Option<WarmBase>,
+    problem: &Problem,
+    cand: &Construction,
+    deadline: Instant,
+) -> bool {
     match warm {
-        Some(w) => catch_unwind(AssertUnwindSafe(|| w.check(cand))).unwrap_or(false),
+        Some(w) => catch_unwind(AssertUnwindSafe(|| w.check_until(cand, Some(deadline)))).unwrap_or(false),
         None => catch_unwind(AssertUnwindSafe(|| {
             solve_problem(&apply_constructions(problem, std::slice::from_ref(cand))).unwrap_or(false)
         }))
@@ -790,8 +772,15 @@ fn deductive_flow(
                 .to_string(),
         ),
         Ok(None) => {
+            // The corpus benchmark's pipeline (`ddar::bench::prove_goal`): full
+            // depth-1 sweep, then rollouts until the deadline. Without one the
+            // rollouts would never stop, so a deadline-less solve gets the
+            // default limit.
+            let search_deadline = deadline.or_else(|| Some(start + DEFAULT_SOLVE_TIMEOUT));
             let search_problem = problem.clone();
-            let searched = run_until(deadline, move || solve_max_until(&search_problem, deadline));
+            let searched = run_until(search_deadline, move || {
+                solve_max_until(&search_problem, false, search_deadline)
+            });
             let (res, stats) = match searched {
                 Some(r) => r.map_err(|_| "auxiliary search panicked".to_string())?,
                 None => (None, ddar::aux_search::SearchStats { runs: 0 }),
@@ -1495,12 +1484,48 @@ mod tests {
         assert_eq!(sol.status, Status::HoldsNumerically);
     }
 
+    /// IMO 2008 P6 as the corpus benchmark translates it (`ddar --corpus-show
+    /// corpus/imo_ag_30.txt translated_imo_2008_p6`): two auxiliary points,
+    /// tens of seconds of search — never inside a sub-second limit.
+    const IMO_2008_P6_LOW: &str = "x@4.96_-0.13 y@-1.006896832888816_-1.253488108068277 z@-2.840284723857512_-4.911776273400683 o@2.8799999999999986_-5.489999999999998 w@6.909004923003877_-1.3884003936987552 a@-2.0807461969809653_2.6022298674851543 b@-1.6356942531718741_7.005065168739375 c@3.0150944694953736_2.4365912907211027 d@1.627271672827975_1.1632975597981003 i1@-0.5336859138585419_3.9557741308126197 i2@1.493701433748779_1.8726952212475096 f1@-0.5792688026773892_2.5534248527852315 f2@1.513617075191797_2.485396305421025 q@-1.2353352672275957_2.7407229046275674 t@1.1871434839892259_1.3418266172024904 p@0.6999287191540002_4.624247192763766 s@2.032680584622158_2.1647581018833413 k@3.066784783507625_0.2563998681478843 = cong o x o y, cong o y o z, cong o w o x, perp a z o z, perp a x o x, perp b z o z, perp b w o w, perp c y o y, perp c w o w, perp d x o x, perp d y o y, eqangle a b a i1 a i1 a c, eqangle c a c i1 c i1 c b, eqangle b c b i1 b i1 b a, eqangle a c a i2 a i2 a d, eqangle d a d i2 d i2 d c, eqangle c d c i2 c i2 c a, perp f1 i1 a c, coll f1 a c, perp f2 i2 a c, coll f2 a c, cong i1 q i1 f1, cong i2 t i2 f2, perp q i1 q t, perp t i2 t q, cong i1 p i1 f1, cong i2 s i2 f2, perp p i1 p s, perp s i2 s p, coll k q t, coll k p s ? cong o k o x";
+
+    /// IMO 2004 P1 as the corpus benchmark translates it: one auxiliary point.
+    const IMO_2004_P1_LOW: &str = "a@-0.26812581304757255_0.3590483780130336 b@-0.3580222430541735_0.9454793349468846 c@0.6776500220300667_0.4673564458552779 o@0.15981388948794661_0.7064178904010813 m@-0.26263300625391517_0.3232165664047112 n@-0.2905711669161747_0.3564779878429949 r@-0.2938786226991952_0.3253357312916927 o1@-0.2566679892835928_0.6425736584052819 o2@0.20775225394061608_0.28780690808240483 p@0.03961536474566685_0.7619080950264421 = coll o b c, cong o b o c, cong o m o b, coll m a b, cong o n o b, coll n a c, eqangle a b a r a r a c, eqangle o m o r o r o n, cong o1 b o1 m, cong o1 m o1 r, cong o2 c o2 n, cong o2 n o2 r, cong o1 p o1 r, cong o2 p o2 r ? coll p b c";
+
+    fn low_level() -> SolveOptions {
+        SolveOptions { kind: InputKind::LowLevel, ..SolveOptions::default() }
+    }
+
+    #[test]
+    fn the_default_and_best_solves_run_the_corpus_search() {
+        let sol = solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert_eq!(sol.method, Method::AuxSearch);
+        assert_eq!(sol.aux_constructions.len(), 1, "{:?}", sol.aux_constructions);
+        let best = solve_best(IMO_2004_P1_LOW, &low_level(), Duration::from_secs(10)).unwrap();
+        assert!(best.proved, "{}", best.note);
+        assert!(best.proof_steps <= sol.proof_steps, "{:?} > {:?}", best.proof_steps, sol.proof_steps);
+    }
+
+    /// Low-level input has no numeric goal check, so nothing but the search
+    /// itself stands between these false goals and a "proved".
+    #[test]
+    fn false_low_level_goals_stay_unproved_through_the_search() {
+        for goal in ["coll p a o", "cong o p o b", "perp p b p o1"] {
+            let input = IMO_2004_P1_LOW.replace("? coll p b c", &format!("? {goal}"));
+            assert_ne!(input, IMO_2004_P1_LOW);
+            let sol = solve_within(&input, &low_level(), Some(Duration::from_secs(3))).unwrap();
+            assert!(!sol.proved, "{goal} was proved: {:?}", sol.aux_constructions);
+            let best = solve_best(&input, &low_level(), Duration::from_secs(3)).unwrap();
+            assert!(!best.proved, "{goal} was proved in best mode: {:?}", best.aux_constructions);
+        }
+    }
+
     #[test]
     fn solve_within_honours_the_deadline() {
         let t = Instant::now();
-        let sol =
-            solve_within(BUTTERFLY, &SolveOptions::default(), Some(Duration::from_millis(300)))
-                .unwrap();
+        let opts = SolveOptions { kind: InputKind::LowLevel, ..SolveOptions::default() };
+        let sol = solve_within(IMO_2008_P6_LOW, &opts, Some(Duration::from_millis(300))).unwrap();
         let took = t.elapsed();
         assert!(took < Duration::from_secs(2), "took {took:?}");
         assert!(!sol.proved);

@@ -452,6 +452,11 @@ impl WarmBase {
         .unwrap_or(false)
     }
 
+    /// [`WarmBase::check`] that gives up (`false`) once `deadline` has passed.
+    pub fn check_until(&self, cand: &Construction, deadline: Option<Instant>) -> bool {
+        self.check_all(std::slice::from_ref(cand), deadline)
+    }
+
     /// Whether adding `cand` (one new point) makes the goal provable. Panics
     /// from degenerate constructions are caught and treated as "not solved",
     /// matching [`safe_solve`].
@@ -1872,13 +1877,45 @@ pub fn solve_max_until(
     verbose: bool,
     deadline: Option<Instant>,
 ) -> (Option<AuxProof>, SearchStats) {
+    solve_max_until_opts(problem, verbose, deadline, true)
+}
+
+/// [`solve_max_until`] for a caller that already ran the depth-1 sweep
+/// ([`depth1_solvers`], complete and empty): straight to the rollouts.
+pub fn rollouts_until(
+    problem: &Problem,
+    verbose: bool,
+    deadline: Option<Instant>,
+) -> (Option<AuxProof>, SearchStats) {
+    solve_max_until_opts(problem, verbose, deadline, false)
+}
+
+/// Every single construction of [`solve_max_until`]'s depth-1 pool that lets
+/// DDAR prove the goal (ranked order, final names), and whether the sweep
+/// covered the whole pool before `deadline`. `None` when the base figure
+/// cannot be closed.
+pub fn depth1_solvers(
+    problem: &Problem,
+    deadline: Option<Instant>,
+) -> Option<(Vec<Construction>, bool, SearchStats)> {
+    problem.goal.as_ref()?;
+    crate::quiet_panic::quiet(|| crate::aux_rollout::depth1_solvers(problem, deadline))
+}
+
+fn solve_max_until_opts(
+    problem: &Problem,
+    verbose: bool,
+    deadline: Option<Instant>,
+    sweep: bool,
+) -> (Option<AuxProof>, SearchStats) {
     if problem.goal.is_none() {
         return (None, SearchStats { runs: 0 });
     }
     let verbose = verbose || std::env::var("AUX_VERBOSE").is_ok_and(|v| v != "0");
     if !std::env::var("AUX_LEGACY").is_ok_and(|v| v != "0") {
-        let res =
-            crate::quiet_panic::quiet(|| crate::aux_rollout::search(problem, verbose, deadline));
+        let res = crate::quiet_panic::quiet(|| {
+            crate::aux_rollout::search(problem, verbose, deadline, sweep)
+        });
         if let Some(r) = res {
             return r;
         }

@@ -354,6 +354,49 @@ impl Search<'_> {
     }
 }
 
+/// Every construction of [`search`]'s depth-1 pool that lets DDAR prove the
+/// goal, in pool (rank) order and named as [`search`] names its result, plus
+/// whether the sweep covered the whole pool before `deadline`. `None` when the
+/// base figure cannot be closed.
+pub(crate) fn depth1_solvers(
+    problem: &Problem,
+    deadline: Option<Instant>,
+) -> Option<(Vec<Construction>, bool, SearchStats)> {
+    let warm = guarded(|| WarmBase::with_slots(problem, MAX_POINTS)).flatten()?;
+    let warm1 = guarded(|| WarmBase::new(problem)).flatten()?;
+    let pool = guarded(|| build_pool(problem, Some(warm.ddar()), None, 1.0, true))?;
+    let runs = AtomicUsize::new(1);
+    let hits: Vec<usize> = (0..pool.items.len())
+        .into_par_iter()
+        .filter(|&i| {
+            if past(deadline) {
+                return false;
+            }
+            runs.fetch_add(1, Ordering::Relaxed);
+            warm1.check_all(std::slice::from_ref(&pool.items[i].c), deadline)
+        })
+        .collect();
+    let complete = !past(deadline);
+    let taken = taken_names(problem);
+    let n = problem.points.len() as PointId;
+    let named = hits
+        .into_iter()
+        .map(|i| {
+            let mut c = pool.items[i].c.clone();
+            c.name = natural_name(c.kind, &c.args, problem, &taken, n);
+            c.desc = render_tpl(&c.tpl, |j| problem.points[j as usize].name.clone());
+            c
+        })
+        .collect();
+    Some((
+        named,
+        complete,
+        SearchStats {
+            runs: runs.load(Ordering::Relaxed),
+        },
+    ))
+}
+
 fn problem_seed(problem: &Problem) -> u64 {
     let mut h = FxHasher::default();
     problem.to_ag_string().hash(&mut h);
@@ -372,6 +415,7 @@ pub(crate) fn search(
     problem: &Problem,
     verbose: bool,
     deadline: Option<Instant>,
+    sweep: bool,
 ) -> Option<(Option<AuxProof>, SearchStats)> {
     let t0 = Instant::now();
     let warm = guarded(|| WarmBase::with_slots(problem, MAX_POINTS)).flatten()?;
@@ -418,7 +462,7 @@ pub(crate) fn search(
     }
 
     let found1 = (0..size).into_par_iter().find_first(|&i| {
-        if past(deadline) {
+        if !sweep || past(deadline) {
             return false;
         }
         s.runs.fetch_add(1, Ordering::Relaxed);

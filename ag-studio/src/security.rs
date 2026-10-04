@@ -1014,9 +1014,8 @@ fn ct_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
 /// Apply process-wide, server-safe resource limits (idempotent; only sets what
 /// the operator has not already chosen). Call once at startup, before solving.
 pub fn apply_process_limits() {
-    // Bound the default (non-`best`) solve's auxiliary search so a crafted
-    // problem cannot peg the CPU indefinitely (the `best` search is already
-    // wall-clock bounded).
+    // Run caps of the legacy aux search (the fallback when the rollout search
+    // cannot close the base figure); every solve is also wall-clock bounded.
     if std::env::var_os("AUX_MAX_RUNS").is_none() {
         std::env::set_var("AUX_MAX_RUNS", "200000");
     }
