@@ -1497,6 +1497,14 @@ mod tests {
     }
 
     #[test]
+    fn the_butterfly_theorem_needs_and_gets_an_auxiliary_point() {
+        let sol = solve_within(BUTTERFLY, &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert_eq!(sol.method, Method::AuxSearch);
+        assert!(!sol.aux_constructions.is_empty());
+    }
+
+    #[test]
     fn the_default_and_best_solves_run_the_corpus_search() {
         let sol = solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
         assert!(sol.proved, "{}", sol.note);

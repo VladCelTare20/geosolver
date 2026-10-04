@@ -75,7 +75,7 @@ fn en(key: &str) -> &'static str {
         "err.too_long" => "The input is too long. Shorten it and try again.",
         "err.too_large" => "This program is longer than the server accepts. Shorten it, or use fewer points.",
         "server.busy" => "Every solver slot is in use. Try again in a moment.",
-        "server.busy_self" => "Your earlier solves are still finishing (a cancelled solve keeps running until its time limit). Try again in a moment.",
+        "server.busy_self" => "You already have as many solves running as one account may. Wait for one to finish, then try again.",
         "rate.exceeded" => "Too many requests in a short time. Wait a minute, then try again.",
         "origin.refused" => "This request came from another site and was refused.",
         // translate (structured)
@@ -230,7 +230,7 @@ fn ro(key: &str) -> &'static str {
         "err.too_long" => "Textul introdus este prea lung. Scurtează-l și încearcă din nou.",
         "err.too_large" => "Programul este mai lung decât acceptă serverul. Scurtează-l sau folosește mai puține puncte.",
         "server.busy" => "Toate locurile de rezolvare sunt ocupate. Încearcă din nou în câteva momente.",
-        "server.busy_self" => "Rezolvările tale anterioare încă se încheie (o rezolvare anulată continuă până la limita de timp). Încearcă din nou în câteva momente.",
+        "server.busy_self" => "Ai deja în curs câte rezolvări poate avea un cont. Așteaptă să se termine una, apoi încearcă din nou.",
         "rate.exceeded" => "Prea multe cereri într-un timp scurt. Așteaptă un minut, apoi încearcă din nou.",
         "origin.refused" => "Cererea a venit de pe alt site și a fost refuzată.",
         // translate (structured)
