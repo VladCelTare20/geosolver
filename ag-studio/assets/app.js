@@ -145,7 +145,7 @@
       paintAiPill();
       paintGates();
       paintEffortHint();
-      if (attempt === 0) firstModeChoice();
+      firstModeChoice();
       if (r.data.translate_checking && attempt < 20) setTimeout(function () { loadStatus(attempt + 1); }, 1500);
       if (attempt === 0 && r.data.signed_in) {
         loadHistory();
@@ -180,7 +180,7 @@
     if (st && !st.translate_checking) {
       if (st.can_translate) { cls = "on"; key = "ai.on"; tip = t("ai.tip.on"); }
       else if (st.translate_block === "sign_in") { cls = "off"; key = "ai.signin"; tip = t("ai.reason.sign_in"); }
-      else { cls = "off"; key = "ai.off"; tip = t("ai.reason." + (st.translate_block || "disabled")); }
+      else { cls = "off"; key = aiOffKey(st.translate_block); tip = t("ai.reason." + (st.translate_block || "disabled")); }
     }
     ["ai-pill", "ai-pill-m"].forEach(function (id) {
       var pill = $(id), txt = pill.querySelector(".pill-text");
@@ -189,6 +189,11 @@
       txt.setAttribute("data-i18n", key);
       pill.title = tip;
     });
+  }
+
+  function aiOffKey(block) {
+    if (block === "sign_in") return "ai.signin";
+    return block === "not_installed" || block === "not_logged_in" ? "ai.unset" : "ai.off";
   }
 
   function aiBlock() {
@@ -210,7 +215,7 @@
     ["tab-describe", "tab-photo"].forEach(function (id) {
       var tab = $(id), m = tab.querySelector(".tab-ai");
       if (!m) { m = document.createElement("span"); m.className = "tab-ai"; tab.appendChild(m); }
-      m.innerHTML = off ? '<span class="tab-ai-dot" aria-hidden="true"></span><span class="sr-only">' + esc(t(block === "sign_in" ? "ai.signin" : "ai.off")) + "</span>" : "";
+      m.innerHTML = off ? '<span class="tab-ai-dot" aria-hidden="true"></span><span class="sr-only">' + esc(t(aiOffKey(block))) + "</span>" : "";
       m.hidden = !off;
     });
     document.querySelectorAll("[data-gate]").forEach(function (g) {
@@ -228,9 +233,10 @@
 
   // ------------------------------------------------------------------ tabs --
   var MODES = ["describe", "photo", "geo"];
-  function setMode(m, focus) {
+  function setMode(m, focus, picked) {
     S.mode = m;
-    store.set("gs.mode", m);
+    if (picked !== "boot") S.modePicked = true;
+    if (picked === true) store.set("gs.mode", m);
     MODES.forEach(function (x) {
       var tab = $("tab-" + x), on = x === m;
       tab.setAttribute("aria-selected", on ? "true" : "false");
@@ -242,21 +248,25 @@
     if (m === "geo") editor.refresh();
   }
   function firstModeChoice() {
-    var saved = store.get("gs.mode");
+    if (S.modePicked || aiBlock() === "checking") return;
+    S.modePicked = true;
+    var a = document.activeElement;
+    if (a && a !== document.body && a.closest && a.closest("#composer")) return;
     if (aiBlock()) { setMode("geo"); return; }
-    if (MODES.indexOf(saved) >= 0) setMode(saved);
+    var saved = store.get("gs.mode");
+    setMode(MODES.indexOf(saved) >= 0 ? saved : "describe");
   }
   function wireTabs() {
     MODES.forEach(function (m, i) {
       var tab = $("tab-" + m);
-      tab.addEventListener("click", function () { setMode(m); });
+      tab.addEventListener("click", function () { setMode(m, false, true); });
       tab.addEventListener("keydown", function (e) {
         var j = null;
         if (e.key === "ArrowRight") j = (i + 1) % MODES.length;
         else if (e.key === "ArrowLeft") j = (i + MODES.length - 1) % MODES.length;
         else if (e.key === "Home") j = 0;
         else if (e.key === "End") j = MODES.length - 1;
-        if (j != null) { e.preventDefault(); setMode(MODES[j], true); }
+        if (j != null) { e.preventDefault(); setMode(MODES[j], true, true); }
       });
     });
     document.addEventListener("click", function (e) {
@@ -1997,7 +2007,7 @@
     $("hl").tabIndex = -1;
     var dd = store.get("gs.draft.describe");
     if (dd) d.value = dd;
-    setMode("geo");
+    setMode("geo", false, "boot");
     show("state-empty");
     GS.initTheme();
   }

@@ -51,6 +51,10 @@ try {
       const vw = () => page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
       let [sw, iw] = await vw();
       check(sw <= iw, `${tag}: page fits (${sw} <= ${iw})`);
+      const first = await page.evaluate(() => document.querySelector('#tabs [aria-selected=true]').id);
+      const ai = await page.evaluate(() => document.getElementById('ai-pill').classList.contains('on'));
+      check(first === (ai ? 'tab-describe' : 'tab-geo'), `${tag}: opens on ${first} (AI ${ai ? 'on' : 'off'})`);
+      await page.tap('#tab-geo');
       await page.tap('#syntax-btn');
       await page.waitForTimeout(200);
       [sw, iw] = await vw();

@@ -416,7 +416,10 @@ async fn font_asset(axum::extract::Path(file): axum::extract::Path<String>) -> R
 }
 
 /// The login/register page (public — its own JS calls the `/api/auth/*` routes).
-async fn auth_page() -> Response {
+async fn auth_page(State(state): State<Shared>, headers: HeaderMap) -> Response {
+    if session_user(&state, &headers).await.is_some() {
+        return Redirect::to("/app").into_response();
+    }
     page(auth_html())
 }
 
@@ -1996,6 +1999,18 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         assert!(std::str::from_utf8(&bytes).unwrap().contains("Create account"));
+    }
+
+    #[tokio::test]
+    async fn auth_page_sends_a_signed_in_user_to_the_app() {
+        let (state, _dir) = test_state();
+        let sid = register_cookie(&state, "already-in").await;
+        let (status, headers, _) = get_page(&state, "/auth", Some(&sid)).await;
+        assert!(status.is_redirection(), "{status}");
+        assert_eq!(headers[header::LOCATION], "/app");
+        let (status, _, body) = get_page(&state, "/auth?mode=register", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Create account"));
     }
 
     /// Drive a cookie-less/bodyless GET through the full router.

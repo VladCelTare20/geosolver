@@ -253,11 +253,11 @@ fn render(lang: Lang, next: &str, ask_user: bool, problem: Option<Problem>) -> S
         .replace("{{submit}}", &t("gate.submit"))
         .replace("{{remember}}", &t("gate.remember"))
         .replace("{{lang_label}}", &t("gate.lang"))
-        .replace("{{next}}", &html_escape(next))
         .replace("{{username}}", &username)
         .replace("{{pw_attrs}}", &pw_attrs)
         .replace("{{error}}", &error)
         .replace("{{lang_links}}", &links.join("\n      "))
+        .replace("{{next}}", &html_escape(next))
 }
 
 fn page_response(status: StatusCode, html: String) -> Response {
@@ -423,6 +423,14 @@ mod tests {
         let html = render(Lang::En, "/app?a=\"><script>x</script>", false, Some(Problem::Wrong));
         assert!(!html.contains("<script"), "next must be escaped");
         assert!(!html.contains("{{"), "every placeholder is filled");
+        for placeholder in ["{{username}}", "{{pw_attrs}}", "{{error}}", "{{lang_links}}", "{{title}}"] {
+            let next = format!("/x{placeholder}");
+            let page = render(Lang::En, &next, false, Some(Problem::Wrong));
+            let hidden = format!("name=\"next\" value=\"{next}\">");
+            assert!(page.contains(&hidden), "{placeholder} in next stays literal");
+            assert_eq!(page.matches("name=\"username\"").count(), 1, "{placeholder}");
+            assert_eq!(page.matches("aria-invalid").count(), 1, "{placeholder}");
+        }
         assert!(html.contains("aria-invalid=\"true\""));
         assert!(html.contains("role=\"alert\""));
         assert!(html.contains(i18n::t(Lang::En, "gate.wrong")));

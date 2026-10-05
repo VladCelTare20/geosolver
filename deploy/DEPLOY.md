@@ -173,6 +173,15 @@ the service environment), and restart. `/api/status` then reports
 `"can_translate": true` for guests (with guest mode and `AGSTUDIO_GUEST_AI`
 on) and for signed-in users.
 
+For a headless service the token route is the practical one: run
+`claude setup-token` once on a machine with a browser (it prints a long-lived
+`sk-ant-oat…` subscription token), put `CLAUDE_CODE_OAUTH_TOKEN=<token>` in an
+environment file only the service reads, and restart. Until a token or a login
+exists, the startup log says `AI translation: installed — run claude auth login
+to enable`, `/api/status` reports `translate_block: "not_logged_in"`, and the
+app's pill reads "AI not set up yet" (not "off", which means
+`AGSTUDIO_DISABLE_TRANSLATE`).
+
 ## Mobile / LAN access
 
 The UI is responsive and touch-friendly. To use it from a phone on your LAN
