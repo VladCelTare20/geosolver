@@ -310,12 +310,37 @@ impl<'c, 'a> Checker<'c, 'a> {
             }
             Reason::Atom { key, args, .. } => check_rows(t, *key, args),
             Reason::Engine { fact } => Some(rows_of_fact(t, *fact)),
+            Reason::Lemma { stmt, .. } => Some(stmt_targets(t, stmt)?.into_iter().map(|(tb, row)| (tb, exact(t, tb, row))).collect()),
         }
     }
 
-    fn reason_ok(&mut self, blocks: &[Block], cur: u16, h: FactId, r: &Reason) -> Result<(), String> {
+    fn establishes(&self, s: &Sentence, st: &Stmt) -> bool {
+        let t = self.cx.t;
+        match s {
+            Sentence::Chain { terms, directed, then: None, .. } => {
+                let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
+                let (Some((tb, a)), Some((_, b)), Some((_, x)), Some((_, y))) = (eval(t, &terms[0]), eval(t, terms.last().unwrap()), eval(t, lhs), eval(t, rhs)) else { return false };
+                let directed = *directed && is_directed(&terms[0]) && is_directed(terms.last().unwrap());
+                self.residual_ok(tb, &(&a - &b), &(&x - &y), directed)
+            }
+            Sentence::Because { stmt, .. } => stmt == st,
+            _ => false,
+        }
+    }
+
+    fn reason_ok(&mut self, blocks: &[Block], cur: u16, sidx: usize, h: FactId, r: &Reason) -> Result<(), String> {
         let cx = self.cx;
         match r {
+            Reason::Lemma { stmt, block, sentence } => {
+                if *block > cur || (*block == cur && *sentence as usize >= sidx) {
+                    return Err(format!("lemma reason cites block {block} sentence {sentence} from block {cur} sentence {sidx}"));
+                }
+                let b = blocks.iter().find(|b| b.id == *block).ok_or("lemma reason cites a missing block")?;
+                let s = b.body.get(*sentence as usize).ok_or("lemma reason cites a missing sentence")?;
+                if !self.establishes(s, stmt) {
+                    return Err("lemma reason cites a sentence that does not establish it".into());
+                }
+            }
             Reason::Hyp { fact, .. } => {
                 if !matches!(cx.class.get(*fact as usize), Some(FactClass::Hyp)) || !cx.in_cl[*fact as usize] {
                     return Err(format!("hyp reason {fact} is not a hypothesis of the proof"));
@@ -351,7 +376,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                     }
                 }
                 for x in because {
-                    self.reason_ok(blocks, cur, h, x)?;
+                    self.reason_ok(blocks, cur, sidx, h, x)?;
                 }
             }
             Reason::Atom { key, args, from, .. } => {
@@ -427,7 +452,7 @@ impl<'c, 'a> Checker<'c, 'a> {
         Ok(())
     }
 
-    fn sentence_ok(&mut self, blocks: &[Block], cur: u16, h: FactId, s: &Sentence, start: Option<(&Expr, &Expr)>) -> Result<(), String> {
+    fn sentence_ok(&mut self, blocks: &[Block], cur: u16, sidx: usize, h: FactId, s: &Sentence, start: Option<(&Expr, &Expr)>) -> Result<(), String> {
         let t = self.cx.t;
         match s {
             Sentence::Chain { terms, links, directed, then } => {
@@ -436,7 +461,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                 }
                 for (k, l) in links.iter().enumerate() {
                     for r in &l.reasons {
-                        self.reason_ok(blocks, cur, h, r)?;
+                        self.reason_ok(blocks, cur, sidx, h, r)?;
                     }
                     let d = *directed && is_directed(&terms[k]) && is_directed(&terms[k + 1]);
                     self.link_ok(blocks, h, &terms[k], &terms[k + 1], l, d)?;
@@ -478,7 +503,7 @@ impl<'c, 'a> Checker<'c, 'a> {
             }
             Sentence::Pooled { stmt, reasons, combination } | Sentence::Because { stmt, reasons, combination } => {
                 for r in reasons {
-                    self.reason_ok(blocks, cur, h, r)?;
+                    self.reason_ok(blocks, cur, sidx, h, r)?;
                 }
                 if !combination.is_empty() {
                     let targets = conclusion_forms(t, stmt).ok_or("pooled statement has no algebraic form")?;
@@ -496,14 +521,14 @@ impl<'c, 'a> Checker<'c, 'a> {
                 }
                 for (k, l) in links.iter().enumerate() {
                     for r in &l.reasons {
-                        self.reason_ok(blocks, cur, h, r)?;
+                        self.reason_ok(blocks, cur, sidx, h, r)?;
                     }
                     self.link_ok(blocks, h, &terms[k], &terms[k + 1], l, true)?;
                 }
             }
             Sentence::Theorem { reasons, .. } => {
                 for r in reasons {
-                    self.reason_ok(blocks, cur, h, r)?;
+                    self.reason_ok(blocks, cur, sidx, h, r)?;
                 }
             }
             Sentence::Raw { engine_fact, .. } => {
@@ -587,7 +612,7 @@ pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
         }
         let h = if b.kind == BlockKind::Conclusion { b.horizon.max(cx.closure.last().map(|x| x + 1).unwrap_or(0)) } else { b.horizon };
         let mut prev: Option<(Expr, Expr)> = None;
-        for s in &b.body {
+        for (sidx, s) in b.body.iter().enumerate() {
             let joins = |terms: &Vec<Expr>| -> bool {
                 let Some(p) = prev.as_ref() else { return false };
                 if same_angle(Some(&p.1), terms.first()) {
@@ -605,7 +630,7 @@ pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
                 Sentence::Chain { terms, .. } if joins(terms) => prev.as_ref().map(|p| (&p.0, &p.1)),
                 _ => None,
             };
-            if let Err(e) = ch.sentence_ok(&blocks, b.id, h, s, st) {
+            if let Err(e) = ch.sentence_ok(&blocks, b.id, sidx, h, s, st) {
                 out.push(Violation { block: b.id, rule: "I2", detail: e });
             }
             prev = match s {

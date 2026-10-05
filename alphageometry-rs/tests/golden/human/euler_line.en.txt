@@ -6,4 +6,4 @@ Claim 1. △AHB ∼ △MON.
 Proof. ∡HAB = ∡(AH, MN) = ∡OMN (midline MN ∥ BA; AH ∥ OM, both ⟂ BC). ∡ABH = ∡(MN, BH) = ∡MNO (midline MN ∥ BA; BH ∥ ON, both ⟂ AC). Hence △AHB ∼ △MON.
 Claim 2. △ABG ∼ △MNG.
 Proof. ∡BAG = ∡NMG (midline MN ∥ BA). Hence △ABG ∼ △MNG.
-∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). From Claim 1 and Claim 2, AH : AG = MO : MG. Hence △AHG ∼ △MOG. ∡OGH = ∡(OM, AH) = ∡OMB + 90° = 0° (△AHG ∼ △MOG; AH ⟂ BC; OM is the perpendicular bisector of BC), so O, G, H are collinear. ∎
+∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). As drawn, AH / AG = AB·OM / (AG·MN) = MO / MG (Claim 1; Claim 2). Hence △AHG ∼ △MOG. ∡OGH = ∡(OM, AH) = ∡OMB + 90° = 0° (△AHG ∼ △MOG; AH ⟂ BC; OM is the perpendicular bisector of BC), so O, G, H are collinear. ∎

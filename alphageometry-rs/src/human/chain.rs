@@ -11,11 +11,13 @@ use rustc_hash::FxHashMap;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
+pub type Group = Vec<(usize, Rat)>;
+
 #[derive(Clone, Debug)]
 pub struct Path {
     pub split: usize,
     pub nodes: Vec<LinComb>,
-    pub links: Vec<(usize, Rat)>,
+    pub links: Vec<Group>,
     pub weight: i64,
 }
 
@@ -181,10 +183,10 @@ pub fn bfs(
         }
         if let Some(end) = found {
             let mut seq: Vec<usize> = vec![end];
-            let mut links: Vec<(usize, Rat)> = Vec::new();
+            let mut links: Vec<Group> = Vec::new();
             let mut cur = end;
             while let Some((p, i, lam)) = prev[cur].clone() {
-                links.push((i, lam));
+                links.push(vec![(i, lam)]);
                 seq.push(p);
                 cur = p;
             }
@@ -241,6 +243,350 @@ pub fn dfs_order(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items: &[(usi
     let mut used = vec![false; items.len()];
     let mut order = Vec::new();
     go(l, items, &mut used, &mut order, r, &single, budget).then_some(order)
+}
+
+pub type Term2 = (Rat, VarId, VarId);
+
+fn small_coef(k: &Rat) -> bool {
+    let a = k.abs();
+    a.is_one() || a == Rat::from_int(2) || a == Rat::new(1, 2)
+}
+
+fn term_of(c: &(VarId, Rat), other: VarId) -> Term2 {
+    if c.1.is_negative() {
+        (-&c.1, other, c.0)
+    } else {
+        (c.1.clone(), c.0, other)
+    }
+}
+
+pub fn decomps(c: &LinComb) -> Vec<Vec<Term2>> {
+    if c.terms.iter().any(|(v, _)| *v != ANGLE_UNIT && *v < QBASE) {
+        return Vec::new();
+    }
+    let cl = classes(c);
+    let sum: Rat = cl.iter().fold(Rat::zero(), |s, x| &s + &x.1);
+    if !sum.is_zero() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    match cl.len() {
+        0 => out.push(Vec::new()),
+        2 => {
+            let k = cl[0].1.abs();
+            if k.is_one() || k == Rat::from_int(2) || k == Rat::new(1, 2) {
+                out.push(vec![term_of(&cl[0], cl[1].0)]);
+            }
+        }
+        3 => {
+            for s in 0..3 {
+                let o: Vec<usize> = (0..3).filter(|&x| x != s).collect();
+                let (i, j) = (o[0], o[1]);
+                if small_coef(&cl[i].1) && small_coef(&cl[j].1) {
+                    out.push(vec![term_of(&cl[i], cl[s].0), term_of(&cl[j], cl[s].0)]);
+                }
+            }
+        }
+        4 => {
+            for (a, b, c2, d) in [(0, 1, 2, 3), (0, 2, 1, 3), (0, 3, 1, 2)] {
+                if (&cl[a].1 + &cl[b].1).is_zero() && (&cl[c2].1 + &cl[d].1).is_zero() && small_coef(&cl[a].1) && small_coef(&cl[c2].1) {
+                    out.push(vec![term_of(&cl[a], cl[b].0), term_of(&cl[c2], cl[d].0)]);
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+pub fn term_comb(t: &Term2) -> LinComb {
+    let mut c = LinComb::singleton(t.1, t.0.clone());
+    c.add_term(t.2, -&t.0);
+    c
+}
+
+pub fn angle_shape(c: &LinComb) -> Option<i64> {
+    let d = decomps(c);
+    let best = d.iter().map(|ts| ts.len()).min()?;
+    Some(match best {
+        0 => 0,
+        1 => {
+            let k = d.iter().find(|ts| ts.len() == 1).map(|ts| ts[0].0.clone()).unwrap_or_else(Rat::one);
+            if k.is_one() {
+                0
+            } else {
+                3
+            }
+        }
+        _ => 9,
+    })
+}
+
+pub fn named_pair(cx: &Ctx, a: VarId, b: VarId) -> bool {
+    let (Some(m1), Some(m2)) = (cx.quot.members.get((a - QBASE) as usize), cx.quot.members.get((b - QBASE) as usize)) else { return false };
+    m1.iter().any(|p| m2.contains(p))
+}
+
+pub fn angle_cost(cx: &Ctx, c: &LinComb) -> Option<i64> {
+    decomps(c)
+        .iter()
+        .map(|ts| {
+            let mut s: i64 = if ts.len() == 2 { 9 } else { 0 };
+            for t in ts {
+                if !named_pair(cx, t.1, t.2) {
+                    s += 6;
+                }
+                if !t.0.is_one() {
+                    s += 3;
+                }
+            }
+            s
+        })
+        .min()
+}
+
+pub fn ratio_shape(cx: &Ctx, c: &LinComb) -> Option<i64> {
+    let lhs: Vec<&(VarId, Rat)> = c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).collect();
+    if !lhs.iter().all(|(_, k)| k.abs() == Rat::one()) {
+        return None;
+    }
+    match lhs.len() {
+        0..=2 => Some(0),
+        3 | 4 => Some(9),
+        _ => None,
+    }
+}
+
+pub fn ratio_splits(cx: &Ctx, s: &LinComb) -> Vec<(LinComb, LinComb)> {
+    let piv = |v: VarId| cx.piv[1].get(v as usize).copied().unwrap_or(true);
+    let p: Vec<(VarId, Rat)> = s.terms.iter().filter(|(v, _)| piv(*v)).cloned().collect();
+    if p.is_empty() || p.len() > 4 || p.iter().any(|(_, k)| !k.abs().is_one()) {
+        return Vec::new();
+    }
+    let part = |idx: &[usize]| -> LinComb {
+        let mut c = LinComb::zero();
+        for &i in idx {
+            c.add_term(p[i].0, p[i].1.clone());
+        }
+        c
+    };
+    let mut starts: Vec<LinComb> = Vec::new();
+    match p.len() {
+        1 => {}
+        2 => {
+            let i = if p[0].1.is_negative() { 1 } else { 0 };
+            starts.push(part(&[i]));
+        }
+        3 => {
+            for i in 0..3 {
+                let o: Vec<usize> = (0..3).filter(|&j| j != i).collect();
+                starts.push(part(&o));
+            }
+        }
+        _ => {
+            for (a, b) in [(0, 1), (0, 2), (0, 3)] {
+                starts.push(part(&[a, b]));
+            }
+        }
+    }
+    starts.into_iter().map(|a| {
+        let end = LinComb::combine(&a, s, &Rat::from_int(-1));
+        (a, end)
+    }).collect()
+}
+
+pub fn order_items(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items: &[(usize, Rat, LinComb)], budget: &mut usize, cap: usize) -> Option<(Vec<Vec<usize>>, i64)> {
+    order_items_mode(cx, table, l, r, items, budget, cap, false)
+}
+
+pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items: &[(usize, Rat, LinComb)], budget: &mut usize, cap: usize, halves: bool) -> Option<(Vec<Vec<usize>>, i64)> {
+    let n = items.len();
+    if n == 0 || n > 24 {
+        return None;
+    }
+    let integral_of = |c: &LinComb| c.terms.iter().all(|(v, k)| *v < QBASE || k.is_integer());
+    let integral = !halves && table == Table::Angle && integral_of(l) && integral_of(r);
+    let shape = |c: &LinComb| -> Option<i64> {
+        if table == Table::Angle {
+            if integral && !integral_of(c) {
+                return None;
+            }
+            if halves {
+                let named = decomps(c).iter().any(|ts| ts.iter().all(|t| named_pair(cx, t.1, t.2)));
+                if !named {
+                    return None;
+                }
+                return angle_cost(cx, c).map(|k| k + if integral_of(c) { 0 } else { 6 });
+            }
+            angle_cost(cx, c)
+        } else {
+            ratio_shape(cx, c)
+        }
+    };
+    if shape(l).is_none() {
+        return None;
+    }
+    let half: Vec<usize> = (0..n).filter(|&k| !items[k].1.is_integer()).collect();
+    let full: u32 = if n == 32 { u32::MAX } else { (1u32 << n) - 1 };
+    struct St {
+        mask: u32,
+        node: LinComb,
+        g: i64,
+        prev: Option<(usize, Vec<usize>)>,
+    }
+    let mut states: Vec<St> = vec![St { mask: 0, node: l.clone(), g: 0, prev: None }];
+    let mut index: FxHashMap<u32, usize> = FxHashMap::default();
+    index.insert(0, 0);
+    let mut done: Vec<bool> = vec![false];
+    let mut heap: BinaryHeap<Reverse<(i64, usize)>> = BinaryHeap::new();
+    heap.push(Reverse((10 * n as i64, 0)));
+    let push = |states: &mut Vec<St>, done: &mut Vec<bool>, index: &mut FxHashMap<u32, usize>, heap: &mut BinaryHeap<Reverse<(i64, usize)>>, mask: u32, node: LinComb, g: i64, prev: (usize, Vec<usize>)| {
+        let rem = (full & !mask).count_ones() as i64;
+        match index.get(&mask) {
+            Some(&k) => {
+                if g < states[k].g && !done[k] {
+                    states[k].g = g;
+                    states[k].node = node;
+                    states[k].prev = Some(prev);
+                    heap.push(Reverse((g + 10 * rem, k)));
+                }
+            }
+            None => {
+                let k = states.len();
+                states.push(St { mask, node, g, prev: Some(prev) });
+                done.push(false);
+                index.insert(mask, k);
+                heap.push(Reverse((g + 10 * rem, k)));
+            }
+        }
+    };
+    let mut found: Option<usize> = None;
+    let mut spent = 0usize;
+    while let Some(Reverse((_, u))) = heap.pop() {
+        if done[u] {
+            continue;
+        }
+        done[u] = true;
+        if states[u].mask == full {
+            found = Some(u);
+            break;
+        }
+        if *budget == 0 || spent >= cap || cx.timed_out() {
+            return None;
+        }
+        *budget -= 1;
+        spent += 1;
+        let (mask, node, g) = (states[u].mask, states[u].node.clone(), states[u].g);
+        for k in 0..n {
+            if mask & (1 << k) != 0 {
+                continue;
+            }
+            let nx = LinComb::combine(&node, &items[k].2, &-&items[k].1);
+            let m2 = mask | (1 << k);
+            if m2 == full {
+                if nx == *r {
+                    push(&mut states, &mut done, &mut index, &mut heap, m2, nx, g + 10, (u, vec![k]));
+                }
+                continue;
+            }
+            if let Some(c) = shape(&nx) {
+                push(&mut states, &mut done, &mut index, &mut heap, m2, nx, g + 10 + c, (u, vec![k]));
+                continue;
+            }
+            for k2 in 0..n {
+                if m2 & (1 << k2) != 0 {
+                    continue;
+                }
+                let nx2 = LinComb::combine(&nx, &items[k2].2, &-&items[k2].1);
+                let m3 = m2 | (1 << k2);
+                let c = if m3 == full {
+                    (nx2 == *r).then_some(0)
+                } else {
+                    shape(&nx2)
+                };
+                if let Some(c) = c {
+                    push(&mut states, &mut done, &mut index, &mut heap, m3, nx2, g + 30 + c, (u, vec![k, k2]));
+                    continue;
+                }
+                if !half.contains(&k) || !half.contains(&k2) || k2 < k {
+                    continue;
+                }
+                for &k3 in &half {
+                    if k3 <= k2 || m3 & (1 << k3) != 0 {
+                        continue;
+                    }
+                    let nx3 = LinComb::combine(&nx2, &items[k3].2, &-&items[k3].1);
+                    let m4 = m3 | (1 << k3);
+                    let c = if m4 == full { (nx3 == *r).then_some(0) } else { shape(&nx3) };
+                    if let Some(c) = c {
+                        push(&mut states, &mut done, &mut index, &mut heap, m4, nx3, g + 45 + c, (u, vec![k, k2, k3]));
+                    }
+                }
+            }
+        }
+    }
+    let end = found?;
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut cur = end;
+    while let Some((p, grp)) = states[cur].prev.clone() {
+        groups.push(grp);
+        cur = p;
+    }
+    groups.reverse();
+    Some((groups, states[end].g))
+}
+
+pub fn display_node(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
+    if single_angle(node).is_some() {
+        return angle_expr(cx, node, directed, near, focus);
+    }
+    let mut best: Option<(i64, Expr)> = None;
+    for ts in decomps(node) {
+        if ts.len() != 2 {
+            continue;
+        }
+        let mut terms: Vec<(Rat, Expr)> = Vec::new();
+        let mut ok = true;
+        for t in &ts {
+            match angle_expr(cx, &term_comb(t), directed, near, focus) {
+                Some(Expr::Lin { terms: tt }) => terms.extend(tt.into_iter().filter(|(_, x)| !matches!(x, Expr::Const { .. }))),
+                Some(e) => terms.push((Rat::one(), e)),
+                None => ok = false,
+            }
+        }
+        if !ok {
+            continue;
+        }
+        let Some(e) = with_const(cx, terms, node, directed) else { continue };
+        let bad = expr_badness(&e);
+        if best.as_ref().is_none_or(|b| bad < b.0) {
+            best = Some((bad, e));
+        }
+    }
+    best.map(|b| b.1)
+}
+
+fn with_const(cx: &Ctx, mut terms: Vec<(Rat, Expr)>, node: &LinComb, directed: bool) -> Option<Expr> {
+    let (_, raw) = super::expr::eval(cx.t, &Expr::Lin { terms: terms.clone() })?;
+    let rest = LinComb::combine(node, &cx.quot.q(&raw), &Rat::from_int(-1));
+    if rest.terms.iter().any(|(v, _)| *v != ANGLE_UNIT) {
+        return None;
+    }
+    let c = if directed { rest.get(ANGLE_UNIT).mod_one() } else { rest.get(ANGLE_UNIT) };
+    terms.sort_by_key(|(k, _)| k.is_negative());
+    if !c.is_zero() {
+        terms.push((Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
+    }
+    Some(Expr::Lin { terms })
+}
+
+pub fn expr_badness(e: &Expr) -> i64 {
+    match e {
+        Expr::LineAngle { .. } => 4,
+        Expr::Angle { .. } => 0,
+        Expr::Lin { terms } => terms.iter().map(|(k, x)| expr_badness(x) + if k.is_negative() { 1 } else { 0 }).sum(),
+        _ => 0,
+    }
 }
 
 pub struct Hints {

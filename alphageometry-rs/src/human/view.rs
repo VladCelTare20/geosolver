@@ -87,6 +87,15 @@ pub fn reason(nm: &Namer, r: &Reason) -> Value {
             v
         }
         Reason::Engine { fact } => json!({"kind": "engine", "step": (nm.step)(*fact)}),
+        Reason::Lemma { stmt: s, block, sentence } => {
+            let mut v = stmt(nm, s);
+            v["step"] = Value::Null;
+            v["block"] = json!(block);
+            v["because"] = json!([]);
+            v["lemma"] = json!(true);
+            v["sentence"] = json!(sentence);
+            v
+        }
     }
 }
 

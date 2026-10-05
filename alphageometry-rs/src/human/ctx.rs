@@ -91,6 +91,16 @@ pub struct Ctx<'a> {
     src_memo: RefCell<FxHashMap<FactId, BTreeSet<FactId>>>,
 }
 
+pub fn transfer_add_row(t: &EngineTrace, f: FactId) -> Option<LinComb> {
+    let Reason::TransferAddMul(a, b) = &t.facts[f as usize].reason else { return None };
+    let ratio = t.dist(b.0, b.1) / t.dist(a.0, a.1).max(1e-300);
+    let k = super::classify::small_rational(ratio)?;
+    let mut kx = t.single(Table::Add, a.0, a.1)?;
+    let y = t.single(Table::Add, b.0, b.1)?;
+    kx.mul_assign_scalar(&k);
+    Some(&y - &kx)
+}
+
 fn registration_of(t: &EngineTrace, f: FactId) -> Option<FactId> {
     let fact = &t.facts[f as usize];
     if !matches!(fact.reason, Reason::Collinear(_) | Reason::Concyclic(_)) {
@@ -154,6 +164,12 @@ impl<'a> Ctx<'a> {
         match &fact.reason {
             Reason::Assumption(_) | Reason::Construction(_) => return FactClass::Hyp,
             Reason::EqualRadius(..) | Reason::TransferAddMul(..) => return FactClass::Silent,
+            Reason::Concyclic(p) if {
+                let mut q = p.clone();
+                q.sort_unstable();
+                q.dedup();
+                q.len() < 4
+            } => return FactClass::Silent,
             Reason::SimilarTriangles(a, b) => {
                 let mut s1 = [a.0, a.1, a.2];
                 let mut s2 = [b.0, b.1, b.2];
@@ -265,10 +281,30 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        let mut hb = Basis::new(&self.piv[1], false);
-        for (i, r) in hyp_rows[1].iter().enumerate() {
-            hb.insert(i as u32, r);
+        let mut hbs: Vec<Basis> = Table::ALL.iter().map(|tb| Basis::new(&self.piv[tb.idx()], false)).collect();
+        for tb in Table::ALL {
+            for (i, r) in hyp_rows[tb.idx()].iter().enumerate() {
+                hbs[tb.idx()].insert(i as u32, r);
+            }
         }
+        for &f in &self.closure.clone() {
+            if self.class[f as usize] != FactClass::Derived || !matches!(t.facts[f as usize].reason, Reason::TransferAddMul(..)) {
+                continue;
+            }
+            let mut any = false;
+            let mut all = true;
+            for tb in Table::ALL {
+                for r in t.rows_of(tb, f) {
+                    any = true;
+                    all &= hbs[tb.idx()].contains(r);
+                }
+            }
+            let additive = transfer_add_row(t, f).is_some_and(|row| hbs[Table::Add.idx()].contains(&row));
+            if (any && all) || additive {
+                self.class[f as usize] = FactClass::SilentHyp;
+            }
+        }
+        let hb = &hbs[1];
         if std::env::var_os("HP_DEBUG").is_some() {
             for &f in &self.closure {
                 eprintln!("fact {f} class {:?} premises {:?} reason {:?}", self.class[f as usize], t.facts[f as usize].premises, t.facts[f as usize].reason);
@@ -341,6 +377,14 @@ impl<'a> Ctx<'a> {
             FactClass::Hyp | FactClass::HypReg | FactClass::SilentHyp | FactClass::Outside => BTreeSet::new(),
             FactClass::Derived => [f].into_iter().collect(),
             FactClass::TheoremReg(g) | FactClass::MergeReg(g) => [g].into_iter().collect(),
+            FactClass::Silent if transfer_add_row(self.t, f).and_then(|row| self.support_facts(Table::Add, &row, f)).is_some() => {
+                let row = transfer_add_row(self.t, f).unwrap();
+                let mut s = BTreeSet::new();
+                for g in self.support_facts(Table::Add, &row, f).unwrap_or_default() {
+                    s.extend(self.fact_sources(g));
+                }
+                s
+            }
             FactClass::Silent => {
                 let mut s = BTreeSet::new();
                 for tb in Table::ALL {

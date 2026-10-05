@@ -136,6 +136,9 @@ pub fn opposite(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, PointId
 
 pub fn fact_stmt(cx: &Ctx, f: FactId) -> Stmt {
     let t = cx.t;
+    if let Some((o, p)) = small_circle(cx, f) {
+        return Stmt::Cong { s1: (o, p[0]), s2: (o, p[1]) };
+    }
     match &t.facts[f as usize].reason {
         Reason::Concyclic(p) => Stmt::Cyclic { pts: p.clone() },
         Reason::Collinear(p) => Stmt::Coll { pts: p.clone() },
@@ -681,8 +684,39 @@ pub fn goal_obligations(cx: &Ctx, g: &Predicate) -> Vec<Obl> {
     out
 }
 
+pub fn small_circle(cx: &Ctx, f: FactId) -> Option<(PointId, Vec<PointId>)> {
+    let Reason::Concyclic(p) = &cx.t.facts[f as usize].reason else { return None };
+    let mut q = p.clone();
+    q.sort_unstable();
+    q.dedup();
+    if q.len() != 3 {
+        return None;
+    }
+    let t = cx.t;
+    let rows: Vec<&LinComb> = t.rows_of(Table::Ratio, f).collect();
+    (0..t.n as PointId).find(|&o| {
+        !q.contains(&o)
+            && q.iter().all(|&x| t.dm(o, x).is_some())
+            && rows.iter().any(|r| r.terms.iter().all(|(v, _)| q.iter().any(|&x| t.dm(o, x).is_some_and(|d| d.terms.iter().any(|(w, _)| w == v)))))
+    })
+    .map(|o| (o, p.clone()))
+}
+
+pub fn central_obligations(cx: &Ctx, o: PointId, q: &[PointId]) -> Vec<Obl> {
+    let mut forms = Vec::new();
+    for (x, y, z) in [(q[0], q[1], q[2]), (q[0], q[2], q[1]), (q[1], q[2], q[0])] {
+        let l = Expr::Angle { a: x, b: o, c: y, directed: true };
+        let r = Expr::Lin { terms: vec![(Rat::from_int(2), Expr::Angle { a: x, b: z, c: y, directed: true })] };
+        forms.extend(angle_target(cx, l.clone(), r.clone(), Stmt::Eq { lhs: l, rhs: r }));
+    }
+    with_alts(forms).map(|t| vec![Obl { label: "central", targets: vec![t], requires: vec![] }]).unwrap_or_default()
+}
+
 pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
     let t = cx.t;
+    if let Some((o, p)) = small_circle(cx, f) {
+        return Some(central_obligations(cx, o, &p));
+    }
     match &t.facts[f as usize].reason {
         Reason::Concyclic(p) => {
             let mut out = Vec::new();

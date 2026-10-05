@@ -287,6 +287,7 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
             }
         }
         Reason::Engine { fact } => format!("step {}", fact + 1),
+        Reason::Lemma { stmt: s, .. } => stmt(n, s),
     }
 }
 
@@ -558,6 +559,9 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
         }
         Sentence::Theorem { key, stmt: st, reasons } => {
             let rs: Vec<String> = reasons_text(n, reasons, claims);
+            if matches!(key, TheoremKey::PointMerge | TheoremKey::TangentMerge) && !matches!(st, Stmt::Formula { .. }) {
+                return if rs.is_empty() { format!("Hence {}.", stmt(n, st)) } else { format!("Hence {} ({}).", stmt(n, st), rs.join("; ")) };
+            }
             match (st, rs.is_empty()) {
                 (Stmt::Formula { .. }, true) => format!("Apply {}.", theorem_name(*key)),
                 (Stmt::Formula { .. }, false) => format!("Apply {} ({}).", theorem_name(*key), rs.join("; ")),

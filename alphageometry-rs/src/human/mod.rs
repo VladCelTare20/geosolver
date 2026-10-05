@@ -61,11 +61,21 @@ pub fn write(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxI
 }
 
 fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts) -> Option<HumanProof> {
+    let t0 = Instant::now();
+    let tick = |what: &str| {
+        if std::env::var_os("HP_TIME").is_some() {
+            eprintln!("time {what}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
+        }
+    };
     let cx = Ctx::new(trace, goal, deps, aux, opts.deadline);
+    tick("ctx");
     let mut w = Writer::new(&cx);
+    tick("atoms");
     w.first_pass();
+    tick("first pass");
     w.select();
     w.recertify_with_claims();
+    tick("recertify");
     w.select();
     if std::env::var_os("HP_DEBUG").is_some() {
         for (k, n) in &w.nodes {
@@ -79,11 +89,13 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     }
     let mut p = Presenter::new(&w);
     p.run();
+    tick("present");
     let blocks = p.blocks.clone();
     let as_drawn = p.as_drawn;
     let setup = setup_lines(&cx, &blocks);
     let mut hp = HumanProof { version: 1, available: true, setup, blocks, as_drawn, metrics: Metrics::default() };
     let violations = check::check(&cx, &mut hp, opts.strict);
+    tick("check");
     hp.metrics.check_violations = violations;
     if !hp.blocks.last().is_some_and(|b| b.kind == BlockKind::Conclusion) {
         let mut u = unavailable(cx.closure.len());

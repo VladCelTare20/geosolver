@@ -108,7 +108,10 @@ pub enum Reason {
     Atom { key: AtomKey, stmt: Stmt, args: Vec<PointId>, from: Vec<u16> },
     Fact { stmt: Stmt, fact: FactId, block: Option<u16>, because: Vec<Reason> },
     Engine { fact: FactId },
+    Lemma { stmt: Stmt, block: u16, sentence: u16 },
 }
+
+pub const PENDING_BLOCK: u16 = u16::MAX;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
