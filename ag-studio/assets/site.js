@@ -844,10 +844,10 @@
   function fmtSecs(x) {
     var n = window.i18n ? window.i18n.fmtNum : function (v) { return String(v); };
     if (x == null) return "";
-    if (x < 0.001) return "< 1 ms";
-    if (x < 1) return n(Math.round(x * 1000)) + " ms";
-    if (x < 10) return n(x, 1) + " s";
-    return n(Math.round(x)) + " s";
+    if (x < 0.001) return "< 1\u00a0ms";
+    if (x < 1) return n(Math.round(x * 1000)) + "\u00a0ms";
+    if (x < 10) return n(x, 1) + "\u00a0s";
+    return n(Math.round(x)) + "\u00a0s";
   }
 
   function toastSpace() {

@@ -46,7 +46,7 @@
     $("st-steps").textContent = n(derived());
     $("show-sub").textContent = t("show.sub", {
       first: GS.fmtSecs(data.first_secs || 0),
-      budget: n(data.budget_secs || 20) + " s",
+      budget: n(data.budget_secs || 20) + "\u00a0s",
       hint: t(matchMedia("(pointer: coarse)").matches ? "show.hint.coarse" : "show.hint.fine"),
     });
     $("st-aux").textContent = n((data.aux_constructions || []).length);

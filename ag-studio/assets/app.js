@@ -498,8 +498,8 @@
     var tick = function () {
       var el = (Date.now() - S.started) / 1000;
       $("solving-elapsed").textContent = el > maxSecs
-        ? t("solving.finishing", { max: maxSecs + " s" })
-        : t("solving.elapsed", { t: Math.floor(el) + " s", max: maxSecs + " s" });
+        ? t("solving.finishing", { max: maxSecs + "\u00a0s" })
+        : t("solving.elapsed", { t: Math.floor(el) + "\u00a0s", max: maxSecs + "\u00a0s" });
       $("progress-bar").style.width = Math.min(100, (el / maxSecs) * 100) + "%";
     };
     tick();
@@ -551,7 +551,7 @@
     var tick = function () {
       var el = (Date.now() - S.started) / 1000;
       if (el >= waitSecs) { S.queued = false; paintStage(); then(); return; }
-      $("solving-elapsed").textContent = t("solving.queued.x", { t: Math.floor(el) + " s", max: Math.round(waitSecs) + " s" });
+      $("solving-elapsed").textContent = t("solving.queued.x", { t: Math.floor(el) + "\u00a0s", max: Math.round(waitSecs) + "\u00a0s" });
       $("progress-bar").style.width = "0%";
     };
     tick();
@@ -1297,7 +1297,7 @@
     var resolve = function () {
       closeToast();
       var started = Date.now(), max = S.deadline + 5;
-      var text = function () { return t("export.resolving", { fmt: label, t: Math.floor((Date.now() - started) / 1000) + " s", max: max + " s" }); };
+      var text = function () { return t("export.resolving", { fmt: label, t: Math.floor((Date.now() - started) / 1000) + "\u00a0s", max: max + "\u00a0s" }); };
       tst = GS.toast(text(), { ms: (max + 60) * 1000, action: t("cancel"), onAction: function () { ctl.abort(); } });
       ticker = setInterval(function () { if (tst && tst.el) tst.el.firstChild.textContent = text(); }, 1000);
       return post({ input: sol.input, title: sol.title || null, format: fmt });
