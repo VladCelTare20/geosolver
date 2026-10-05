@@ -318,7 +318,7 @@
         return '<span' + (err && err.line === idx + 1 ? ' class="is-err"' : "") + ">" + (idx + 1) + "</span>";
       }).join("");
       var rows = Math.min(18, Math.max(6, lines.length + 1));
-      ta.style.height = rows * 1.6 * 14 + 24 + "px";
+      ta.style.height = rows * (parseFloat(getComputedStyle(ta).lineHeight) || 22.4) + 24 + "px";
       sync();
     }
     function sync() {
@@ -1441,18 +1441,23 @@
       return navigator.canShare({ files: [file] }) ? file : null;
     } catch (e) { return null; }
   }
-  function shareFile(file, blob, label) {
+  function android() {
+    try { return /Android/i.test(navigator.userAgent) || (navigator.userAgentData && navigator.userAgentData.platform === "Android"); } catch (e) { return false; }
+  }
+  function shareFile(file, blob, label, saved) {
     return navigator.share({ files: [file] }).catch(function (e) {
       if (e && e.name === "AbortError") return;
+      if (saved) { GS.toast(t("export.share_fail")); return; }
       download(blob, file.name);
       GS.toast(t("export.done", { fmt: label }));
     });
   }
   function deliver(blob, name, label, inGesture) {
     var file = shareableFile(blob, name);
-    if (!file) {
+    if (!file || android()) {
       download(blob, name);
-      GS.toast(t("export.done", { fmt: label }));
+      if (file) GS.toast(t("export.done", { fmt: label }), { ms: 10000, action: t("share"), onAction: function () { shareFile(file, blob, label, true); } });
+      else GS.toast(t("export.done", { fmt: label }));
       return;
     }
     if (inGesture) { shareFile(file, blob, label); return; }
@@ -1713,12 +1718,17 @@
       if (e.key === "Escape" && !e.defaultPrevented && document.body.classList.contains("drawer-open")) { e.preventDefault(); setDrawer(false, true); }
     });
   }
+  function closeDrawerByBack() { setDrawer(false, true); }
   function setDrawer(open, focusToggle) {
     var was = document.body.classList.contains("drawer-open");
     document.body.classList.toggle("drawer-open", open);
     $("rail-toggle").setAttribute("aria-expanded", open ? "true" : "false");
     $("rail-scrim").hidden = !open;
-    if (open !== was) { GS.modal($("rail"), open, t("hist.title")); GS.lockScroll(open); }
+    if (open !== was) {
+      if (open) GS.backLayer(closeDrawerByBack); else GS.dropLayer(closeDrawerByBack);
+      GS.modal($("rail"), open, t("hist.title"));
+      GS.lockScroll(open);
+    }
     if (open) setTimeout(function () { (coarse() ? $("rail-close") : $("hist-search")).focus({ preventScroll: true }); }, 30);
     else if (focusToggle) $("rail-toggle").focus({ preventScroll: true });
   }

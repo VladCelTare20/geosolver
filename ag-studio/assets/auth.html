@@ -20,7 +20,7 @@
 <link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/app.css">
 <style>
-  .auth-page { min-height: var(--vh-dyn); display: grid; grid-template-rows: auto 1fr auto; }
+  .auth-page { min-height: var(--vh-dyn); display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto; }
   .auth-main { display: grid; justify-items: center; align-content: start; padding: clamp(24px, 9vh, 96px) max(var(--s4), var(--sai-r)) max(var(--s6), var(--sai-b)) max(var(--s4), var(--sai-l)); gap: var(--s5); }
   .auth-card { width: min(100%, 420px); padding: var(--s5); display: grid; gap: var(--s4); }
   .auth-card .tabs { width: 100%; }
@@ -46,7 +46,8 @@
   @media (hover: hover) { .back:hover { text-decoration: underline; } }
   .back:active { text-decoration: underline; }
   @media (max-width: 480px) { .auth-card { padding: var(--s4); } }
-  @media (pointer: coarse) { .auth-card .tabs > button { min-height: 38px; } .back { min-height: 44px; } .pw-toggle { width: 44px; } .pw-toggle::after { content: ""; position: absolute; inset: -2px 0; } .pw-wrap .input { padding-right: 50px; } }
+  @media (max-width: 299px) { .auth-main { padding-left: max(var(--s2), var(--sai-l)); padding-right: max(var(--s2), var(--sai-r)); } .auth-card { padding: var(--s3); } .auth-submit { white-space: normal; } }
+  @media (pointer: coarse) { .auth-card .tabs > button { min-height: 42px; } .back { min-height: 48px; } .pw-toggle { width: 48px; } .pw-toggle::after { content: ""; position: absolute; inset: -2px 0; } .pw-wrap .input { padding-right: 54px; } .auth-submit { min-height: 48px; } }
 </style>
 <script src="/assets/i18n.js"></script>
 </head>
