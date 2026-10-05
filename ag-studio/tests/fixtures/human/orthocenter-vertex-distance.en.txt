@@ -1,0 +1,13 @@
+R = OA = OB = OC. All angles below are angles of the figure's triangles, so their sines are positive.
+
+AH / (2·OMa) = AH / (2R·sin∠OCB)    [law of sines in △BOMa, ∠OMaB = 90°, ∠OBC = ∠OCB]
+             = AH·BC·sin∠ACB / (R·AB·sin∠BOC)    [law of sines in △AOB and △BOC, ∠AOB = 2∠ACB, double-angle formula, cos∠ACB = sin∠OAB]
+             = AH·BC·sin∠ABC / (R·AC·sin∠BOC)    [law of sines in △ABC]
+             = AH·AC·sin²∠BAC / (R·BC·sin∠BOC·cos∠BAH)    [law of sines in △ABC, cos∠BAH = sin∠ABC, AH ⟂ BC]
+             = 2·AH·sin²∠BAC·sin∠BAH / (BC·sin∠BOC·sin∠ACO)    [law of sines in △AOC, ∠AOC = 2∠BAH, double-angle formula]
+             = AH·sin∠BAC·sin∠BAH / (BC·sin∠ABH·sin∠ACO)    [∠BOC = 2∠BAC, double-angle formula, cos∠BAC = sin∠ABH, BH ⟂ AC]
+             = BH·sin∠BAC / (BC·sin∠ACO)    [law of sines in △ABH]
+             = sin∠BAC·sin∠BCH / (sin∠BHC·sin∠ACO)    [law of sines in △BCH]
+             = 1    [∠BHC = 180° − ∠BAC, ∠BCH = 90° − ∠ABC = ∠ACO, CH ⟂ AB, the altitudes concur]
+
+∎

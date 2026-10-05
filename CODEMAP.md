@@ -33,4 +33,4 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 - [ag-studio/tests/](ag-studio/tests/CODEMAP.md) — binary integration tests, iPhone CSS invariants, the WebKit iPhone check.
 - `deploy/` — Docker, nginx, systemd; `DEPLOY.md` mirrors the env table in `ag-studio/src/security.rs`.
 - `corpus/` — AlphaGeometry problem sets (data, not code).
-- `docs/HUMAN_PROOFS.md` — design of the deterministic human proof writer (not implemented yet); goldens and the measurement prototype patch in `docs/human-proofs/`.
+- `docs/HUMAN_PROOFS.md` — design of the deterministic human proof writer; goldens and the measurement prototype patch in `docs/human-proofs/`. The ag-studio side (data model `ag-studio/src/human_view.rs`, Proof tab, reports, EN/RO) is built against fixtures (`ag-studio/tests/fixtures/human/`); the engine writer (`alphageometry-rs/src/human/`) is separate work and is not yet connected (`present.rs:human_proof`).

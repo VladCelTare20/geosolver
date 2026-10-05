@@ -2769,6 +2769,8 @@ pub struct View {
     pub svg: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub as_drawn: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub human: Option<crate::human_view::HumanView>,
 }
 
 /// An anonymous point the compiler adds to stand for `bisector(…)`: `x` with
@@ -3059,7 +3061,21 @@ pub fn build(sol: &Solution) -> View {
         evidence: numeric_support(sol),
         source_title: source_title(&sol.input),
         svg,
+        human: human_proof(sol),
     }
+}
+
+#[cfg(not(feature = "human-fixtures"))]
+fn human_proof(_sol: &Solution) -> Option<crate::human_view::HumanView> {
+    None
+}
+
+#[cfg(feature = "human-fixtures")]
+fn human_proof(sol: &Solution) -> Option<crate::human_view::HumanView> {
+    if !sol.proved {
+        return None;
+    }
+    crate::human_view::fixtures::from_env(&sol.input)
 }
 
 /// Where a compile error sits in the program, and which sentence explains it.

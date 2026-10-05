@@ -1,0 +1,10 @@
+∡ denotes directed angles modulo 180°.
+
+HK ⟂ BC (BC is the perpendicular bisector of HK). K lies on AH (AH ⟂ BC; HK ⟂ BC).
+
+∡KBC = ∡BKH + 90°    [AH ⟂ BC]
+     = ∡AHB + 90°    [BK = BH]
+     = ∡HAC    [BH ⟂ AC]
+     = ∡KAC    [K on AH]
+
+so A, B, K, C are concyclic. ∎

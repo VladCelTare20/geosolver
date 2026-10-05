@@ -585,7 +585,8 @@ const HUMANIZE_SYSTEM_EN: &str = "You are a mathematician writing the solution t
     - Be concise: merge trivial steps and foreground the key ideas, especially any auxiliary \
     construction. Aim for a short, readable argument, not a step-by-step transcript.\n\
     - Stay faithful to the given machine proof's logic; do not invent a different proof or \
-    unstated facts. If the machine added auxiliary points, introduce them naturally ('Let ω be \
+    unstated facts. When a verified structured proof (claims with reasons) is given, explain that \
+    proof: keep its claims, their order and their reasons; the full derivation is only a reference. If the machine added auxiliary points, introduce them naturally ('Let ω be \
     the circumcircle of ABC, and let X be its second intersection with line BQ ...').\n\
     - Use proper mathematical typography with Unicode symbols: ∠ for angles, △ for \
     triangles, ∥ parallel, ⊥ perpendicular, ° degrees, ⇒, and fraction/ratio \
@@ -616,7 +617,9 @@ const HUMANIZE_SYSTEM_RO: &str = "Ești matematician și scrii soluția unei pro
     ales construcția auxiliară. Un raționament scurt și lizibil, nu o transcriere pas \
     cu pas.\n\
     - Rămâi fidel logicii demonstrației automate; nu inventa altă demonstrație sau \
-    fapte neprecizate. Dacă motorul a adăugat puncte auxiliare, introdu-le natural („Fie \
+    fapte neprecizate. Dacă primești o demonstrație structurată verificată (afirmații cu \
+    motive), explic-o pe aceea: păstrează afirmațiile, ordinea și motivele lor; derivarea \
+    completă este doar o referință. Dacă motorul a adăugat puncte auxiliare, introdu-le natural („Fie \
     ω cercul circumscris al triunghiului ABC și fie X a doua intersecție a lui cu dreapta \
     BQ ...”).\n\
     - Folosește tipografie matematică corectă, cu simboluri Unicode: ∠ pentru \
@@ -634,7 +637,7 @@ const HUMANIZE_SYSTEM_RO: &str = "Ești matematician și scrii soluția unei pro
 
 /// Build the user prompt: the readable problem, the machine proof to rewrite,
 /// and any auxiliary points the search introduced.
-fn humanize_prompt(problem: &str, proof: &str, aux: &[String], lang: Lang) -> String {
+fn humanize_prompt(problem: &str, proof: &str, human: &str, aux: &[String], lang: Lang) -> String {
     let aux_block = if aux.is_empty() {
         String::new()
     } else {
@@ -648,28 +651,36 @@ fn humanize_prompt(problem: &str, proof: &str, aux: &[String], lang: Lang) -> St
             Lang::Ro => format!("\n\nPuncte auxiliare adăugate de motor:\n{list}"),
         }
     };
-    match lang {
-        Lang::En => {
+    let human = human.trim();
+    match (lang, human.is_empty()) {
+        (Lang::En, true) => {
             format!("Problem:\n{problem}\n\nMachine proof to rewrite:\n{proof}{aux_block}")
         }
-        Lang::Ro => {
+        (Lang::Ro, true) => {
             format!("Problema:\n{problem}\n\nDemonstrația automată de rescris:\n{proof}{aux_block}")
         }
+        (Lang::En, false) => format!(
+            "Problem:\n{problem}\n\nVerified structured proof to explain (follow its claims, order and reasons):\n{human}\n\nFull machine derivation it was written from (reference only, do not transcribe):\n{proof}{aux_block}"
+        ),
+        (Lang::Ro, false) => format!(
+            "Problema:\n{problem}\n\nDemonstrația structurată verificată de explicat (urmează afirmațiile, ordinea și motivele ei; este scrisă în engleză):\n{human}\n\nDerivarea automată completă din care a fost scrisă (doar ca referință, nu o transcrie):\n{proof}{aux_block}"
+        ),
     }
 }
 
 /// Rewrite a machine (DDAR) proof into a flowing, human-readable proof in the
 /// requested language, using the local Claude **Opus** subscription. Runs the
 /// same locked-down child as [`translate`], with no tools at all.
-pub fn humanize_proof(problem: &str, proof: &str, aux: &[String], lang: Lang) -> Result<String> {
+pub fn humanize_proof(problem: &str, proof: &str, human: &str, aux: &[String], lang: Lang) -> Result<String> {
     let bin = claude_bin().ok_or_else(|| anyhow!(NOT_FOUND))?;
-    humanize_with(&bin, problem, proof, aux, lang, CHILD_TIMEOUT)
+    humanize_with(&bin, problem, proof, human, aux, lang, CHILD_TIMEOUT)
 }
 
 fn humanize_with(
     bin: &Path,
     problem: &str,
     proof: &str,
+    human: &str,
     aux: &[String],
     lang: Lang,
     timeout: Duration,
@@ -678,7 +689,7 @@ fn humanize_with(
         Lang::En => HUMANIZE_SYSTEM_EN,
         Lang::Ro => HUMANIZE_SYSTEM_RO,
     };
-    let prompt = humanize_prompt(problem, proof, aux, lang);
+    let prompt = humanize_prompt(problem, proof, human, aux, lang);
     // Opus, made fast: the slow part of `claude -p --model opus` is *extended
     // thinking* (minutes on a big proof). Rewriting an already-found proof needs
     // no deep deliberation, so we turn the thinking budget off — Opus then writes
@@ -720,6 +731,7 @@ mod tests {
         let p = humanize_prompt(
             "In triangle ABC ... prove cyclic P Q P1 Q1",
             "001. assumption: coll B C A1\n002. collinear: B A1 C [001]",
+            "",
             &["aux9 = intersect(BQ, circumcircle(A,B,C))".to_string()],
             Lang::En,
         );
@@ -730,8 +742,20 @@ mod tests {
     }
 
     #[test]
+    fn humanize_prompt_leads_with_the_human_proof_when_there_is_one() {
+        for lang in [Lang::En, Lang::Ro] {
+            let p = humanize_prompt("prob", "001. assumption: perp A H B C", "Claim 1. A, B, F, N are concyclic.", &[], lang);
+            let human = p.find("Claim 1.").expect("human proof in the prompt");
+            let raw = p.find("001. assumption").expect("raw derivation kept for reference");
+            assert!(human < raw, "{p}");
+        }
+        let p = humanize_prompt("prob", "001. x", "  ", &[], Lang::En);
+        assert!(p.contains("Machine proof to rewrite"), "no human proof: as before");
+    }
+
+    #[test]
     fn humanize_prompt_omits_aux_block_when_empty() {
-        let p = humanize_prompt("prob", "proof", &[], Lang::Ro);
+        let p = humanize_prompt("prob", "proof", "", &[], Lang::Ro);
         assert!(!p.contains("Puncte auxiliare"));
         assert!(p.contains("Demonstrația automată"));
     }
@@ -888,7 +912,7 @@ mod tests {
     fn humanize_runs_with_no_tools_in_an_empty_dir() {
         poison_env();
         let fake = FakeClaude::new("Solution. Trivial. ∎", 0);
-        let out = humanize_with(&fake.bin(), "prob", "001. x", &[], Lang::En, CHILD_TIMEOUT)
+        let out = humanize_with(&fake.bin(), "prob", "001. x", "", &[], Lang::En, CHILD_TIMEOUT)
             .unwrap();
         assert!(out.starts_with("Solution."));
         assert_locked_down(&fake, "");

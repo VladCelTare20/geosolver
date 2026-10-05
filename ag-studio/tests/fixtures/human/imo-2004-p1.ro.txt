@@ -1,0 +1,31 @@
+∡ notează unghiuri orientate modulo 180°. Fie ω cercul de diametru BC, cu centrul O; M, N se află pe ω. Fie O₁ centrul cercului (BMR); P se află pe (BMR). Fie O₂ centrul cercului (CNR); P se află pe (CNR). Fie F piciorul perpendicularei din B pe AP₁. Unghiurile notate ∠ sunt neorientate și sunt citite din figură.
+
+Afirmația 1. Punctele A, B, F, N sunt conciclice.
+
+Demonstrație. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC este diametru în ω).
+
+Afirmația 2. FB = FN.
+
+Demonstrație. ∠BAF = ∠FAN (AR este bisectoarea ∠BAC). FB = FN (arce egale în (ABFN)).
+
+Afirmația 3. Punctele A, F, R, P sunt coliniare.
+
+Demonstrație. AM·AB = AN·AC (puterea punctului A față de ω). Din teorema axei radicale, A se află pe RP. F se află pe AR.
+
+Afirmația 4. △OBF ≅ △ONF.
+
+Demonstrație. Din cazul de congruență LLL (raze în ω; Afirmația 2), △OBF ≅ △ONF. FO este bisectoarea ∠BFN (△OBF ≅ △ONF).
+
+Afirmația 5. Punctele R, N, F, O sunt conciclice.
+
+Demonstrație.
+
+∡RFN = ∡BFN + 90°    [BF ⟂ AR]
+     = 2∡FBN + 90°    [Afirmația 2]
+     = 2∡RAC + 90°    [Afirmația 1]
+     = ∡BAC + 90°    [AR este bisectoarea ∠BAC]
+     = ∡MCN    [BC este diametru în ω]
+
+Din figură, ∠MCN = ½∠MON = ∠RON (unghi la centru în ω; OR este bisectoarea ∠MON), deci punctele R, N, F, O sunt conciclice.
+
+În final, un calcul de unghiuri care folosește Afirmațiile 2, 4 și 5, unghiurile înscrise în (BMRP), △OMR ≅ △ONR, BF ⟂ AR, bisectoarea OR a ∠MON și unghiurile la centru în ω arată că ∡(PB, AR) = ∡(BC, AR). PB ∥ BC (Afirmația 3). P se află pe BC. ∎

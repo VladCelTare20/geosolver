@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { humanAbsent, humanProofFlow, humanRomanian } from './human-checks.mjs';
 
 const { webkit, devices } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const PHOTO = process.env.PHOTO || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../docs/example-report.png');
@@ -182,6 +183,7 @@ async function guestRun(devBase, land, scheme) {
     check(f.sw <= f.vw, `${tag}: result fits (${f.sw}/${f.vw})`);
     await page.locator('#verdict').scrollIntoViewIfNeeded();
     await shot(page, 'result');
+    await humanProofFlow(page, tag, check, shot, { touch: true });
 
     const step = page.locator('#steps li.step:not(.is-group):not([hidden])').nth(1);
     await step.scrollIntoViewIfNeeded();
@@ -221,6 +223,7 @@ async function guestRun(devBase, land, scheme) {
     check(/Proved/i.test(dv.v), `${tag}: guest Describe -> stub -> "${(dv.v || dv.e).trim().split('\n')[0]}"`);
     await page.evaluate(() => window.scrollTo(0, 0));
     await shot(page, 'describe-solved');
+    await humanAbsent(page, tag, check);
 
     await page.click('#tab-photo');
     await page.setInputFiles('#photo-input', PHOTO);
@@ -242,6 +245,7 @@ async function guestRun(devBase, land, scheme) {
     const ro = await page.evaluate(() => ({ lang: document.documentElement.lang, solve: document.getElementById('solve').innerText.trim(), sw: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth }));
     check(ro.lang === 'ro' && ro.sw <= ro.vw, `${tag}: RO switch (lang=${ro.lang}, solve "${ro.solve}", fits ${ro.sw}/${ro.vw})`);
     await shot(page, 'ro-app');
+    await humanRomanian(page, tag, check, shot);
     await page.locator('#ptab-ai').scrollIntoViewIfNeeded();
     await page.click('#ptab-ai');
     await page.waitForFunction(() => /Deoarece|stub/.test(document.getElementById('ai-text').innerText), null, { timeout: 30000 }).catch(() => {});

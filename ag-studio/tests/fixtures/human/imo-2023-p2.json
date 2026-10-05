@@ -1,0 +1,114 @@
+{
+  "name": "imo-2023-p2",
+  "golden": "docs/human-proofs/imo-2023-p2.md",
+  "programs": [
+    {"geo": "# IMO 2023 Problem 2\nA B C = triangle\nO = circumcenter(A, B, C)\nI = incenter(A, B, C)\nN = meet(line(A, I), circumcircle(A, B, C))\nS = meet(line(N, O), circumcircle(A, B, C))\nD = point: coll(B, S, D), perp(A, D, B, C)\nE = meet(line(A, D), circumcircle(A, B, C))\nL = point: coll(B, E, L), para(D, L, B, C)\nP = meet(circle(B, D, L), circumcircle(A, B, C))\nO1 = circumcenter(B, D, L)\nX = point: coll(B, S, X), perp(X, P, P, O1)\nT = meet(perp_line(O, line(B, E)), line(B, S))\nprove eqangle(A, B, A, X, A, X, A, C)"}
+  ],
+  "human": {
+    "version": 1,
+    "setup": [
+      {"kind": "directed_angles"},
+      {"kind": "circle", "name": "Ω", "through": ["A", "B", "C", "N", "S", "E", "P"], "centre": "O"},
+      {"kind": "circle", "name": "ω", "through": ["B", "D", "L", "P"], "centre": "O₁"},
+      {"kind": "fact", "stmt": {"kind": "tangent", "args": ["XP", "ω", "P"], "points": ["X", "P"]}}
+    ],
+    "blocks": [
+      {"id": 1, "kind": "claim", "n": 1,
+       "stmt": {"kind": "cyclic", "args": ["T", "E", "S", "O"], "points": ["T", "E", "S", "O"]},
+       "body": [
+         {"kind": "chain", "directed": true,
+          "terms": ["∡STO", "∡SBE + 90°", "∡SNE + 90°", "∡NEO + 90°", "∡SEO"],
+          "links": [
+            {"reasons": [{"kind": "hyp", "stmt": {"kind": "perp", "args": ["OT", "BE"], "points": ["O", "T", "B", "E"]}}]},
+            {"reasons": [{"kind": "atom", "key": "inscribed", "args": ["Ω"],
+                          "stmt": {"kind": "cyclic", "args": ["S", "B", "N", "E"], "points": ["S", "B", "N", "E"]}}]},
+            {"reasons": [{"kind": "atom", "key": "isosceles", "args": ["O", "N", "E"],
+                          "stmt": {"kind": "cong", "args": ["ON", "OE"], "points": ["O", "N", "E"]}}]},
+            {"reasons": [{"kind": "atom", "key": "thales", "args": ["N", "S", "Ω"],
+                          "stmt": {"kind": "perp", "args": ["EN", "ES"], "points": ["E", "N", "S"]}}]}
+          ],
+          "then": {"kind": "cyclic", "args": ["T", "E", "S", "O"], "points": ["T", "E", "S", "O"]}}
+       ],
+       "engine_steps": [43], "points": ["T", "E", "S", "O", "B", "N"], "objects": [{"circle": ["T", "E", "S", "O"]}]},
+      {"id": 2, "kind": "claim", "n": 2,
+       "stmt": {"kind": "cyclic", "args": ["T", "P", "X", "O"], "points": ["T", "P", "X", "O"]},
+       "body": [
+         {"kind": "pooled", "table": "angle",
+          "stmt": {"kind": "eqangle", "args": ["∡SXP", "∡TOP"], "points": ["S", "X", "P", "T", "O"]},
+          "reasons": [
+            {"kind": "claim", "n": 1},
+            {"kind": "atom", "key": "tangent_chord", "args": ["X", "P", "ω"]},
+            {"kind": "atom", "key": "inscribed", "args": ["Ω"]},
+            {"kind": "atom", "key": "inscribed", "args": ["ω"]},
+            {"kind": "fact", "stmt": {"kind": "para", "args": ["DL", "BC"], "points": ["D", "L", "B", "C"]}},
+            {"kind": "hyp", "stmt": {"kind": "perp", "args": ["OT", "BE"], "points": ["O", "T", "B", "E"]}},
+            {"kind": "hyp", "stmt": {"kind": "bisects", "args": ["AN", "∠BAC"], "points": ["A", "N", "B", "C"]}},
+            {"kind": "atom", "key": "thales", "args": ["N", "S", "Ω"]},
+            {"kind": "atom", "key": "radii", "args": ["Ω"]}
+          ]}
+       ],
+       "engine_steps": [44], "points": ["T", "P", "X", "O", "S"], "objects": [{"circle": ["T", "P", "X", "O"]}]},
+      {"id": 3, "kind": "claim", "n": 3,
+       "stmt": {"kind": "cyclic", "args": ["T", "P", "E", "D"], "points": ["T", "P", "E", "D"]},
+       "body": [
+         {"kind": "pooled", "table": "angle",
+          "stmt": {"kind": "eqangle", "args": ["∡ETD", "∡EPD"], "points": ["E", "T", "D", "P"]},
+          "reasons": [
+            {"kind": "claim", "n": 1},
+            {"kind": "atom", "key": "inscribed", "args": ["Ω"]},
+            {"kind": "atom", "key": "inscribed", "args": ["ω"]},
+            {"kind": "fact", "stmt": {"kind": "para", "args": ["DL", "BC"], "points": ["D", "L", "B", "C"]}},
+            {"kind": "hyp", "stmt": {"kind": "perp", "args": ["OT", "BE"], "points": ["O", "T", "B", "E"]}},
+            {"kind": "hyp", "stmt": {"kind": "bisects", "args": ["AN", "∠BAC"], "points": ["A", "N", "B", "C"]}},
+            {"kind": "atom", "key": "thales", "args": ["N", "S", "Ω"]}
+          ]}
+       ],
+       "engine_steps": [45], "points": ["T", "P", "E", "D"], "objects": [{"circle": ["T", "P", "E", "D"]}]},
+      {"id": 4, "kind": "claim", "n": 4,
+       "stmt": {"kind": "cong", "args": ["XA", "XP"], "points": ["X", "A", "P"]},
+       "body": [
+         {"kind": "pooled", "table": "angle",
+          "stmt": {"kind": "eqangle", "args": ["∡AOX", "∡XOP"], "points": ["A", "O", "X", "P"]},
+          "reasons": [
+            {"kind": "claim", "n": 2},
+            {"kind": "claim", "n": 3},
+            {"kind": "atom", "key": "tangent_chord", "args": ["X", "P", "ω"]},
+            {"kind": "atom", "key": "inscribed", "args": ["Ω"]},
+            {"kind": "atom", "key": "inscribed", "args": ["ω"]},
+            {"kind": "hyp", "stmt": {"kind": "bisects", "args": ["AN", "∠BAC"], "points": ["A", "N", "B", "C"]}},
+            {"kind": "hyp", "stmt": {"kind": "perp", "args": ["OT", "BE"], "points": ["O", "T", "B", "E"]}},
+            {"kind": "fact", "stmt": {"kind": "para", "args": ["DL", "BC"], "points": ["D", "L", "B", "C"]}},
+            {"kind": "atom", "key": "thales", "args": ["N", "S", "Ω"]}
+          ]},
+         {"kind": "theorem", "key": "cong_sas",
+          "stmt": {"kind": "contri", "args": ["OAX", "OPX"], "points": ["O", "A", "X", "P"]},
+          "reasons": [{"kind": "atom", "key": "radii", "args": ["Ω"], "stmt": {"kind": "cong", "args": ["OA", "OP"], "points": ["O", "A", "P"]}}]},
+         {"kind": "because",
+          "stmt": {"kind": "cong", "args": ["XA", "XP"], "points": ["X", "A", "P"]},
+          "reasons": [{"kind": "fact", "stmt": {"kind": "contri", "args": ["OAX", "OPX"], "points": ["O", "A", "X", "P"]}}]}
+       ],
+       "engine_steps": [46], "points": ["X", "A", "P", "O"], "objects": []},
+      {"id": 5, "kind": "conclusion",
+       "stmt": {"kind": "eqangle", "args": ["∡BAX", "∡XAC"], "points": ["B", "A", "X", "C"]},
+       "body": [
+         {"kind": "pooled", "table": "angle",
+          "stmt": {"kind": "eqangle", "args": ["∡BAX", "∡XAC"], "points": ["B", "A", "X", "C"]},
+          "reasons": [
+            {"kind": "claim", "n": 4},
+            {"kind": "atom", "key": "tangent_chord", "args": ["X", "P", "ω"]},
+            {"kind": "atom", "key": "inscribed", "args": ["Ω"]},
+            {"kind": "atom", "key": "inscribed", "args": ["ω"]},
+            {"kind": "fact", "stmt": {"kind": "para", "args": ["DL", "BC"], "points": ["D", "L", "B", "C"]}},
+            {"kind": "hyp", "stmt": {"kind": "perp", "args": ["AD", "BC"], "points": ["A", "D", "B", "C"]}},
+            {"kind": "hyp", "stmt": {"kind": "bisects", "args": ["AN", "∠BAC"], "points": ["A", "N", "B", "C"]}},
+            {"kind": "atom", "key": "thales", "args": ["N", "S", "Ω"]}
+          ]},
+         {"kind": "because",
+          "stmt": {"kind": "bisects", "args": ["AX", "∠BAC"], "points": ["A", "X", "B", "C"]},
+          "reasons": []}
+       ],
+       "engine_steps": [46], "points": ["B", "A", "X", "C"], "objects": []}
+    ],
+    "metrics": {"raw_steps": 51, "blocks": 5, "claims": 4, "links": 4, "sentences": 9, "fallbacks": 0, "words_en": 235}
+  }
+}

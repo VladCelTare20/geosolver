@@ -1,0 +1,26 @@
+∡ denotes directed angles modulo 180°. Let Ω be the circle (ABC), with centre O; N, S, E, P lie on Ω. Let ω be the circle (BDL), with centre O₁; P lies on ω. XP is tangent to ω at P.
+
+Claim 1. T, E, S, O are concyclic.
+
+Proof.
+
+∡STO = ∡SBE + 90°    [OT ⟂ BE]
+     = ∡SNE + 90°    [inscribed angles in Ω]
+     = ∡NEO + 90°    [ON = OE]
+     = ∡SEO    [NS is a diameter of Ω]
+
+so T, E, S, O are concyclic.
+
+Claim 2. T, P, X, O are concyclic.
+
+Proof. Angle chasing with Claim 1, the tangency of XP to ω, the inscribed angles in Ω and ω, DL ∥ BC, OT ⟂ BE, AN bisecting ∠BAC, the diameter NS of Ω and the radii of Ω shows that ∡SXP = ∡TOP.
+
+Claim 3. T, P, E, D are concyclic.
+
+Proof. Angle chasing with Claim 1, the inscribed angles in Ω and ω, DL ∥ BC, OT ⟂ BE, AN bisecting ∠BAC and the diameter NS of Ω shows that ∡ETD = ∡EPD.
+
+Claim 4. XA = XP.
+
+Proof. Angle chasing with Claims 2 and 3, the tangency of XP to ω, the inscribed angles in Ω and ω, AN bisecting ∠BAC, OT ⟂ BE, DL ∥ BC and the diameter NS of Ω shows that ∡AOX = ∡XOP. By the SAS congruence criterion (radii of Ω), △OAX ≅ △OPX. XA = XP (△OAX ≅ △OPX).
+
+Finally, angle chasing with Claim 4, the tangency of XP to ω, the inscribed angles in Ω and ω, DL ∥ BC, AD ⟂ BC, AN bisecting ∠BAC and the diameter NS of Ω shows that ∡BAX = ∡XAC. AX bisects ∠BAC. ∎

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { humanAbsent, humanProofFlow, humanRomanian } from './human-checks.mjs';
 
 const { chromium, firefox, devices } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const PHOTO = process.env.PHOTO || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../docs/example-report.png');
@@ -195,6 +196,7 @@ async function guestRun(browser, engine, devName, land, scheme) {
     check(/Proved/i.test(head), `${tag}: example solves -> "${head.trim().slice(0, 40)}"`);
     await page.locator('#verdict').scrollIntoViewIfNeeded();
     await shot(page, 'result');
+    await humanProofFlow(page, tag, check, shot, { touch: true });
 
     const step = page.locator('#steps li.step:not(.is-group):not([hidden])').nth(1);
     await step.scrollIntoViewIfNeeded();
@@ -240,7 +242,7 @@ async function guestRun(browser, engine, devName, land, scheme) {
       await page.click('#copy-proof');
       await page.waitForTimeout(300);
       const clip = await page.evaluate(() => navigator.clipboard.readText().catch((e) => `ERR ${e.message}`));
-      check(/1\./.test(clip) && clip.length > 40, `${tag}: Copy proof puts the proof on the clipboard (${clip.length} chars: ${clip.split('\n')[0].slice(0, 40)})`);
+      check(/1\.|concyclic|conciclic/.test(clip) && clip.length > 40, `${tag}: Copy proof puts the proof on the clipboard (${clip.length} chars: ${clip.split('\n')[0].slice(0, 40)})`);
       await shot(page, 'copied');
     }
 
@@ -260,6 +262,7 @@ async function guestRun(browser, engine, devName, land, scheme) {
     check(/Proved/i.test(dv), `${tag}: Describe -> "${dv.trim().split('\n')[0]}"`);
     await page.evaluate(() => window.scrollTo(0, 0));
     await shot(page, 'describe-solved');
+    await humanAbsent(page, tag, check);
 
     await page.click('#tab-photo');
     const acc = await page.evaluate(() => { const i = document.getElementById('photo-input'); return `${i.accept}|${i.hasAttribute('capture') ? i.getAttribute('capture') : '-'}`; });
@@ -283,6 +286,7 @@ async function guestRun(browser, engine, devName, land, scheme) {
     const ro = await page.evaluate(() => ({ lang: document.documentElement.lang, solve: document.getElementById('solve').innerText.trim(), sw: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth }));
     check(ro.lang === 'ro' && ro.sw <= ro.vw, `${tag}: RO switch (lang=${ro.lang}, solve "${ro.solve}", fits ${ro.sw}/${ro.vw})`);
     await shot(page, 'ro-app');
+    await humanRomanian(page, tag, check, shot);
     await page.locator('#ptab-ai').scrollIntoViewIfNeeded();
     await page.click('#ptab-ai');
     await page.waitForFunction(() => /Deoarece/.test(document.getElementById('ai-text').innerText), null, { timeout: 30000 }).catch(() => {});

@@ -1,0 +1,13 @@
+R = OA = OB = OC. Toate unghiurile de mai jos sunt unghiuri ale triunghiurilor din figură, deci sinusurile lor sunt pozitive.
+
+AH / (2·OMa) = AH / (2R·sin∠OCB)    [teorema sinusurilor în △BOMa, ∠OMaB = 90°, ∠OBC = ∠OCB]
+             = AH·BC·sin∠ACB / (R·AB·sin∠BOC)    [teorema sinusurilor în △AOB și △BOC, ∠AOB = 2∠ACB, formula unghiului dublu, cos∠ACB = sin∠OAB]
+             = AH·BC·sin∠ABC / (R·AC·sin∠BOC)    [teorema sinusurilor în △ABC]
+             = AH·AC·sin²∠BAC / (R·BC·sin∠BOC·cos∠BAH)    [teorema sinusurilor în △ABC, cos∠BAH = sin∠ABC, AH ⟂ BC]
+             = 2·AH·sin²∠BAC·sin∠BAH / (BC·sin∠BOC·sin∠ACO)    [teorema sinusurilor în △AOC, ∠AOC = 2∠BAH, formula unghiului dublu]
+             = AH·sin∠BAC·sin∠BAH / (BC·sin∠ABH·sin∠ACO)    [∠BOC = 2∠BAC, formula unghiului dublu, cos∠BAC = sin∠ABH, BH ⟂ AC]
+             = BH·sin∠BAC / (BC·sin∠ACO)    [teorema sinusurilor în △ABH]
+             = sin∠BAC·sin∠BCH / (sin∠BHC·sin∠ACO)    [teorema sinusurilor în △BCH]
+             = 1    [∠BHC = 180° − ∠BAC, ∠BCH = 90° − ∠ABC = ∠ACO, CH ⟂ AB, înălțimile sunt concurente]
+
+∎
