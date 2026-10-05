@@ -442,18 +442,149 @@
   }
 
   // ----------------------------------------------------------------- photo --
+  var PHOTO_STEPS = [[2048, 0.85], [1600, 0.8], [1280, 0.75]];
+  var PHOTO_RAW_MAX = 80 * 1024 * 1024;
+  function photoLimit() { return (S.status && S.status.max_image_bytes) || 6 * 1024 * 1024; }
+  function isHeic(file) { return /image\/hei[cf]/i.test(file.type || "") || /\.hei[cf]$/i.test(file.name || ""); }
+  function isImageFile(file) { return /^image\//i.test(file.type || "") || isHeic(file) || (!file.type && /\.(jpe?g|png|webp|gif|bmp|avif|tiff?)$/i.test(file.name || "")); }
+  function fmtBytes(n) {
+    var lang = window.i18n.current();
+    if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)).toLocaleString(lang) + " KB";
+    return (n / 1024 / 1024).toLocaleString(lang, { maximumFractionDigits: 1 }) + " MB";
+  }
+  function loadImage(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        if (!img.naturalWidth || !img.naturalHeight) { URL.revokeObjectURL(url); reject(new Error("empty")); return; }
+        resolve({ img: img, url: url });
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("decode")); };
+      img.src = url;
+    });
+  }
+  function canvasOf(w, h) {
+    var c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    return c;
+  }
+  function drawScaled(img, edge) {
+    var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    var k = Math.min(1, edge / Math.max(w, h));
+    var tw = Math.max(1, Math.round(w * k)), th = Math.max(1, Math.round(h * k));
+    var src = img, sw = w, sh = h, scratch = [];
+    while (sw / 2 >= tw * 1.05 && sh / 2 >= th * 1.05) {
+      var half = canvasOf(Math.round(sw / 2), Math.round(sh / 2));
+      var hg = half.getContext("2d");
+      hg.imageSmoothingEnabled = true; hg.imageSmoothingQuality = "high";
+      hg.drawImage(src, 0, 0, half.width, half.height);
+      scratch.push(half);
+      src = half; sw = half.width; sh = half.height;
+    }
+    var out = canvasOf(tw, th), g = out.getContext("2d");
+    g.fillStyle = "#fff";
+    g.fillRect(0, 0, tw, th);
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+    g.drawImage(src, 0, 0, tw, th);
+    scratch.forEach(function (c) { c.width = 0; c.height = 0; });
+    return out;
+  }
+  function canvasJpeg(canvas, quality) {
+    return new Promise(function (resolve, reject) {
+      if (canvas.toBlob) {
+        canvas.toBlob(function (b) { b && b.size ? resolve(b) : reject(new Error("encode")); }, "image/jpeg", quality);
+        return;
+      }
+      try {
+        var bin = atob(canvas.toDataURL("image/jpeg", quality).split(",")[1]), arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        resolve(new Blob([arr], { type: "image/jpeg" }));
+      } catch (e) { reject(e); }
+    });
+  }
+  function blobDataUrl(blob) {
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(r.result); };
+      r.onerror = function () { reject(r.error || new Error("read")); };
+      r.readAsDataURL(blob);
+    });
+  }
+  function normalizePhoto(file) {
+    var limit = photoLimit();
+    return loadImage(file).catch(function () {
+      throw { key: isHeic(file) ? "photo.err.heic" : "photo.err.unreadable" };
+    }).then(function (loaded) {
+      var attempt = function (i) {
+        var canvas = drawScaled(loaded.img, PHOTO_STEPS[i][0]);
+        var w = canvas.width, h = canvas.height;
+        return canvasJpeg(canvas, PHOTO_STEPS[i][1]).then(function (blob) {
+          canvas.width = 0; canvas.height = 0;
+          if (blob.size <= limit) return { blob: blob, w: w, h: h };
+          if (i + 1 < PHOTO_STEPS.length) return attempt(i + 1);
+          throw { key: "photo.err.too_large" };
+        });
+      };
+      return attempt(0).then(function (r) { URL.revokeObjectURL(loaded.url); return r; }, function (e) {
+        URL.revokeObjectURL(loaded.url);
+        throw e && e.key ? e : { key: "photo.err.unreadable" };
+      });
+    }).then(function (r) {
+      return blobDataUrl(r.blob).then(function (b64) {
+        return { b64: b64, bytes: r.blob.size, w: r.w, h: r.h, blob: r.blob, name: file.name || "photo.jpg" };
+      });
+    });
+  }
+  function paintPhoto(p) {
+    var prev = $("photo-preview");
+    if (S.photoUrl) { URL.revokeObjectURL(S.photoUrl); S.photoUrl = null; }
+    $("dz-busy").hidden = true;
+    if (!p) {
+      prev.removeAttribute("src");
+      $("dz-empty").hidden = false; $("dz-full").hidden = true; $("dz-actions").hidden = true;
+      return;
+    }
+    S.photoUrl = URL.createObjectURL(p.blob);
+    prev.src = S.photoUrl;
+    prev.alt = t("photo.alt");
+    $("photo-name").textContent = p.name;
+    $("photo-meta").textContent = t("photo.meta", { w: p.w, h: p.h, size: fmtBytes(p.bytes) });
+    $("dz-empty").hidden = true; $("dz-full").hidden = false; $("dz-actions").hidden = false;
+  }
   function setPhoto(file) {
-    if (!file) { S.photo = null; $("dz-empty").hidden = false; $("dz-full").hidden = true; $("dz-actions").hidden = true; $("photo-input").value = ""; paintSolveEnabled(); return; }
-    var r = new FileReader();
-    r.onload = function () {
-      S.photo = { b64: r.result, name: file.name };
-      $("photo-preview").src = r.result;
-      $("photo-preview").alt = t("photo.alt");
-      $("photo-name").textContent = file.name;
-      $("dz-empty").hidden = true; $("dz-full").hidden = false; $("dz-actions").hidden = false;
+    var seq = (S.photoSeq || 0) + 1;
+    S.photoSeq = seq;
+    S.photoErrKey = null;
+    fieldError("photo-err", null);
+    if (!file) {
+      S.photo = null; S.photoPending = null;
+      paintPhoto(null);
+      $("photo-input").value = "";
+      paintSolveEnabled();
+      return;
+    }
+    var fail = function (key) {
+      if (S.photoSeq !== seq) return;
+      S.photo = null; S.photoPending = null;
+      paintPhoto(null);
+      $("photo-input").value = "";
+      S.photoErrKey = key;
+      fieldError("photo-err", t(key));
       paintSolveEnabled();
     };
-    r.readAsDataURL(file);
+    if (!isImageFile(file)) { fail("photo.err.type"); return; }
+    if (file.size > PHOTO_RAW_MAX) { fail("photo.err.too_large"); return; }
+    S.photo = null;
+    $("dz-empty").hidden = true; $("dz-full").hidden = true; $("dz-busy").hidden = false;
+    $("photo-status").textContent = t("photo.preparing");
+    S.photoPending = normalizePhoto(file).then(function (p) {
+      if (S.photoSeq !== seq) return;
+      S.photo = p; S.photoPending = null;
+      paintPhoto(p);
+      $("photo-status").textContent = p.name + " · " + $("photo-meta").textContent;
+      paintSolveEnabled();
+    }, function (e) { fail((e && e.key) || "photo.err.unreadable"); });
   }
   function wirePhoto() {
     var dz = $("dropzone");
@@ -505,6 +636,7 @@
     $("stepper").hidden = stages.length < 2;
   }
 
+  function translateLimit() { return (S.status && S.status.translate_timeout_secs) || 90; }
   function startTimer(maxSecs) {
     S.started = Date.now();
     clearInterval(S.timer);
@@ -584,7 +716,12 @@
     if (mode === "geo" && !geo) { editor.setError({ message: t("err.empty_geo") }); $("geo-input").focus(); return; }
     fieldError("describe-err", null); fieldError("photo-err", null);
     if (mode === "describe" && !describe) { fieldError("describe-err", t("err.empty_describe")); $("describe-input").focus(); return; }
-    if (mode === "photo" && !S.photo) { fieldError("photo-err", t("err.empty_photo")); $("photo-input").focus(); return; }
+    if (mode === "photo" && !S.photo && S.photoPending) {
+      var waitFor = S.photoPending;
+      waitFor.then(function () { if (S.photoPending === null && S.photo && S.mode === "photo" && !S.busy) solve(); });
+      return;
+    }
+    if (mode === "photo" && !S.photo) { S.photoErrKey = null; fieldError("photo-err", t("err.empty_photo")); $("photo-input").focus(); return; }
     if (mode !== "geo" && aiBlock()) return;
     editor.setError(null);
     S.lastError = null;
@@ -603,7 +740,7 @@
     function stage(i) {
       S.stage = { stages: stages, i: i };
       paintStage();
-      startTimer(stages[i] === "translate" ? 75 : S.deadline);
+      startTimer(stages[i] === "translate" ? translateLimit() : S.deadline);
     }
     stage(0);
     announce(t(mode === "geo" ? "solving.solving" : "solving.translating"));
@@ -612,9 +749,9 @@
     var title = null;
     var chain = Promise.resolve(geo);
     if (mode !== "geo") {
-      var body = mode === "photo" ? { image_base64: S.photo.b64, filename: S.photo.name } : { text: describe };
+      var body = mode === "photo" ? { image_base64: S.photo.b64 } : { text: describe };
       chain = api("/api/translate", { method: "POST", body: body, signal: ctl.signal }).then(function (r) {
-        if (!r.ok) throw httpError(r, "translate");
+        if (!r.ok) throw httpError(r, "translate", mode);
         var g = r.data.geo || "";
         if (/cannot translate/i.test(g) || !g.trim()) throw { titleKey: "err.title.translate", bodyKey: "err.cannot_translate" };
         title = r.data.title || null;
@@ -713,7 +850,18 @@
       paintGates();
     });
   }
-  function httpError(r, what) {
+  function translateError(r, d, mode) {
+    var photo = mode === "photo";
+    if (r.status === 413 || d.code === "image_too_large") {
+      return photo
+        ? { titleKey: "err.title.photo_large", body: d.code === "image_too_large" ? d.error : null, bodyKey: d.code === "image_too_large" ? null : "err.body.photo_large" }
+        : { titleKey: "err.title.describe_long", body: d.error && d.code !== "body_too_large" ? d.error : null, bodyKey: d.error && d.code !== "body_too_large" ? null : "err.body.describe_long" };
+    }
+    if (!d.error || r.status === 504) return null;
+    var titleKey = d.code === "translate_timeout" ? "err.title.translate_timeout" : d.code === "heic" ? "err.title.photo_format" : "err.title.translate";
+    return { titleKey: titleKey, body: d.error, retry: r.status >= 500 && d.code !== "translate_unavailable", detail: d.detail };
+  }
+  function httpError(r, what, mode) {
     var d = r.data || {};
     if (r.status === 400 && d.code === "compile") {
       return { titleKey: "err.title.compile", body: d.error, diagnosis: d.diagnosis, detail: d.detail, compile: true };
@@ -722,7 +870,11 @@
     if (r.status === 401) { authLost(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
     if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", n: d.limit || 1, retry: true, retryAfter: r.retryAfter };
-    if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true, retryAfter: r.retryAfter };
+    if (r.status === 503 && (what !== "translate" || d.code === "busy")) return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true, retryAfter: r.retryAfter };
+    if (what === "translate") {
+      var te = translateError(r, d, mode);
+      if (te) return te;
+    }
     if (r.status === 502 || r.status === 503) return { titleKey: "err.title.unavailable", bodyKey: "err.body.unavailable", retry: true, detail: d.detail };
     if (r.status === 504) return { titleKey: "err.title.timeout", bodyKey: "err.body.timeout", retry: true };
     if (r.status === 413) return { titleKey: "err.title.too_large", body: d.error || "", bodyKey: d.error ? null : "err.body.too_large" };
@@ -1266,7 +1418,35 @@
     var a = document.createElement("a");
     a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
+  }
+  function standalone() {
+    try { return navigator.standalone === true || matchMedia("(display-mode: standalone)").matches; } catch (e) { return false; }
+  }
+  function shareableFile(blob, name) {
+    if (!navigator.share || !navigator.canShare) return null;
+    if (!coarse() && !standalone()) return null;
+    try {
+      var file = new File([blob], name, { type: blob.type || "application/octet-stream" });
+      return navigator.canShare({ files: [file] }) ? file : null;
+    } catch (e) { return null; }
+  }
+  function shareFile(file, blob, label) {
+    return navigator.share({ files: [file] }).catch(function (e) {
+      if (e && e.name === "AbortError") return;
+      download(blob, file.name);
+      GS.toast(t("export.done", { fmt: label }));
+    });
+  }
+  function deliver(blob, name, label, inGesture) {
+    var file = shareableFile(blob, name);
+    if (!file) {
+      download(blob, name);
+      GS.toast(t("export.done", { fmt: label }));
+      return;
+    }
+    if (inGesture) { shareFile(file, blob, label); return; }
+    GS.toast(t("export.ready", { fmt: label }), { ms: 120000, action: t("export.share"), onAction: function () { shareFile(file, blob, label); } });
   }
   function slug(s) {
     return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
@@ -1285,8 +1465,7 @@
     if (!sol) return;
     var label = fmt.toUpperCase();
     if (fmt === "svg") {
-      download(new Blob([sol.svg], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg");
-      GS.toast(t("export.done", { fmt: "SVG" }));
+      deliver(new Blob([sol.svg], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg", "SVG", true);
       return;
     }
     if (S.exporting) return;
@@ -1334,9 +1513,8 @@
       });
     }).then(function (res) {
       if (res.ok) return res.blob().then(function (b) {
-        download(b, exportName(sol, fmt));
         closeToast();
-        GS.toast(t("export.done", { fmt: label }));
+        deliver(b.type ? b : new Blob([b], { type: fmt === "pdf" ? "application/pdf" : "image/png" }), exportName(sol, fmt), label, false);
       });
       var ct = res.headers.get("content-type") || "";
       return res.text().catch(function () { return ""; }).then(function (x) {
@@ -1370,13 +1548,28 @@
   }
   function copyText(text) {
     var done = function () { GS.toast(t("copied")); };
-    var fail = function () { GS.toast(t("copy_fail")); };
-    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done, fail); return; }
-    var ta = document.createElement("textarea");
-    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy") ? done() : fail(); } catch (e) { fail(); }
-    ta.remove();
+    var fail = function () {
+      if (navigator.share) GS.toast(t("copy_fail"), { ms: 10000, action: t("share"), onAction: function () { navigator.share({ text: text }).catch(function () {}); } });
+      else GS.toast(t("copy_fail"));
+    };
+    var legacy = function () {
+      var prev = document.activeElement;
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", "");
+      ta.style.position = "fixed"; ta.style.top = "0"; ta.style.left = "0"; ta.style.opacity = "0"; ta.style.fontSize = "16px";
+      document.body.appendChild(ta);
+      ta.focus({ preventScroll: true }); ta.select(); ta.setSelectionRange(0, text.length);
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      ta.remove();
+      if (prev && prev !== document.body && prev.focus) prev.focus({ preventScroll: true });
+      return ok;
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, function () { legacy() ? done() : fail(); });
+      return;
+    }
+    legacy() ? done() : fail();
   }
 
   // --------------------------------------------------------------- history --
@@ -1740,7 +1933,7 @@
     $("cancel").addEventListener("click", cancel);
     $("cancel-2").addEventListener("click", cancel);
     $("clear").addEventListener("click", function () {
-      var before = { geo: editor.get(), text: $("describe-input").value, mode: S.mode };
+      var before = { geo: editor.get(), text: $("describe-input").value, mode: S.mode, photo: S.photo };
       if (!clearable()) return;
       var input = null;
       if (S.mode === "geo") { editor.set(""); input = $("geo-input"); }
@@ -1750,6 +1943,11 @@
         editor.set(before.geo);
         $("describe-input").value = before.text;
         if (before.text) store.set("gs.draft.describe", before.text);
+        if (before.mode === "photo" && before.photo && !S.photo && !S.photoPending) {
+          S.photo = before.photo;
+          paintPhoto(before.photo);
+          paintSolveEnabled();
+        }
         if (input && document.activeElement !== input) input.focus();
       };
       var tst = GS.toast(t(coarse() ? "cleared.touch" : "cleared", { keys: undoKeys() }), { action: t("undo"), ms: 6000, onAction: restore });
@@ -1808,6 +2006,7 @@
     clearTimeout(announceTimer); clearTimeout(statusTimer);
     $("announce").textContent = ""; $("announce-status").textContent = "";
     paintAiPill(); paintGates(); paintEffortHint(); paintExamples(); paintAccount();
+    if (S.photo) $("photo-meta").textContent = t("photo.meta", { w: S.photo.w, h: S.photo.h, size: fmtBytes(S.photo.bytes) });
     var ex = exampleOf(editor.get());
     if (ex && editor.get() !== exampleSrc(ex)) { editor.set(exampleSrc(ex)); S.baseline = exampleSrc(ex); }
     if (S.busy) paintStage();
@@ -1818,7 +2017,7 @@
         });
       } else showError(S.lastError);
     }
-    if (S.lastFieldErr) fieldError(S.lastFieldErr, t(S.lastFieldErr === "describe-err" ? "err.empty_describe" : "err.empty_photo"));
+    if (S.lastFieldErr) fieldError(S.lastFieldErr, t(S.lastFieldErr === "describe-err" ? "err.empty_describe" : S.photoErrKey || "err.empty_photo"));
     paintFigHint();
     $("solve").setAttribute("title", t("solve.shortcut", { keys: isMac ? "⌘ Enter" : "Ctrl Enter" }));
     paintDocTitle();

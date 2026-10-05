@@ -190,7 +190,39 @@ fn probe(bin: &Path) -> bool {
 }
 
 /// Wall-clock limit for one translation / humanization child.
-const CHILD_TIMEOUT: Duration = Duration::from_secs(90);
+pub const CHILD_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Why a translation failed, as far as a user-facing message needs to know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    /// The CLI ran past [`CHILD_TIMEOUT`] and was killed.
+    TimedOut,
+    /// The model answered without a usable program, or said it cannot translate.
+    NoProgram,
+    /// The CLI is not signed in to a subscription.
+    SignedOut,
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Failure::TimedOut => "timed out",
+            Failure::NoProgram => "no program in the reply",
+            Failure::SignedOut => "not signed in",
+        })
+    }
+}
+
+impl std::error::Error for Failure {}
+
+/// The [`Failure`] kind anywhere in `e`'s chain.
+pub fn failure(e: &anyhow::Error) -> Option<Failure> {
+    e.chain().find_map(|c| c.downcast_ref::<Failure>().copied())
+}
+
+fn fail(kind: Failure, msg: impl std::fmt::Display + Send + Sync + 'static) -> anyhow::Error {
+    anyhow::Error::new(kind).context(msg)
+}
 
 /// An MCP config with no servers, used with `--strict-mcp-config`.
 const EMPTY_MCP_CONFIG: &str = r#"{"mcpServers":{}}"#;
@@ -323,19 +355,25 @@ fn translate_with(bin: &Path, source: &Source, timeout: Duration) -> Result<Tran
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         if looks_signed_out(&raw) || looks_signed_out(&err) {
-            bail!(NOT_SIGNED_IN);
+            return Err(fail(Failure::SignedOut, NOT_SIGNED_IN));
         }
         bail!("claude exited unsuccessfully: {}", err.trim());
     }
     let Some(geo) = extract_geo(&raw) else {
         // The CLI prints a login prompt (with exit 0) when not signed in.
         if looks_signed_out(&raw) {
-            bail!(NOT_SIGNED_IN);
+            return Err(fail(Failure::SignedOut, NOT_SIGNED_IN));
         }
-        bail!("no .geo code block found in the model's reply:\n{}", raw.trim());
+        return Err(fail(
+            Failure::NoProgram,
+            format!("no .geo code block found in the model's reply:\n{}", raw.trim()),
+        ));
     };
     if let Some(reason) = cannot_translate_reason(&geo) {
-        bail!("the model could not translate this problem: {reason}");
+        return Err(fail(
+            Failure::NoProgram,
+            format!("the model could not translate this problem: {reason}"),
+        ));
     }
     let title = extract_title(&geo);
     Ok(Translation { geo, title })
@@ -375,7 +413,10 @@ fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Output> {
         Ok(Some(status)) => status,
         Ok(None) => {
             kill_tree(&mut child);
-            bail!("claude timed out after {}s", timeout.as_secs_f64().round());
+            return Err(fail(
+                Failure::TimedOut,
+                format!("claude timed out after {}s", timeout.as_secs_f64().round()),
+            ));
         }
         Err(e) => {
             kill_tree(&mut child);
@@ -888,6 +929,33 @@ mod tests {
             .to_string();
         assert!(err.contains("could not translate"), "{err}");
         assert!(err.contains("3D problem"), "{err}");
+    }
+
+    #[test]
+    fn failures_carry_a_kind_the_web_layer_can_word() {
+        let kind = |reply: &str, code: i32| {
+            let fake = FakeClaude::new(reply, code);
+            let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+            failure(&e)
+        };
+        assert_eq!(kind("```geo\n# cannot translate: 3D\n```", 0), Some(Failure::NoProgram));
+        assert_eq!(kind("I cannot help with that.", 0), Some(Failure::NoProgram));
+        assert_eq!(kind("Not logged in · Please run /login", 0), Some(Failure::SignedOut));
+        assert_eq!(kind("Please run /login", 1), Some(Failure::SignedOut));
+        assert_eq!(kind("boom", 1), None);
+    }
+
+    #[test]
+    fn a_slow_cli_is_reported_as_timed_out() {
+        let fake = FakeClaude::new(GOOD_REPLY, 0);
+        std::fs::write(fake.bin(), "#!/bin/sh\nsleep 30\n").unwrap();
+        let t = std::time::Instant::now();
+        let e = translate_with(&fake.bin(), &Source::Text("x".into()), Duration::from_millis(800))
+            .err()
+            .unwrap();
+        assert_eq!(failure(&e), Some(Failure::TimedOut), "{e:#}");
+        assert!(format!("{e:#}").contains("timed out after"), "{e:#}");
+        assert!(t.elapsed() < Duration::from_secs(10));
     }
 
     #[test]

@@ -25,6 +25,8 @@ wait-timeout = "0.2.1"
 axum = "0.8.4"
 tokio = { version = "1.52.3", features = ["full"] }
 base64 = "0.22.1"
+# Uploaded photos are decoded, turned upright and re-encoded without metadata (web.rs).
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.0", features = ["compression-gzip", "timeout"] }
 tempfile = "3.27.0"

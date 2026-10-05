@@ -101,14 +101,16 @@
         <span class="field-label" id="photo-label" data-i18n="photo.label">Photo of the problem</span>
         <label class="dropzone" id="dropzone" for="photo-input">
           <span class="dz-empty" id="dz-empty"><span class="dz-ic" aria-hidden="true" data-icon="image"></span><span><span data-i18n="photo.drop">Drop a photo here, or</span> <span class="link" data-i18n="photo.choose">choose a file</span></span></span>
-          <span class="dz-full" id="dz-full" hidden><img id="photo-preview" alt=""><span class="dz-name" id="photo-name"></span></span>
+          <span class="dz-busy" id="dz-busy" hidden><span class="spinner" aria-hidden="true"></span><span data-i18n="photo.preparing">Preparing the photo…</span></span>
+          <span class="dz-full" id="dz-full" hidden><img id="photo-preview" alt=""><span class="dz-name" id="photo-name"></span><span class="dz-meta" id="photo-meta"></span></span>
         </label>
-        <input type="file" id="photo-input" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only" aria-labelledby="photo-label" aria-describedby="photo-err photo-hint">
+        <p class="sr-only" id="photo-status" role="status" aria-live="polite"></p>
+        <input type="file" id="photo-input" accept="image/*" class="sr-only" aria-labelledby="photo-label" aria-describedby="photo-err photo-hint">
         <p class="editor-error" id="photo-err" role="alert" hidden></p>
         <div class="dz-actions" id="dz-actions" hidden>
           <button type="button" class="btn btn-ghost btn-sm" id="photo-remove"><span data-i18n="photo.remove">Remove photo</span></button>
         </div>
-        <p class="hint" id="photo-hint" data-i18n="photo.hint">PNG, JPG or WebP, up to 8 MB.</p>
+        <p class="hint" id="photo-hint" data-i18n="photo.hint">JPG, PNG, HEIC or WebP. Large photos are shrunk on your device before upload.</p>
       </div>
     </div>
 
