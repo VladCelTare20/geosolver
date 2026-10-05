@@ -630,7 +630,7 @@
       html += "</li>";
     });
     html += "</ol>";
-    root.innerHTML = html;
+    root.innerHTML = html.replace(/(<a class="hp-(?:ref|step)"[^>]*>[^<]*<\/a>)([,.;:)]+)/g, '<span class="hp-nb">$1$2</span>');
     var ol = root.querySelector(".hp-blocks");
     var items = Array.prototype.slice.call(root.querySelectorAll(".hp-block"));
     if (items[0]) items[0].tabIndex = 0;
