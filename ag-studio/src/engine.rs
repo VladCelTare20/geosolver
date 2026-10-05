@@ -444,8 +444,8 @@ fn best_deductive(
         }
     };
 
-    // The globally shortest proof so far: (aux constructions, proof, steps, facts).
-    let mut best: Option<(Vec<Construction>, String, usize, usize)> = None;
+    // The shortest proofs so far, at most TOP_K, ordered by (steps, facts).
+    let mut best: Vec<Candidate> = Vec::new();
     let mut examined = 0usize;
 
 
@@ -458,7 +458,7 @@ fn best_deductive(
     }
     // If the figure shows the goal is false and DDAR cannot prove it directly, no
     // auxiliary construction can either — fail fast.
-    if best.is_none() && goal_holds == Some(false) {
+    if best.is_empty() && goal_holds == Some(false) {
         return Ok(build(
             false,
             Method::Ddar,
@@ -532,7 +532,11 @@ fn best_deductive(
         }
     }
 
-    if let Some((aux, proof, steps, _)) = best {
+    let shortest_steps = best.first().map(|c| c.2);
+    let pick = most_readable(&problem, &best, budget);
+    if !best.is_empty() {
+        let (aux, proof, steps, _) = best.swap_remove(pick.unwrap_or(0));
+        let readable = pick.is_some();
         let method = if aux.is_empty() {
             Method::Ddar
         } else {
@@ -553,9 +557,16 @@ fn best_deductive(
             Some(proof),
             aux_strs,
             examined,
-            format!(
-                "shortest proof found: {steps} steps ({aux_desc}); examined {examined} distinct proof(s)"
-            ),
+            if readable {
+                format!(
+                    "most readable of {examined} proofs examined: {steps} steps ({aux_desc}); the shortest has {} steps",
+                    shortest_steps.unwrap_or(steps)
+                )
+            } else {
+                format!(
+                    "shortest proof found: {steps} steps ({aux_desc}); examined {examined} distinct proof(s)"
+                )
+            },
         );
         // Redraw from the augmented problem so the winning proof's auxiliary
         // constructions appear on the drawing (dashed, in the aux color).
@@ -659,22 +670,59 @@ fn best_deductive(
     }
 }
 
-/// Record a proof if it is strictly shorter than the best so far (fewer steps,
-/// then fewer facts). Auxiliary count is intentionally not a factor.
-fn consider(
-    best: &mut Option<(Vec<Construction>, String, usize, usize)>,
-    examined: &mut usize,
-    aux: Vec<Construction>,
-    proof: String,
-) {
+/// A candidate proof: (aux constructions, proof, steps, facts).
+type Candidate = (Vec<Construction>, String, usize, usize);
+
+/// How many of the shortest proofs the readability pass compares.
+const TOP_K: usize = 16;
+
+/// Keep the `TOP_K` shortest proofs (fewer steps, then fewer facts; earlier
+/// finds win ties). Auxiliary count is intentionally not a factor.
+fn consider(best: &mut Vec<Candidate>, examined: &mut usize, aux: Vec<Construction>, proof: String) {
     let (steps, facts) = proof_size(&proof);
     *examined += 1;
-    if best
-        .as_ref()
-        .is_none_or(|(_, _, bs, bf)| (steps, facts) < (*bs, *bf))
-    {
-        *best = Some((aux, proof, steps, facts));
+    if best.iter().any(|c| c.1 == proof) {
+        return;
     }
+    let at = best.partition_point(|c| (c.2, c.3) <= (steps, facts));
+    if at < TOP_K {
+        best.insert(at, (aux, proof, steps, facts));
+        best.truncate(TOP_K);
+    }
+}
+
+/// Run the human-proof writer over the candidates (shortest first) within
+/// `min(25% of budget, 5s)` and return the index of the lowest HumanCost
+/// (ties: fewer raw steps, then search order). `None` when no candidate got a
+/// human proof in time.
+fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Option<usize> {
+    if cands.len() < 2 {
+        return None;
+    }
+    let slice = (budget / 4).min(Duration::from_secs(5));
+    let stop = Instant::now() + slice;
+    let mut best: Option<(usize, usize, usize)> = None;
+    for (i, (aux, _, steps, _)) in cands.iter().enumerate() {
+        let now = Instant::now();
+        if now >= stop {
+            break;
+        }
+        let Some(aug) = safe_apply(problem, aux) else { continue };
+        let descs: Vec<String> = aux.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+        let infos = ddar::human::aux_infos(&aug, problem.points.len(), &descs);
+        let opts = ddar::human::Opts { deadline: Some(stop.min(now + Duration::from_secs(2))), strict: false };
+        let Ok(Some((hp, ..))) = catch_unwind(AssertUnwindSafe(|| ddar::human::for_problem(&aug, &infos, &opts))) else {
+            continue;
+        };
+        if !hp.available || hp.metrics.timed_out {
+            continue;
+        }
+        let key = (hp.metrics.human_cost, *steps, i);
+        if best.is_none_or(|b| key < b) {
+            best = Some(key);
+        }
+    }
+    best.map(|b| b.2)
 }
 
 /// Apply constructions, containing any panic from a degenerate configuration
@@ -1512,7 +1560,47 @@ mod tests {
         assert_eq!(sol.aux_constructions.len(), 1, "{:?}", sol.aux_constructions);
         let best = solve_best(IMO_2004_P1_LOW, &low_level(), Duration::from_secs(10)).unwrap();
         assert!(best.proved, "{}", best.note);
-        assert!(best.proof_steps <= sol.proof_steps, "{:?} > {:?}", best.proof_steps, sol.proof_steps);
+        let shortest = best
+            .note
+            .split("the shortest has ")
+            .nth(1)
+            .and_then(|r| r.split(' ').next())
+            .and_then(|n| n.parse::<usize>().ok())
+            .or(best.proof_steps);
+        assert!(shortest <= sol.proof_steps, "{:?} > {:?}: {}", shortest, sol.proof_steps, best.note);
+    }
+
+    fn human_cost_of(sol: &Solution) -> usize {
+        let fig = sol.figure.as_ref().expect("figure");
+        let first = fig.aux_from.unwrap_or(fig.problem.points.len());
+        let infos = ddar::human::aux_infos(&fig.problem, first, &sol.aux_constructions);
+        let opts = ddar::human::Opts { deadline: Some(Instant::now() + Duration::from_secs(10)), strict: false };
+        let (hp, ..) = ddar::human::for_problem(&fig.problem, &infos, &opts).expect("re-proves");
+        assert!(hp.available);
+        hp.metrics.human_cost
+    }
+
+    #[test]
+    #[ignore = "60 s best search; run with --ignored"]
+    fn best_mode_returns_a_proof_at_least_as_readable_as_the_imo_2023_p2_golden() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let src = std::fs::read_to_string(root.join("imo2023p2.geo")).unwrap();
+        let best = solve_best(&src, &SolveOptions::default(), Duration::from_secs(60)).unwrap();
+        assert!(best.proved, "{}", best.note);
+        assert!(best.note.starts_with("most readable of"), "{}", best.note);
+        let golden_src = std::fs::read_to_string(root.join("alphageometry-rs/tests/golden/human/imo_2023_p2.geo")).unwrap();
+        let golden = ddar::geo::compile(&golden_src).unwrap().problem;
+        let n = golden.points.len();
+        let descs = vec![
+            "T = intersect(perp(O, BE), BS)".to_string(),
+            "Q = parallelogram(A, L, B)".to_string(),
+        ];
+        let infos = ddar::human::aux_infos(&golden, n - 2, &descs);
+        let opts = ddar::human::Opts { deadline: Some(Instant::now() + Duration::from_secs(10)), strict: false };
+        let (hp, ..) = ddar::human::for_problem(&golden, &infos, &opts).unwrap();
+        let chosen = human_cost_of(&best);
+        eprintln!("best: {} | HumanCost chosen {chosen}, golden {}", best.note, hp.metrics.human_cost);
+        assert!(chosen <= hp.metrics.human_cost, "chosen {chosen} > golden {}", hp.metrics.human_cost);
     }
 
     /// Low-level input has no numeric goal check, so nothing but the search

@@ -1934,6 +1934,9 @@ pub fn classify_note(sol: &Solution) -> Note {
         note.key = "budget";
         note.secs = number_before(s, "s budget");
         note.runs = number_before(s, " DDAR runs").map(|x| x as usize);
+    } else if s.starts_with("most readable of") {
+        note.key = "readable";
+        note.n = sol.examined;
     } else if s.starts_with("shortest proof found") {
         note.key = "shortest";
         note.n = sol.examined;
