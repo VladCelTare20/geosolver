@@ -3578,8 +3578,13 @@ mod tests {
         let (st, h, _) = send(&state, build("GET", "/app?x=1", &[("accept", "text/html,application/xhtml+xml")], None)).await;
         assert_eq!(st, StatusCode::SEE_OTHER, "Accept: text/html without Sec-Fetch is a navigation");
         assert_eq!(h[header::LOCATION], "/gate?next=%2Fapp%3Fx%3D1");
-        let (st, _, body) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV], None)).await;
+        let (st, h, body) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV], None)).await;
         assert_eq!(st, StatusCode::OK);
+        assert_eq!(
+            h[header::REFERRER_POLICY], "same-origin",
+            "under no-referrer WebKit posts the form with `Origin: null`, which same_origin refuses"
+        );
+        assert_eq!(h["x-robots-tag"], "noindex");
         assert!(body.contains("action=\"/gate\""));
         assert!(body.contains("name=\"next\" value=\"/app\""));
     }

@@ -244,7 +244,7 @@ fn render(lang: Lang, next: &str, ask_user: bool, problem: Option<Problem>) -> S
         })
         .collect();
     GATE_HTML
-        .replace("<!--pwa-splash-->", &crate::pwa::splash_links())
+        .replace("<!--pwa-splash-->", crate::pwa::splash_links())
         .replace("{{lang}}", lang.code())
         .replace("{{doctitle}}", &t("gate.doctitle"))
         .replace("{{title}}", &t("gate.title"))

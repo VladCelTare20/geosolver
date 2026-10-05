@@ -1296,7 +1296,7 @@ pub async fn security_headers(
     };
     set(h, header::X_CONTENT_TYPE_OPTIONS, "nosniff");
     set(h, header::X_FRAME_OPTIONS, "DENY");
-    set(h, header::REFERRER_POLICY, "no-referrer");
+    set(h, header::REFERRER_POLICY, "same-origin");
     set(h, header::CONTENT_SECURITY_POLICY, content_security_policy());
     set(
         h,

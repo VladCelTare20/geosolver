@@ -6,12 +6,20 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `index.html` + `app.js` — the solver app (`/app`, or `/` in guest mode): history rail, composer, verdict, statement, steps, figure.
 - `landing.html` + `landing.js` — the signed-out home page; its showcase is `showcase.json`, a real `/api/solve` answer (IMO 2023 P2, shortest-proof mode).
 - `auth.html` + `auth.js` — sign in / create account.
+- `gate.html` — the shared-password page, a template `gate.rs` fills (`{{…}}`, HTML-escaped i18n strings); no script at all, so it works with JS off and needs no CSP hash. Served with the public files listed in `security.rs:PUBLIC_PATHS` (`app.css`, fonts, icons).
 - `site.js` — shared by all pages: icons, theme menu, math typesetting (`GS.math`), typed facts (`GS.fact`), step list (`GS.renderSteps`), figure viewer (`GS.Viewer`).
 - `i18n.js` — EN/RO catalogue and the `data-i18n*` markup engine; plurals via `tp(key, n)` with `.one/.few/.other`.
 - `app.css` — the design system (tokens, components) and the app layout; landing/auth add small page-local `<style>` blocks.
 - `fonts/` — Inter and STIX Two Text as woff2 subsets (Latin, Latin Ext-A incl. Romanian, Greek, math symbols), both SIL OFL 1.1 (see `fonts/LICENSES.md`). The `.ttf` files are renamed static instances ("GeoSolver Sans", "GeoSolver Math", with math symbols added from DejaVu) used only by the server's PDF/PNG reports; DejaVu TTFs are the last fallback.
 
 ## Notes
+- Page heads — every page links `/manifest.webmanifest`, `/favicon.svg`, `/apple-touch-icon.png`, the `apple-mobile-web-app-*` metas (status bar `default`: `black-translucent` forces white status-bar text over the light header) and two `theme-color` metas split by `prefers-color-scheme`; `<!--pwa-splash-->` is replaced by the launch-image links at startup (`pwa.rs:with_splash`).
+- `site.js:applyTheme` — an explicit light/dark choice sets both `theme-color` metas to that colour; "system" restores light `#f7f7f5` / dark `#121417` so the media attributes decide.
+- `site.js:isGate` / `toGate` — a 401 with `code: "gate"` (the shared password is gone, not the account session) goes to `/gate?next=<this page>`; `app.js:api`, `auth.js` and the export path return a never-settling promise then, so no error flashes. `landing.js` treats any 401 on `showcase.json` the same way.
+- `app.js:authLost` — other 401s end the *account* session only when `S.status.signed_in`; a guest is never told "your session has ended". A 401 `code: "sign_in"` (guest AI off) shows the server's sentence with Sign in.
+- `app.js:paintAiPill` — paints the header pill (`#ai-pill`, ≥ 768 px) and the composer pill (`#ai-pill-m`, phones), so a phone shows whether AI is on without opening Describe; the header has no room for it at 320–430 px in Romanian. The `sign_in` gate offers Sign in and Create account.
+- `i18n.js:current` — saved choice, else the `lang` cookie, else the first `ro`/`en` in `navigator.languages`, else English (the head snippet does the same for the no-flash class); the cookie is rewritten on load only for a saved choice, so the server's `Accept-Language` reading is not overridden by a default.
+- `index.html` footer — "Forget this device" is a plain `POST /gate/forget` form, shown when `/api/status` says `gate: "cookie"`.
 - Every inline `<script>` is pinned by hash in the CSP (`security.rs:content_security_policy`, computed from these files at startup); page logic lives in the `.js` files, which `'self'` allows. Only the tiny theme/language no-flash snippet in each `<head>` is inline.
 - `site.js:Viewer` — zoom changes the SVG `viewBox` (crisp at any scale); labels and dots are re-sized per zoom from `data-x/y/dx/dy` so they stay a constant screen size.
 - `site.js:Viewer.highlight(points, facts)` — with facts (steps, GIVEN, PROVE) only the objects the predicate names light up (`factShape`): cyclic → its circle, simtri → six sides, perp/para/cong → two segments, eqangle → the arms and the arc at the vertex, coll → its line; a drawn line is lit when it contains one of those segments. Facts it cannot read (prose, formulas) fall back to points: a line with ≥ 2 of them, a circle with ≥ 3 (or its centre + 2), marks when all of theirs are.
@@ -50,7 +58,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `app.css` figure focus — dimmed labels keep opacity 1 and switch to `--fig-lbl-dim` / `--fig-aux-dim` (≥ 5.8:1 on `--fig-bg` in both themes); lines and dots still fade.
 - `app.css` header — `.seg`, `.icon-btn` and `.btn-sm` in `.site-header` share `--hdr-ctl` (36 px, 44 px on coarse pointers).
 - `app.css` verdict actions — a wrapping flex row (buttons grow, never truncate); meta items may wrap. Toasts sit bottom-right from 1200 px so they never cover the verdict actions; `.toast :focus-visible` uses `--bg` for its ring.
-- `app.js:sessionEnded` — any 401 (solve, history list/delete/open, export, shorter-proof search) refreshes `/api/status`, swaps the header to Sign in and puts the session-ended message in the rail; `recheckSession` undoes it.
+- `app.js:sessionEnded` — a 401 for a signed-in user (solve, history list/delete/open, export, shorter-proof search; see `authLost`) refreshes `/api/status`, swaps the header to Sign in and puts the session-ended message in the rail; `recheckSession` undoes it.
 - `app.js:refineShorter` — “none found” only for a 2xx answer that is not shorter; a 503/429 says the server was busy, other failures say the search could not run.
 - `app.js:exportName` — downloads are named by title and verdict; the suffix is the UI language's `export.suffix.<status>` (`-proof`, `-counterexample`, `-numerical`, `-not-proved`, `-figure`; RO `-demonstratie`, …) passed through `slug`, so it stays ASCII.
 - `app.js:histStatus` — `proved-drawn` (stored `as_drawn`) shows “Proved (as drawn)” under the Proved filter.

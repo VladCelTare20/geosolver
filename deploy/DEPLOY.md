@@ -12,10 +12,47 @@ back it up. Each option below does that for you. Pick one of:
 Everything is **secure by default**: the server *refuses to start* on a
 non-loopback interface unless you set `AGSTUDIO_BASIC_AUTH` (or explicitly opt
 out with `AGSTUDIO_ALLOW_INSECURE=1` behind a proxy), and refuses to start if
-`AGSTUDIO_BASIC_AUTH` is set but too weak to use. With Basic auth on, **guest
-mode** lets anyone with the password solve and export without an account —
-share a link and a password, nothing else. It also has a per-IP rate
-limit, a concurrency cap, a request-body limit, and CSP/security headers.
+`AGSTUDIO_BASIC_AUTH` is set but too weak to use. With a shared password on,
+**guest mode** lets anyone with the password solve, export and use the AI
+features without an account — share a link and a password, nothing else. It
+also has a per-IP rate limit, a concurrency cap, a request-body limit, and
+CSP/security headers.
+
+### The shared password: the gate page
+
+Browsers get a password page (`/gate`) instead of the HTTP Basic dialog. The
+right password sets an `HttpOnly` cookie (`__Host-gate` with
+`AGSTUDIO_SECURE_COOKIES=1`) signed with HMAC-SHA256 over the password, valid
+for `AGSTUDIO_GATE_DAYS` (180) and renewed on visits after 7 days, so a phone —
+including the app added to its Home Screen — asks once, not on every cold
+start. Changing the password, or `AGSTUDIO_GATE_KEY`, signs every device out;
+"Forget this device" in the app footer signs out just that one. The cookie key
+is generated once and stored in the database (table `server_secrets`), so
+restarts and deploys keep everyone signed in.
+
+HTTP Basic still works for API clients (`curl -u x:PASSWORD …`): requests
+without a `Sec-Fetch-Mode` header still get the `WWW-Authenticate` challenge.
+Browser API calls without the password get `401 {"code": "gate"}` and the app
+goes to the gate page. Wrong passwords on the form and on Basic share one
+per-IP budget (`AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN`). `AGSTUDIO_GATE=basic`
+restores the Basic-only behaviour.
+
+Without the password only these are served: `/healthz`, `/gate`,
+`/manifest.webmanifest`, the icons (`/favicon.svg`, `/favicon.ico`,
+`/apple-touch-icon*.png`, `/icons/*`, `/splash/*`), `/assets/app.css`, the
+fonts and `/robots.txt` — static files with nothing secret, which iOS fetches
+without cookies when a page is added to the Home Screen.
+
+### Guests and solver slots
+
+Guests are keyed by their `gid` cookie, and all guests behind one address
+share every solver slot but one (`AGSTUDIO_MAX_CONCURRENT` − 1). Friends on one
+Wi-Fi network or behind one mobile carrier's NAT therefore compete: with the
+default 4 slots, a fourth simultaneous guest solve from that address is told
+the server is busy and retries once by itself. That is deliberate — the `gid`
+cookie is not signed, so a client could mint new ids to take every slot —
+and fine for a small audience; raise `AGSTUDIO_MAX_CONCURRENT`, or have
+regular users create accounts (accounts are not limited per address).
 
 ---
 
@@ -81,9 +118,14 @@ ProtectSystem=strict, no capabilities); its only writable path is
 | Env var | Default | Effect |
 |---|---|---|
 | `AGSTUDIO_BIND` | `127.0.0.1:<port>` | interface/port to bind |
-| `AGSTUDIO_BASIC_AUTH` | (none) | require HTTP Basic auth. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
-| `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* Basic credentials per minute before 429 (0 = off) |
-| `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past Basic auth may solve, export and humanize without an account (no history). `1` without Basic auth refuses to start |
+| `AGSTUDIO_BASIC_AUTH` | (none) | the shared site password. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
+| `AGSTUDIO_GATE` | `form` | how browsers enter the shared password: `form` = the `/gate` password page, which sets a signed `gate` cookie (HTTP Basic is still accepted, for API clients and curl); `basic` = only the HTTP Basic dialog (the behaviour before the gate page) |
+| `AGSTUDIO_GATE_KEY` | (generated, stored in the DB) | 64 hex chars: the HMAC key of the gate cookie. Malformed refuses to start. Rotating it (or the password) signs every device out |
+| `AGSTUDIO_GATE_DAYS` | 180 | how long the gate cookie lasts (1–400 days; renewed on visits after 7 days) |
+| `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
+| `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
+| `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
+| `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` calls per 24 h (0 = no daily cap; the per-minute limit always applies) |
 | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
 | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
@@ -110,7 +152,8 @@ ProtectSystem=strict, no capabilities); its only writable path is
 ## Photo / natural-language translation on a server
 
 Typing/pasting `.geo` programs and solving works everywhere with no setup. The
-**Describe / photo** feature drives the local `claude` CLI on *your Claude
+**Describe / photo** feature (open to guests too, unless `AGSTUDIO_GUEST_AI=0`)
+drives the local `claude` CLI on *your Claude
 subscription*, so it needs that CLI installed and signed in on the host:
 
 - **Docker:** the default image does not include `claude`, so translation is off.
@@ -131,5 +174,10 @@ AGSTUDIO_BIND=0.0.0.0:8787 AGSTUDIO_BASIC_AUTH="me:secret" ./target/release/agst
 # then browse to  http://<your-computer-LAN-IP>:8787  from the phone
 ```
 
-For anything reachable from the internet, use TLS (option A) — Basic auth
-without HTTPS sends the password in the clear.
+For anything reachable from the internet, use TLS (option A) — the password
+page and Basic auth both send the password in the clear without HTTPS.
+
+On an iPhone, Safari's Share → **Add to Home Screen** installs GeoSolver as an
+app (icon, name and launch screen come from the server). The Home Screen app
+has its own cookies, separate from Safari, so it asks for the shared password
+once more on first launch.

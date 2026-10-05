@@ -33,7 +33,7 @@
     </a>
     <div class="spacer"></div>
     <div class="header-tools">
-      <span class="status-pill checking" id="ai-pill" role="status"><span class="dot" aria-hidden="true"></span><span id="ai-pill-text" class="pill-long" data-i18n="ai.checking">Checking AI…</span><span id="ai-pill-short" class="pill-short" aria-hidden="true">AI…</span></span>
+      <span class="status-pill checking" id="ai-pill" role="status"><span class="dot" aria-hidden="true"></span><span class="pill-text" data-i18n="ai.checking">Checking AI…</span></span>
       <div class="seg lang-seg" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
         <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
         <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
@@ -74,7 +74,10 @@
 
   <section class="composer card" id="composer" aria-labelledby="composer-h" tabindex="-1">
     <div class="composer-head">
-      <h2 id="composer-h" class="label" data-i18n="app.problem">Problem</h2>
+      <div class="composer-title">
+        <h2 id="composer-h" class="label" data-i18n="app.problem">Problem</h2>
+        <span class="status-pill checking" id="ai-pill-m" role="status"><span class="dot" aria-hidden="true"></span><span class="pill-text" data-i18n="ai.checking">Checking AI…</span></span>
+      </div>
       <div class="seg tabs" role="tablist" id="tabs" data-i18n-attr="aria-label:app.problem" aria-label="Problem">
         <button type="button" role="tab" id="tab-describe" aria-controls="panel-describe" aria-selected="false" tabindex="-1" data-mode="describe"><span class="tab-ic" aria-hidden="true" data-icon="text"></span><span data-i18n="tab.describe">Describe</span></button>
         <button type="button" role="tab" id="tab-photo" aria-controls="panel-photo" aria-selected="false" tabindex="-1" data-mode="photo"><span class="tab-ic" aria-hidden="true" data-icon="image"></span><span data-i18n="tab.photo">Photo</span></button>

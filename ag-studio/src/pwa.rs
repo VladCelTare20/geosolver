@@ -109,11 +109,13 @@ fn ico_of_png(png: &[u8], size: u8) -> Vec<u8> {
     out
 }
 
+type RenderFn = fn() -> Option<Vec<u8>>;
+
 /// The icon at `name` (`apple-touch-icon.png`, `icon-192.png`, …), rendered
 /// on first request and kept for the life of the process.
 pub fn icon(name: &str) -> Option<&'static [u8]> {
     static CACHE: OnceLock<Mutex<HashMap<&'static str, &'static [u8]>>> = OnceLock::new();
-    let (key, build): (&'static str, fn() -> Option<Vec<u8>>) = match name {
+    let (key, build): (&'static str, RenderFn) = match name {
         "apple-touch-icon.png" => ("apple-touch-icon.png", || {
             opaque_png(&icon_svg(180, 180, Some(LIGHT_BG), 180.0 * 0.68, ACCENT, 2.4))
         }),

@@ -175,17 +175,20 @@
   }
 
   function paintAiPill() {
-    var st = S.status, pill = $("ai-pill"), txt = $("ai-pill-text");
+    var st = S.status;
     var cls = "checking", key = "ai.checking", tip = t("ai.reason.checking");
     if (st && !st.translate_checking) {
       if (st.can_translate) { cls = "on"; key = "ai.on"; tip = t("ai.tip.on"); }
       else if (st.translate_block === "sign_in") { cls = "off"; key = "ai.signin"; tip = t("ai.reason.sign_in"); }
       else { cls = "off"; key = "ai.off"; tip = t("ai.reason." + (st.translate_block || "disabled")); }
     }
-    pill.className = "status-pill " + cls;
-    txt.textContent = t(key);
-    $("ai-pill-short").textContent = t(key.replace("ai.", "ai.short."));
-    pill.title = tip;
+    ["ai-pill", "ai-pill-m"].forEach(function (id) {
+      var pill = $(id), txt = pill.querySelector(".pill-text");
+      pill.className = "status-pill " + cls;
+      txt.textContent = t(key);
+      txt.setAttribute("data-i18n", key);
+      pill.title = tip;
+    });
   }
 
   function aiBlock() {

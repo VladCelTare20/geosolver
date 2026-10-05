@@ -213,8 +213,10 @@ docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 Security defaults: the server **refuses to start on a public interface without
-authentication** (a shared password is enough — guests need no account), and enforces a per-IP rate limit, a concurrency cap, a body-size
-limit, and CSP/security headers. Config is all environment variables
+authentication** (a shared password is enough — guests need no account, and
+browsers enter it once on a password page that keeps them signed in, while API
+clients can still use HTTP Basic), and enforces a per-IP rate limit, a
+concurrency cap, a body-size limit, and CSP/security headers. Config is all environment variables
 ([reference](deploy/DEPLOY.md#environment-variables)). Options include Docker +
 nginx (TLS), plain `docker run`, or a hardened `systemd` unit.
 
