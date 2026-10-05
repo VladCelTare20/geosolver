@@ -49,12 +49,20 @@ const ASSETS: &[(&str, &str, &str, &[u8])] = &[
 /// Recent solutions by id, so export and history reopen use exactly what the
 /// reader saw instead of solving again.
 const SOLUTION_TTL: Duration = Duration::from_secs(30 * 60);
-const SOLUTION_CACHE_MAX: usize = 128;
+const SOLUTION_CACHE_MAX: usize = 256;
+const SOLUTION_CACHE_PER_OWNER: usize = 24;
 /// Solutions larger than this are not stored in history (reopen re-solves).
 const MAX_STORED_SOLUTION_BYTES: usize = 512 * 1024;
 
+struct CachedSolution {
+    id: String,
+    owner: String,
+    at: std::time::Instant,
+    value: std::sync::Arc<serde_json::Value>,
+}
+
 struct SolutionCache {
-    entries: Vec<(String, std::time::Instant, std::sync::Arc<serde_json::Value>)>,
+    entries: Vec<CachedSolution>,
 }
 
 fn solution_cache() -> &'static std::sync::Mutex<SolutionCache> {
@@ -62,17 +70,43 @@ fn solution_cache() -> &'static std::sync::Mutex<SolutionCache> {
     CACHE.get_or_init(|| std::sync::Mutex::new(SolutionCache { entries: Vec::new() }))
 }
 
-fn cache_put(value: serde_json::Value) -> (String, std::sync::Arc<serde_json::Value>) {
+impl SolutionCache {
+    fn evict_for(&mut self, owner: &str, per_owner: usize, max: usize) {
+        self.entries.retain(|e| e.at.elapsed() < SOLUTION_TTL);
+        let mine = self.entries.iter().filter(|e| e.owner == owner).count();
+        if mine >= per_owner {
+            if let Some(i) = self.entries.iter().position(|e| e.owner == owner) {
+                self.entries.remove(i);
+            }
+        }
+        if self.entries.len() >= max {
+            let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            for e in &self.entries {
+                *counts.entry(e.owner.as_str()).or_insert(0) += 1;
+            }
+            let top = counts.iter().max_by_key(|(_, n)| **n).map(|(o, _)| o.to_string());
+            if let Some(top) = top {
+                if let Some(i) = self.entries.iter().position(|e| e.owner == top) {
+                    self.entries.remove(i);
+                }
+            }
+        }
+    }
+}
+
+fn cache_put(owner: &str, value: serde_json::Value) -> (String, std::sync::Arc<serde_json::Value>) {
     let id = auth::new_session_id()[..32].to_string();
     let mut value = value;
     value["id"] = serde_json::Value::String(id.clone());
     let arc = std::sync::Arc::new(value);
     let mut c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    c.entries.retain(|(_, at, _)| at.elapsed() < SOLUTION_TTL);
-    if c.entries.len() >= SOLUTION_CACHE_MAX {
-        c.entries.remove(0);
-    }
-    c.entries.push((id.clone(), std::time::Instant::now(), arc.clone()));
+    c.evict_for(owner, SOLUTION_CACHE_PER_OWNER, SOLUTION_CACHE_MAX);
+    c.entries.push(CachedSolution {
+        id: id.clone(),
+        owner: owner.to_string(),
+        at: std::time::Instant::now(),
+        value: arc.clone(),
+    });
     (id, arc)
 }
 
@@ -80,8 +114,8 @@ fn cache_get(id: &str) -> Option<std::sync::Arc<serde_json::Value>> {
     let c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     c.entries
         .iter()
-        .find(|(k, at, _)| k == id && at.elapsed() < SOLUTION_TTL)
-        .map(|(_, _, v)| v.clone())
+        .find(|e| e.id == id && e.at.elapsed() < SOLUTION_TTL)
+        .map(|e| e.value.clone())
 }
 
 
@@ -613,9 +647,54 @@ fn err_code(status: StatusCode, code: &str, msg: impl Into<String>) -> Response 
 fn compile_err(lang: i18n::Lang, input: &str, raw: &str) -> Response {
     let d = present::diagnose(input, raw);
     let msg = i18n::compile_message(lang, &d);
+    let detail = compile_detail(&d, raw);
     (
         StatusCode::BAD_REQUEST,
-        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": raw })),
+        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": detail })),
+    )
+        .into_response()
+}
+
+/// The engine's words for the "technical details" toggle, when they add
+/// something: none for an empty `no attempt`, and the relation compiler's
+/// message rather than the metric fallback's when the relation is unknown.
+fn compile_detail(d: &present::Diagnosis, raw: &str) -> Option<String> {
+    let bare = raw.trim_start_matches("compile error: ").trim_start_matches("metric prover: ").trim();
+    if bare.is_empty() || bare == "no attempt" {
+        return None;
+    }
+    if d.key == "unknown_relation" && bare.contains("is not a metric value here") {
+        return d.token.as_ref().map(|t| format!("compile error: unknown relation `{t}`"));
+    }
+    Some(present::readable_engine_message(raw))
+}
+
+/// Where a goal divides by a literal zero: (line, column), both 1-based.
+fn division_by_zero(input: &str) -> Option<(usize, usize)> {
+    let lines: Vec<&str> = input.lines().collect();
+    let i = lines.iter().rposition(|l| l.split('#').next().unwrap_or("").trim_start().starts_with("prove"))?;
+    let code: Vec<char> = lines[i].split('#').next().unwrap_or("").chars().collect();
+    (0..code.len()).find_map(|k| {
+        if code[k] != '/' {
+            return None;
+        }
+        let mut j = k + 1;
+        while j < code.len() && code[j] == ' ' {
+            j += 1;
+        }
+        let num: String = code[j..].iter().take_while(|c| c.is_ascii_digit() || **c == '.').collect();
+        let next = code.get(j + num.chars().count());
+        let zero = !num.is_empty() && num.parse::<f64>().is_ok_and(|v| v == 0.0);
+        (zero && next.is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '_' && *c != '(' && *c != '^')).then_some((i + 1, k + 1))
+    })
+}
+
+fn division_by_zero_err(lang: i18n::Lang, at: (usize, usize)) -> Response {
+    let d = present::Diagnosis { key: "div_zero", line: at.0, col: at.1, len: 1, token: None, expected: None, got: None };
+    let msg = i18n::compile_message(lang, &d);
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg, "code": "compile", "diagnosis": d, "detail": "the goal divides by zero" })),
     )
         .into_response()
 }
@@ -640,8 +719,25 @@ fn check_input(state: &Shared, headers: &HeaderMap, input: &str) -> Result<(), R
 /// Trim a client-supplied title and cut it to [`MAX_TITLE_CHARS`]; blank → none.
 fn clean_title(title: Option<String>) -> Option<String> {
     let t = title?;
-    let t: String = t.trim().chars().take(MAX_TITLE_CHARS).collect();
-    (!t.is_empty()).then_some(t)
+    let t = t.trim();
+    if t.chars().count() <= MAX_TITLE_CHARS {
+        return (!t.is_empty()).then(|| t.to_string());
+    }
+    let cut: String = t.chars().take(MAX_TITLE_CHARS - 1).collect();
+    let at_word = match cut.rfind(char::is_whitespace) {
+        Some(i) if cut[..i].chars().count() > MAX_TITLE_CHARS / 2 => &cut[..i],
+        _ => cut.as_str(),
+    };
+    Some(format!("{}\u{2026}", at_word.trim_end_matches(|c: char| c.is_whitespace() || ",;:-".contains(c))))
+}
+
+/// A time-limit verdict states the limit the caller was promised (the engine
+/// measures from after compiling, so it would say 58 s for a 60 s limit).
+fn advertise_limit(mut value: serde_json::Value, limit: Duration) -> serde_json::Value {
+    if value["view"]["note"]["key"] == "time_limit" {
+        value["view"]["note"]["secs"] = serde_json::json!(limit.as_secs_f64().round());
+    }
+    value
 }
 
 /// Seconds a client is told to wait after a 503 for a full server.
@@ -756,6 +852,7 @@ fn input_error_note(note: &str) -> bool {
     .iter()
     .any(|p| m.starts_with(p))
         || m.contains(" expects ")
+        || (m.contains(" got ") && (m.ends_with(" arguments") || m.ends_with(" argument")))
 }
 
 fn split_args(s: &str) -> Vec<String> {
@@ -783,7 +880,19 @@ fn degenerate_goal(input: &str) -> Option<String> {
     let goal = present::source_goal(input)?;
     let open = goal.find('(')?;
     let name = goal[..open].trim();
-    let args = split_args(goal[open + 1..].trim_end().strip_suffix(')')?);
+    let mut depth = 0i32;
+    let close = goal[open..].char_indices().find_map(|(k, c)| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        (depth == 0).then_some(open + k)
+    })?;
+    if !goal[close + 1..].trim().is_empty() {
+        return None;
+    }
+    let args = split_args(&goal[open + 1..close]);
     let is_pt = |a: &str| a.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '\'');
     let repeated = |xs: &[String]| {
         xs.iter().enumerate().find_map(|(i, a)| (is_pt(a) && xs[..i].contains(a)).then(|| a.clone()))
@@ -853,6 +962,9 @@ async fn api_solve(
     if let Some(p) = degenerate_goal(&req.input) {
         return degenerate_goal_err(i18n::lang_from_headers(&headers), &req.input, &p);
     }
+    if let Some(at) = division_by_zero(&req.input) {
+        return division_by_zero_err(i18n::lang_from_headers(&headers), at);
+    }
     let Some(slot) = state.claim_caller(caller_key(&caller, ip.as_ref())) else {
         let lang = i18n::lang_from_headers(&headers);
         return (
@@ -897,8 +1009,8 @@ async fn api_solve(
     drop(slot);
     match solution_of(outcome, &job, &headers) {
         Ok((sol, reply)) => {
-            let value = view_of(&sol, reply.as_deref(), history_title.as_deref());
-            let (_, value) = cache_put(value);
+            let value = advertise_limit(view_of(&sol, reply.as_deref(), history_title.as_deref()), job.limit());
+            let (_, value) = cache_put(&caller_key(&caller, ip.as_ref()), value);
             let mut out = value.as_ref().clone();
             if let (Caller::User(user), true) = (&caller, req.record) {
                 if let Some(id) = save_history(&state, user.id, &sol, history_title.as_deref(), &value).await {
@@ -1044,6 +1156,8 @@ struct HistoryItem {
     has_solution: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    as_drawn: bool,
     created_at: i64,
 }
 
@@ -1059,6 +1173,7 @@ impl From<db::HistoryEntry> for HistoryItem {
             goal: h.goal.and_then(|g| serde_json::from_str(&g).ok()),
             has_solution: h.has_solution,
             note: h.note,
+            as_drawn: h.as_drawn,
             created_at: h.created_at,
         }
     }
@@ -1077,7 +1192,7 @@ async fn api_history_get(
     match res {
         Ok(Ok(Some(Some(json)))) => match serde_json::from_str::<serde_json::Value>(&json) {
             Ok(v) => {
-                let (_, v) = cache_put(v);
+                let (_, v) = cache_put(&format!("u{}", user.id), v);
                 Json(v.as_ref().clone()).into_response()
             }
             Err(_) => err(StatusCode::GONE, i18n::t(lang, "history.no_solution")),
@@ -2741,6 +2856,7 @@ mod tests {
             assert_eq!(sol["proved"], false);
             assert_eq!(sol["status"], "not-proved");
             assert!(sol["note"].as_str().unwrap().contains("time limit"), "{sol}");
+            assert_eq!(sol["view"]["note"]["secs"], 1.0, "the verdict states the configured limit: {sol}");
             assert!(took < Duration::from_secs(1) + worker::GRACE + Duration::from_secs(2), "{took:?}");
             let pid = wait_for_pid(&pidfile).await;
             assert!(reaped(pid), "worker {pid} outlived its request");
@@ -3039,6 +3155,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dividing_by_zero_is_an_input_error_not_a_verdict() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "zero").await;
+        let src = "A B C = triangle\nprove dist(A,B) = 1/0";
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": src})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["diagnosis"]["key"], "div_zero", "{body}");
+        assert_eq!(body["error"], "Division by zero in the goal.");
+        assert!(division_by_zero("A B C = triangle\nprove dist(A,B) / 0.5 = 2").is_none());
+        assert!(division_by_zero("A B C = triangle\nprove dist(A,B) = 1/ 0.0").is_some());
+    }
+
+    #[tokio::test]
+    async fn metric_typos_are_compile_errors_in_the_users_words() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "typo").await;
+        let arity = "A B C = triangle\nprove dist(B,C) = sin(angle(A,B))";
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": arity})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["diagnosis"]["key"], "arity", "{body}");
+        assert_eq!(body["diagnosis"]["line"], 2, "{body}");
+        assert_eq!(body["error"], "“angle” takes 3 arguments, but 2 were given.", "{body}");
+        let ops = "A B C = triangle\nprove dist(B,C) = 2**dist(A,B)";
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ops})).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
+        let msg = body["error"].as_str().unwrap();
+        assert!(!msg.contains("Op(") && msg.contains("*"), "{body}");
+        assert_eq!((body["diagnosis"]["line"].as_u64(), body["diagnosis"]["col"].as_u64()), (Some(2), Some(21)), "{body}");
+        let (_, _, hist) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(hist.as_array().map(Vec::len), Some(0), "typos are not history: {hist}");
+        let degenerate = "A B C = triangle\nM = midpoint(A, A)\nprove coll(A, B, M)";
+        let (_, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": degenerate})).await;
+        assert!(body["detail"].as_str().is_none_or(|d| !d.contains("no attempt")), "{body}");
+    }
+
+    #[test]
+    fn long_titles_are_cut_at_a_word_with_an_ellipsis() {
+        let long = "In every non-degenerate triangle consider the reflection of the orthocentre in each side; ".repeat(4);
+        let t = clean_title(Some(long)).unwrap();
+        assert!(t.chars().count() <= MAX_TITLE_CHARS, "{t}");
+        assert!(t.ends_with('\u{2026}'), "{t}");
+        let word = t.trim_end_matches('\u{2026}').rsplit(' ').next().unwrap();
+        assert!(["In", "every", "non-degenerate", "triangle", "consider", "the", "reflection", "of", "orthocentre", "in", "each", "side"].contains(&word), "{t}");
+        assert_eq!(clean_title(Some("  Euler line ".into())).as_deref(), Some("Euler line"));
+        assert_eq!(clean_title(Some("   ".into())), None);
+    }
+
+    #[tokio::test]
     async fn static_assets_are_served_with_their_types() {
         let (state, _dir) = test_state();
         for (path, ctype) in [
@@ -3068,5 +3232,37 @@ mod tests {
         assert_eq!(body["signed_in"], false);
         assert_eq!(body["can_translate"], false);
         assert!(body["translate_block"].is_string(), "{body}");
+    }
+
+    #[test]
+    fn one_caller_cannot_evict_anothers_cached_results() {
+        let mut c = SolutionCache { entries: Vec::new() };
+        let mut push = |owner: &str, id: String| {
+            c.evict_for(owner, SOLUTION_CACHE_PER_OWNER, SOLUTION_CACHE_MAX);
+            c.entries.push(CachedSolution {
+                id,
+                owner: owner.to_string(),
+                at: std::time::Instant::now(),
+                value: std::sync::Arc::new(serde_json::json!({})),
+            });
+        };
+        push("u1", "mine".into());
+        for i in 0..1000 {
+            push("u2", format!("flood{i}"));
+        }
+        for k in 0..20 {
+            for i in 0..30 {
+                push(&format!("g{k}"), format!("g{k}-{i}"));
+            }
+        }
+        assert!(c.entries.iter().any(|e| e.id == "mine"), "a flood of other callers' solves evicted u1's result");
+        assert!(c.entries.iter().filter(|e| e.owner == "u2").count() <= SOLUTION_CACHE_PER_OWNER);
+        assert!(c.entries.len() <= SOLUTION_CACHE_MAX);
+    }
+
+    #[test]
+    fn a_goal_joining_two_relations_is_not_called_degenerate() {
+        assert_eq!(degenerate_goal("A B C = triangle\nM = midpoint(A, B)\nprove coll(A, M, B) \u{2227} coll(A, B, M)"), None);
+        assert_eq!(degenerate_goal("A B C = triangle\nprove cyclic(A, B, C, A)").as_deref(), Some("A"));
     }
 }

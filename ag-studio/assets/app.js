@@ -131,13 +131,13 @@
   function paintAccount() {
     var st = S.status || {};
     $("account").hidden = !st.signed_in;
-    $("signin").hidden = !!st.signed_in || !st.guest;
+    $("signin").hidden = !!st.signed_in || !(st.guest || S.sessionEnded);
     if (st.signed_in) {
       $("username").textContent = st.username;
       $("avatar").textContent = (st.username || "?").slice(0, 1);
       $("account").setAttribute("title", t("app.signed_in_as", { name: st.username }));
     }
-    var rail = !!st.signed_in;
+    var rail = !!st.signed_in || !!S.sessionEnded;
     document.body.classList.toggle("has-rail", rail);
     $("rail").hidden = !rail;
     $("rail-toggle").hidden = !rail;
@@ -267,7 +267,9 @@
       pre.scrollTop = ta.scrollTop;
       pre.scrollLeft = ta.scrollLeft;
       gutter.scrollTop = ta.scrollTop;
+      ta.parentNode.classList.toggle("can-scroll-x", ta.scrollWidth - ta.clientWidth - ta.scrollLeft > 2);
     }
+    if (window.ResizeObserver) new ResizeObserver(function () { sync(); }).observe(ta);
     ta.addEventListener("input", function () {
       if (err) setError(null);
       render();
@@ -440,7 +442,9 @@
     clearInterval(S.timer);
     var tick = function () {
       var el = (Date.now() - S.started) / 1000;
-      $("solving-elapsed").textContent = t("solving.elapsed", { t: Math.floor(el) + " s", max: maxSecs + " s" });
+      $("solving-elapsed").textContent = el > maxSecs
+        ? t("solving.finishing", { max: maxSecs + " s" })
+        : t("solving.elapsed", { t: Math.floor(el) + " s", max: maxSecs + " s" });
       $("progress-bar").style.width = Math.min(100, (el / maxSecs) * 100) + "%";
     };
     tick();
@@ -487,6 +491,7 @@
 
   function solve() {
     if (S.busy) return;
+    var stoppedRefine = !!S.refining;
     if (S.refining) stopRefining();
     var mode = S.mode;
     var geo = editor.get().trim();
@@ -498,6 +503,7 @@
     if (mode !== "geo" && aiBlock()) return;
     editor.setError(null);
     S.lastError = null;
+    if (S.cancelToast) { S.cancelToast.close(); S.cancelToast = null; }
     if (S.activeHistory != null) { S.activeHistory = null; renderHistory(); }
     var ae = document.activeElement;
     var moveFocus = !ae || ae === document.body || ae === $("solve") || !!(ae.closest && ae.closest("[data-example-solve], #state-error, #verdict"));
@@ -534,7 +540,19 @@
     }
     chain.then(function (g) {
       S.geo = g;
-      return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
+      var tries = stoppedRefine ? 4 : 0;
+      var post = function () {
+        return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
+          if (r.status === 503 && r.data && r.data.code === "busy_self" && tries-- > 0) {
+            return new Promise(function (res) { setTimeout(res, 350); }).then(function () {
+              if (ctl.signal.aborted) throw new DOMException("aborted", "AbortError");
+              return post();
+            });
+          }
+          return r;
+        });
+      };
+      return post().then(function (r) {
         if (!r.ok) throw httpError(r, "solve");
         if (!validSolution(r.data)) throw unreadable();
         return r.data;
@@ -555,7 +573,7 @@
       S.abort = null;
       if (e && e.name === "AbortError") {
         show("state-empty");
-        GS.toast(t("cancelled", { s: S.deadline }), { ms: 6000 });
+        S.cancelToast = GS.toast(t("cancelled"), { ms: 6000 });
         if (lost) $("solve").focus();
         return;
       }
@@ -573,12 +591,31 @@
     $("solving-title").textContent = S.stage.stages[S.stage.i] === "translate" ? t("solving.translating") : t("solving.solving");
   }
 
+  function sessionEnded() {
+    if (S.sessionEnded) return;
+    S.sessionEnded = true;
+    S.history = [];
+    S.activeHistory = null;
+    var mark = histFocusMark();
+    $("hist-list").innerHTML = "";
+    $("hist-empty").hidden = false;
+    $("hist-empty").innerHTML = esc(t("hist.session_ended")) + ' <a href="/auth">' + esc(t("nav.signin")) + "</a>";
+    if (mark) histFocusRestore(mark);
+    api("/api/status").then(function (r) {
+      if (r.ok) { S.status = r.data; S.deadline = r.data.solve_deadline_secs || S.deadline; }
+    }).catch(function () {}).then(function () {
+      if (S.status) S.status.signed_in = false;
+      paintAccount();
+      paintAiPill();
+      paintGates();
+    });
+  }
   function httpError(r, what) {
     var d = r.data || {};
     if (r.status === 400 && d.code === "compile") {
       return { titleKey: "err.title.compile", body: d.error, diagnosis: d.diagnosis, detail: d.detail, compile: true };
     }
-    if (r.status === 401) return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true };
+    if (r.status === 401) { sessionEnded(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
     if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", retry: true };
     if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true };
@@ -602,9 +639,9 @@
     var actions = "";
     if (e.retry) actions += '<button type="button" class="btn btn-secondary btn-sm" id="err-retry">' + icons.retry + "<span>" + esc(t("err.retry")) + "</span></button>";
     if (e.signin) actions += '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("nav.signin")) + "</a>";
-    box.innerHTML = '<div class="err-head">' + icons.alert + '<div><h3 id="err-title" tabindex="-1">' + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
+    box.innerHTML = '<div class="err-head"><span class="err-icon">' + icons.alert + '</span><div class="grow"><h3 id="err-title" tabindex="-1">' + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
       (actions ? '<div class="err-actions">' + actions + "</div>" : "") +
-      (e.detail ? '<details class="err-detail"><summary>' + icons.chevron + "<span>" + esc(t("err.details")) + "</span></summary><pre>" + esc(e.detail) + "</pre></details>" : "");
+      (e.detail ? '<details class="err-detail"><summary>' + icons.chevron + "<span>" + esc(t("err.details")) + "</span></summary><pre lang=\"en\">" + esc(e.detail) + "</pre></details>" : "");
     show("state-error");
     if (!e.compile) announce(e.title + ". " + (e.body || ""));
     else announce("");
@@ -628,6 +665,13 @@
     a.textContent = "";
     if (msg) announceTimer = setTimeout(function () { a.textContent = msg; }, 50);
   }
+  var statusTimer = null;
+  function announceStatus(msg) {
+    var a = $("announce-status");
+    clearTimeout(statusTimer);
+    a.textContent = "";
+    if (msg) statusTimer = setTimeout(function () { a.textContent = msg; }, 400);
+  }
   function scrollToStatus() {
     if (window.matchMedia("(max-width: 1199px)").matches) {
       var el = $("status-area");
@@ -642,25 +686,29 @@
     var timeLimited = note.key === "time_limit";
     switch (sol.status) {
       case "proved":
+        if (!hasSteps(sol)) return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.immediate") };
         if (v.as_drawn) return { tone: "proved", icon: "check", head: t("v.proved.drawn"), text: t("v.proved.drawn.x") };
         return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
       case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
       case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: tp("v.numeric.x", sol.numeric_samples || (v.evidence && v.evidence.samples) || 0) };
       default:
-        if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: note.secs || S.deadline }) };
+        if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: Math.round(note.secs || S.deadline) }) };
         var text = t("v.not.x");
         if (note.key === "budget" && note.runs != null) text = t("v.not.budget", { runs: tp("runs", note.runs) });
         else if (["metric_error", "unsound", "replay"].indexOf(note.key) >= 0) text = t("v.not." + note.key);
         return { tone: "neutral", icon: "minus", head: t("v.not"), text: text };
     }
   }
+  function hasSteps(sol) {
+    return !!(sol.view && sol.view.proof && sol.view.proof.steps && sol.view.proof.steps.length);
+  }
   function stepCount(sol) {
     if (sol.status !== "proved" || !sol.view || !sol.view.proof) return 0;
-    return (sol.view.proof.steps || []).filter(function (s) { return s.kind !== "given"; }).length;
+    return (sol.view.proof.steps || []).filter(function (s) { return s.kind === "step"; }).length;
   }
   function methodText(sol) {
     if (sol.status === "holds-numerically") return t("meta.method.numeric");
-    if (sol.status === "refuted") return t("meta.method.counter");
+    if (sol.status === "refuted") return t(sol.view && sol.view.counterexample ? "meta.method.counter" : "meta.method.numeric");
     if (sol.method === "euclidean") return sol.status === "proved" ? t("meta.method.euclid") : "";
     var n = (sol.aux_constructions || []).length;
     if (n) return tp("meta.method.aux", n);
@@ -669,7 +717,7 @@
   function counterText(c) {
     if (!c) return "";
     var n = window.i18n.fmtNum;
-    var digits = c.kind === "values" || c.kind === "length" ? 4 : 1;
+    var digits = c.kind === "values" || c.kind === "length" || c.kind === "ratios" ? 4 : 1;
     var L = c.labels || [];
     return t("counter." + c.kind, { a: L[0] || "", b: L[1] || "", lhs: n(c.lhs, digits), rhs: n(c.rhs, digits) });
   }
@@ -688,7 +736,7 @@
     var guestNote = guest ? '<p class="hint guest-note"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t("hist.guest")) + ' <a href="/auth?mode=register">' + esc(t("nav.create")) + "</a></span></p>" : "";
     var counter = v.counterexample ? '<p class="counter"><strong>' + esc(t("counter.title")) + ".</strong> " + GS.math(counterText(v.counterexample), true) + "</p>" : "";
     var actions = '<div class="verdict-actions">' +
-      (sol.status === "proved" ? '<button type="button" class="btn btn-secondary btn-sm" id="copy-proof">' + icons.copy + "<span>" + esc(t("action.copy_proof")) + "</span></button>" : "") +
+      (sol.status === "proved" && hasSteps(sol) ? '<button type="button" class="btn btn-secondary btn-sm" id="copy-proof">' + icons.copy + "<span>" + esc(t("action.copy_proof")) + "</span></button>" : "") +
       '<button type="button" class="btn btn-secondary btn-sm" id="copy-geo">' + icons.code + "<span>" + esc(t("action.copy_geo")) + "</span></button>" +
       '<div class="menu-wrap"><button type="button" class="btn btn-secondary btn-sm" id="export-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu">' + icons.download + "<span>" + esc(t("action.export")) + "</span>" + icons.chevron + "</button>" +
       '<div class="menu" id="export-menu" role="menu" aria-labelledby="export-btn" hidden>' +
@@ -726,13 +774,15 @@
       var i = items.indexOf(document.activeElement);
       if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
       else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === "Home") { e.preventDefault(); items[0].focus(); }
+      else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus(); }
       else if (e.key === "Escape") { e.preventDefault(); close(true); }
       else if (e.key === "Tab") close();
     });
     menu.addEventListener("click", function (e) {
       var b = e.target.closest("[data-export]");
       if (!b) return;
-      close();
+      close(true);
       exportAs(b.getAttribute("data-export"));
     });
     document.addEventListener("click", function (e) { if (!menu.hidden && !e.target.closest(".verdict .menu-wrap")) close(); });
@@ -802,13 +852,13 @@
   function auxText(a) {
     var key = "aux." + a.kind;
     var args = (a.args || []).map(function (x) {
-      var mm = /^(circumcircle|circle)\((.*)\)$/.exec(x);
+      var mm = /^(circumcircle|circle|para|perp|tangent_at|isogonal)\((.*)\)$/.exec(String(x).trim());
       if (mm) {
-        var parts = mm[2].split(",").map(function (s) { return s.trim(); });
-        var k2 = "aux." + mm[1];
+        var parts = mm[2].split(mm[1] === "isogonal" ? " in " : ",").map(function (s) { return s.trim().replace(/^cent(re|er) /, ""); });
+        var k2 = /circ/.test(mm[1]) ? "aux." + mm[1] : "aux.line." + mm[1];
         var s2 = t(k2);
         parts.forEach(function (p, i) { s2 = s2.split("{" + i + "}").join(p); });
-        return s2;
+        if (!/\{\d\}/.test(s2)) return s2;
       }
       return x;
     });
@@ -866,6 +916,7 @@
     out.push(t("proof.title") + ":");
     (v.proof.steps || []).forEach(function (s) {
       out.push(s.n + ". " + GS.factText(s.fact) + " — " + GS.ruleLabel(s) + (s.deps && s.deps.length ? " [" + s.deps.join(", ") + "]" : ""));
+      (s.subs || []).forEach(function (u) { out.push("   • " + GS.factText(u.fact) + " — " + GS.ruleLabel(u)); });
     });
     if (v.proof.conclusion) out.push("∎ " + GS.factText(v.proof.conclusion));
     return out.join("\n");
@@ -875,6 +926,7 @@
     var v = S.sol.view, lines = [];
     (v.proof.steps || []).forEach(function (s) {
       lines.push(s.n + ". " + GS.factText(s.fact) + " (" + GS.ruleLabel(s) + (s.deps && s.deps.length ? "; from " + s.deps.join(", ") : "") + ")");
+      (s.subs || []).forEach(function (u) { lines.push("   - " + GS.factText(u.fact) + " (" + GS.ruleLabel(u) + ")"); });
     });
     if (v.proof.conclusion) lines.push("QED: " + GS.factText(v.proof.conclusion));
     return lines.join("\n");
@@ -886,7 +938,7 @@
     var lang = window.i18n.current();
     var key = (sol.id || sol.input) + "|" + lang;
     var box = $("ai-text");
-    if (!force && S.aiCache[key]) { box.innerHTML = S.aiCache[key]; return; }
+    if (!force && S.aiCache[key]) { if (box.innerHTML !== S.aiCache[key]) box.innerHTML = S.aiCache[key]; return; }
     var seq = ++S.aiSeq;
     box.innerHTML = '<p class="ai-loading"><span class="spinner" aria-hidden="true"></span>' + esc(t("proof.ai.loading")) + "</p>";
     var v = sol.view;
@@ -898,9 +950,11 @@
       var html = markdown(r.data.proof);
       S.aiCache[key] = html;
       box.innerHTML = html;
+      announceStatus(t("proof.ai.ready"));
     }).catch(function () {
       if (seq !== S.aiSeq) return;
       box.innerHTML = '<p class="muted">' + esc(t("proof.ai.fail")) + "</p>";
+      announceStatus(t("proof.ai.fail"));
     });
   }
   function delatex(s) {
@@ -954,13 +1008,14 @@
   function fitViewportToFigure(svg) {
     var vp = $("fig-viewport");
     vp.style.height = "";
-    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    if (!window.matchMedia("(max-width: 1023px)").matches) return;
     var m = /viewBox="([^"]+)"/.exec(svg);
     var b = m ? m[1].split(/\s+/).map(Number) : null;
     var w = vp.getBoundingClientRect().width;
     if (!b || !(b[2] > 0) || !(b[3] > 0) || !w) return;
     var ratio = Math.max(0.6, Math.min(1.25, b[3] / b[2]));
-    vp.style.height = Math.round(Math.min(w * ratio, window.innerHeight * 0.7)) + "px";
+    var cap = window.matchMedia("(max-width: 767px)").matches ? 0.7 : 0.6;
+    vp.style.height = Math.round(Math.min(w * ratio, window.innerHeight * cap)) + "px";
   }
 
   // ------------------------------------------------------- shorter proofs --
@@ -971,14 +1026,26 @@
     el.hidden = false;
     el.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>' + esc(t("shorter.searching")) + '</span> <button type="button" class="link-btn" id="refine-stop">' + esc(t("shorter.stop")) + "</button>";
     $("refine-stop").addEventListener("click", stopRefining);
+    announceStatus(t("shorter.searching"));
     api("/api/solve", { method: "POST", body: { input: first.input, title: first.title, best: true, budget_secs: 20, record: false }, signal: ctl.signal }).then(function (r) {
       if (S.refining !== ctl) return;
       S.refining = null;
       if (S.sol !== first) return;
       var better = r.ok && r.data.status === "proved" && stepCount(r.data) && stepCount(r.data) < stepCount(first);
+      if (!r.ok) {
+        if (r.status === 401) sessionEnded();
+        var e1 = $("refine");
+        var key = r.status === 503 || r.status === 429 ? "shorter.busy" : "shorter.failed";
+        if (e1) e1.innerHTML = "<span>" + esc(t(key)) + "</span>";
+        if (e1 && e1.contains(document.activeElement)) focusVerdictHead();
+        announceStatus(t(key));
+        return;
+      }
       if (better) {
         var msg = t("shorter.found", { n: tp("meta.steps", stepCount(r.data)), m: tp("meta.steps", stepCount(first)) });
+        var keep = focusMark();
         renderSolution(r.data, {});
+        restoreFocus(keep);
         GS.toast(msg);
         if (first.history_id && r.data.id) {
           r.data.history_id = first.history_id;
@@ -986,12 +1053,21 @@
         }
       } else {
         var e2 = $("refine");
+        var hadFocus = e2 && e2.contains(document.activeElement);
         if (e2) { e2.innerHTML = '<span>' + esc(t("shorter.none")) + "</span>"; }
+        if (hadFocus) focusVerdictHead();
+        announceStatus(t("shorter.none"));
       }
-    }).catch(function () {
-      if (S.refining === ctl) S.refining = null;
+    }).catch(function (err) {
+      var mine = S.refining === ctl;
+      if (mine) S.refining = null;
       var e3 = $("refine");
-      if (e3) e3.hidden = true;
+      if (e3 && e3.contains(document.activeElement)) focusVerdictHead();
+      if (!e3) return;
+      if (mine && S.sol === first && !(err && err.name === "AbortError")) {
+        e3.innerHTML = "<span>" + esc(t("shorter.failed")) + "</span>";
+        announceStatus(t("shorter.failed"));
+      } else e3.hidden = true;
     });
   }
   function stopRefining() {
@@ -999,7 +1075,33 @@
     S.refining.abort();
     S.refining = null;
     var el = $("refine");
+    if (el && el.contains(document.activeElement)) focusVerdictHead();
     if (el) el.hidden = true;
+  }
+  function focusVerdictHead() {
+    var h = $("verdict-head");
+    if (h) h.focus({ preventScroll: true });
+  }
+  /** Where keyboard focus is inside the result (a control id, or a step
+   * index), so it can be put back after the result is re-rendered. */
+  function focusMark() {
+    var ae = document.activeElement;
+    if (!ae || ae === document.body) return null;
+    if (ae.id && ($("verdict").contains(ae) || $("proof-area").contains(ae))) return { id: ae.id };
+    var li = ae.closest && ae.closest("#steps .step");
+    if (li) return { step: Array.prototype.indexOf.call($("steps").querySelectorAll(".step:not([hidden])"), li) };
+    if ($("verdict").contains(ae) || $("proof-area").contains(ae)) return { head: true };
+    return null;
+  }
+  function restoreFocus(mark) {
+    if (!mark) return;
+    var el = mark.id ? $(mark.id) : null;
+    if (!el && mark.step != null) {
+      var steps = $("steps").querySelectorAll(".step:not([hidden])");
+      el = steps.length ? steps[Math.min(mark.step, steps.length - 1)] : null;
+    }
+    if (el && !el.hidden && el.offsetParent !== null) el.focus({ preventScroll: true });
+    else focusVerdictHead();
   }
 
   // ---------------------------------------------------------------- export --
@@ -1010,32 +1112,74 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   }
+  function slug(s) {
+    return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-+$/, "");
+  }
+  function exportName(sol, fmt) {
+    var kind = { proved: "proof", refuted: "counterexample", "holds-numerically": "numerical" }[sol.status] || "not-proved";
+    var title = slug(sol.title);
+    return "geosolver-" + (title ? title + "-" : "") + kind + "." + fmt;
+  }
   function exportAs(fmt) {
     var sol = S.sol;
     if (!sol) return;
     var label = fmt.toUpperCase();
     if (fmt === "svg") {
-      download(new Blob([sol.svg], { type: "image/svg+xml" }), "geosolver-figure.svg");
+      var t0 = slug(sol.title);
+      download(new Blob([sol.svg], { type: "image/svg+xml" }), "geosolver-" + (t0 ? t0 + "-" : "") + "figure.svg");
       GS.toast(t("export.done", { fmt: "SVG" }));
       return;
     }
+    if (S.exporting) return;
+    S.exporting = true;
     var btn = $("export-btn");
-    btn.disabled = true;
+    btn.setAttribute("aria-disabled", "true");
     var tst = GS.toast(t("export.preparing", { fmt: label }), { ms: 60000 });
-    fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sol.id, format: fmt }) }).then(function (res) {
+    var post = function (body) {
+      return fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    };
+    var recache = function () {
+      if (!sol.history_id || !(S.status && S.status.signed_in)) return Promise.resolve(null);
+      return api("/api/history/" + sol.history_id).then(function (r) {
+        return r.ok && r.data && r.data.id ? r.data.id : null;
+      }).catch(function () { return null; });
+    };
+    var fail = function (msg) {
+      if (tst) tst.close();
+      GS.toast(t("export.failed", { msg: msg }), { ms: 7000 });
+    };
+    post({ id: sol.id, format: fmt }).then(function (res) {
+      if (res.status !== 410) return res;
+      return recache().then(function (id) {
+        if (id) {
+          if (S.sol === sol) sol.id = id;
+          return post({ id: id, format: fmt });
+        }
+        return post({ input: sol.input, title: sol.title || null, format: fmt });
+      });
+    }).then(function (res) {
       if (res.ok) return res.blob().then(function (b) {
-        download(b, "geosolver-proof." + fmt);
+        download(b, exportName(sol, fmt));
         if (tst) tst.close();
         GS.toast(t("export.done", { fmt: label }));
       });
       return res.json().catch(function () { return {}; }).then(function (j) {
-        if (tst) tst.close();
-        GS.toast(t("export.failed", { msg: j.error || res.statusText }), { ms: 7000 });
+        if (res.status === 401) {
+          if (tst) tst.close();
+          sessionEnded();
+          GS.toast(t("export.auth"), { ms: 9000 });
+          return;
+        }
+        fail(j.error || res.statusText);
       });
     }).catch(function (e) {
-      if (tst) tst.close();
-      GS.toast(t("export.failed", { msg: e.message }), { ms: 7000 });
-    }).then(function () { btn.disabled = false; });
+      fail(e.message);
+    }).then(function () {
+      S.exporting = false;
+      var b = $("export-btn");
+      if (b) b.removeAttribute("aria-disabled");
+    });
   }
   function copyText(text) {
     var done = function () { GS.toast(t("copied")); };
@@ -1061,12 +1205,14 @@
   }
   function histStatus(r) {
     if (r.status === "not-proved" && r.note === "time_limit") return "time-limit";
+    if (r.status === "proved" && r.as_drawn) return "proved-drawn";
     if (r.status) return r.status;
     if (r.proved && r.method === "euclidean") return "legacy";
     return r.proved ? "proved" : "not-proved";
   }
-  var TONE = { proved: "proved", refuted: "false", "holds-numerically": "unproved", "not-proved": "neutral", "time-limit": "neutral", legacy: "neutral" };
-  var ICON = { proved: "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", "time-limit": "clock", legacy: "minus" };
+  var TONE = { proved: "proved", "proved-drawn": "proved", refuted: "false", "holds-numerically": "unproved", "not-proved": "neutral", "time-limit": "neutral", legacy: "neutral" };
+  var ICON = { proved: "check", "proved-drawn": "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", "time-limit": "clock", legacy: "minus" };
+  var FILTER_OF = { "time-limit": "not-proved", "proved-drawn": "proved" };
   function relTime(sec) {
     var diff = sec - Date.now() / 1000;
     var rtf = new Intl.RelativeTimeFormat(window.i18n.locale(), { numeric: "auto" });
@@ -1079,19 +1225,47 @@
   }
   function loadHistory() {
     api("/api/history").then(function (r) {
+      if (r.status === 401) { sessionEnded(); return; }
       if (!r.ok) throw new Error();
       S.history = Array.isArray(r.data) ? r.data : [];
-      renderHistory();
+      renderHistory(true);
     }).catch(function () {
       $("hist-empty").hidden = false;
       $("hist-empty").textContent = t("hist.load_fail");
     });
   }
-  function renderHistory() {
+  function histFocusMark() {
+    var list = $("hist-list"), ae = document.activeElement;
+    if (!ae || !list.contains(ae)) return null;
+    var li = ae.closest(".hist-item");
+    var items = Array.prototype.slice.call(list.querySelectorAll(".hist-item"));
+    return { at: Math.max(0, items.indexOf(li)), del: !!ae.closest(".hist-del"), id: li ? +li.getAttribute("data-id") : null };
+  }
+  function histFocusRestore(mark) {
+    if (!mark) return;
+    var ae = document.activeElement;
+    if (ae && ae !== document.body && document.contains(ae)) return;
+    var list = $("hist-list");
+    var same = mark.id != null ? list.querySelector('.hist-item[data-id="' + mark.id + '"]') : null;
+    var items = list.querySelectorAll(".hist-item");
+    var li = same || items[Math.min(mark.at, items.length - 1)];
+    var target = li ? li.querySelector(mark.del && same ? ".hist-del" : ".hist-open") : null;
+    if (target) { target.focus(); return; }
+    var link = $("hist-empty").querySelector("a");
+    if (link && !$("hist-empty").hidden) { link.focus(); return; }
+    if ($("hist-search").offsetParent !== null) $("hist-search").focus();
+  }
+  function renderHistory(keepFocus) {
+    var mark = keepFocus ? histFocusMark() : null;
+    var res = renderHistoryRows();
+    histFocusRestore(mark);
+    return res;
+  }
+  function renderHistoryRows() {
     var q = S.query.trim().toLowerCase();
     var rows = S.history.filter(function (r) {
       if (S.pendingDeletes.has(r.id)) return false;
-      var st = histStatus(r) === "time-limit" ? "not-proved" : histStatus(r);
+      var st = FILTER_OF[histStatus(r)] || histStatus(r);
       if (S.filter !== "all" && st !== S.filter) return false;
       if (!q) return true;
       return (histTitle(r) + " " + (r.input || "")).toLowerCase().indexOf(q) >= 0;
@@ -1109,16 +1283,25 @@
     var empty = $("hist-empty");
     var live = S.history.filter(function (r) { return !S.pendingDeletes.has(r.id); }).length;
     if (!live) { empty.hidden = false; empty.textContent = t("hist.empty"); }
-    else if (!rows.length) { empty.hidden = false; empty.textContent = t("hist.none_match"); }
+    else if (!rows.length) { empty.hidden = false; empty.textContent = t(q ? "hist.none_match" : "hist.none_filter"); }
     else empty.hidden = true;
+    return { rows: rows.length, live: live, query: q };
+  }
+  var histAnnounceTimer = null;
+  function announceHistory(res) {
+    clearTimeout(histAnnounceTimer);
+    histAnnounceTimer = setTimeout(function () {
+      if (!res.live) return;
+      announceStatus(res.rows ? tp("hist.count", res.rows) : t(res.query ? "hist.none_match" : "hist.none_filter"));
+    }, 500);
   }
   function wireHistory() {
-    $("hist-search").addEventListener("input", function (e) { S.query = e.target.value; renderHistory(); });
+    $("hist-search").addEventListener("input", function (e) { S.query = e.target.value; announceHistory(renderHistory()); });
     document.querySelectorAll("#hist-filters .filter").forEach(function (b) {
       b.addEventListener("click", function () {
         S.filter = b.getAttribute("data-filter");
         document.querySelectorAll("#hist-filters .filter").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
-        renderHistory();
+        announceHistory(renderHistory());
       });
     });
     $("hist-list").addEventListener("click", function (e) {
@@ -1177,9 +1360,10 @@
     clearTimeout(S.pendingDeletes.get(id));
     S.pendingDeletes.delete(id);
     api("/api/history/" + id, { method: "DELETE", keepalive: !!keepalive }).then(function (r) {
+      if (r.status === 401) { sessionEnded(); GS.toast(t("hist.session_ended")); return; }
       if (!r.ok && r.status !== 404) { GS.toast(t("hist.del_fail")); loadHistory(); return; }
       S.history = S.history.filter(function (x) { return x.id !== id; });
-      renderHistory();
+      renderHistory(true);
     }).catch(function () {});
   }
   function flushDeletes() { Array.from(S.pendingDeletes.keys()).forEach(function (id) { commitDelete(id, true); }); }
@@ -1200,16 +1384,16 @@
       editor.set(row.input);
     }
     function gone(msg) {
-      if (S.activeHistory === id) S.activeHistory = null;
-      renderHistory();
+      S.activeHistory = null;
+      renderHistory(true);
       GS.toast(msg);
     }
     api("/api/history/" + id).then(function (r) {
       if (seq !== S.openSeq) return;
       if (r.ok && validSolution(r.data)) { adopt(); r.data.history_id = id; renderSolution(r.data, { announce: true, focus: true }); return; }
-      if (r.ok) { showError(unreadable()); return; }
+      if (r.ok) { S.activeHistory = null; renderHistory(); showError(unreadable()); return; }
       if (r.status === 410) { adopt(); solveReplay(row); return; }
-      if (r.status === 401) { showError(httpError(r)); return; }
+      if (r.status === 401) { S.activeHistory = null; showError(httpError(r), true); return; }
       if (r.status === 404) {
         S.history = S.history.filter(function (x) { return x.id !== id; });
         gone(t("hist.gone"));
@@ -1331,6 +1515,8 @@
   }
 
   document.addEventListener("langchange", function () {
+    clearTimeout(announceTimer); clearTimeout(statusTimer);
+    $("announce").textContent = ""; $("announce-status").textContent = "";
     paintAiPill(); paintGates(); paintEffortHint(); paintExamples(); paintAccount();
     var ex = exampleOf(editor.get());
     if (ex && editor.get() !== exampleSrc(ex)) editor.set(exampleSrc(ex));

@@ -49,6 +49,8 @@ pub struct HistoryEntry {
     pub has_solution: bool,
     /// The stored solution's note key (`time_limit`, …), when there is one.
     pub note: Option<String>,
+    /// The stored proof covers only the drawn configuration.
+    pub as_drawn: bool,
     pub created_at: i64,
 }
 
@@ -312,7 +314,8 @@ pub fn list_history(
 ) -> rusqlite::Result<Vec<HistoryEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, user_id, input, title, proved, method, created_at, status, goal, \
-         solution IS NOT NULL, CASE WHEN json_valid(solution) THEN json_extract(solution, '$.view.note.key') END \
+         solution IS NOT NULL, CASE WHEN json_valid(solution) THEN json_extract(solution, '$.view.note.key') END, \
+         CASE WHEN json_valid(solution) THEN json_extract(solution, '$.view.as_drawn') END \
          FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
     )?;
     let rows = stmt.query_map(params![user_id, before.unwrap_or(i64::MAX), limit], |r| {
@@ -328,6 +331,7 @@ pub fn list_history(
             goal: r.get(8)?,
             has_solution: r.get::<_, i64>(9)? != 0,
             note: r.get::<_, Option<String>>(10).ok().flatten(),
+            as_drawn: r.get::<_, Option<i64>>(11).ok().flatten().unwrap_or(0) != 0,
         })
     })?;
     rows.collect()
