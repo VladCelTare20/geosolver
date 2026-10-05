@@ -166,10 +166,11 @@
   function groupHtml(given) {
     var pts = [];
     given.forEach(function (s) { (s.fact.points || []).forEach(function (p) { if (pts.indexOf(p) < 0) pts.push(p); }); });
+    var list = ranges(given.map(function (s) { return s.n; }));
     return '<li class="step is-given is-group" data-points="' + esc(pts.join(" ")) + '" tabindex="-1">' +
       '<span class="step-n" aria-hidden="true"></span>' +
-      '<div class="step-body"><div class="step-stmt">' + esc(t("proof.hyps", { list: ranges(given.map(function (s) { return s.n; })) })) + "</div>" +
-      '<p class="step-meta"><button type="button" class="link-btn group-toggle" aria-expanded="false" tabindex="-1">' + esc(t("proof.hyps.show")) + "</button></p></div></li>";
+      '<div class="step-body"><div class="step-stmt">' + esc(t("proof.hyps", { list: list })) + "</div>" +
+      '<p class="step-meta"><button type="button" class="link-btn group-toggle" aria-expanded="false" tabindex="-1" data-list="' + esc(list) + '" aria-label="' + esc(t("proof.hyps.show_sr", { list: list })) + '">' + esc(t("proof.hyps.show")) + "</button></p></div></li>";
   }
   /** Render the numbered, cited steps into `ol`. `hooks.focus(points)` is
    * called with the step's points on hover/focus (null on leave). */
@@ -190,6 +191,7 @@
     var items = Array.prototype.slice.call(ol.querySelectorAll(".step"));
     var firstShown = items.filter(function (x) { return !x.hidden; })[0];
     if (firstShown) firstShown.tabIndex = 0;
+    if (hooks.describedBy) items.forEach(function (li) { li.setAttribute("aria-describedby", hooks.describedBy); });
     function shown() { return items.filter(function (x) { return !x.hidden; }); }
     function pts(li) { var p = li.getAttribute("data-points"); return p ? p.split(" ") : []; }
     function activate(li) {
@@ -202,7 +204,10 @@
     function setGroup(open) {
       items.forEach(function (x) { if (x.hasAttribute("data-restated")) x.hidden = !open; });
       var b = ol.querySelector(".group-toggle");
-      if (b) { b.setAttribute("aria-expanded", open ? "true" : "false"); b.textContent = t(open ? "proof.hyps.hide" : "proof.hyps.show"); }
+      if (!b) return;
+      b.setAttribute("aria-expanded", open ? "true" : "false");
+      b.textContent = t(open ? "proof.hyps.hide" : "proof.hyps.show");
+      b.setAttribute("aria-label", t(open ? "proof.hyps.hide_sr" : "proof.hyps.show_sr", { list: b.getAttribute("data-list") }));
     }
     items.forEach(function (li) {
       li.addEventListener("mouseenter", function () { activate(li); });
@@ -720,6 +725,22 @@
     return n(Math.round(x)) + " s";
   }
 
+  function toastSpace() {
+    var region = document.getElementById("toasts"), root = document.documentElement;
+    if (!region || !region.querySelector(".toast")) { root.classList.remove("has-toast"); root.style.removeProperty("--toast-h"); return; }
+    root.style.setProperty("--toast-h", Math.max(0, Math.ceil(window.innerHeight - region.getBoundingClientRect().top)) + "px");
+    root.classList.add("has-toast");
+    unobscure(document.activeElement);
+  }
+  function unobscure(el) {
+    var region = document.getElementById("toasts");
+    if (!el || el === document.body || !region || region.contains(el) || !region.querySelector(".toast")) return;
+    var r = el.getBoundingClientRect(), tr = region.getBoundingClientRect();
+    if (r.bottom <= tr.top || r.top >= tr.bottom || r.right <= tr.left || r.left >= tr.right) return;
+    el.scrollIntoView({ block: "nearest" });
+  }
+  document.addEventListener("focusin", function (e) { if (document.documentElement.classList.contains("has-toast")) unobscure(e.target); });
+  window.addEventListener("resize", function () { if (document.documentElement.classList.contains("has-toast")) toastSpace(); });
   function toast(msg, opts) {
     opts = opts || {};
     var region = document.getElementById("toasts");
@@ -733,17 +754,18 @@
     el.innerHTML = '<div class="grow"></div>';
     el.firstChild.textContent = msg;
     var done = false;
-    function close() { if (done) return; done = true; el.remove(); if (opts.onClose) opts.onClose(); }
+    function close() { if (done) return; done = true; el.remove(); toastSpace(); if (opts.onClose) opts.onClose(); }
     el._gsClose = close;
     if (opts.action) {
       var b = document.createElement("button");
       b.type = "button";
       b.className = "btn btn-sm";
       b.textContent = opts.action;
-      b.addEventListener("click", function () { done = true; el.remove(); opts.onAction(); });
+      b.addEventListener("click", function () { done = true; el.remove(); toastSpace(); opts.onAction(); });
       el.appendChild(b);
     }
     region.appendChild(el);
+    toastSpace();
     var ms = opts.ms || 4000, timer = setTimeout(close, ms);
     function resume() {
       if (done || el.contains(document.activeElement) || el.matches(":hover")) return;
