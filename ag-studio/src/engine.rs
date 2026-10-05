@@ -444,7 +444,6 @@ fn best_deductive(
         }
     };
 
-    // The shortest proofs so far, at most TOP_K, ordered by (steps, facts).
     let mut best: Vec<Candidate> = Vec::new();
     let mut examined = 0usize;
 
@@ -670,14 +669,10 @@ fn best_deductive(
     }
 }
 
-/// A candidate proof: (aux constructions, proof, steps, facts).
 type Candidate = (Vec<Construction>, String, usize, usize);
 
-/// How many of the shortest proofs the readability pass compares.
 const TOP_K: usize = 16;
 
-/// Keep the `TOP_K` shortest proofs (fewer steps, then fewer facts; earlier
-/// finds win ties). Auxiliary count is intentionally not a factor.
 fn consider(best: &mut Vec<Candidate>, examined: &mut usize, aux: Vec<Construction>, proof: String) {
     let (steps, facts) = proof_size(&proof);
     *examined += 1;
@@ -691,10 +686,6 @@ fn consider(best: &mut Vec<Candidate>, examined: &mut usize, aux: Vec<Constructi
     }
 }
 
-/// Run the human-proof writer over the candidates (shortest first) within
-/// `min(25% of budget, 5s)` and return the index of the lowest HumanCost
-/// (ties: fewer raw steps, then search order). `None` when no candidate got a
-/// human proof in time.
 fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Option<usize> {
     if cands.len() < 2 {
         return None;
