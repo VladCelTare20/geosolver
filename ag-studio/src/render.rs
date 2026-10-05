@@ -274,6 +274,7 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
         "midp" => i18n::tf(lang, "fact.midp", &[("m", g(0)), ("seg", g(1))]),
         "circle" => i18n::tf(lang, "fact.circle", &[("o", g(0)), ("tri", g(1))]),
         "oncircle" => i18n::tf(lang, "fact.oncircle", &[("o", g(0)), ("pts", a[1..].join(", "))]),
+        "bisector" => i18n::tf(lang, "fact.bisector", &[("p", g(0)), ("angle", g(1))]),
         "concur" if !a.is_empty() => i18n::tf(lang, "fact.concur", &[("lines", a[..a.len() - 1].join(", ")), ("p", g(a.len() - 1))]),
         k @ ("incenter" | "excenter" | "in_or_excenter") => i18n::tf(lang, &format!("fact.{k}"), &[("i", g(0)), ("tri", g(1))]),
         "prose" => {
@@ -714,7 +715,12 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
     }
     y += card_h + 18.0;
     let mut meta: Vec<String> = method_text(v, lang).into_iter().collect();
-    meta.push(fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang));
+    let secs = fmt_secs(v["elapsed_secs"].as_f64().unwrap_or(0.0), lang);
+    meta.push(if v["search"] == "shortest" {
+        i18n::tf(lang, "report.shortest_search", &[("t", secs)])
+    } else {
+        secs
+    });
     let shown_steps = view["proof"]["steps"].as_array().map_or(0, |a| a.iter().filter(|s| s["kind"] == "step").count());
     if status == "proved" && shown_steps > 0 {
         meta.push(tpn(lang, "report.steps", shown_steps as u64));

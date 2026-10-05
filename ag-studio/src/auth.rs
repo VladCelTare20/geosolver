@@ -20,6 +20,9 @@ use crate::db;
 /// How long a session cookie/row stays valid.
 pub const SESSION_TTL_SECS: i64 = 60 * 60 * 24 * 30; // 30 days
 
+/// How long a browser keeps its guest id.
+pub const GUEST_TTL_SECS: i64 = 60 * 60 * 24 * 365;
+
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
     let salt = SaltString::generate(&mut OsRng);
     Ok(Argon2::default()
@@ -95,7 +98,30 @@ pub fn clear_cookie_header(secure: bool) -> String {
 /// ambiguous (the cookie sent twice, e.g. a tossed duplicate) or not shaped like
 /// one of our ids is treated as no session at all.
 pub fn parse_sid(headers: &HeaderMap, secure: bool) -> Option<String> {
-    let prefix = format!("{}=", cookie_name(secure));
+    parse_cookie_id(headers, cookie_name(secure))
+}
+
+pub fn guest_cookie_name(secure: bool) -> &'static str {
+    if secure {
+        "__Host-gid"
+    } else {
+        "gid"
+    }
+}
+
+pub fn set_guest_cookie_header(id: &str, secure: bool) -> String {
+    let secure_flag = if secure { "; Secure" } else { "" };
+    let name = guest_cookie_name(secure);
+    format!("{name}={id}; HttpOnly; SameSite=Lax; Path=/; Max-Age={GUEST_TTL_SECS}{secure_flag}")
+}
+
+/// The per-browser guest id, read under the same rules as [`parse_sid`].
+pub fn parse_guest(headers: &HeaderMap, secure: bool) -> Option<String> {
+    parse_cookie_id(headers, guest_cookie_name(secure))
+}
+
+fn parse_cookie_id(headers: &HeaderMap, name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
     let mut found = headers
         .get_all(header::COOKIE)
         .iter()

@@ -827,9 +827,19 @@ impl AppState {
     /// Count one more solve for `key`, or `None` when that caller already has
     /// [`AppState::per_caller_limit`] solves (cancelled ones included) running.
     pub fn claim_caller(&self, key: String) -> Option<CallerSlot> {
+        self.claim_within(key, self.per_caller_limit())
+    }
+
+    /// How many solves all guests behind one address may run together: every
+    /// slot but one, so one network cannot lock everyone else out.
+    pub fn guest_ip_limit(&self) -> usize {
+        self.config.max_concurrent.saturating_sub(1).max(self.per_caller_limit())
+    }
+
+    pub fn claim_within(&self, key: String, limit: usize) -> Option<CallerSlot> {
         let mut m = relock(&self.inflight);
         let n = m.entry(key.clone()).or_insert(0);
-        if *n >= self.per_caller_limit() {
+        if *n >= limit {
             return None;
         }
         *n += 1;

@@ -96,6 +96,7 @@
       case "circle": return esc(t("fact.circle", { o: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "oncircle": return esc(t("fact.oncircle", { o: "\u0001", pts: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", a.slice(1).join(", "));
       case "concur": return esc(t("fact.concur", { lines: "\u0001", p: "\u0002" })).replace("\u0001", a.slice(0, -1).join(", ")).replace("\u0002", a[a.length - 1] || "");
+      case "bisector": return esc(t("fact.bisector", { p: "\u0001", angle: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "incenter": case "excenter": case "in_or_excenter": return esc(t("fact." + f.kind, { i: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "cong": case "length": case "eqangle": case "coincide": return g(0) + " = " + g(1);
       case "perp": return g(0) + " ⟂ " + g(1);

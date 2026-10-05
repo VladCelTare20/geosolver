@@ -89,14 +89,43 @@
     return fetch(url, init).then(function (res) {
       var ct = res.headers.get("content-type") || "";
       if (opts.raw && res.ok) return { ok: true, status: res.status, res: res };
-      return (ct.indexOf("json") >= 0 ? res.json() : res.text().then(function (x) {
+      var sig = res.headers.get("x-solution-sig");
+      return res.text().then(function (x) {
+        if (ct.indexOf("json") >= 0) {
+          var d = JSON.parse(x);
+          if (sig && d && typeof d === "object") Object.defineProperty(d, "signed", { value: { body: x, sig: sig }, writable: true, configurable: true });
+          return d;
+        }
         x = (x || "").trim();
-        return /^[^<]{1,200}$/.test(x) && ct.indexOf("html") < 0 ? { error: x } : {};
-      }))
+        return /^[^<]{1,200}$/.test(x) && ct.indexOf("html") < 0 ? { detail: x } : {};
+      })
         .catch(function () { return {}; })
-        .then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
+        .then(function (data) {
+          if (res.ok && S.sessionEnded && url !== "/api/status") recheckSession();
+          return { ok: res.ok, status: res.status, data: data || {}, retryAfter: parseInt(res.headers.get("retry-after"), 10) || null };
+        });
     });
   }
+
+  var recheckAt = 0;
+  function recheckSession() {
+    if (!S.sessionEnded || Date.now() - recheckAt < 1500) return;
+    recheckAt = Date.now();
+    api("/api/status").then(function (r) {
+      if (!r.ok || !r.data.signed_in || !S.sessionEnded) return;
+      S.sessionEnded = false;
+      S.status = r.data;
+      S.deadline = r.data.solve_deadline_secs || S.deadline;
+      paintAccount();
+      paintAiPill();
+      paintGates();
+      $("hist-empty").textContent = t("hist.loading");
+      loadHistory();
+    }).catch(function () {});
+  }
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) recheckSession(); });
+  window.addEventListener("focus", recheckSession);
+  function coarse() { return matchMedia("(pointer: coarse)").matches; }
 
   window.addEventListener("pageshow", function (e) {
     if (!e.persisted) return;
@@ -316,6 +345,7 @@
     if (!ex) return;
     setMode("geo");
     editor.set(exampleSrc(ex));
+    S.baseline = exampleSrc(ex);
     closeMenu();
     if (solveNow) solve();
     else $("geo-input").focus();
@@ -426,9 +456,18 @@
     var ok = !S.busy;
     if (S.mode !== "geo" && aiBlock()) ok = false;
     $("solve").disabled = !ok;
+    $("clear").hidden = S.busy || (S.mode !== "geo" && !!aiBlock());
+  }
+  function clearable() {
+    if (S.mode === "geo") return !!editor.get();
+    if (aiBlock()) return false;
+    if (S.mode === "describe") return !!$("describe-input").value;
+    return !!S.photo;
   }
 
   function show(which) {
+    clearInterval(S.retryTimer);
+    S.retryTimer = null;
     ["state-empty", "state-solving", "state-error", "verdict"].forEach(function (id) { $(id).hidden = id !== which; });
   }
 
@@ -456,12 +495,11 @@
     tick();
     S.timer = setInterval(tick, 250);
   }
-  function stopTimer() { clearInterval(S.timer); S.timer = null; }
+  function stopTimer() { clearInterval(S.timer); S.timer = null; S.queued = false; }
 
   function setBusy(on) {
     S.busy = on;
     $("cancel").hidden = true;
-    $("clear").hidden = on;
     paintSolveEnabled();
   }
 
@@ -495,8 +533,26 @@
     el.innerHTML = msg ? icons.alert + "<span>" + esc(msg) + "</span>" : "";
   }
 
+  function startQueued(waitSecs, then) {
+    S.queued = true;
+    paintStage();
+    S.started = Date.now();
+    clearInterval(S.timer);
+    var tick = function () {
+      var el = (Date.now() - S.started) / 1000;
+      if (el >= waitSecs) { S.queued = false; paintStage(); then(); return; }
+      $("solving-elapsed").textContent = t("solving.queued.x", { t: Math.floor(el) + " s", max: Math.round(waitSecs) + " s" });
+      $("progress-bar").style.width = "0%";
+    };
+    tick();
+    S.timer = setInterval(tick, 250);
+  }
+
   function solve() {
     if (S.busy) return;
+    S.autoRetried = !!S.autoRetrying;
+    S.autoRetrying = false;
+    S.queued = false;
     var stoppedRefine = !!S.refining;
     if (S.refining) stopRefining();
     var mode = S.mode;
@@ -540,12 +596,22 @@
         if (/cannot translate/i.test(g) || !g.trim()) throw { titleKey: "err.title.translate", bodyKey: "err.cannot_translate" };
         title = r.data.title || null;
         editor.set(g);
+        S.baseline = g;
         stage(1);
         return g;
       });
     }
     chain.then(function (g) {
       S.geo = g;
+      return api("/api/status", { signal: ctl.signal }).then(function (r) {
+        if (!r.ok || r.data.solver_free !== false || ctl.signal.aborted) return g;
+        startQueued(r.data.queue_wait_secs || 5, function () { startTimer(S.deadline); });
+        return g;
+      }, function (e) {
+        if (e && e.name === "AbortError") throw e;
+        return g;
+      });
+    }).then(function (g) {
       var tries = stoppedRefine ? 4 : 0;
       var post = function () {
         return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
@@ -570,14 +636,18 @@
       renderSolution(sol, { announce: true, focus: true });
       if (S.status && S.status.signed_in) loadHistory();
       else if (S.status && S.status.guest) store.set("gs.guest.resolve", sol.input);
-      if (shortestFirst && sol.status === "proved" && sol.method !== "euclidean") refineShorter(sol);
+      if (shortestFirst && sol.status === "proved" && sol.method !== "euclidean" && stepCount(sol) > 1) refineShorter(sol);
     }).catch(function (e) {
       stopTimer();
+      S.queued = false;
       var ae = document.activeElement;
       var lost = !ae || ae === document.body || $("state-solving").contains(ae);
+      var quiet = S.quietCancel;
+      S.quietCancel = false;
       setBusy(false);
       S.abort = null;
       if (e && e.name === "AbortError") {
+        if (quiet) return;
         show("state-empty");
         S.cancelToast = GS.toast(t("cancelled"), { ms: 6000 });
         if (lost) $("solve").focus();
@@ -594,7 +664,7 @@
   function paintStage() {
     if (!S.stage) return;
     paintStepper(S.stage.stages, S.stage.i);
-    $("solving-title").textContent = S.stage.stages[S.stage.i] === "translate" ? t("solving.translating") : t("solving.solving");
+    $("solving-title").textContent = S.queued ? t("solving.queued") : S.stage.stages[S.stage.i] === "translate" ? t("solving.translating") : t("solving.solving");
   }
 
   function sessionEnded() {
@@ -623,14 +693,19 @@
     }
     if (r.status === 401) { sessionEnded(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
-    if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", retry: true };
-    if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true };
-    if (r.status === 502 || r.status === 503) return { titleKey: "err.title.unavailable", bodyKey: "err.body.unavailable", retry: true };
+    if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", n: d.limit || 1, retry: true, retryAfter: r.retryAfter };
+    if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true, retryAfter: r.retryAfter };
+    if (r.status === 502 || r.status === 503) return { titleKey: "err.title.unavailable", bodyKey: "err.body.unavailable", retry: true, detail: d.detail };
     if (r.status === 504) return { titleKey: "err.title.timeout", bodyKey: "err.body.timeout", retry: true };
     if (r.status === 413) return { titleKey: "err.title.too_large", body: d.error || "", bodyKey: d.error ? null : "err.body.too_large" };
-    if (what === "translate") return { titleKey: "err.title.translate", body: d.error, bodyKey: d.error ? null : "err.cannot_translate", retry: r.status >= 500 };
+    if (what === "translate") return { titleKey: "err.title.translate", body: d.error, bodyKey: d.error ? null : "err.cannot_translate", retry: r.status >= 500, detail: d.detail };
     if (d.error) return { titleKey: "err.title.generic", body: d.error, retry: true };
-    return { titleKey: "err.title.generic", bodyKey: "err.body.http", vars: { status: r.status }, retry: true };
+    return { titleKey: "err.title.generic", bodyKey: "err.body.http", vars: { status: r.status }, retry: true, detail: d.detail };
+  }
+  function errText(e, which) {
+    var key = which === "title" ? e.titleKey : e.bodyKey;
+    if (!key) return which === "title" ? e.title : e.body;
+    return e.n != null ? tp(key, e.n, e.vars) : t(key, e.vars);
   }
   function networkError(e) {
     return { titleKey: "err.title.network", bodyKey: "err.body.network", retry: true, detail: e && e.message };
@@ -638,12 +713,14 @@
 
   function showError(e, focusHead) {
     S.lastError = e;
-    if (e.titleKey) e.title = t(e.titleKey);
-    if (e.bodyKey) e.body = t(e.bodyKey, e.vars);
+    if (e.titleKey) e.title = errText(e, "title");
+    if (e.bodyKey) e.body = errText(e, "body");
     var box = $("state-error");
     var where = e.diagnosis && e.diagnosis.line ? '<p class="err-where"><button type="button" class="link-btn" id="err-goto">' + esc(t("err.where", { line: e.diagnosis.line, col: e.diagnosis.col })) + "</button></p>" : "";
     var actions = "";
     if (e.retry) actions += '<button type="button" class="btn btn-secondary btn-sm" id="err-retry">' + icons.retry + "<span>" + esc(t("err.retry")) + "</span></button>";
+    var autoRetry = e.retry && e.retryAfter && !S.autoRetried && !e.retryUntil ? (e.retryUntil = Date.now() + e.retryAfter * 1000) : e.retryUntil;
+    if (autoRetry && autoRetry > Date.now()) actions += '<span class="err-countdown" id="err-countdown" aria-live="off"></span>';
     if (e.signin) actions += '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("nav.signin")) + "</a>";
     box.innerHTML = '<div class="err-head"><span class="err-icon">' + icons.alert + '</span><div class="grow"><h3 id="err-title" tabindex="-1">' + esc(e.title) + "</h3>" + (e.body ? "<p>" + esc(e.body) + "</p>" : "") + where + "</div></div>" +
       (actions ? '<div class="err-actions">' + actions + "</div>" : "") +
@@ -661,6 +738,21 @@
     if (g) g.addEventListener("click", function () { editor.focusError(); });
     var rt = $("err-retry");
     if (rt) rt.addEventListener("click", solve);
+    var cd = $("err-countdown");
+    if (cd) {
+      var tickRetry = function () {
+        var left = Math.ceil((e.retryUntil - Date.now()) / 1000);
+        if (left <= 0) {
+          clearInterval(S.retryTimer);
+          S.retryTimer = null;
+          if (S.lastError === e && !$("state-error").hidden && !S.busy) { S.autoRetrying = true; solve(); }
+          return;
+        }
+        cd.textContent = t("err.retry_in", { s: left });
+      };
+      tickRetry();
+      S.retryTimer = setInterval(tickRetry, 250);
+    }
     scrollToStatus();
   }
 
@@ -734,7 +826,7 @@
     var nSteps = stepCount(sol);
     var meta = [
       methodText(sol),
-      GS.fmtSecs(sol.elapsed_secs),
+      sol.search === "shortest" ? t("meta.shortest_search", { t: GS.fmtSecs(sol.elapsed_secs) }) : GS.fmtSecs(sol.elapsed_secs),
       nSteps ? tp("meta.steps", nSteps) : "",
       sol.status === "holds-numerically" && sol.numeric_samples ? tp("meta.samples", sol.numeric_samples) : "",
       sol.status === "proved" && v.as_drawn ? t("meta.as_drawn") : "",
@@ -800,6 +892,7 @@
     opts = opts || {};
     S.sol = sol;
     S.geo = sol.input;
+    S.baseline = sol.input;
     var v = sol.view || {};
     var m = renderVerdict(sol);
     renderStatement(sol);
@@ -1147,51 +1240,73 @@
       return;
     }
     if (S.exporting) return;
-    S.exporting = true;
+    var ctl = new AbortController();
+    S.exporting = ctl;
     var btn = $("export-btn");
     btn.setAttribute("aria-disabled", "true");
     var tst = GS.toast(t("export.preparing", { fmt: label }), { ms: 60000 });
+    var ticker = null;
+    var closeToast = function () { clearInterval(ticker); if (tst) tst.close(); tst = null; };
     var post = function (body) {
-      return fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      return fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal });
+    };
+    var signed = function () {
+      if (!sol.signed) return Promise.resolve(null);
+      return post({ signed: sol.signed.body, sig: sol.signed.sig, format: fmt }).then(function (res) { return res.status === 410 ? null : res; });
     };
     var recache = function () {
       if (!sol.history_id || !(S.status && S.status.signed_in)) return Promise.resolve(null);
-      return api("/api/history/" + sol.history_id).then(function (r) {
+      return api("/api/history/" + sol.history_id, { signal: ctl.signal }).then(function (r) {
         return r.ok && r.data && r.data.id ? r.data.id : null;
-      }).catch(function () { return null; });
+      }, function (e) { if (e && e.name === "AbortError") throw e; return null; });
+    };
+    var resolve = function () {
+      closeToast();
+      var started = Date.now(), max = S.deadline + 5;
+      var text = function () { return t("export.resolving", { fmt: label, t: Math.floor((Date.now() - started) / 1000) + " s", max: max + " s" }); };
+      tst = GS.toast(text(), { ms: (max + 60) * 1000, action: t("cancel"), onAction: function () { ctl.abort(); } });
+      ticker = setInterval(function () { if (tst && tst.el) tst.el.firstChild.textContent = text(); }, 1000);
+      return post({ input: sol.input, title: sol.title || null, format: fmt });
     };
     var fail = function (msg) {
-      if (tst) tst.close();
+      closeToast();
       GS.toast(t("export.failed", { msg: msg }), { ms: 7000 });
     };
     post({ id: sol.id, format: fmt }).then(function (res) {
       if (res.status !== 410) return res;
-      return recache().then(function (id) {
-        if (id) {
+      return signed().then(function (r2) {
+        if (r2) return r2;
+        return recache().then(function (id) {
+          if (!id) return resolve();
           if (S.sol === sol) sol.id = id;
           return post({ id: id, format: fmt });
-        }
-        return post({ input: sol.input, title: sol.title || null, format: fmt });
+        });
       });
     }).then(function (res) {
       if (res.ok) return res.blob().then(function (b) {
         download(b, exportName(sol, fmt));
-        if (tst) tst.close();
+        closeToast();
         GS.toast(t("export.done", { fmt: label }));
       });
-      return res.json().catch(function () { return {}; }).then(function (j) {
+      var ct = res.headers.get("content-type") || "";
+      return res.text().catch(function () { return ""; }).then(function (x) {
+        var d = {};
+        if (ct.indexOf("json") >= 0) { try { d = JSON.parse(x) || {}; } catch (e) { d = {}; } }
         if (res.status === 401) {
-          if (tst) tst.close();
+          closeToast();
           sessionEnded();
           GS.toast(t("export.auth"), { ms: 9000 });
           return;
         }
-        fail(j.error || res.statusText);
+        var e = httpError({ status: res.status, data: d }, "export");
+        fail(errText(e, "body") || errText(e, "title"));
       });
     }).catch(function (e) {
-      fail(e.message);
+      if (e && e.name === "AbortError") { closeToast(); GS.toast(t("export.cancelled")); return; }
+      fail(t("err.body.network"));
     }).then(function () {
-      S.exporting = false;
+      clearInterval(ticker);
+      if (S.exporting === ctl) S.exporting = null;
       var b = $("export-btn");
       if (b) b.removeAttribute("aria-disabled");
     });
@@ -1230,7 +1345,7 @@
   var FILTER_OF = { "time-limit": "not-proved", "proved-drawn": "proved" };
   function relTime(sec) {
     var diff = sec - Date.now() / 1000;
-    var rtf = new Intl.RelativeTimeFormat(window.i18n.locale(), { numeric: "auto" });
+    var rtf = new Intl.RelativeTimeFormat(window.i18n.locale(), { numeric: "auto", style: "short" });
     var a = Math.abs(diff);
     if (a < 45) return rtf.format(0, "second");
     if (a < 3600) return rtf.format(Math.round(diff / 60), "minute");
@@ -1359,7 +1474,7 @@
       var back = $("hist-list").querySelector('[data-open="' + id + '"]');
       if (back && $("rail").contains(document.activeElement)) back.focus();
     };
-    var tst = GS.toast(t("hist.deleted", { title: untitledEnd(histTitle(row)), keys: undoKeys() }), { ms: 6000, action: t("undo"), onAction: undo });
+    var tst = GS.toast(t(coarse() ? "hist.deleted.touch" : "hist.deleted", { title: untitledEnd(histTitle(row)), keys: undoKeys() }), { ms: 6000, action: t("undo"), onAction: undo });
     var input = null;
     if (hadFocus) {
       var rows = $("hist-list").querySelectorAll(".hist-open");
@@ -1367,7 +1482,7 @@
       if (!next) input = $("hist-search");
       (next || $("hist-search")).focus();
     }
-    if (tst && tst.button) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
+    if (tst && tst.button && !coarse()) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
     S.lastUndo = { run: undo, toast: tst, until: Date.now() + 6000, input: input, inputValue: input ? input.value : null };
   }
   function commitDelete(id, keepalive) {
@@ -1385,7 +1500,9 @@
   function openHistory(id) {
     var row = S.history.filter(function (r) { return r.id === id; })[0];
     if (!row) return;
-    if (S.busy) cancel();
+    var draft = editor.get(), wasBusy = S.busy;
+    var dirty = !!draft.trim() && draft.trim() !== (S.baseline || "").trim() && draft.trim() !== String(row.input || "").trim() && !exampleOf(draft);
+    if (S.busy) { S.quietCancel = true; cancel(); }
     if (S.refining) stopRefining();
     if (document.body.classList.contains("drawer-open")) setDrawer(false);
     var seq = S.openSeq = (S.openSeq || 0) + 1;
@@ -1397,6 +1514,8 @@
       renderHistory();
       setMode("geo");
       editor.set(row.input);
+      S.baseline = row.input;
+      if (dirty || wasBusy) offerDraftBack(draft, row, wasBusy);
     }
     function gone(msg) {
       S.activeHistory = null;
@@ -1417,6 +1536,19 @@
       gone(t("hist.open_fail"));
     }).catch(function () { if (seq === S.openSeq) gone(t("hist.open_fail")); });
   }
+  function offerDraftBack(draft, row, wasBusy) {
+    var ta = $("geo-input");
+    var restore = function () {
+      setMode("geo");
+      editor.set(draft);
+      S.baseline = null;
+      if (document.activeElement !== ta) ta.focus();
+    };
+    var key = (wasBusy ? "hist.replaced_solve" : "hist.replaced") + (coarse() ? ".touch" : "");
+    var tst = GS.toast(t(key, { title: untitledEnd(histTitle(row)), keys: undoKeys() }), { ms: 8000, action: t("undo"), onAction: restore });
+    if (tst && tst.button && !coarse()) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
+    S.lastUndo = { run: restore, toast: tst, until: Date.now() + 8000, input: ta, inputValue: row.input };
+  }
   function solveReplay(row) {
     clearResult();
     show("state-solving");
@@ -1433,8 +1565,10 @@
       renderSolution(r.data, { announce: true, focus: true });
     }).catch(function (e) {
       var ae = document.activeElement, lost = !ae || ae === document.body || $("state-solving").contains(ae);
+      var quiet = S.quietCancel;
+      S.quietCancel = false;
       stopTimer(); setBusy(false); S.abort = null;
-      if (e && e.name === "AbortError") { show("state-empty"); if (lost) $("solve").focus(); return; }
+      if (e && e.name === "AbortError") { if (quiet) return; show("state-empty"); if (lost) $("solve").focus(); return; }
       showError(networkError(e), lost);
     });
   }
@@ -1467,7 +1601,7 @@
     $("cancel-2").addEventListener("click", cancel);
     $("clear").addEventListener("click", function () {
       var before = { geo: editor.get(), text: $("describe-input").value, mode: S.mode };
-      if (!before.geo && !before.text && !S.photo) return;
+      if (!clearable()) return;
       var input = null;
       if (S.mode === "geo") { editor.set(""); input = $("geo-input"); }
       else if (S.mode === "describe") { $("describe-input").value = ""; store.del("gs.draft.describe"); input = $("describe-input"); }
@@ -1478,8 +1612,8 @@
         if (before.text) store.set("gs.draft.describe", before.text);
         if (input && document.activeElement !== input) input.focus();
       };
-      var tst = GS.toast(t("cleared", { keys: undoKeys() }), { action: t("undo"), ms: 6000, onAction: restore });
-      if (tst && tst.button) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
+      var tst = GS.toast(t(coarse() ? "cleared.touch" : "cleared", { keys: undoKeys() }), { action: t("undo"), ms: 6000, onAction: restore });
+      if (tst && tst.button && !coarse()) tst.button.setAttribute("aria-keyshortcuts", isMac ? "Meta+Z" : "Control+Z");
       S.lastUndo = { run: restore, toast: tst, until: Date.now() + 6000, input: input, inputValue: "" };
       if (input) input.focus();
     });
@@ -1520,6 +1654,7 @@
     editor.set(draft != null ? draft : exampleSrc(EXAMPLES[0]));
     var exDraft = exampleOf(editor.get());
     if (exDraft && editor.get() !== exampleSrc(exDraft)) editor.set(exampleSrc(exDraft));
+    S.baseline = exDraft ? editor.get() : null;
     figTools(false);
     $("hl").tabIndex = -1;
     var dd = store.get("gs.draft.describe");
@@ -1534,7 +1669,7 @@
     $("announce").textContent = ""; $("announce-status").textContent = "";
     paintAiPill(); paintGates(); paintEffortHint(); paintExamples(); paintAccount();
     var ex = exampleOf(editor.get());
-    if (ex && editor.get() !== exampleSrc(ex)) editor.set(exampleSrc(ex));
+    if (ex && editor.get() !== exampleSrc(ex)) { editor.set(exampleSrc(ex)); S.baseline = exampleSrc(ex); }
     if (S.busy) paintStage();
     if (S.lastError && !$("state-error").hidden) {
       if (S.lastError.compile && S.geo) {

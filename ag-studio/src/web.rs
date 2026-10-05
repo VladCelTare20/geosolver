@@ -118,6 +118,55 @@ fn cache_get(id: &str) -> Option<std::sync::Arc<serde_json::Value>> {
         .map(|e| e.value.clone())
 }
 
+const SOLUTION_SIG_HEADER: &str = "x-solution-sig";
+
+fn signing_key() -> &'static [u8; 32] {
+    static KEY: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| {
+        let hex = auth::new_session_id();
+        let mut k = [0u8; 32];
+        for (i, b) in k.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap_or(0);
+        }
+        k
+    })
+}
+
+fn hmac_sha256(key: &[u8; 32], msg: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut ipad = [0x36u8; 64];
+    let mut opad = [0x5cu8; 64];
+    for (i, b) in key.iter().enumerate() {
+        ipad[i] ^= b;
+        opad[i] ^= b;
+    }
+    let inner = Sha256::new().chain_update(ipad).chain_update(msg).finalize();
+    Sha256::new().chain_update(opad).chain_update(inner).finalize().into()
+}
+
+fn solution_sig(body: &str) -> String {
+    hmac_sha256(signing_key(), body.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn signed_solution(body: &str, sig: &str) -> Option<serde_json::Value> {
+    let want = solution_sig(body);
+    let same = want.len() == sig.len() && want.bytes().zip(sig.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+    if !same {
+        return None;
+    }
+    serde_json::from_str(body).ok()
+}
+
+fn signed_json(value: &serde_json::Value) -> Response {
+    let body = value.to_string();
+    let sig = solution_sig(&body);
+    let mut resp = ([(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))], body).into_response();
+    if let Ok(v) = HeaderValue::from_str(&sig) {
+        resp.headers_mut().insert(SOLUTION_SIG_HEADER, v);
+    }
+    resp
+}
+
 
 /// Hard ceiling on a decoded upload, independent of the body limit.
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
@@ -282,7 +331,7 @@ async fn session_user(state: &Shared, headers: &HeaderMap) -> Option<db::User> {
 /// everyone else sees the public landing page pitching the product.
 async fn index(State(state): State<Shared>, headers: HeaderMap) -> Response {
     if state.config.guest_allowed() {
-        page(INDEX_HTML)
+        with_guest_id(&state, &headers, page(INDEX_HTML))
     } else if session_user(&state, &headers).await.is_some() {
         Redirect::to("/app").into_response()
     } else {
@@ -294,11 +343,24 @@ fn page(html: &'static str) -> Response {
     ([(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))], Html(html)).into_response()
 }
 
+/// In guest mode, give a browser without one its own guest id, so guests
+/// sharing an address do not share one caller's solve slots.
+fn with_guest_id(state: &Shared, headers: &HeaderMap, mut resp: Response) -> Response {
+    let secure = state.config.secure_cookies;
+    if !state.config.guest_allowed() || auth::parse_guest(headers, secure).is_some() {
+        return resp;
+    }
+    if let Ok(v) = HeaderValue::from_str(&auth::set_guest_cookie_header(&auth::new_session_id(), secure)) {
+        resp.headers_mut().append(header::SET_COOKIE, v);
+    }
+    resp
+}
+
 /// `/app`: the solver SPA, gated on a valid session (else 302 to `/auth`)
 /// unless guest mode lets Basic auth alone in.
 async fn app_page(State(state): State<Shared>, headers: HeaderMap) -> Response {
     if state.config.guest_allowed() || session_user(&state, &headers).await.is_some() {
-        page(INDEX_HTML)
+        with_guest_id(&state, &headers, page(INDEX_HTML))
     } else {
         Redirect::to("/auth").into_response()
     }
@@ -352,12 +414,16 @@ struct Status {
     #[serde(skip_serializing_if = "Option::is_none")]
     username: Option<String>,
     solve_deadline_secs: u64,
+    /// Whether a solver slot is free right now (else a solve waits in line).
+    solver_free: bool,
+    /// How long a solve waits in line for a slot before the server says busy.
+    queue_wait_secs: f64,
     version: &'static str,
 }
 
 /// Never waits on the `claude` probe: a stale or missing result is refreshed
 /// in the background and reported as `translate_checking`.
-async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Json<Status> {
+async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Response {
     let user = session_user(&state, &headers).await;
     let probe = state.translate_status_now();
     let checking = probe.is_none();
@@ -375,18 +441,27 @@ async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Json<Sta
     } else {
         None
     };
-    Json(Status {
+    let guest = user.is_none() && state.config.guest_allowed();
+    let status = Json(Status {
         translate_installed: s.installed,
         translate_logged_in: s.logged_in,
         translate_checking: checking,
         can_translate: block.is_none(),
         translate_block: block,
         signed_in: user.is_some(),
-        guest: user.is_none() && state.config.guest_allowed(),
+        guest,
         username: user.map(|u| u.username),
         solve_deadline_secs: state.config.solve_deadline.as_secs(),
+        solver_free: state.heavy.available_permits() > 0,
+        queue_wait_secs: state.config.queue_wait.as_secs_f64(),
         version: env!("CARGO_PKG_VERSION"),
     })
+    .into_response();
+    if guest {
+        with_guest_id(&state, &headers, status)
+    } else {
+        status
+    }
 }
 
 // ------------------------------------------------------------ extractors ----
@@ -432,10 +507,11 @@ impl FromRequestParts<Shared> for SessionUser {
 }
 
 /// Who may use the solver: a signed-in user, or — in guest mode, where the
-/// Basic-auth layer has already admitted the request — an anonymous guest.
+/// Basic-auth layer has already admitted the request — an anonymous guest,
+/// with the browser's guest id when it sent one.
 enum Caller {
     User(db::User),
-    Guest,
+    Guest(Option<String>),
 }
 
 impl FromRequestParts<Shared> for Caller {
@@ -444,7 +520,9 @@ impl FromRequestParts<Shared> for Caller {
     async fn from_request_parts(parts: &mut Parts, state: &Shared) -> Result<Self, Response> {
         match SessionUser::from_request_parts(parts, state).await {
             Ok(SessionUser(u)) => Ok(Caller::User(u)),
-            Err(_) if state.config.guest_allowed() => Ok(Caller::Guest),
+            Err(_) if state.config.guest_allowed() => {
+                Ok(Caller::Guest(auth::parse_guest(&parts.headers, state.config.secure_cookies)))
+            }
             Err(e) => Err(e),
         }
     }
@@ -753,14 +831,16 @@ async fn heavy_permit(
     let wait = state.config.queue_wait;
     match tokio::time::timeout(wait, state.heavy.clone().acquire_owned()).await {
         Ok(Ok(permit)) => Ok(permit),
-        _ => {
-            let lang = i18n::lang_from_headers(headers);
-            let mut resp = err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"));
-            resp.headers_mut()
-                .insert(header::RETRY_AFTER, HeaderValue::from_static(BUSY_RETRY_AFTER));
-            Err(resp)
-        }
+        _ => Err(busy(headers)),
     }
+}
+
+fn busy(headers: &HeaderMap) -> Response {
+    let lang = i18n::lang_from_headers(headers);
+    let mut resp = err_code(StatusCode::SERVICE_UNAVAILABLE, "busy", i18n::t(lang, "server.busy"));
+    resp.headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from_static(BUSY_RETRY_AFTER));
+    resp
 }
 
 /// The client-facing JSON of a solve: the worker's presentation (it alone holds
@@ -945,8 +1025,45 @@ fn degenerate_goal_err(lang: i18n::Lang, input: &str, point: &str) -> Response {
 fn caller_key(caller: &Caller, ip: Option<&axum::Extension<security::ClientIp>>) -> String {
     match caller {
         Caller::User(u) => format!("u{}", u.id),
-        Caller::Guest => format!("g{}", ip.map_or_else(|| "?".to_string(), |e| e.0 .0.to_string())),
+        Caller::Guest(Some(id)) => format!("g{id}"),
+        Caller::Guest(None) => format!("g{}", ip_text(ip)),
     }
+}
+
+fn ip_text(ip: Option<&axum::Extension<security::ClientIp>>) -> String {
+    ip.map_or_else(|| "?".to_string(), |e| e.0 .0.to_string())
+}
+
+/// Per-caller slot, then, for guests, the per-address ceiling. Only the first
+/// is the caller's own doing (`busy_self`, with the limit); a full address is
+/// the plain server-busy answer, since other people behind it hold the slots.
+#[allow(clippy::result_large_err)]
+fn claim_solve_slots(
+    state: &Shared,
+    caller: &Caller,
+    ip: Option<&axum::Extension<security::ClientIp>>,
+    headers: &HeaderMap,
+) -> Result<(security::CallerSlot, Option<security::CallerSlot>), Response> {
+    let Some(own) = state.claim_caller(caller_key(caller, ip)) else {
+        let lang = i18n::lang_from_headers(headers);
+        let limit = state.per_caller_limit();
+        let msg = i18n::tp(lang, "server.busy_self", limit as u64, &[("n", limit.to_string())]);
+        let mut resp = (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": msg, "code": "busy_self", "limit": limit })),
+        )
+            .into_response();
+        resp.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static(BUSY_RETRY_AFTER));
+        return Err(resp);
+    };
+    let shared = match caller {
+        Caller::Guest(_) => match state.claim_within(format!("i{}", ip_text(ip)), state.guest_ip_limit()) {
+            Some(s) => Some(s),
+            None => return Err(busy(headers)),
+        },
+        Caller::User(_) => None,
+    };
+    Ok((own, shared))
 }
 
 async fn api_solve(
@@ -965,13 +1082,9 @@ async fn api_solve(
     if let Some(at) = division_by_zero(&req.input) {
         return division_by_zero_err(i18n::lang_from_headers(&headers), at);
     }
-    let Some(slot) = state.claim_caller(caller_key(&caller, ip.as_ref())) else {
-        let lang = i18n::lang_from_headers(&headers);
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({ "error": i18n::t(lang, "server.busy_self"), "code": "busy_self" })),
-        )
-            .into_response();
+    let slots = match claim_solve_slots(&state, &caller, ip.as_ref(), &headers) {
+        Ok(s) => s,
+        Err(resp) => return resp,
     };
     let permit = match heavy_permit(&state, &headers).await {
         Ok(p) => p,
@@ -1006,10 +1119,13 @@ async fn api_solve(
     // when it is reaped, also when this future is dropped because the client
     // went away or cancelled.
     let outcome = worker::run(&job, Some(permit)).await;
-    drop(slot);
+    drop(slots);
     match solution_of(outcome, &job, &headers) {
         Ok((sol, reply)) => {
-            let value = advertise_limit(view_of(&sol, reply.as_deref(), history_title.as_deref()), job.limit());
+            let mut value = advertise_limit(view_of(&sol, reply.as_deref(), history_title.as_deref()), job.limit());
+            if req.best {
+                value["search"] = serde_json::json!("shortest");
+            }
             let (_, value) = cache_put(&caller_key(&caller, ip.as_ref()), value);
             let mut out = value.as_ref().clone();
             if let (Caller::User(user), true) = (&caller, req.record) {
@@ -1017,7 +1133,7 @@ async fn api_solve(
                     out["history_id"] = serde_json::json!(id);
                 }
             }
-            Json(out).into_response()
+            signed_json(&out)
         }
         Err(resp) => resp,
     }
@@ -1193,7 +1309,7 @@ async fn api_history_get(
         Ok(Ok(Some(Some(json)))) => match serde_json::from_str::<serde_json::Value>(&json) {
             Ok(v) => {
                 let (_, v) = cache_put(&format!("u{}", user.id), v);
-                Json(v.as_ref().clone()).into_response()
+                signed_json(&v)
             }
             Err(_) => err(StatusCode::GONE, i18n::t(lang, "history.no_solution")),
         },
@@ -1460,6 +1576,12 @@ struct ExportReq {
     /// that result. Without one, `input` is solved afresh.
     #[serde(default)]
     id: Option<String>,
+    /// A solve answer exactly as this server sent it, with its
+    /// `x-solution-sig`: rendered as is when the cached copy has expired.
+    #[serde(default)]
+    signed: Option<String>,
+    #[serde(default)]
+    sig: Option<String>,
     #[serde(default)]
     input: String,
     #[serde(default)]
@@ -1492,8 +1614,13 @@ async fn api_export(
 ) -> Response {
     let lang = i18n::lang_from_headers(&headers);
     let want_pdf = req.format.eq_ignore_ascii_case("pdf");
-    if let Some(id) = req.id.as_deref().filter(|s| !s.is_empty()) {
-        let Some(value) = cache_get(id) else {
+    let id = req.id.as_deref().filter(|s| !s.is_empty());
+    let signed = req.signed.as_deref().filter(|s| !s.is_empty());
+    if id.is_some() || signed.is_some() {
+        let value = id.and_then(cache_get).or_else(|| {
+            signed.and_then(|body| signed_solution(body, req.sig.as_deref().unwrap_or(""))).map(std::sync::Arc::new)
+        });
+        let Some(value) = value else {
             return (
                 StatusCode::GONE,
                 Json(serde_json::json!({ "error": i18n::t(lang, "export.expired"), "code": "expired" })),
@@ -2781,6 +2908,87 @@ mod tests {
         // Without the Basic password, nothing.
         let (st, _, _) = send(&state, build("POST", "/api/solve", &[], Some(&solve))).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn guests_behind_one_address_are_not_told_their_own_solves_are_running() {
+        let (state, _dir) = state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(":shared-secret").unwrap());
+            c.guest_mode = true;
+            c.max_concurrent = 2;
+        });
+        let auth = basic("", "shared-secret");
+        let (st, h, _) = send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let set = h.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).expect("a guest id for a new browser");
+        assert!(set.starts_with("gid=") && set.contains("HttpOnly"), "{set}");
+        let browser_b = cookie_of(set);
+        let (_, h, _) = send(&state, build("GET", "/", &[("authorization", &auth), ("cookie", &browser_b)], None)).await;
+        assert!(h.get(header::SET_COOKIE).is_none(), "a browser keeps the id it has");
+
+        let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
+        let as_b = [("authorization", auth.as_str()), ("cookie", browser_b.as_str())];
+        let ip = std::net::Ipv4Addr::UNSPECIFIED;
+        let guest_a = state.claim_caller(format!("g{ip}")).unwrap();
+        let guest_a_addr = state.claim_within(format!("i{ip}"), state.guest_ip_limit()).unwrap();
+        let (st, h, text) = send(&state, build("POST", "/api/solve", &as_b, Some(&solve))).await;
+        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "{text}");
+        let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(body["code"], "busy", "another guest's solve is not this browser's: {text}");
+        assert!(h.get(header::RETRY_AFTER).is_some());
+        drop((guest_a, guest_a_addr));
+
+        let own = state.claim_caller(format!("g{}", &browser_b[4..])).unwrap();
+        let (st, h, text) = send(&state, build("POST", "/api/solve", &as_b, Some(&solve))).await;
+        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
+        let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(body["code"], "busy_self", "{text}");
+        assert_eq!(body["limit"], 1);
+        assert!(body["error"].as_str().unwrap().contains("one solve at a time"), "{text}");
+        assert!(h.get(header::RETRY_AFTER).is_some());
+        drop(own);
+
+        let (st, _, text) = send(&state, build("POST", "/api/solve", &as_b, Some(&solve))).await;
+        assert_eq!(st, StatusCode::OK, "{text}");
+    }
+
+    #[tokio::test]
+    async fn an_expired_result_exports_from_its_signed_copy_without_solving_again() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
+        let (st, h, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        assert_eq!(st, StatusCode::OK);
+        let sig = h.get(SOLUTION_SIG_HEADER).and_then(|v| v.to_str().ok()).expect("signed answer").to_string();
+        let export = |body: &str, sig: &str| serde_json::json!({"id": "0".repeat(32), "signed": body, "sig": sig, "format": "png"}).to_string();
+        let (st, h, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export(&text, &sig)))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "image/png");
+        let forged = text.replacen("\"status\":\"proved\"", "\"status\":\"refuted\"", 1);
+        assert_ne!(forged, text);
+        let (st, _, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export(&forged, &sig)))).await;
+        assert_eq!(st, StatusCode::GONE, "an edited answer is not rendered");
+        let (st, _, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export(&text, &"0".repeat(64))))).await;
+        assert_eq!(st, StatusCode::GONE);
+    }
+
+    #[tokio::test]
+    async fn shortest_proof_answers_say_their_time_is_the_search_budget() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let best = serde_json::json!({"input": ISOSCELES_GEO, "best": true, "budget_secs": 1}).to_string();
+        let (st, _, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&best))).await;
+        assert_eq!(st, StatusCode::OK, "{text}");
+        let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(body["search"], "shortest");
+        let plain = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
+        let (_, _, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&plain))).await;
+        let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(body.get("search").is_none());
+        let (_, _, text) = send(&state, build("GET", "/api/status", &[("authorization", &auth)], None)).await;
+        let status: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(status["solver_free"], true);
+        assert!(status["queue_wait_secs"].as_f64().is_some());
     }
 
     #[tokio::test]
