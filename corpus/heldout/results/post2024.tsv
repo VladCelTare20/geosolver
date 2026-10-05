@@ -1,0 +1,16 @@
+name	parsed	goal_numeric	proved	method	aux_count	aux	steps	secs	status	detail
+heldout_isl2024_g1	yes	yes	yes	ddar	0	-	20	0.002	proved	-
+heldout_isl2024_g3	yes	yes	yes	aux	1	x = intersect(ly, circumcircle(e,d,q))	44	0.320	proved	-
+heldout_isl2024_g4	yes	yes	yes	aux	2	x1 = intersect(para(p, ab), ax); o = circumcenter(d,p,x1)	51	4.405	proved	-
+heldout_isl2024_g5	yes	yes	no	-	0	-	-	120.066	timeout	153336 DDAR runs in the aux search
+heldout_isl2024_g6	yes	yes	yes	aux	1	x1 = intersect(para(sx, uj), vj)	37	0.226	proved	-
+heldout_isl2024_g7	yes	yes	yes	aux	1	q' = intersect(qo4, circumcircle(x,p,q))	134	0.513	proved	-
+heldout_isl2024_g8a	yes	yes	no	-	0	-	-	120.042	timeout	85747 DDAR runs in the aux search
+heldout_isl2024_g8b	yes	yes	yes	ddar	0	-	47	0.010	proved	-
+heldout_isl2025_g1	yes	yes	yes	ddar	0	-	69	0.010	proved	-
+heldout_isl2025_g2	yes	yes	yes	ddar	0	-	23	0.005	proved	-
+heldout_isl2025_g3	yes	yes	yes	ddar	0	-	39	0.008	proved	-
+heldout_isl2025_g4	yes	yes	yes	aux	1	x = intersect(o2t, circumcircle(m,n,b))	69	0.332	proved	-
+heldout_isl2025_g5	yes	yes	no	-	0	-	-	120.058	timeout	332214 DDAR runs in the aux search
+heldout_isl2025_g6	yes	yes	no	-	0	-	-	120.048	timeout	107140 DDAR runs in the aux search
+heldout_imo_2026_p2	yes	yes	no	-	0	-	-	120.081	timeout	272712 DDAR runs in the aux search

@@ -1,0 +1,20 @@
+name	source	status	flags	reason
+heldout_imo_2001_p1	IMO 2001 P1	not_expressible		inequality hypothesis and inequality goal; AG1 predicates are equalities only
+heldout_imo_2001_p5	IMO 2001 P5 (AG2 splits it into p5a/p5b)	not_expressible		hypothesis AB + BP = AQ + QB is a sum of lengths: no AG1 premise expresses it (AG2 uses its distseq predicate). Encoding it with extension points (B' on AB with BB' = BP, Q' on AQ with QQ' = QB) would hand the solver exactly the auxiliary points of the standard solution, so it is not done.
+heldout_imo_2002_p6	IMO 2002 P6	not_expressible		variable number of objects and an inequality goal
+heldout_imo_2003_p3	IMO 2003 P3	not_expressible		inequality hypothesis
+heldout_imo_2003_p4b	IMO 2003 P4 (<= direction)	translated	pinned-implicit	
+heldout_imo_2005_p1	IMO 2005 P1	translated	pinned-implicit	
+heldout_imo_2006_p1	IMO 2006 P1	not_expressible		inequality goal
+heldout_imo_2006_p6	IMO 2006 P6	not_expressible		arbitrary polygon, areas, inequality
+heldout_imo_2007_p2	IMO 2007 P2	translated	pinned-implicit	
+heldout_imo_2009_p4a	IMO 2009 P4 (value 60)	translated	pinned-implicit,answer-supplied	
+heldout_imo_2009_p4b	IMO 2009 P4 (value 90)	translated	pinned-implicit,answer-supplied	
+heldout_imo_2013_p3	IMO 2013 P3	translated	pinned-implicit,answer-supplied	
+heldout_imo_2014_p3	IMO 2014 P3	translated	pinned-implicit,helper-points	
+heldout_imo_2018_p6	IMO 2018 P6	not_expressible		X is defined by two equalities between angles at two different vertices that both involve X (angle XAB = angle XCD); no AG1 construction asserts such a premise (each construction relates the new point to a fixed angle or locus), and AB*CD = BC*DA has no construction either
+heldout_imo_2020_p6	IMO 2020 P6	not_expressible		variable number of points, inequality, existence
+heldout_imo_2021_p4	IMO 2021 P4	not_expressible		goal is an equality of sums of four lengths; AG1 goals are single equalities (AG2 uses distseq)
+heldout_imo_2023_p2	IMO 2023 P2	translated	contaminated	
+heldout_imo_2023_p6	IMO 2023 P6	translated	contaminated,helper-points	
+heldout_imo_2024_p4	IMO 2024 P4 (= ISL 2024 G2)	translated	helper-points	

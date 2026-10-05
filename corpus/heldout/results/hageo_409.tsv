@@ -1,0 +1,410 @@
+name	parsed	goal_numeric	proved	method	aux_count	aux	steps	secs	status	detail
+hageo_1995USAMOp3	yes	yes	yes	ddar	0	-	55	0.004	proved	-
+hageo_1999USAMOp6	yes	yes	yes	aux	2	d' = intersect(dg, circumcircle(a,b,d)); n = arc_midpoint(d,d' on circumcircle(a,b,d))	44	0.681	proved	-
+hageo_20_11thXueErSiMO	yes	yes	yes	aux	2	a' = intersect(ab, circumcircle(a,e,q)); x = intersect(cf, circumcircle(p,e,q))	38	24.640	proved	-
+hageo_2000USATSTp2	yes	yes	yes	aux	1	p' = intersect(pf, circumcircle(a,p,e))	46	0.144	proved	-
+hageo_2002CTSTp25	yes	yes	no	-	0	-	-	120.115	timeout	393233 DDAR runs in the aux search
+hageo_2003CHNGaoLian	yes	yes	yes	ddar	0	-	23	0.002	proved	-
+hageo_2003USATSTp6	yes	yes	yes	ddar	0	-	229	0.296	proved	-
+hageo_2004CTSTp1	yes	yes	yes	aux	1	d' = intersect(df, circumcircle(h,d,e))	29	0.032	proved	-
+hageo_2004CTSTp22	yes	yes	yes	aux	2	z = spiral_center(bd -> pc); x1 = intersect(isogonal(bc in abz), pz)	45	27.493	proved	-
+hageo_2005CHNSouthEastMOp2	yes	yes	yes	aux	1	m' = intersect(mx, circumcircle(p,q,m))	39	0.030	proved	-
+hageo_2005CHNWesternMOp2	yes	yes	yes	ddar	0	-	24	0.002	proved	-
+hageo_2005CMOp2	yes	yes	no	-	0	-	-	120.085	timeout	123100 DDAR runs in the aux search
+hageo_2005CTSTp1	yes	yes	yes	ddar	0	-	24	0.003	proved	-
+hageo_2005CTSTp11b	yes	yes	yes	aux	4	x1 = intersect(bq, circumcircle(a,c,o)); b' = intersect(be2, circumcircle(b,c,o)); x2 = intersect(cd2, circumcircle(a,b,o)); x3 = intersect(ab1, ba1)	137	87.760	proved	-
+hageo_2005CTSTp19	yes	yes	yes	ddar	0	-	40	0.006	proved	-
+hageo_2005G6	yes	yes	no	-	0	-	-	120.051	timeout	118590 DDAR runs in the aux search
+hageo_2005USAMOp3	yes	yes	yes	aux	1	q' = intersect(qb1, circumcircle(p,q,c1))	18	0.015	proved	-
+hageo_2006CGMOp2	yes	yes	yes	ddar	0	-	58	0.009	proved	-
+hageo_2006CTSTp19	yes	yes	yes	ddar	0	-	28	0.005	proved	-
+hageo_2006CTSTp5	yes	yes	yes	aux	1	z = spiral_center(ao -> pa1)	72	1.487	proved	-
+hageo_2006CTSTp7	yes	yes	yes	aux	3	x1 = intersect(op, o3x); x2 = intersect(perp(o, o2o4), circle(o2,o)); o' = reflect(o over o1x1)	69	6.420	proved	-
+hageo_2006G4	yes	yes	yes	aux	1	x = intersect(bk, circumcircle(a,d,j))	37	0.059	proved	-
+hageo_2006G9	yes	yes	yes	ddar	0	-	146	0.019	proved	-
+hageo_2006USATSTp6	yes	yes	yes	aux	1	z = spiral_center(bq -> cp)	24	0.043	proved	-
+hageo_2007CHNSouthEastMOp2	yes	yes	yes	ddar	0	-	93	0.011	proved	-
+hageo_2007CMOp4	yes	yes	yes	aux	3	c' = reflect(c over ai); h = orthocenter(d,e,f); z = spiral_center(ci -> ic')	94	43.005	proved	-
+hageo_2007CTSTp2	yes	yes	yes	aux	2	n1 = arc_midpoint(a,b on circumcircle(a,b,c)); z = spiral_center(an1 -> n1b)	51	1.476	proved	-
+hageo_2007USATSTp1	yes	yes	yes	ddar	0	-	30	0.003	proved	-
+hageo_2007USATSTp5	yes	yes	yes	aux	2	t' = intersect(tc1, circumcircle(a,b,t)); t' = intersect(tc1, circumcircle(a,b,t))	59	0.085	proved	-
+hageo_2008ARMOg10p6	yes	yes	yes	aux	1	b' = intersect(bh, circumcircle(a,b,c))	39	0.068	proved	-
+hageo_2008ARMOg9p3	yes	yes	yes	aux	1	m2 = midpoint(m,m1)	131	0.520	proved	-
+hageo_2008AsiaPacificMOp3	yes	yes	yes	aux	1	x1 = intersect(hx, circumcircle(a,b,c))	51	0.156	proved	-
+hageo_2008CHNSouthEastMOp3	yes	yes	yes	ddar	0	-	46	0.005	proved	-
+hageo_2008CHNSouthEastMOp6	yes	yes	yes	ddar	0	-	29	0.004	proved	-
+hageo_2008CTSTp13	yes	yes	yes	aux	1	x = intersect(dp, circumcircle(a,b,c))	44	0.247	proved	-
+hageo_2008CTSTp19	yes	yes	yes	aux	3	x = intersect(bc, circumcircle(i,e,d)); a' = intersect(af, circumcircle(a,b,i)); x1 = intersect(cf, id)	38	27.553	proved	-
+hageo_2008CTSTp4	yes	yes	yes	aux	1	z = spiral_center(bc -> fe)	47	0.130	proved	-
+hageo_2008CTSTp7	yes	yes	yes	aux	2	z = spiral_center(aq -> o3b); q' = inverse(q in circle(u,o4))	77	16.139	proved	-
+hageo_2008USAMOp2	yes	yes	yes	ddar	0	-	35	0.002	proved	-
+hageo_2009ARMOg11p7	yes	yes	yes	ddar	0	-	20	0.002	proved	-
+hageo_2009ARMOg9p2	yes	yes	yes	ddar	0	-	28	0.002	proved	-
+hageo_2009CGMOp2	yes	yes	yes	ddar	0	-	25	0.002	proved	-
+hageo_2009CTSTp19	yes	yes	yes	aux	3	z = spiral_center(ad -> bg); f1 = foot(g -> ao); x = intersect(isogonal(oa in eof), ac)	49	1.208	proved	-
+hageo_2009G3	yes	yes	yes	aux	1	i' = intersect(ai, circumcircle(b,c,i))	41	0.067	proved	-
+hageo_2009G4	yes	yes	yes	aux	1	g' = parallelogram(e,g,f)	45	0.428	proved	-
+hageo_2009G6	yes	yes	no	-	0	-	-	120.105	timeout	174336 DDAR runs in the aux search
+hageo_2009G8	yes	yes	yes	aux	1	h' = intersect(i3h, circumcircle(a,i1,h))	45	0.142	proved	-
+hageo_2010ARMOg10p3	yes	yes	yes	aux	1	a' = intersect(ao, circumcircle(a,b,d))	34	0.066	proved	-
+hageo_2010ARMOg10p6	yes	yes	yes	ddar	0	-	16	0.002	proved	-
+hageo_2010ARMOg11p3	yes	yes	yes	ddar	0	-	64	0.014	proved	-
+hageo_2010AsiaPacificMOp1	yes	yes	yes	ddar	0	-	18	0.003	proved	-
+hageo_2010AsiaPacificMOp4	yes	yes	yes	ddar	0	-	39	0.005	proved	-
+hageo_2010CGMOp2	yes	yes	yes	aux	1	o' = parallelogram(e,o,f)	54	0.026	proved	-
+hageo_2010CHNWesternMOp2	yes	yes	yes	ddar	0	-	27	0.002	proved	-
+hageo_2010CHNWesternMOp6	yes	yes	yes	ddar	0	-	80	0.005	proved	-
+hageo_2010CTSTp19	yes	yes	yes	aux	1	x = intersect(ao, o1n)	38	0.058	proved	-
+hageo_2010CTSTp4	yes	yes	no	-	0	-	-	120.132	timeout	219733 DDAR runs in the aux search
+hageo_2010G1	yes	yes	yes	ddar	0	-	30	0.002	proved	-
+hageo_2011ARMOg10p6	yes	yes	yes	ddar	0	-	22	0.002	proved	-
+hageo_2011ARMOg11p2	yes	yes	yes	ddar	0	-	26	0.002	proved	-
+hageo_2011ARMOg11p8	yes	yes	yes	aux	1	n' = intersect(on, circumcircle(a,n,i1))	30	0.209	proved	-
+hageo_2011ARMOg9p2	yes	yes	yes	ddar	0	-	23	0.002	proved	-
+hageo_2011AsiaPacificMOp3	yes	yes	yes	ddar	0	-	42	0.005	proved	-
+hageo_2011BalkanMOp1	yes	yes	yes	ddar	0	-	27	0.002	proved	-
+hageo_2011CGMOp8	yes	yes	no	-	0	-	-	120.072	timeout	156274 DDAR runs in the aux search
+hageo_2011CHNSouthEastMOp4	yes	yes	yes	aux	2	x = intersect(perp(b, oe), circle(e,n)); n' = inverse(n in circle(o,a))	33	6.673	proved	-
+hageo_2011CHNWesternMOp7	yes	yes	yes	ddar	0	-	60	0.008	proved	-
+hageo_2011CTSTp10	yes	yes	no	-	0	-	-	120.053	timeout	88600 DDAR runs in the aux search
+hageo_2011CTSTp16	yes	yes	yes	ddar	0	-	117	0.036	proved	-
+hageo_2011G3	yes	yes	no	-	0	-	-	120.040	timeout	69428 DDAR runs in the aux search
+hageo_2011G5	yes	yes	yes	aux	1	z = spiral_center(ai -> xb)	50	0.147	proved	-
+hageo_2011G6	yes	yes	yes	ddar	0	-	62	0.008	proved	-
+hageo_2012ARMOg10p2	yes	yes	yes	ddar	0	-	13	0.001	proved	-
+hageo_2012ARMOg10p8	yes	yes	yes	aux	2	x = intersect(para(o, c1f), ac); b' = reflect(b over o)	45	104.924	proved	-
+hageo_2012ARMOg9p3	yes	yes	yes	ddar	0	-	29	0.003	proved	-
+hageo_2012AsiaPacificMOp4	yes	yes	yes	aux	1	h' = inverse(h in circle(m,b))	29	0.228	proved	-
+hageo_2012CGMOp5	yes	yes	yes	ddar	0	-	17	0.002	proved	-
+hageo_2012CHNGaoLian	yes	yes	yes	ddar	0	-	16	0.001	proved	-
+hageo_2012CHNSouthEastMOp2	yes	yes	yes	ddar	0	-	39	0.005	proved	-
+hageo_2012CHNWesternMOp5	yes	yes	yes	aux	1	o' = reflect(o over ab)	50	0.159	proved	-
+hageo_2012CTSTp2	yes	yes	no	-	0	-	-	120.083	timeout	88106 DDAR runs in the aux search
+hageo_2012EGMOp1	yes	yes	yes	ddar	0	-	19	0.001	proved	-
+hageo_2012EGMOp7	yes	yes	yes	aux	1	h' = intersect(hk, circumcircle(a,b,h))	41	0.142	proved	-
+hageo_2012G2	yes	yes	yes	ddar	0	-	24	0.001	proved	-
+hageo_2012G3	yes	yes	yes	aux	1	i = incenter(c,d,e)	49	0.400	proved	-
+hageo_2012G4	yes	yes	yes	aux	1	a' = intersect(ad, circumcircle(a,b,c))	43	0.028	proved	-
+hageo_2012G8	yes	yes	no	-	0	-	-	120.078	timeout	181857 DDAR runs in the aux search
+hageo_2012RMMp2	yes	yes	yes	aux	1	c' = intersect(cg, circumcircle(b,c,e))	54	0.071	proved	-
+hageo_2012USAMOp5	yes	yes	no	-	0	-	-	120.048	timeout	131065 DDAR runs in the aux search
+hageo_2012USATSTp6	yes	yes	yes	aux	2	x = intersect(perp(p, ef), ce); h = orthocenter(e,f,x)	38	0.822	proved	-
+hageo_2013ARMOg10p7	yes	yes	yes	ddar	0	-	201	0.055	proved	-
+hageo_2013ARMOg9p2	yes	yes	yes	aux	1	d' = intersect(dh, circumcircle(b,p,d))	132	0.045	proved	-
+hageo_2013ARMOg9p7	yes	yes	yes	ddar	0	-	70	0.009	proved	-
+hageo_2013BalkanMOp1	yes	yes	yes	ddar	0	-	37	0.004	proved	-
+hageo_2013CGMOp2	yes	yes	yes	aux	1	x1 = intersect(ax, pq)	35	0.080	proved	-
+hageo_2013CHNGaoLianA	yes	yes	yes	ddar	0	-	69	0.005	proved	-
+hageo_2013CHNWesternMOp3	yes	yes	yes	aux	1	c' = intersect(ac, circumcircle(b,c,a1))	43	0.110	proved	-
+hageo_2013CTSTp1	yes	yes	yes	aux	2	x = intersect(para(p, bc), ac); x1 = intersect(perp(e, bd), bd)	88	12.230	proved	-
+hageo_2013G2	yes	yes	yes	ddar	0	-	64	0.010	proved	-
+hageo_2013G4	yes	yes	yes	ddar	0	-	27	0.002	proved	-
+hageo_2013RMMp3	yes	yes	yes	aux	3	z = spiral_center(bp -> rc); a' = inverse(a in circle(m,p)); z1 = spiral_center(rz -> pm)	77	4.211	proved	-
+hageo_2013USAMOp1	yes	yes	yes	ddar	0	-	84	0.004	proved	-
+hageo_2013USATSTp2	yes	yes	yes	aux	2	h = orthocenter(b,a,x); t1 = tangent(h to circle(a,l))	68	1.052	proved	-
+hageo_2014ARMOg10p4	yes	yes	yes	aux	1	c' = intersect(cr, circumcircle(c,n,q))	31	0.085	proved	-
+hageo_2014ARMOg9p4	yes	yes	yes	ddar	0	-	30	0.004	proved	-
+hageo_2014ARMOg9p6	yes	yes	yes	aux	1	c' = intersect(bc, circumcircle(a,c,d))	44	0.042	proved	-
+hageo_2014AsiaPacificMOp5	yes	yes	yes	aux	2	x1 = intersect(circle(o2,a), circumcircle(p,q,z)); x1' = intersect(xx1, circle(o2,a))	61	64.324	proved	-
+hageo_2014BulgariaMOp6	yes	yes	yes	aux	3	d' = intersect(di4, circumcircle(c,d,i3)); i = excenter(a,c,d); z = spiral_center(ci4 -> ed)	62	49.835	proved	-
+hageo_2014CGMOp6	yes	yes	yes	ddar	0	-	90	0.012	proved	-
+hageo_2014CHNGaoLian	yes	yes	yes	aux	1	x = intersect(para(m, ab), bc)	46	1.224	proved	-
+hageo_2014CHNSouthEastMOg10p3	yes	yes	yes	ddar	0	-	43	0.003	proved	-
+hageo_2014CHNSouthEastMOg11p1	yes	yes	yes	ddar	0	-	67	0.007	proved	-
+hageo_2014CHNWesternMOp2	yes	yes	yes	ddar	0	-	18	0.002	proved	-
+hageo_2014CTSTp13	yes	yes	yes	ddar	0	-	131	0.032	proved	-
+hageo_2014EGMOp2	yes	yes	yes	aux	1	x = intersect(im, circumcircle(b,d,f))	33	0.072	proved	-
+hageo_2014G3	yes	yes	yes	aux	2	x = intersect(bm, or); x1 = intersect(para(q, bm), circumcircle(b,m,p))	41	0.794	proved	-
+hageo_2014IranGOAp3	yes	yes	yes	aux	1	a' = intersect(am, circumcircle(a,e,f))	43	0.030	proved	-
+hageo_2014IranGOAp4	yes	yes	yes	aux	1	x' = reflect(x over ab)	56	1.329	proved	-
+hageo_2014IranTSTp13	yes	yes	yes	aux	8	b' = intersect(bb3, circumcircle(a,b,a3)); h = orthocenter(a,b1,c1); c' = intersect(cc3, circumcircle(a,c,a3)); b' = intersect(bb3, circumcircle(a,b,a3)); h = orthocenter(a,b1,c1); c' = intersect(cc3, circumcircle(a,c,a3)); x = intersect(perp(a3, ci), bi); x1 = intersect(perp(c1, ac), ai)	321	70.666	proved	-
+hageo_2015ARMOg10p7	yes	yes	yes	aux	1	m' = parallelogram(q,m,p)	54	0.029	proved	-
+hageo_2015ARMOg11p7	yes	yes	yes	aux	3	x = intersect(in, pm); x1 = intersect(px, circumcircle(b,c,d)); x2 = intersect(px, circumcircle(a,c,d))	73	1.873	proved	-
+hageo_2015ARMOg9p7	yes	yes	yes	aux	1	x1 = intersect(tangent_at(a, centre h), mh)	55	1.559	proved	-
+hageo_2015AsiaPacificMOp1	yes	yes	yes	ddar	0	-	22	0.001	proved	-
+hageo_2015BalkanMOp2	yes	yes	yes	ddar	0	-	48	0.003	proved	-
+hageo_2015CGMOp1	yes	yes	yes	ddar	0	-	29	0.002	proved	-
+hageo_2015CTSTp9	yes	yes	yes	aux	1	b' = reflect(b over mo1)	104	2.550	proved	-
+hageo_2015ELMOp3	yes	yes	yes	ddar	0	-	32	0.002	proved	-
+hageo_2015EuropeanMCupSp3	yes	yes	yes	aux	1	f = foot(o -> al)	30	0.039	proved	-
+hageo_2015IranGOAp1	yes	yes	yes	ddar	0	-	27	0.001	proved	-
+hageo_2015IranGOAp3	yes	yes	yes	aux	1	f = foot(h -> zx)	36	0.032	proved	-
+hageo_2015IranGOAp5	yes	yes	no	-	0	-	-	120.083	timeout	121998 DDAR runs in the aux search
+hageo_2015IranTSTp18	yes	yes	yes	aux	2	z' = intersect(cz, circumcircle(h1,x,z)); z'' = parallelogram(m_bc,z',x)	48	4.957	proved	-
+hageo_2015RMMp4	yes	yes	yes	aux	1	j1' = intersect(bj1, circumcircle(a,d,j1))	30	0.047	proved	-
+hageo_2015USATSTp1	yes	yes	yes	aux	1	i' = intersect(ai, circumcircle(c,i,d))	60	0.073	proved	-
+hageo_2015USATSTp6	yes	yes	no	-	0	-	-	120.103	timeout	78423 DDAR runs in the aux search
+hageo_2016ARMOg10p2	yes	yes	yes	ddar	0	-	22	0.002	proved	-
+hageo_2016ARMOg10p8	yes	yes	yes	aux	1	c1' = intersect(c1r, circle(o,a))	80	0.480	proved	-
+hageo_2016ARMOg11p8	yes	yes	yes	aux	1	z = spiral_center(ama -> mbb)	75	0.207	proved	-
+hageo_2016BalkanMOp2	yes	yes	yes	ddar	0	-	67	0.010	proved	-
+hageo_2016CGMOp7	yes	yes	yes	aux	1	a' = intersect(ap, circumcircle(a,i,o))	43	0.101	proved	-
+hageo_2016CTSTp5	yes	yes	no	-	0	-	-	120.107	timeout	127859 DDAR runs in the aux search
+hageo_2016CTSTp7	yes	yes	yes	ddar	0	-	59	0.010	proved	-
+hageo_2016CanadaMOp5	yes	yes	yes	ddar	0	-	75	0.015	proved	-
+hageo_2016CzechAPSlovakp6	yes	yes	no	-	0	-	-	120.050	timeout	94559 DDAR runs in the aux search
+hageo_2016EGMOp2	yes	yes	yes	ddar	0	-	49	0.006	proved	-
+hageo_2016ELMOp2	yes	yes	yes	ddar	0	-	27	0.003	proved	-
+hageo_2016G2	yes	yes	yes	aux	2	a' = intersect(ao1, circumcircle(a,b,c)); x1 = intersect(circumcircle(a,c,a'), circumcircle(b,i,f))	81	6.140	proved	-
+hageo_2016G4	yes	yes	yes	aux	1	b' = intersect(bi, circumcircle(a,b,c))	31	0.039	proved	-
+hageo_2016G5	yes	yes	yes	aux	3	f = foot(a -> bh); x1 = intersect(para(m, ao), oh); x2 = intersect(perp(f, ao), ab)	75	10.633	proved	-
+hageo_2016G6	yes	yes	yes	aux	1	b' = inverse(b in circle(m,a))	58	1.358	proved	-
+hageo_2016IranGOAp1	yes	yes	yes	ddar	0	-	35	0.005	proved	-
+hageo_2016IranGOMp2	yes	yes	yes	ddar	0	-	20	0.003	proved	-
+hageo_2016IranGOMp4	yes	yes	yes	aux	1	a' = intersect(ao, circumcircle(a,b,p))	47	0.031	proved	-
+hageo_2016IranGOMp5	yes	yes	yes	aux	1	x1 = intersect(o3t, circumcircle(b,e,f))	96	0.424	proved	-
+hageo_2016RMMSLG1	yes	yes	yes	ddar	0	-	40	0.003	proved	-
+hageo_2016RMMp1	yes	yes	yes	aux	1	q' = reflect(q over bc)	63	0.853	proved	-
+hageo_2016SilkRoadp2	yes	yes	yes	aux	2	h = orthocenter(a1,b1,k); a' = intersect(aa1, circumcircle(a,b,c))	62	3.478	proved	-
+hageo_2016USAMOp3	yes	yes	no	-	0	-	-	120.052	timeout	211995 DDAR runs in the aux search
+hageo_2016USATSTSTp2	yes	yes	yes	aux	2	x = intersect(circle(o2,m), circumcircle(m,g,p)); x' = inverse(x in circle(m,a))	104	10.388	proved	-
+hageo_2016USATSTSTp6	yes	yes	no	-	0	-	-	120.020	timeout	51540 DDAR runs in the aux search
+hageo_2017ARMOg10p2	yes	yes	yes	aux	1	c1' = intersect(c1f, circumcircle(a,c,c1))	46	0.032	proved	-
+hageo_2017ARMOg10p8	yes	yes	yes	aux	1	x = intersect(circle(o,a), circumcircle(a,o,i))	31	0.169	proved	-
+hageo_2017ARMOg9p2	yes	yes	yes	aux	1	y' = intersect(yz, circumcircle(b,x,y))	29	0.014	proved	-
+hageo_2017AsiaPacificMOp2	yes	yes	yes	aux	1	a' = parallelogram(d,a,z)	19	0.018	proved	-
+hageo_2017BalkanMOp2	yes	yes	yes	aux	1	z = spiral_center(bc -> st)	71	0.134	proved	-
+hageo_2017CHNGaoLian	yes	yes	yes	ddar	0	-	26	0.001	proved	-
+hageo_2017CHNSouthEastMOg10p2	yes	yes	yes	aux	1	x = intersect(perp(d, bc), mo1)	59	0.098	proved	-
+hageo_2017CHNWesternMOp3	yes	yes	yes	aux	2	i1' = intersect(i1o2, circumcircle(a,d,i1)); i1'' = reflect(i1' over i2o1)	32	5.705	proved	-
+hageo_2017CTSTp14	yes	yes	yes	ddar	0	-	68	0.007	proved	-
+hageo_2017CTSTp9	yes	yes	no	-	0	-	-	120.061	timeout	79533 DDAR runs in the aux search
+hageo_2017CzechAPSlovakp2	yes	yes	yes	aux	1	o = circumcenter(a,b,c)	22	0.018	proved	-
+hageo_2017CzechAPSlovakp4	yes	yes	yes	aux	2	x = intersect(of, circumcircle(a,b,c)); x1 = intersect(perp(o, bc), circumcircle(c,o,x))	82	29.384	proved	-
+hageo_2017EGMOp6	yes	yes	yes	aux	1	x1 = intersect(ap, circumcircle(c,g1,g2))	77	3.817	proved	-
+hageo_2017EuropeanMCupSp3	yes	yes	yes	ddar	0	-	101	0.031	proved	-
+hageo_2017G3	yes	yes	yes	aux	1	x = intersect(op, circumcircle(a,h,k))	37	0.197	proved	-
+hageo_2017G4	yes	yes	yes	aux	1	o2' = parallelogram(a,o2,i1)	91	0.989	proved	-
+hageo_2017G5	yes	yes	yes	aux	2	z = spiral_center(aa1 -> cc1); x1 = intersect(perp(b, ac), circumcircle(a,c1,z))	71	12.147	proved	-
+hageo_2017IOMetrop1	yes	yes	yes	ddar	0	-	32	0.004	proved	-
+hageo_2017IranGOAp3	yes	yes	yes	aux	1	a' = intersect(ax, circumcircle(a,c,o))	41	0.050	proved	-
+hageo_2017IranGOMp2	yes	yes	yes	ddar	0	-	31	0.004	proved	-
+hageo_2017IranTSTp18	yes	yes	yes	aux	2	x = intersect(para(b, cp), oh); x' = parallelogram(e,x,f)	37	15.152	proved	-
+hageo_2017RMMSLG1	yes	yes	yes	aux	1	f' = intersect(ef, circumcircle(d,f,a1))	25	0.046	proved	-
+hageo_2017SilkRoadp2	yes	yes	yes	ddar	0	-	40	0.005	proved	-
+hageo_2017USAMOp3	yes	yes	yes	aux	2	t = incircle_touch(opp o in bco); o2' = reflect(o2 over mn)	107	26.898	proved	-
+hageo_2017USATSTSTp5	yes	yes	yes	aux	2	x1 = intersect(id1, ex); x2 = intersect(isogonal(ai in cai2), di2)	64	9.529	proved	-
+hageo_2018ARMOg10p2	yes	yes	yes	aux	1	k' = intersect(kq, circumcircle(b,m,k))	38	0.030	proved	-
+hageo_2018ARMOg11p4	yes	yes	yes	aux	2	x = intersect(bc, oa1); x1 = intersect(para(p, ca1), oa1)	48	2.105	proved	-
+hageo_2018CGMOp2	yes	yes	yes	aux	3	z = spiral_center(bo1 -> do2); z1 = spiral_center(bm -> ea); x = intersect(o3m, circumcircle(a,e,z1))	61	2.976	proved	-
+hageo_2018CHNWesternMOp5	yes	yes	yes	ddar	0	-	24	0.001	proved	-
+hageo_2018CMOp4	yes	yes	yes	aux	1	a' = intersect(ak, circumcircle(a,e,i))	53	0.070	proved	-
+hageo_2018CTSTp21	yes	yes	yes	ddar	0	-	87	0.010	proved	-
+hageo_2018CzechAPSlovakp2_	yes	yes	yes	ddar	0	-	54	0.004	proved	-
+hageo_2018EuropeanMCupSp2	yes	yes	yes	ddar	0	-	71	0.013	proved	-
+hageo_2018G2	yes	yes	yes	aux	1	x1 = intersect(perp(x, bp), circumcircle(a,p,x))	20	0.032	proved	-
+hageo_2018G4	yes	yes	yes	ddar	0	-	33	0.006	proved	-
+hageo_2018G5	yes	yes	no	-	0	-	-	120.059	timeout	135660 DDAR runs in the aux search
+hageo_2018IranGOAp1	yes	yes	yes	ddar	0	-	35	0.007	proved	-
+hageo_2018IranGOMp3	yes	yes	yes	ddar	0	-	34	0.002	proved	-
+hageo_2018KoMaLA719	yes	yes	no	-	0	-	-	120.041	timeout	85936 DDAR runs in the aux search
+hageo_2018KoMaLA726	yes	yes	yes	ddar	0	-	78	0.011	proved	-
+hageo_2018RMMp1	yes	yes	yes	aux	1	p' = intersect(pq, circumcircle(b,p,k))	45	0.032	proved	-
+hageo_2018SilkRoadp1	yes	yes	yes	ddar	0	-	34	0.002	proved	-
+hageo_2018USAMOp5	yes	yes	yes	aux	1	x = intersect(ab, gq)	60	3.267	proved	-
+hageo_2019ARMOg10p4	yes	yes	yes	ddar	0	-	59	0.006	proved	-
+hageo_2019ARMOg10p6	yes	yes	yes	aux	2	d1 = bisector_foot(o in abo); b' = intersect(bc, circumcircle(b,o,d1))	55	1.693	proved	-
+hageo_2019ARMOg9p3	yes	yes	yes	aux	2	h' = intersect(he, circumcircle(b,h,d)); b' = isogonal(b in ach)	55	0.379	proved	-
+hageo_2019BalkanMOp3	yes	yes	yes	aux	1	x1 = intersect(bc, kp)	47	0.066	proved	-
+hageo_2019CGMOp1	yes	yes	yes	ddar	0	-	43	0.005	proved	-
+hageo_2019CGMOp7	yes	yes	yes	aux	1	x = intersect(isogonal(ac in mab1), db1)	40	1.739	proved	-
+hageo_2019CHNNorthernMOp5	yes	yes	yes	ddar	0	-	43	0.004	proved	-
+hageo_2019CHNWesternMOp5	yes	yes	yes	ddar	0	-	30	0.005	proved	-
+hageo_2019CMOp3	yes	yes	yes	aux	1	z = spiral_center(ed -> oq)	35	0.048	proved	-
+hageo_2019CTSTp1	yes	yes	no	-	0	-	-	120.080	timeout	56312 DDAR runs in the aux search
+hageo_2019CzechAPSlovakp6	yes	yes	yes	aux	1	p1' = reflect(p1 over ef)	103	0.182	proved	-
+hageo_2019ELMOSLp1	yes	yes	yes	ddar	0	-	33	0.003	proved	-
+hageo_2019ELMOSLp3	yes	yes	yes	aux	1	a' = intersect(ao2, circumcircle(a,b,c))	82	0.204	proved	-
+hageo_2019ELMOSLp4	yes	yes	no	-	0	-	-	120.091	timeout	49783 DDAR runs in the aux search
+hageo_2019G1	yes	yes	yes	ddar	0	-	36	0.004	proved	-
+hageo_2019G2	yes	yes	yes	ddar	0	-	52	0.019	proved	-
+hageo_2019GOTEEMp1	yes	yes	yes	ddar	0	-	39	0.003	proved	-
+hageo_2019GOTEEMp2	yes	yes	yes	aux	2	x = intersect(ac, circumcircle(m,f,e)); a' = intersect(ap, circumcircle(a,q,t))	50	7.389	proved	-
+hageo_2019GOTEEMp6	yes	yes	yes	aux	1	x1 = intersect(ox, circumcircle(a,b,c))	41	0.082	proved	-
+hageo_2019IOMetrop3	yes	yes	yes	aux	1	i' = intersect(bi, circumcircle(c,i,o))	40	0.312	proved	-
+hageo_2019IranGOAp1	yes	yes	yes	ddar	0	-	32	0.004	proved	-
+hageo_2019IranGOMp3	yes	yes	yes	aux	1	o3' = parallelogram(p,o3,s)	39	0.188	proved	-
+hageo_2019IranGOMp4	yes	yes	yes	aux	1	a' = intersect(ah, circumcircle(a,b,k))	41	0.073	proved	-
+hageo_2019IranTSTp15	yes	yes	yes	aux	1	x1 = intersect(ef, circumcircle(b,c,a))	111	0.271	proved	-
+hageo_2019KoMaLA729	yes	yes	yes	aux	1	q' = intersect(eq, circumcircle(f,p,q))	27	0.138	proved	-
+hageo_2019KoMaLA736	yes	yes	no	-	0	-	-	120.056	timeout	52164 DDAR runs in the aux search
+hageo_2019KoMaLA742	yes	yes	no	-	0	-	-	120.047	timeout	46586 DDAR runs in the aux search
+hageo_2019KoMaLA743	yes	yes	yes	aux	2	x1 = intersect(iu, ac); x2 = intersect(t1t4, ax1)	82	9.200	proved	-
+hageo_2019KoMaLA754	yes	yes	no	-	0	-	-	120.052	timeout	106783 DDAR runs in the aux search
+hageo_2019RMMSLG1	yes	yes	yes	aux	1	c' = intersect(ck, circumcircle(b,c,o))	37	0.045	proved	-
+hageo_2019RMMp2	yes	yes	yes	aux	4	x = intersect(ac, bd); z = spiral_center(ad -> cb); x1 = intersect(isogonal(xc in axb), circle(o1,a)); x2 = intersect(isogonal(bo1 in abz), ap)	59	4.059	proved	-
+hageo_2019SilkRoadp1	yes	yes	yes	ddar	0	-	29	0.003	proved	-
+hageo_2019USATSTSTp5	yes	yes	yes	aux	1	h' = inverse(h in circle(k,a))	35	0.318	proved	-
+hageo_2019USEMOp6	yes	yes	no	-	0	-	-	120.040	timeout	78226 DDAR runs in the aux search
+hageo_2020AQGOp1	yes	yes	yes	aux	1	x1 = intersect(mz, circumcircle(a,b,c))	97	0.261	proved	-
+hageo_2020AQGOp3	yes	yes	yes	aux	1	x1 = intersect(para(o, o2x), mn)	165	9.171	proved	-
+hageo_2020AQGOp4	yes	yes	yes	aux	2	c' = intersect(cm, circle(m,a)); b' = intersect(bn, circle(n,a))	40	22.605	proved	-
+hageo_2020AQGOp5	yes	yes	no	-	0	-	-	120.082	timeout	36079 DDAR runs in the aux search
+hageo_2020BalkanMOp1	yes	yes	yes	ddar	0	-	29	0.002	proved	-
+hageo_2020CGMOp7	yes	yes	yes	aux	1	o' = intersect(om, circumcircle(b,c,o))	57	0.125	proved	-
+hageo_2020CHNSouthEastMOg10p2	yes	yes	yes	aux	1	i' = intersect(ai, circumcircle(b,c,i))	54	0.150	proved	-
+hageo_2020CHNSouthEastMOg11p2	yes	yes	yes	aux	3	x = intersect(para(b, ar), os); x1 = harmonic(s wrt p,x); f = foot(i -> ox)	108	29.758	proved	-
+hageo_2020CSMGOp2	yes	yes	yes	aux	1	s' = inverse(s in circle(o2,b))	89	4.336	proved	-
+hageo_2020CSMGOp3	yes	yes	yes	aux	1	b' = intersect(ab, circumcircle(b,b1,t))	44	0.203	proved	-
+hageo_2020CSMGOp5	yes	yes	no	-	0	-	-	120.167	timeout	131737 DDAR runs in the aux search
+hageo_2020CSMGOp6	yes	yes	no	-	0	-	-	120.090	timeout	36666 DDAR runs in the aux search
+hageo_2020CzechAPSlovakp1	yes	yes	yes	aux	1	b' = intersect(bq, circumcircle(a,b,c))	39	0.103	proved	-
+hageo_2020ELMOp4	yes	yes	yes	aux	2	h' = intersect(ho2, circumcircle(b,c,h)); f = foot(d1 -> ap)	71	4.489	proved	-
+hageo_2020EuropeanMCupSp1	yes	yes	yes	ddar	0	-	49	0.011	proved	-
+hageo_2020G3	yes	yes	yes	aux	1	e' = reflect(e over bo1)	45	0.282	proved	-
+hageo_2020G6	yes	yes	yes	aux	1	x = intersect(circle(o1,a), circumcircle(b,d,e))	53	0.510	proved	-
+hageo_2020G7	yes	yes	yes	aux	1	h = orthocenter(a,b,c)	99	29.219	proved	-
+hageo_2020IOMetrop1	yes	yes	yes	ddar	0	-	20	0.005	proved	-
+hageo_2020IranGOAp2	yes	yes	yes	aux	2	a' = reflect(a over i); a'' = intersect(aa', circle(o,a))	77	12.520	proved	-
+hageo_2020IranGOMp3	yes	yes	yes	aux	1	x1 = intersect(para(f, bo), circle(o1,x))	64	4.111	proved	-
+hageo_2020IranGOMp4	yes	yes	yes	aux	1	h' = intersect(ch, circumcircle(b,h,x))	27	0.107	proved	-
+hageo_2020IranTSTp9	yes	yes	no	-	0	-	-	120.126	timeout	46698 DDAR runs in the aux search
+hageo_2020KoMaLA771	yes	yes	no	-	0	-	-	120.138	timeout	93595 DDAR runs in the aux search
+hageo_2020KoMaLA774	yes	yes	yes	ddar	0	-	32	0.005	proved	-
+hageo_2020POGCHAMPp1	yes	yes	yes	aux	1	a' = intersect(aq, circumcircle(a,b,c))	77	0.309	proved	-
+hageo_2020POGCHAMPp2	yes	yes	no	-	0	-	-	120.072	timeout	57009 DDAR runs in the aux search
+hageo_2020RMMSLG3	yes	yes	yes	ddar	0	-	96	0.026	proved	-
+hageo_2020RMMp1	yes	yes	yes	ddar	0	-	55	0.027	proved	-
+hageo_2020USATSTSTp2a	yes	yes	yes	aux	2	x = intersect(pq, circumcircle(a,i,e)); x1 = intersect(ai, dx)	57	5.673	proved	-
+hageo_2020USATSTSTp2b	yes	yes	yes	aux	2	i' = intersect(iq, circumcircle(a,i,e)); x = intersect(ai, di')	62	5.215	proved	-
+hageo_2020USEMOp3	yes	yes	no	-	0	-	-	120.045	timeout	29058 DDAR runs in the aux search
+hageo_2021ARMOg10p1	yes	yes	yes	ddar	0	-	26	0.004	proved	-
+hageo_2021ARMOg10p8	yes	yes	no	-	0	-	-	120.053	timeout	41208 DDAR runs in the aux search
+hageo_2021ARMOg11p4	yes	yes	yes	aux	2	oa' = intersect(boa, circumcircle(a,c1,oa)); o = circumcenter(b,a1,a2)	45	73.072	proved	-
+hageo_2021AsiaPacificMOp3	yes	yes	yes	aux	1	l' = intersect(cl, circumcircle(b,l,m))	31	0.295	proved	-
+hageo_2021CGMOp2	yes	yes	yes	aux	3	f = foot(k -> ai); x1 = intersect(tangent_at(a, centre i), circle(o,a)); x2 = intersect(ao, kf)	94	6.472	proved	-
+hageo_2021CGMOp7	yes	yes	yes	aux	3	x1 = intersect(ax, bk); b' = parallelogram(o,b,x1); c' = isogonal(c in abx1)	55	2.058	proved	-
+hageo_2021CHNGaoLianA1	yes	yes	yes	aux	1	x1 = intersect(cy, circumcircle(a,b,p))	35	0.105	proved	-
+hageo_2021CHNGaoLianA2	yes	yes	yes	ddar	0	-	27	0.005	proved	-
+hageo_2021CTSTp20	yes	yes	yes	aux	3	x = intersect(perp(o, ad), ae); m' = intersect(ml, circle(o,a)); a' = intersect(af, circumcircle(a,o,x))	127	93.549	proved	-
+hageo_2021CzechAPSlovakp2	yes	yes	yes	aux	1	x1 = intersect(perp(i1, io1), bc)	46	0.344	proved	-
+hageo_2021CzechAPSlovakp6	yes	yes	no	-	0	-	-	120.055	timeout	66020 DDAR runs in the aux search
+hageo_2021EGMOp3	yes	yes	yes	aux	1	z = spiral_center(bc -> ef)	22	0.076	proved	-
+hageo_2021EGMOp4	yes	yes	yes	ddar	0	-	23	0.002	proved	-
+hageo_2021G1	yes	yes	yes	ddar	0	-	36	0.004	proved	-
+hageo_2021G4	yes	yes	yes	aux	1	t' = reflect(t over de)	40	0.100	proved	-
+hageo_2021GOWACAp1	yes	yes	yes	ddar	0	-	33	0.002	proved	-
+hageo_2021GOWACAp3	yes	yes	yes	aux	3	x1 = intersect(isogonal(bh in cbi), ai); f = foot(i -> ab); m1' = parallelogram(i,m1,q)	69	5.660	proved	-
+hageo_2021GOWACAp4	yes	yes	yes	aux	2	c' = intersect(ci, circumcircle(a,b,c)); t = incircle_touch(opp o1 in a1c1o1)	94	30.409	proved	-
+hageo_2021GOWACAp5	yes	yes	yes	aux	1	x1 = intersect(ab, kp)	81	1.234	proved	-
+hageo_2021GOWACAp6	yes	yes	no	-	0	-	-	120.116	timeout	52426 DDAR runs in the aux search
+hageo_2021IOMetrop2	yes	yes	yes	ddar	0	-	34	0.004	proved	-
+hageo_2021IranGOAp1	yes	yes	yes	ddar	0	-	22	0.002	proved	-
+hageo_2021IranGOAp5a	yes	yes	no	-	0	-	-	120.146	timeout	126922 DDAR runs in the aux search
+hageo_2021IranGOAp5b	yes	yes	no	-	0	-	-	120.059	timeout	130554 DDAR runs in the aux search
+hageo_2021IranGOMp1	yes	yes	yes	ddar	0	-	37	0.002	proved	-
+hageo_2021IranGOMp4	yes	yes	yes	aux	1	x = intersect(om, circumcircle(a,b,c))	49	0.094	proved	-
+hageo_2021IranTSTp6	yes	yes	no	-	0	-	-	120.107	timeout	132812 DDAR runs in the aux search
+hageo_2021IsraelOlympicRev	yes	yes	no	-	0	-	-	120.074	timeout	48790 DDAR runs in the aux search
+hageo_2021KoMaLA796	yes	yes	yes	ddar	0	-	54	0.011	proved	-
+hageo_2021RMMSLG4	yes	yes	yes	ddar	0	-	143	0.035	proved	-
+hageo_2021SilkRoadp3	yes	yes	yes	aux	1	x = intersect(oq, circumcircle(a,b,c))	63	0.161	proved	-
+hageo_2021USATSTSTp1	yes	yes	yes	aux	1	o1' = parallelogram(o,o1,x)	45	0.371	proved	-
+hageo_2021USEMOp3	yes	yes	no	-	0	-	-	120.073	timeout	168345 DDAR runs in the aux search
+hageo_2022ARMOg10p2	yes	yes	yes	ddar	0	-	30	0.003	proved	-
+hageo_2022BalkanMOp1	yes	yes	yes	ddar	0	-	22	0.003	proved	-
+hageo_2022CGMOp3	yes	yes	yes	aux	3	x = intersect(tangent_at(i, centre b), ab); i' = intersect(ix, circumcircle(b,c,i)); x1 = intersect(isogonal(ax in bai), circumcircle(a,b,c))	39	12.592	proved	-
+hageo_2022CHNSouthEastMOg11p6	yes	yes	yes	aux	3	z = spiral_center(bo -> oc); z1 = spiral_center(bz -> oc); z2 = spiral_center(ao -> oz)	41	5.049	proved	-
+hageo_2022CTSTp1	yes	yes	yes	aux	2	x1 = intersect(cf, gh); z = spiral_center(fx1 -> dg)	75	3.854	proved	-
+hageo_2022CzechAPSlovakp5	yes	yes	yes	aux	1	x1 = intersect(bc, circumcircle(a,d,x))	29	0.048	proved	-
+hageo_2022EGMOp1	yes	yes	yes	ddar	0	-	24	0.003	proved	-
+hageo_2022FakeCMOp3	yes	yes	no	-	0	-	-	120.044	timeout	48154 DDAR runs in the aux search
+hageo_2022G2	yes	yes	yes	aux	2	x1 = intersect(circle(d,x), circle(e,y)); a' = intersect(ax1, circle(o1,a))	46	3.032	proved	-
+hageo_2022G5	yes	yes	yes	aux	1	k = similitude_center(circle(o1,u1), circle(o2,u2))	70	0.684	proved	-
+hageo_2022IZhautykovOp3	yes	yes	yes	ddar	0	-	50	0.006	proved	-
+hageo_2022IranGOAp2	yes	yes	yes	ddar	0	-	43	0.006	proved	-
+hageo_2022IranGOAp3	yes	yes	yes	aux	3	o3 = circumcenter(a,b,h); x = intersect(bc, circumcircle(a,h,o3)); x1 = intersect(para(h1, ho3), ao3)	78	87.584	proved	-
+hageo_2022IranGOMp3	yes	yes	yes	aux	1	c' = intersect(cp, circle(o,a))	27	0.331	proved	-
+hageo_2022IranGOMp5	yes	yes	yes	aux	2	p' = inverse(p in circle(o,a)); x1 = intersect(perp(p', op), ad)	63	6.849	proved	-
+hageo_2022KoMaLA805	yes	yes	yes	aux	1	o' = intersect(or, circumcircle(a,o,q))	68	0.411	proved	-
+hageo_2022SilkRoadp1	yes	yes	yes	ddar	0	-	23	0.002	proved	-
+hageo_2022TurkeyTSTp3	yes	yes	yes	aux	2	x1 = intersect(isogonal(ie in pix), circle(i,f)); x2 = intersect(isogonal(if in pix), circle(i,f))	60	12.125	proved	-
+hageo_2022USATSTSTp6	yes	yes	no	-	0	-	-	120.058	timeout	27266 DDAR runs in the aux search
+hageo_2023ARMOg11p4	yes	yes	yes	aux	1	a' = intersect(ah, circumcircle(a,b,c))	77	0.171	proved	-
+hageo_2023CHNSouthEastMOg10p3	yes	yes	yes	aux	2	l' = reflect(l over ai); i' = intersect(ai, circumcircle(b,c,i))	87	39.274	proved	-
+hageo_2023CHNSouthEastMOg11p5	yes	yes	yes	aux	1	i' = intersect(ih, circumcircle(a,i,e))	40	0.073	proved	-
+hageo_2023CHNWesternMOp6	yes	yes	yes	ddar	0	-	22	0.002	proved	-
+hageo_2023ELMOSLp2	yes	yes	yes	aux	1	b' = intersect(bc, circumcircle(b,f,b1))	38	0.050	proved	-
+hageo_2023EuropeanMCupSp2	yes	yes	yes	ddar	0	-	63	0.008	proved	-
+hageo_2023G1	yes	yes	yes	ddar	0	-	41	0.002	proved	-
+hageo_2023G2	yes	yes	yes	ddar	0	-	26	0.004	proved	-
+hageo_2023G5	yes	yes	yes	aux	1	d' = reflect(d over co)	65	3.893	proved	-
+hageo_2023G7	yes	yes	yes	ddar	0	-	76	0.017	proved	-
+hageo_2023IMOp6	yes	yes	no	-	0	-	-	120.058	timeout	50139 DDAR runs in the aux search
+hageo_2023IZhautykovOp2	yes	yes	yes	aux	1	c' = reflect(c over dk)	62	0.162	proved	-
+hageo_2023IranGOAp1	yes	yes	yes	ddar	0	-	27	0.004	proved	-
+hageo_2023IranGOAp4	yes	yes	no	-	0	-	-	120.096	timeout	93637 DDAR runs in the aux search
+hageo_2023IranGOAp5	yes	yes	no	-	0	-	-	120.084	timeout	39043 DDAR runs in the aux search
+hageo_2023IranGOMp4	yes	yes	yes	aux	2	q' = reflect(q over bc); x1 = intersect(ab, sq')	114	5.896	proved	-
+hageo_2023IranTSTp6	yes	yes	yes	aux	2	b' = isogonal(b in ach); x1 = intersect(circumcircle(a,b,c), circumcircle(b,h,b1))	55	22.139	proved	-
+hageo_2023KoMaLA840	yes	yes	yes	aux	3	x2 = intersect(xp, circumcircle(a,b,c)); x3 = intersect(isogonal(yz in ayx), ci); x4 = intersect(circumcircle(i,y,x3), circumcircle(y,x1,q))	65	7.596	proved	-
+hageo_2023KoMaLA844	yes	yes	yes	ddar	0	-	48	0.010	proved	-
+hageo_2023KoMaLA855	yes	yes	yes	aux	3	x1 = intersect(circumcircle(a,b,x), circumcircle(a,c,i)); x2 = intersect(perp(e, mn), ai); o1 = circumcenter(a,m,x1)	69	3.278	proved	-
+hageo_2023MOSTMockp2	yes	yes	no	-	0	-	-	120.108	timeout	61659 DDAR runs in the aux search
+hageo_2023PKUSummerp3	yes	yes	no	-	0	-	-	120.091	timeout	37650 DDAR runs in the aux search
+hageo_2023PlanetCupp10	yes	yes	no	-	0	-	-	120.091	timeout	50578 DDAR runs in the aux search
+hageo_2023PlanetCupp9	yes	yes	no	-	0	-	-	120.114	timeout	64247 DDAR runs in the aux search
+hageo_2023RMMSLG1	yes	yes	yes	aux	1	z' = intersect(xz, circumcircle(a,c,z))	62	0.917	proved	-
+hageo_2023RMMSLG3	yes	yes	no	-	0	-	-	120.101	timeout	100410 DDAR runs in the aux search
+hageo_2023SAGFp2	yes	yes	yes	aux	2	x = intersect(tangent_at(b, centre o), um); o1' = parallelogram(o,o1,x)	67	13.023	proved	-
+hageo_2023SAGFp3	yes	yes	no	-	0	-	-	120.158	timeout	97081 DDAR runs in the aux search
+hageo_2023SAGFp8	yes	yes	no	-	0	-	-	120.054	timeout	34533 DDAR runs in the aux search
+hageo_2023SerbiaMOp6	yes	yes	no	-	0	-	-	120.079	timeout	43408 DDAR runs in the aux search
+hageo_2023SpFMOp5	yes	yes	no	-	0	-	-	120.049	timeout	32081 DDAR runs in the aux search
+hageo_2023TurkeyTSTp5	yes	yes	no	-	0	-	-	120.115	timeout	209616 DDAR runs in the aux search
+hageo_2023USAMOp1	yes	yes	yes	ddar	0	-	20	0.002	proved	-
+hageo_2023USAMOp6	yes	yes	no	-	0	-	-	120.046	timeout	72969 DDAR runs in the aux search
+hageo_2023VietnamTSTp3	yes	yes	no	-	0	-	-	120.064	timeout	68738 DDAR runs in the aux search
+hageo_2024ARMOg10p6	yes	yes	yes	aux	1	b' = intersect(ab, circumcircle(b,c,f))	32	0.062	proved	-
+hageo_2024ARMOg9p4	yes	yes	yes	aux	2	z1 = spiral_center(ce -> yt); z1' = intersect(o1z1, circle(o1,e))	74	2.546	proved	-
+hageo_2024ARMOg9p6	yes	yes	yes	aux	1	a' = intersect(ao, circumcircle(a,b,c))	51	0.093	proved	-
+hageo_2024AsiaPacificMOp1	yes	yes	yes	aux	1	x1 = intersect(para(b, dx), ax)	26	0.092	proved	-
+hageo_2024AsiaPacificMOp5	yes	yes	yes	aux	1	l' = intersect(xl, circumcircle(a,b,l))	79	0.216	proved	-
+hageo_2024BalkanMOp1	yes	yes	yes	ddar	0	-	37	0.003	proved	-
+hageo_2024EGMOp2	yes	yes	yes	ddar	0	-	41	0.007	proved	-
+hageo_2024ELMOSLp1	yes	yes	yes	aux	1	x = intersect(bc, circumcircle(a,p,r))	39	0.030	proved	-
+hageo_2024ELMOSLp4	yes	yes	no	-	0	-	-	120.059	timeout	36125 DDAR runs in the aux search
+hageo_2024IranTSTp2	yes	yes	yes	ddar	0	-	191	0.126	proved	-
+hageo_2024KoMaLA857	yes	yes	yes	aux	4	x1 = intersect(bh, circumcircle(g,f,e)); f' = reflect(f over xo2); m1 = midpoint(g,x1); i = excenter(f,x,f')	87	6.934	proved	-
+hageo_2024KoMaLA864	yes	yes	no	-	0	-	-	120.058	timeout	59751 DDAR runs in the aux search
+hageo_2024KoMaLA877	yes	yes	no	-	0	-	-	120.093	timeout	85297 DDAR runs in the aux search
+hageo_2024KoMaLA878	yes	yes	yes	ddar	0	-	87	0.019	proved	-
+hageo_2024PlanetCupp10	yes	yes	no	-	0	-	-	120.069	timeout	39950 DDAR runs in the aux search
+hageo_2024PolandMOp6	yes	yes	yes	aux	1	f1 = foot(o -> o1o2)	80	0.178	proved	-
+hageo_2024SAGFp6	yes	yes	no	-	0	-	-	120.116	timeout	101889 DDAR runs in the aux search
+hageo_2024ShuZhiMiMOM0p3	yes	yes	no	-	0	-	-	120.062	timeout	37256 DDAR runs in the aux search
+hageo_2024ShuZhiMiMOM12p2	yes	yes	yes	aux	1	x1' = parallelogram(o,x1,p)	78	0.757	proved	-
+hageo_2024ShuZhiMiMOM3p5	yes	yes	no	-	0	-	-	120.057	timeout	47140 DDAR runs in the aux search
+hageo_2024ShuZhiMiMOM4p6	yes	yes	no	-	0	-	-	120.113	timeout	60538 DDAR runs in the aux search
+hageo_2024TurkeyMO2ndRp2	yes	yes	yes	aux	4	f1 = foot(a -> ht); x = intersect(para(o1, o2p), circle(o1,d)); x1 = intersect(para(o1, o2q), circle(o1,d)); a' = intersect(at, circumcircle(a,h,f1))	97	80.207	proved	-
+hageo_2024TurkeyTSTp5	yes	yes	no	-	0	-	-	120.073	timeout	25860 DDAR runs in the aux search
+hageo_2024TurkeyTSTp9	yes	yes	no	-	0	-	-	120.082	timeout	43091 DDAR runs in the aux search
+hageo_2024USATSTSTp4	yes	yes	yes	aux	1	x = intersect(para(p, ac), circumcircle(a,c,p))	39	0.295	proved	-
+hageo_2024VietnamTSTp3	yes	yes	no	-	0	-	-	120.101	timeout	62085 DDAR runs in the aux search
+hageo_2024VietnamTSTp5	yes	yes	no	-	0	-	-	120.114	timeout	76775 DDAR runs in the aux search
+hageo_2025CTSTp8	yes	yes	no	-	0	-	-	120.075	timeout	54131 DDAR runs in the aux search
+hageo_2025IranTSTp12	yes	yes	yes	aux	1	h = orthocenter(a,b,c)	137	5.056	proved	-
+hageo_2025KoeraFinalRoundp3	yes	yes	no	-	0	-	-	120.110	timeout	82501 DDAR runs in the aux search
+hageo_2025ShuZhiMiMOM3p5	yes	yes	yes	ddar	0	-	78	0.016	proved	-
+hageo_2025VietnamTSTp2	yes	yes	no	-	0	-	-	120.064	timeout	52188 DDAR runs in the aux search
+hageo_2025XinXingSpringMOp5	yes	yes	yes	aux	2	z = spiral_center(bc -> fa); x1 = intersect(perp(b, ah), lx)	103	32.274	proved	-
+hageo_2ndFNGOp9	yes	yes	no	-	0	-	-	120.147	timeout	76645 DDAR runs in the aux search
+hageo_JCGV2p2_2023ShuZhiMiMOM9p2_	yes	yes	yes	aux	1	c' = intersect(ck, circumcircle(a,b,c))	126	0.718	proved	-
+hageo_MouseMOp3	yes	yes	no	-	0	-	-	120.056	timeout	46408 DDAR runs in the aux search
+hageo_ShuZhiMi2023SpFp8	yes	yes	no	-	0	-	-	120.073	timeout	47282 DDAR runs in the aux search
+hageo_ShuZhiMi2024SpFp19	yes	yes	no	-	0	-	-	120.058	timeout	37063 DDAR runs in the aux search
+hageo_ShuZhiMiGeo109	yes	yes	yes	aux	1	x = intersect(bi_b, circumcircle(i,d,e))	74	0.391	proved	-
+hageo_ShuZhiMiGeo117	yes	yes	no	-	0	-	-	120.174	timeout	125772 DDAR runs in the aux search
+hageo_ShuZhiMiGeo128	yes	yes	no	-	0	-	-	120.126	timeout	51859 DDAR runs in the aux search
+hageo_ShuZhiMiGeo178	yes	yes	no	-	0	-	-	120.089	timeout	40545 DDAR runs in the aux search
+hageo_ShuZhiMiGeo180	yes	yes	no	-	0	-	-	120.073	timeout	23113 DDAR runs in the aux search
+hageo_ShuZhiMiGeo209	yes	yes	no	-	0	-	-	120.044	timeout	51717 DDAR runs in the aux search
+hageo_ShuZhiMiGeo256	yes	yes	no	-	0	-	-	120.046	timeout	26502 DDAR runs in the aux search
+hageo_ShuZhiMiGeo309	yes	yes	no	-	0	-	-	120.072	timeout	14461 DDAR runs in the aux search
+hageo_ShuZhiMiGeo352	yes	yes	no	-	0	-	-	120.031	timeout	26832 DDAR runs in the aux search
+hageo_ShuZhiMiGeo381	yes	yes	no	-	0	-	-	120.046	timeout	44990 DDAR runs in the aux search
+hageo_ShuZhiMiGeo409	yes	yes	no	-	0	-	-	120.078	timeout	109417 DDAR runs in the aux search
+hageo_ShuZhiMiGeo489	yes	yes	no	-	0	-	-	120.065	timeout	50584 DDAR runs in the aux search
+hageo_ShuZhiMiGeo635	yes	yes	no	-	0	-	-	120.033	timeout	37736 DDAR runs in the aux search
+hageo_XinXingV28p2	yes	yes	no	-	0	-	-	120.042	timeout	20182 DDAR runs in the aux search
+hageo_XinXingV35p1	yes	yes	no	-	0	-	-	120.022	timeout	53762 DDAR runs in the aux search

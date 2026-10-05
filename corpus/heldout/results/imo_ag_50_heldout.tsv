@@ -1,0 +1,11 @@
+name	parsed	goal_numeric	proved	method	aux_count	aux	steps	secs	status	detail
+heldout_imo_2003_p4b	yes	yes	yes	ddar	0	-	31	0.001	proved	-
+heldout_imo_2005_p1	yes	yes	yes	aux	1	x1 = intersect(circle(a2,b1), circle(b2,c1))	58	0.098	proved	-
+heldout_imo_2007_p2	yes	yes	yes	aux	1	h = orthocenter(b,d,e)	23	0.016	proved	-
+heldout_imo_2009_p4a	yes	yes	yes	aux	2	e' = reflect(e over dk); z = spiral_center(ke' -> bd)	35	0.135	proved	-
+heldout_imo_2009_p4b	yes	yes	yes	aux	2	x = intersect(ac, circumcircle(e,d,k)); x1 = intersect(perp(a, ck), be)	25	0.148	proved	-
+heldout_imo_2013_p3	yes	yes	yes	aux	1	b' = intersect(bia, circumcircle(a,b,c))	67	0.067	proved	-
+heldout_imo_2014_p3	yes	yes	no	-	0	-	-	120.067	timeout	316264 DDAR runs in the aux search
+heldout_imo_2023_p2	yes	yes	yes	aux	1	a' = intersect(ae, circumcircle(a,b,x))	55	0.079	proved	-
+heldout_imo_2023_p6	yes	yes	no	-	0	-	-	120.054	timeout	132431 DDAR runs in the aux search
+heldout_imo_2024_p4	yes	yes	yes	aux	1	a' = reflect(a over i)	70	0.184	proved	-

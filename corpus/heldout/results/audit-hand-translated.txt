@@ -1,0 +1,148 @@
+# Soundness spot-check: 18 of 18 solved held-out problems (random.Random(1))
+
+## heldout_imo_2009_p4b (aux, aux: x = intersect(ac, circumcircle(e,d,k)); x1 = intersect(perp(a, ck), be))
+
+- corpus goal: `perp a b a c`; proof ends: `perp a b a c`; last step: `equal arcs ⇔ equal chords: x1e and ax1`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 25; numerically checked on problem points: 11 hold, 0 fail; 14 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2007_p2 (aux, aux: h = orthocenter(b,d,e))
+
+- corpus goal: `eqangle a d a f a f a b`; proof ends: `eqangle a d a f a f a b`; last step: `collinear: a f g h`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 23; numerically checked on problem points: 15 hold, 0 fail; 8 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2024_g1 (ddar)
+
+- corpus goal: `cyclic a b c z`; proof ends: `cyclic a b c z`; last step: `concyclic (inscribed angles): c b z a d`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 20; numerically checked on problem points: 20 hold, 0 fail; 0 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2005_p1 (aux, aux: x1 = intersect(circle(a2,b1), circle(b2,c1)))
+
+- corpus goal: `coll x c1 a2`; proof ends: `coll x c1 a2`; last step: `collinear: a2 x c1`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 56; numerically checked on problem points: 46 hold, 0 fail; 10 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2024_p4 (aux, aux: a' = reflect(a over i))
+
+- corpus goal: `eqangle i k i l p x p y`; proof ends: `eqangle i k i l p x p y`; last step: `similar triangles: △aba' ∼ △ali`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 69; numerically checked on problem points: 48 hold, 0 fail; 21 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2024_g7 (aux, aux: q' = intersect(qo4, circumcircle(x,p,q)))
+
+- corpus goal: `coll o4 p q`; proof ends: `coll o4 p q`; last step: `collinear: o4 p q' q`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 133; numerically checked on problem points: 105 hold, 0 fail; 28 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2024_g8b (ddar)
+
+- corpus goal: `cyclic ib ic jb jc`; proof ends: `cyclic ib ic jb jc`; last step: `concyclic (inscribed angles): jb ib ic i jc`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 47; numerically checked on problem points: 45 hold, 0 fail; 2 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2024_g6 (aux, aux: x1 = intersect(para(sx, uj), vj))
+
+- corpus goal: `eqangle a b a j a j a c`; proof ends: `eqangle a b a j a j a c`; last step: `concyclic (inscribed angles): x1 o j a`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 37; numerically checked on problem points: 30 hold, 0 fail; 7 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2023_p2 (aux, aux: a' = intersect(ae, circumcircle(a,b,x)))
+
+- corpus goal: `eqangle a b a x a x a c`; proof ends: `eqangle a b a x a x a c`; last step: `similar triangles: △abd ∼ △xba'`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 55; numerically checked on problem points: 48 hold, 0 fail; 7 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2009_p4a (aux, aux: e' = reflect(e over dk); z = spiral_center(ke' -> bd))
+
+- corpus goal: `s_angle b a c 60`; proof ends: `aconst a c a b 60`; last step: `similar triangles: △aek ∼ △akc`
+- goal on engine figure: skip; on jittered figure (sigma 1e-2): skip
+- goal among assumptions: False
+- proof steps: 35; numerically checked on problem points: 15 hold, 0 fail; 20 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2025_g1 (ddar)
+
+- corpus goal: `coll a p q`; proof ends: `coll a p q`; last step: `collinear: p a q`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 69; numerically checked on problem points: 45 hold, 0 fail; 24 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2025_g2 (ddar)
+
+- corpus goal: `perp b y c x`; proof ends: `perp b y c x`; last step: `similar triangles: △ibxc ∼ △icby`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 23; numerically checked on problem points: 23 hold, 0 fail; 0 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2003_p4b (ddar)
+
+- corpus goal: `eqangle d c d x d x d a`; proof ends: `eqangle d c d x d x d a`; last step: `angle bisector theorem (converse): d x a c`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 31; numerically checked on problem points: 29 hold, 0 fail; 2 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2024_g3 (aux, aux: x = intersect(ly, circumcircle(e,d,q)))
+
+- corpus goal: `coll y m d`; proof ends: `coll y m d`; last step: `collinear: m y d`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 44; numerically checked on problem points: 37 hold, 0 fail; 7 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2025_g4 (aux, aux: x = intersect(o2t, circumcircle(m,n,b)))
+
+- corpus goal: `cong o2 t o2 b`; proof ends: `cong o2 t o2 b`; last step: `concyclic (inscribed angles): t b e f x`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 68; numerically checked on problem points: 50 hold, 0 fail; 18 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2025_g3 (ddar)
+
+- corpus goal: `perp c x a b`; proof ends: `perp c x a b`; last step: `concyclic (inscribed angles): t s x c`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 39; numerically checked on problem points: 39 hold, 0 fail; 0 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2013_p3 (aux, aux: b' = intersect(bia, circumcircle(a,b,c)))
+
+- corpus goal: `perp a b a c`; proof ends: `perp a b a c`; last step: `concyclic (inscribed angles): b' ia a1 c`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 67; numerically checked on problem points: 49 hold, 0 fail; 18 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2024_g4 (aux, aux: x1 = intersect(para(p, ab), ax); o = circumcenter(d,p,x1))
+
+- corpus goal: `para p q a b`; proof ends: `para p q a b`; last step: `collinear: p q x1`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 50; numerically checked on problem points: 30 hold, 0 fail; 20 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+
+All sampled: OK

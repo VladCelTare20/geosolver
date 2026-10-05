@@ -1,0 +1,84 @@
+# Soundness spot-check: 10 of 336 solved held-out problems (random.Random(2026))
+
+## hageo_2011CTSTp16 (ddar)
+
+- corpus goal: `cong k j m j`; proof ends: `cong k j m j`; last step: `similar triangles: △akm ∼ △okj`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 117; numerically checked on problem points: 49 hold, 0 fail; 68 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## hageo_2017SilkRoadp2 (ddar)
+
+- corpus goal: `cong e1 e2 f1 f2`; proof ends: `cong e1 e2 f1 f2`; last step: `similar triangles: △dcf1 ∼ △de1e2`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 40; numerically checked on problem points: 40 hold, 0 fail; 0 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## hageo_2021RMMSLG4 (ddar)
+
+- corpus goal: `simtri b c m k l n`; proof ends: `eqangle c b c m l k l n / eqangle m b m c n k n l`; last step: `concyclic (inscribed angles): g n t c`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 143; numerically checked on problem points: 133 hold, 0 fail; 10 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## hageo_2022CGMOp3 (aux, aux: x = intersect(tangent_at(i, centre b), ab); i' = intersect(ix, circumcircle(b,c,i)); x1 = intersect(isogonal(ax in bai), circumcircle(a,b,c)))
+
+- corpus goal: `eqangle a b b j i b b l`; proof ends: `eqangle a b b j i b b l`; last step: `similar triangles: △ci'x ∼ △lbj`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 39; numerically checked on problem points: 12 hold, 0 fail; 27 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_isl2024_g8b (ddar)
+
+- corpus goal: `cyclic ib ic jb jc`; proof ends: `cyclic ib ic jb jc`; last step: `concyclic (inscribed angles): jb ib ic i jc`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 47; numerically checked on problem points: 45 hold, 0 fail; 2 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## hageo_2011ARMOg10p6 (ddar)
+
+- corpus goal: `perp b f f c`; proof ends: `perp b f f c`; last step: `concyclic (inscribed angles): f c1 b1 c b`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 22; numerically checked on problem points: 22 hold, 0 fail; 0 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## hageo_2015ELMOp3 (ddar)
+
+- corpus goal: `perp o1 x e x`; proof ends: `perp o1 x e x`; last step: `similar triangles: △aex ∼ △xbc`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 32; numerically checked on problem points: 30 hold, 0 fail; 2 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## hageo_2024KoMaLA878 (ddar)
+
+- corpus goal: `coll l1 l2 l3`; proof ends: `coll l1 l2 l3`; last step: `collinear: l1 l3 l2`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 87; numerically checked on problem points: 87 hold, 0 fail; 0 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## heldout_imo_2003_p4b (ddar)
+
+- corpus goal: `eqangle d c d x d x d a`; proof ends: `eqangle d c d x d x d a`; last step: `angle bisector theorem (converse): d x a c`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 31; numerically checked on problem points: 29 hold, 0 fail; 2 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+## hageo_2023G2 (ddar)
+
+- corpus goal: `cyclic e a b c`; proof ends: `cyclic e a b c`; last step: `concyclic (inscribed angles): e d c b a`
+- goal on engine figure: True; on jittered figure (sigma 1e-2): False
+- goal among assumptions: False
+- proof steps: 26; numerically checked on problem points: 26 hold, 0 fail; 0 not checkable here (aux points / trig / arithmetic)
+- verdict: OK
+
+
+All sampled: OK

@@ -1,0 +1,18 @@
+name	source	status	flags	reason
+heldout_isl2024_g1	ISL 2024 G1	translated		
+heldout_isl2024_g3	ISL 2024 G3	translated	helper-points	
+heldout_isl2024_g4	ISL 2024 G4	translated		
+heldout_isl2024_g5	ISL 2024 G5	translated		
+heldout_isl2024_g6	ISL 2024 G6	translated		
+heldout_isl2024_g7	ISL 2024 G7	translated		
+heldout_isl2024_g8a	ISL 2024 G8 (=>)	translated	pinned-implicit	
+heldout_isl2024_g8b	ISL 2024 G8 (<=)	translated	pinned-implicit	
+heldout_isl2025_g1	ISL 2025 G1	translated		
+heldout_isl2025_g2	ISL 2025 G2	translated		
+heldout_isl2025_g3	ISL 2025 G3	translated		
+heldout_isl2025_g4	ISL 2025 G4 (= IMO 2025 P2)	translated	helper-points	
+heldout_isl2025_g5	ISL 2025 G5	translated		
+heldout_isl2025_g6	ISL 2025 G6	translated		
+heldout_isl2025_g7	ISL 2025 G7	not_expressible		existence of a circle tangent to an infinite family of lines; the family is defined by an existential tangency condition
+heldout_imo_2026_p2	IMO 2026 P2	translated	helper-points	
+heldout_imo_2026_p4	IMO 2026 P4	not_expressible		game / 'for which values' over an unbounded sequence of figures

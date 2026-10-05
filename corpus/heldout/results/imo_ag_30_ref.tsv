@@ -1,0 +1,31 @@
+name	parsed	goal_numeric	proved	method	aux_count	aux	steps	secs	status	detail
+translated_imo_2000_p1	yes	yes	yes	ddar	0	-	51	0.004	proved	-
+translated_imo_2000_p6	yes	yes	yes	ddar	0	-	140	0.108	proved	-
+translated_imo_2002_p2a	yes	yes	yes	ddar	0	-	28	0.002	proved	-
+translated_imo_2002_p2b	yes	yes	yes	ddar	0	-	17	0.002	proved	-
+translated_imo_2003_p4	yes	yes	yes	ddar	0	-	43	0.003	proved	-
+translated_imo_2004_p1	yes	yes	yes	aux	1	f = foot(b -> ar)	47	0.143	proved	-
+translated_imo_2004_p5	yes	yes	yes	ddar	0	-	12	0.001	proved	-
+translated_imo_2005_p5	yes	yes	yes	ddar	0	-	46	0.004	proved	-
+translated_imo_2007_p4	yes	yes	yes	ddar	0	-	44	0.003	proved	-
+translated_imo_2008_p1a	yes	yes	yes	aux	1	h1 = orthocenter(d,e,f)	85	0.058	proved	-
+translated_imo_2008_p1b	yes	yes	yes	aux	1	h1 = orthocenter(d,e,f)	85	0.061	proved	-
+translated_imo_2008_p6	yes	yes	yes	aux	2	f = foot(o -> ai2); f' = parallelogram(a,f,k)	69	36.007	proved	-
+translated_imo_2009_p2	yes	yes	yes	aux	1	a' = reflect(a over mw)	43	0.204	proved	-
+translated_imo_2010_p2	yes	yes	yes	aux	1	i' = intersect(id, circumcircle(b,c,i))	48	0.238	proved	-
+translated_imo_2010_p4	yes	yes	yes	ddar	0	-	34	0.002	proved	-
+translated_imo_2011_p6	yes	yes	yes	aux	1	x1 = intersect(circumcircle(pc,pb,a1), circle(o,a))	84	4.349	proved	-
+translated_imo_2012_p1	yes	yes	yes	ddar	0	-	51	0.004	proved	-
+translated_imo_2012_p5	yes	yes	yes	aux	1	h = orthocenter(a,b,x)	42	0.021	proved	-
+translated_imo_2013_p4	yes	yes	yes	ddar	0	-	42	0.002	proved	-
+translated_imo_2014_p4	yes	yes	yes	ddar	0	-	27	0.002	proved	-
+translated_imo_2015_p3	yes	yes	yes	aux	1	b' = intersect(bh, circumcircle(a,b,f))	62	0.046	proved	-
+translated_imo_2015_p4	yes	yes	yes	ddar	0	-	45	0.004	proved	-
+translated_imo_2016_p1	yes	yes	yes	ddar	0	-	43	0.004	proved	-
+translated_imo_2017_p4	yes	yes	yes	ddar	0	-	33	0.002	proved	-
+translated_imo_2018_p1	yes	yes	yes	aux	1	h = orthocenter(a,f,g)	29	0.031	proved	-
+translated_imo_2019_p2	yes	yes	yes	aux	3	p' = intersect(pp1, circumcircle(p,q,q1)); p'' = intersect(a1p, circumcircle(p,q1,p')); x = intersect(bq, circumcircle(p,q1,p'))	34	1.787	proved	-
+translated_imo_2019_p6	yes	yes	yes	aux	1	x = intersect(ci, circumcircle(a,e,f))	65	0.204	proved	-
+translated_imo_2020_p1	yes	yes	yes	aux	1	d' = intersect(do, circumcircle(p,a,d))	26	0.050	proved	-
+translated_imo_2021_p3	yes	yes	yes	aux	3	d' = intersect(ad, circumcircle(b,c,d)); x1 = intersect(isogonal(ca in bco1), do1); x2 = intersect(circumcircle(c,e,y), circumcircle(c,o1,x1))	48	49.613	proved	-
+translated_imo_2022_p4	yes	yes	yes	ddar	0	-	24	0.003	proved	-
