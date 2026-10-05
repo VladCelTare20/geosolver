@@ -646,6 +646,7 @@ pub fn check(cx: &Ctx, hp: &mut HumanProof, strict: bool) -> usize {
             hp.blocks.retain(|b| b.kind != BlockKind::Conclusion);
             break;
         }
+        let demoted: std::collections::BTreeSet<u16> = hp.blocks.iter().filter(|b| bad.contains(&b.id) && matches!(b.kind, BlockKind::Claim(_))).map(|b| b.id).collect();
         for b in hp.blocks.iter_mut() {
             if bad.contains(&b.id) {
                 b.kind = BlockKind::Raw;
@@ -656,7 +657,66 @@ pub fn check(cx: &Ctx, hp: &mut HumanProof, strict: bool) -> usize {
                     .collect();
             }
         }
+        if !demoted.is_empty() {
+            uncite(hp, &demoted);
+        }
         v = violations(cx, hp);
     }
     first.len()
+}
+
+fn visit_reasons(hp: &mut HumanProof, f: &mut dyn FnMut(&mut Reason)) {
+    fn go(r: &mut Reason, f: &mut dyn FnMut(&mut Reason)) {
+        f(r);
+        if let Reason::Fact { because, .. } = r {
+            for x in because.iter_mut() {
+                go(x, f);
+            }
+        }
+    }
+    for b in hp.blocks.iter_mut() {
+        for s in b.body.iter_mut() {
+            match s {
+                Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => {
+                    for l in links.iter_mut() {
+                        for r in l.reasons.iter_mut() {
+                            go(r, f);
+                        }
+                    }
+                }
+                Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => {
+                    for r in reasons.iter_mut() {
+                        go(r, f);
+                    }
+                }
+                Sentence::Raw { .. } => {}
+            }
+        }
+    }
+}
+
+fn uncite(hp: &mut HumanProof, demoted: &std::collections::BTreeSet<u16>) {
+    visit_reasons(hp, &mut |r| {
+        if let Reason::Claim { block, fact, .. } = r {
+            if demoted.contains(block) {
+                *r = Reason::Engine { fact: *fact };
+            }
+        }
+    });
+    let mut renumber: std::collections::BTreeMap<u16, u16> = std::collections::BTreeMap::new();
+    let mut k = 0u16;
+    for b in hp.blocks.iter_mut() {
+        if let BlockKind::Claim(n) = &mut b.kind {
+            k += 1;
+            *n = k;
+            renumber.insert(b.id, k);
+        }
+    }
+    visit_reasons(hp, &mut |r| {
+        if let Reason::Claim { block, n, .. } = r {
+            if let Some(&k) = renumber.get(block) {
+                *n = k;
+            }
+        }
+    });
 }

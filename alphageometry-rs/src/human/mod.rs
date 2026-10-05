@@ -227,6 +227,20 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
         + m.words_en.div_ceil(20);
 }
 
+pub fn verify(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], hp: &HumanProof) -> Vec<check::Violation> {
+    let cx = Ctx::new(trace, goal, deps, aux, None);
+    check::violations(&cx, hp)
+}
+
+pub fn repair(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], hp: &mut HumanProof) -> usize {
+    let cx = Ctx::new(trace, goal, deps, aux, None);
+    let n = check::check(&cx, hp, false);
+    if !hp.blocks.last().is_some_and(|b| b.kind == BlockKind::Conclusion) {
+        *hp = unavailable(cx.closure.len());
+    }
+    n
+}
+
 pub fn render_en(trace: &EngineTrace, hp: &HumanProof, aux: &[AuxInfo]) -> String {
     if !hp.available {
         return String::from("(no human proof: the writer could not re-prove the goal; see the full derivation)\n");

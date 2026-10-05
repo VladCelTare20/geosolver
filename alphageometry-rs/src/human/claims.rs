@@ -1,7 +1,7 @@
 use super::atoms::{build_all, Atom, AtomSrc};
 use super::cert::certify_greedy;
 use super::chain::{angle_expr, atom_points, bfs, dfs_order, ratio_expr, single_angle, Path};
-use super::classify::{fact_obligations, fact_points, fact_stmt, goal_obligations, kind, pred_stmt, Kind, Obl, Target};
+use super::classify::{coll_targets, cyc_forms, fact_obligations, fact_points, fact_stmt, goal_obligations, kind, pred_stmt, Kind, Obl, Target};
 use super::ctx::{Ctx, FactClass};
 use super::model::*;
 use super::trace::Table;
@@ -273,7 +273,13 @@ impl<'c, 'a> Writer<'c, 'a> {
             pooled: false,
             requires: Vec::new(),
         };
-        match fact_obligations(cx, f) {
+        let obls = fact_obligations(cx, f).map(|mut o| {
+            if let ER::Concyclic(p) | ER::Collinear(p) = &cx.t.facts[f as usize].reason {
+                o.extend(self.cover(p, matches!(cx.t.facts[f as usize].reason, ER::Concyclic(_)), f, Some(f)));
+            }
+            o
+        });
+        match obls {
             Some(obls) if obls.is_empty() && matches!(k, Kind::Formula(TheoremKey::LawOfSines)) => {
                 node.parts = Some(Vec::new());
                 node.label = "identity";
@@ -387,16 +393,71 @@ impl<'c, 'a> Writer<'c, 'a> {
         let cx = self.cx;
         let mut obls = goal_obligations(cx, &cx.goal);
         let Some(gf) = goal_fact else { return obls };
+        let cyclic = cx.goal.name == "cyclic";
+        if cyclic || cx.goal.name == "coll" {
+            obls.extend(self.cover(&cx.goal.points, cyclic, gf, Some(gf)));
+        }
         let gp: BTreeSet<PointId> = cx.goal.points.iter().copied().collect();
         let fp: BTreeSet<PointId> = fact_points(cx, gf).into_iter().collect();
         let merged = matches!((cx.goal.name.as_str(), &cx.t.facts[gf as usize].reason), ("coll", ER::Collinear(_)) | ("cyclic", ER::Concyclic(_)));
         if merged && fp.len() > gp.len() && gp.is_subset(&fp) {
-            for mut o in fact_obligations(cx, gf).unwrap_or_default() {
+            let fpts: Vec<PointId> = fact_points(cx, gf);
+            let cyclic = matches!(cx.t.facts[gf as usize].reason, ER::Concyclic(_));
+            let mut extra = fact_obligations(cx, gf).unwrap_or_default();
+            extra.extend(self.cover(&fpts, cyclic, gf, Some(gf)));
+            for mut o in extra {
                 o.label = MERGED;
                 obls.push(o);
             }
         }
         obls
+    }
+
+    fn cover(&self, pts: &[PointId], cyclic: bool, h: FactId, exclude: Option<FactId>) -> Vec<Obl> {
+        let cx = self.cx;
+        let k = if cyclic { 4 } else { 3 };
+        if pts.len() <= k || pts.len() > 8 {
+            return Vec::new();
+        }
+        let subsets: Vec<Vec<PointId>> = if cyclic { subsets4(pts).into_iter().map(|q| q.to_vec()).collect() } else { subsets3(pts) };
+        let mut usable: Vec<(Vec<PointId>, Vec<Target>)> = Vec::new();
+        for q in subsets {
+            let forms: Vec<Target> = if cyclic {
+                cyc_forms(cx, [q[0], q[1], q[2], q[3]])
+            } else {
+                coll_targets(cx, &q, None).map(|(t, _)| t.into_iter().flat_map(|t| std::iter::once(t.clone()).chain(t.alts.clone())).collect()).unwrap_or_default()
+            };
+            let good: Vec<Target> = forms
+                .into_iter()
+                .filter(|t| self.in_admissible_span(t.table, &t.row, h, exclude))
+                .map(|mut t| {
+                    t.alts.clear();
+                    t
+                })
+                .collect();
+            if !good.is_empty() {
+                usable.push((q, good));
+            }
+        }
+        let Some(first) = usable.first() else { return Vec::new() };
+        let mut have: BTreeSet<PointId> = first.0.iter().copied().collect();
+        let mut chosen: Vec<usize> = vec![0];
+        while have.len() < pts.len() {
+            let next = usable.iter().enumerate().find(|(i, (q, _))| !chosen.contains(i) && q.iter().filter(|p| !have.contains(p)).count() == 1);
+            let Some((i, (q, _))) = next else { return Vec::new() };
+            have.extend(q.iter().copied());
+            chosen.push(i);
+        }
+        let targets: Vec<Target> = chosen
+            .into_iter()
+            .map(|i| {
+                let mut forms = usable[i].1.clone();
+                let mut first = forms.remove(0);
+                first.alts = forms;
+                first
+            })
+            .collect();
+        vec![Obl { label: if cyclic { "inscribed" } else { "coll" }, targets, requires: vec![] }]
     }
 
     pub fn recertify_with_claims(&mut self) {
@@ -582,6 +643,18 @@ pub fn collapse_key(cx: &Ctx, a: &Atom, h: FactId) -> Option<(AtomKey, Vec<Point
         }
         _ => None,
     }
+}
+
+fn subsets3(args: &[PointId]) -> Vec<Vec<PointId>> {
+    let mut out = Vec::new();
+    for i in 0..args.len() {
+        for j in i + 1..args.len() {
+            for k in j + 1..args.len() {
+                out.push(vec![args[i], args[j], args[k]]);
+            }
+        }
+    }
+    out
 }
 
 pub fn subsets4(args: &[PointId]) -> Vec<[PointId; 4]> {

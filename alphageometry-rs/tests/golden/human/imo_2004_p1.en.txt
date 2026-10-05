@@ -1,0 +1,12 @@
+∡ denotes directed angles modulo 180°.
+Let F be the foot of the perpendicular from B to AR.
+
+Claim 1. F, N, B, A are concyclic.
+Proof. ∡BFA = 90° = ∡BNA (FB ⟂ AR; BC is a diameter), so F, N, B, A are concyclic.
+Claim 2. FB = NF.
+Proof. ∡FAB = ∡NAF (AR bisects ∠BAC). By equal arcs and chords (Claim 1), FB = NF.
+Claim 3. R, N, F, O are concyclic.
+Proof. ∡RFN = ∡BFN + 90° = 2∡FBN + 90° = 2∡RAN + 90° = ∡BAC + 90° = ∡MCN (FB ⟂ AR; FB = FN (Claim 2); ABNF cyclic (Claim 1); AR bisects ∠BAC; BC is a diameter). As drawn, ∠MCN = ½·∠MON = ∠RON (central angle ∠MON = 2∠MCN; OR bisects ∠MON), so R, N, F, O are concyclic.
+Claim 4. R, A, F, P are collinear.
+Proof. AB·AM = AC·AN (power of A with respect to circle (BMCN)). By the radical axis theorem (P, R, M, B are concyclic; P, R, N, C are concyclic; B, A, M are collinear; C, A, N are collinear), R, A, F, P are collinear.
+Angle chasing with BCMN cyclic, CNRP cyclic, BC is a diameter, OR bisects ∠MON, Claim 1, Claim 4, OF is the perpendicular bisector of BN (Claim 2), Claim 3, OB = OM, OB = ON, O₂C = O₂N, central angle ∠CO₂N = 2∠CPN, O₂C = O₂R and central angle ∠CO₂R = 2∠CPR gives P, B, C are collinear. ∎
