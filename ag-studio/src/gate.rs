@@ -17,6 +17,11 @@ use crate::security::{self, Shared};
 
 pub const GATE_HTML: &str = include_str!("../assets/gate.html");
 
+fn gate_html() -> &'static str {
+    static P: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    P.get_or_init(|| crate::web::versioned(GATE_HTML))
+}
+
 /// A valid cookie older than this is re-issued on the next page load.
 pub const RENEW_AFTER_SECS: u64 = 7 * 24 * 60 * 60;
 /// How far in the future an `iat` may lie (clock skew between restarts).
@@ -181,6 +186,31 @@ pub fn redirect_to_gate(target: &str) -> Response {
     see_other(HeaderValue::from_str(&loc).unwrap_or(HeaderValue::from_static("/gate")))
 }
 
+pub fn redirect_to_gate_cookie_lost(target: &str) -> Response {
+    let loc = format!("/gate?cookies=0&next={}", percent_encode(target));
+    see_other(HeaderValue::from_str(&loc).unwrap_or(HeaderValue::from_static("/gate")))
+}
+
+pub fn came_from_gate(headers: &HeaderMap) -> bool {
+    let Some(referer) = headers.get(header::REFERER).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    let Some((_, rest)) = referer.split_once("://") else {
+        return false;
+    };
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let path = path.split(['?', '#']).next().unwrap_or("");
+    let same_site = headers
+        .get("sec-fetch-site")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == "same-origin")
+        || headers
+            .get(header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|h| h.eq_ignore_ascii_case(host));
+    same_site && path == "gate"
+}
+
 pub fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -202,6 +232,7 @@ enum Problem {
     Wrong,
     Empty,
     Rate,
+    Cookies,
 }
 
 impl Problem {
@@ -210,6 +241,7 @@ impl Problem {
             Problem::Wrong => "gate.wrong",
             Problem::Empty => "gate.empty",
             Problem::Rate => "gate.rate",
+            Problem::Cookies => "gate.cookies",
         }
     }
 }
@@ -225,6 +257,10 @@ fn render(lang: Lang, next: &str, ask_user: bool, problem: Option<Problem>) -> S
         "<input class=\"sr-only\" type=\"text\" name=\"username\" value=\"GeoSolver\" autocomplete=\"username\" readonly tabindex=\"-1\" aria-hidden=\"true\">".to_string()
     };
     let (pw_attrs, error) = match problem {
+        Some(Problem::Cookies) => (
+            " aria-describedby=\"pw-err\"".to_string(),
+            format!("<p class=\"gate-err\" id=\"pw-err\" role=\"alert\">{}</p>", t(Problem::Cookies.key())),
+        ),
         Some(p) => (
             " aria-invalid=\"true\" aria-describedby=\"pw-err\" autofocus".to_string(),
             format!("<p class=\"gate-err\" id=\"pw-err\" role=\"alert\">{}</p>", t(p.key())),
@@ -243,7 +279,7 @@ fn render(lang: Lang, next: &str, ask_user: bool, problem: Option<Problem>) -> S
             )
         })
         .collect();
-    GATE_HTML
+    gate_html()
         .replace("<!--pwa-splash-->", crate::pwa::splash_links())
         .replace("{{lang}}", lang.code())
         .replace("{{doctitle}}", &t("gate.doctitle"))
@@ -278,6 +314,8 @@ struct GateQuery {
     next: Option<String>,
     #[serde(default)]
     lang: Option<String>,
+    #[serde(default)]
+    cookies: Option<String>,
 }
 
 /// `GET /gate`: the password page, or straight on to `next` when the cookie
@@ -291,7 +329,8 @@ pub async fn page(State(state): State<Shared>, uri: Uri, headers: HeaderMap) -> 
     let chosen = q.lang.as_deref().and_then(Lang::from_code);
     let lang = chosen.unwrap_or_else(|| i18n::lang_from_headers(&headers));
     let ask_user = state.config.basic_auth.as_ref().is_some_and(|b| b.has_user());
-    let mut resp = page_response(StatusCode::OK, render(lang, &next, ask_user, None));
+    let problem = (q.cookies.as_deref() == Some("0")).then_some(Problem::Cookies);
+    let mut resp = page_response(StatusCode::OK, render(lang, &next, ask_user, problem));
     if let Some(l) = chosen {
         if let Ok(v) = HeaderValue::from_str(&lang_cookie_value(l, state.config.secure_cookies)) {
             resp.headers_mut().append(header::SET_COOKIE, v);

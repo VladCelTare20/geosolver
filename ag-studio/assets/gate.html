@@ -34,8 +34,26 @@
   .gate-lang a[aria-current] { font-weight: 600; color: var(--text); text-decoration: none; }
   @media (max-width: 480px) { .gate-card { padding: var(--s4); } }
 </style>
+<style>
+  #gs-old { display: block; }
+  @supports (aspect-ratio: 1 / 1) { #gs-old { display: none; } }
+  .gs-note { display: none; box-sizing: border-box; max-width: 560px; margin: 24px auto; padding: 20px 24px; border: 1px solid #c9ced3; border-left: 4px solid #8a5a00; border-radius: 10px; background: #fff; color: #16191d; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; text-align: left; }
+  .gs-note h2 { margin: 0 0 6px; font-size: 18px; line-height: 1.3; font-weight: 600; }
+  .gs-note p { margin: 0; }
+  .gs-note a { display: inline-block; margin-top: 12px; padding: 10px 16px; border-radius: 6px; background: #1f4fa0; color: #fff; text-decoration: none; font-weight: 600; }
+  .gs-old #gs-old, .gs-fail #gs-fail, .gs-show { display: block; }
+  html[lang="ro"] .gs-note:not(.gs-both) [lang="en"], html:not([lang="ro"]) .gs-note:not(.gs-both) [lang="ro"] { display: none; }
+  .gs-both [lang="ro"] { margin-top: 12px; padding-top: 12px; border-top: 1px solid #dadcd8; }
+  @media (prefers-color-scheme: dark) {
+    .gs-note { background: #1a1d21; color: #e8eaed; border-color: #3d444b; border-left-color: #f2c063; }
+    .gs-note a { background: #8db2e8; color: #0e1218; }
+    .gs-both [lang="ro"] { border-top-color: #3d444b; }
+  }
+  @media (max-width: 600px) { .gs-note { margin: 16px; } }
+</style>
 </head>
 <body>
+<div class="gs-note" id="gs-old"><div lang="en"><h2>This browser is too old for GeoSolver</h2><p>Update it to Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 or newer, or open this page in another browser.</p></div><div lang="ro"><h2>Acest browser este prea vechi pentru GeoSolver</h2><p>Actualizează-⁠l la Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 sau mai nou, ori deschide pagina în alt browser.</p></div></div>
 <main class="gate-page">
   <section class="gate-card card" aria-labelledby="gate-h">
     <svg class="gate-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>

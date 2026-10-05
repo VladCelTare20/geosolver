@@ -132,9 +132,16 @@
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (GS.isGate(res.status, data)) return GS.toGate();
         if (res.ok) {
-          formMsg("ok", t("auth.signed_in", { name: data.username || username }));
-          setTimeout(function () { location.href = "/app"; }, 350);
-          return;
+          return fetch("/api/auth/me").then(function (me) { return me.ok; }, function () { return true; }).then(function (kept) {
+            if (!kept) {
+              busy = false; btn.disabled = false; btn.textContent = label;
+              showServerErr("cookies");
+              $("password").focus();
+              return;
+            }
+            formMsg("ok", t("auth.signed_in", { name: data.username || username }));
+            setTimeout(function () { location.href = "/app"; }, 350);
+          });
         }
         busy = false; btn.disabled = false; btn.textContent = label;
         var code = data.code && window.i18n.has("auth.err." + data.code) ? data.code : null;
@@ -161,4 +168,5 @@
   paintToggle();
   var wanted = new URLSearchParams(location.search).get("mode");
   setMode(wanted === "register" || location.hash === "#register" ? "register" : "login");
+  GS.booted = true;
 })();

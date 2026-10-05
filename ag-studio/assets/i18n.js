@@ -106,6 +106,10 @@
       "err.details": "Technical details",
       "err.title.network": "Can't reach the server",
       "err.body.network": "Check your connection, then try again.",
+      "err.title.offline": "You're offline",
+      "err.body.offline": "Reconnect to the internet. The solve starts again by itself once you're back online.",
+      "err.title.stalled": "No answer from the server",
+      "err.body.stalled": "The connection may have dropped while the server was working. Try again.",
       "err.title.timeout": "The server stopped waiting",
       "err.body.timeout": "The connection was cut off before the server answered. Very hard problems can outlast the search; simplify the problem, or try again later.",
       "err.title.busy": "The server is busy",
@@ -429,6 +433,7 @@
       "auth.net_err": "Could not reach the server. Please try again.",
       "auth.err.user_taken": "That username is already taken. Pick another one.",
       "auth.err.bad_creds": "Invalid username or password.",
+      "auth.err.cookies": "Your browser did not keep the sign-in cookie. Allow cookies for this site (or leave private browsing), then sign in again.",
       "auth.err.username_rule": "Enter a username of 3–32 characters: letters, digits, hyphens (-) or underscores\u00a0(_).",
       "auth.err.pw_len": "The password needs 8–128 characters.",
       "auth.err.pass_long": "The password can be at most 128 characters.",
@@ -573,6 +578,10 @@
       "err.details": "Detalii tehnice",
       "err.title.network": "Serverul nu poate fi contactat",
       "err.body.network": "Verifică conexiunea, apoi încearcă din nou.",
+      "err.title.offline": "Nu ești conectat la internet",
+      "err.body.offline": "Reconectează-⁠te la internet. Rezolvarea pornește din nou singură când revine conexiunea.",
+      "err.title.stalled": "Serverul nu a răspuns",
+      "err.body.stalled": "Conexiunea s-⁠a putut întrerupe cât timp serverul lucra. Încearcă din nou.",
       "err.title.timeout": "Serverul a încetat să aștepte",
       "err.body.timeout": "Conexiunea a fost întreruptă înainte ca serverul să răspundă. Problemele foarte grele pot depăși căutarea; simplifică problema sau încearcă din nou mai târziu.",
       "err.title.busy": "Serverul este ocupat",
@@ -906,6 +915,7 @@
       "auth.net_err": "Serverul nu poate fi contactat. Încearcă din nou.",
       "auth.err.user_taken": "Acest nume de utilizator este deja folosit. Alege altul.",
       "auth.err.bad_creds": "Nume de utilizator sau parolă incorecte.",
+      "auth.err.cookies": "Browserul nu a păstrat cookie-⁠ul de autentificare. Permite cookie-⁠urile pentru acest site (sau ieși din navigarea privată), apoi autentifică-⁠te din nou.",
       "auth.err.username_rule": "Introdu un nume de 3–32 de caractere: litere, cifre, cratime (-) sau caractere de subliniere\u00a0(_).",
       "auth.err.pw_len": "Parola trebuie să aibă între 8 și 128 de caractere.",
       "auth.err.pass_long": "Parola poate avea cel mult 128 de caractere.",
@@ -971,8 +981,9 @@
     }
     return null;
   }
+  var chosen = null;
   function current() {
-    return stored() || fromCookie() || fromBrowser() || "en";
+    return chosen || (chosen = stored() || fromCookie() || fromBrowser() || "en");
   }
   function locale() { return current() === "ro" ? "ro-RO" : "en-GB"; }
   function setCookie(l) {
@@ -1004,9 +1015,17 @@
     if (v.n == null) v.n = fmtNum(n);
     return fill(s, v);
   }
+  var formats = {};
   function fmtNum(x, digits) {
-    var o = digits == null ? { maximumFractionDigits: 20 } : { minimumFractionDigits: digits, maximumFractionDigits: digits };
-    try { return new Intl.NumberFormat(locale(), o).format(x); } catch (e) { return String(x); }
+    var key = locale() + "|" + (digits == null ? "" : digits);
+    try {
+      var f = formats[key];
+      if (!f) {
+        var o = digits == null ? { maximumFractionDigits: 20 } : { minimumFractionDigits: digits, maximumFractionDigits: digits };
+        f = formats[key] = new Intl.NumberFormat(locale(), o);
+      }
+      return f.format(x);
+    } catch (e) { return String(x); }
   }
 
   function apply() {
@@ -1039,6 +1058,7 @@
 
   function set(l) {
     if (l !== "en" && l !== "ro") l = "en";
+    chosen = l;
     try { localStorage.setItem("lang", l); } catch (e) {}
     setCookie(l);
     apply();

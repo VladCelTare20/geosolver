@@ -112,6 +112,7 @@ fn en(key: &str) -> &'static str {
         "gate.wrong" => "That password is not correct. Check it and try again.",
         "gate.empty" => "Enter the password.",
         "gate.rate" => "Too many attempts. Wait a minute, then try again.",
+        "gate.cookies" => "The password was right, but your browser did not keep the sign-in cookie. Allow cookies for this site (or leave private browsing), then enter the password again.",
         "gate.required" => "Enter the site password first.",
         "gate.forget" => "Forget this device",
         "gate.lang" => "Language",
@@ -338,6 +339,7 @@ fn ro(key: &str) -> &'static str {
         "gate.wrong" => "Parola nu este corectă. Verific-⁠o și încearcă din nou.",
         "gate.empty" => "Introdu parola.",
         "gate.rate" => "Prea multe încercări. Așteaptă un minut, apoi încearcă din nou.",
+        "gate.cookies" => "Parola era corectă, dar browserul nu a păstrat cookie-⁠ul de autentificare. Permite cookie-⁠urile pentru acest site (sau ieși din navigarea privată), apoi introdu din nou parola.",
         "gate.required" => "Introdu mai întâi parola site-⁠ului.",
         "gate.forget" => "Uită acest dispozitiv",
         "gate.lang" => "Limba",
@@ -840,7 +842,7 @@ mod tests {
     fn gate_strings_exist_in_both_languages() {
         for k in [
             "gate.doctitle", "gate.title", "gate.sub", "gate.label", "gate.username", "gate.submit",
-            "gate.remember", "gate.wrong", "gate.empty", "gate.rate", "gate.required", "gate.forget",
+            "gate.remember", "gate.wrong", "gate.empty", "gate.rate", "gate.cookies", "gate.required", "gate.forget",
             "gate.lang", "translate.daily", "auth.sign_in_ai", "auth.sign_in_required",
         ] {
             for l in [Lang::En, Lang::Ro] {

@@ -57,8 +57,9 @@
     busy: false, abort: null, timer: null, started: 0, deadline: 60,
     sol: null, geo: "", title: null, steps: null,
     aiCache: {}, aiSeq: 0, history: [], filter: "all", query: "", pendingDeletes: new Map(),
-    refining: null, activeHistory: null, stage: null, lastError: null,
+    refining: null, activeHistory: null, stage: null, lastError: null, skew: 0, stalled: false,
   };
+  var STALL_GRACE = 35;
 
   function paintIcons(root) {
     (root || document).querySelectorAll("[data-icon]").forEach(function (el) {
@@ -87,6 +88,8 @@
     var init = { method: opts.method || "GET", headers: {}, signal: opts.signal, keepalive: !!opts.keepalive };
     if (opts.body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(opts.body); }
     return fetch(url, init).then(function (res) {
+      var served = Date.parse(res.headers.get("date") || "");
+      if (served) S.skew = served - Date.now();
       var ct = res.headers.get("content-type") || "";
       if (opts.raw && res.ok) return { ok: true, status: res.status, res: res };
       var sig = res.headers.get("x-solution-sig");
@@ -154,9 +157,14 @@
         if (pending && pending === editor.get().trim() && !S.busy && !S.sol) { setMode("geo"); solve(); }
       }
     }).catch(function () {
-      if (attempt < 3) setTimeout(function () { loadStatus(attempt + 1); }, 2000);
+      if (attempt < 6) setTimeout(function () { loadStatus(attempt + 1); }, Math.min(30000, 2000 * Math.pow(2, attempt)));
     });
   }
+  window.addEventListener("online", function () {
+    if (!S.status) loadStatus(1);
+    var e = S.lastError;
+    if (e && e.offline && !S.busy && !$("state-error").hidden) { S.autoRetrying = true; solve(); }
+  });
 
   function paintAccount() {
     var st = S.status || {};
@@ -599,6 +607,8 @@
   function wirePhoto() {
     var dz = $("dropzone");
     $("photo-input").addEventListener("change", function (e) { if (e.target.files[0]) setPhoto(e.target.files[0]); });
+    $("photo-input").addEventListener("focus", function () { $("dropzone").classList.add("is-focused"); });
+    $("photo-input").addEventListener("blur", function () { $("dropzone").classList.remove("is-focused"); });
     dz.addEventListener("dragover", function (e) { e.preventDefault(); dz.classList.add("is-over"); });
     dz.addEventListener("dragleave", function () { dz.classList.remove("is-over"); });
     dz.addEventListener("drop", function (e) { e.preventDefault(); dz.classList.remove("is-over"); if (e.dataTransfer.files[0]) setPhoto(e.dataTransfer.files[0]); });
@@ -747,10 +757,17 @@
     show("state-solving");
     if (moveFocus) $("cancel-2").focus({ preventScroll: true });
     var shortestFirst = S.effort === "shortest";
+    var stall = null;
+    function watch(secs) {
+      clearTimeout(stall);
+      stall = setTimeout(function () { if (S.abort === ctl) { S.stalled = true; ctl.abort(); } }, (secs + STALL_GRACE) * 1000);
+    }
     function stage(i) {
       S.stage = { stages: stages, i: i };
       paintStage();
-      startTimer(stages[i] === "translate" ? translateLimit() : S.deadline);
+      var limit = stages[i] === "translate" ? translateLimit() : S.deadline;
+      startTimer(limit);
+      watch(limit);
     }
     stage(0);
     announce(t(mode === "geo" ? "solving.solving" : "solving.translating"));
@@ -775,7 +792,8 @@
       S.geo = g;
       return api("/api/status", { signal: ctl.signal }).then(function (r) {
         if (!r.ok || r.data.solver_free !== false || ctl.signal.aborted) return g;
-        startQueued(r.data.queue_wait_secs || 5, function () { startTimer(S.deadline); });
+        clearTimeout(stall);
+        startQueued(r.data.queue_wait_secs || 5, function () { startTimer(S.deadline); watch(S.deadline); });
         return g;
       }, function (e) {
         if (e && e.name === "AbortError") throw e;
@@ -800,6 +818,7 @@
         return r.data;
       });
     }).then(function (sol) {
+      clearTimeout(stall);
       stopTimer();
       setBusy(false);
       S.abort = null;
@@ -808,6 +827,7 @@
       else if (S.status && S.status.guest) store.set("gs.guest.resolve", sol.input);
       if (shortestFirst && sol.status === "proved" && sol.method !== "euclidean" && stepCount(sol) > 1) refineShorter(sol);
     }).catch(function (e) {
+      clearTimeout(stall);
       stopTimer();
       S.queued = false;
       var ae = document.activeElement;
@@ -816,6 +836,11 @@
       S.quietCancel = false;
       setBusy(false);
       S.abort = null;
+      if (S.stalled) {
+        S.stalled = false;
+        showError(navigator.onLine === false ? networkError(e) : { titleKey: "err.title.stalled", bodyKey: "err.body.stalled", retry: true }, lost);
+        return;
+      }
       if (e && e.name === "AbortError") {
         if (quiet) return;
         show("state-empty");
@@ -898,6 +923,7 @@
     return e.n != null ? tp(key, e.n, e.vars) : t(key, e.vars);
   }
   function networkError(e) {
+    if (navigator.onLine === false) return { titleKey: "err.title.offline", bodyKey: "err.body.offline", retry: true, offline: true };
     return { titleKey: "err.title.network", bodyKey: "err.body.network", retry: true, detail: e && e.message };
   }
 
@@ -1076,7 +1102,13 @@
       if (b.getAttribute("aria-disabled") === "true") { GS.toast(t("export.busy", { fmt: String(S.exporting).toUpperCase() }), { ms: 5000 }); return; }
       exportAs(b.getAttribute("data-export"));
     });
-    document.addEventListener("click", function (e) { if (!menu.hidden && !e.target.closest(".verdict .menu-wrap")) close(); });
+    if (!wireVerdictActions.outside) {
+      wireVerdictActions.outside = true;
+      document.addEventListener("click", function (e) {
+        var m = $("export-menu");
+        if (m && !m.hidden && !e.target.closest(".verdict .menu-wrap")) { m.hidden = true; $("export-btn").setAttribute("aria-expanded", "false"); }
+      });
+    }
   }
 
   // -------------------------------------------------------------- solution --
@@ -1604,7 +1636,7 @@
   var ICON = { proved: "check", "proved-drawn": "check", refuted: "cross", "holds-numerically": "approx", "not-proved": "minus", "time-limit": "clock", legacy: "minus" };
   var FILTER_OF = { "time-limit": "not-proved", "proved-drawn": "proved" };
   function relTime(sec) {
-    var diff = sec - Date.now() / 1000;
+    var diff = sec - (Date.now() + (S.skew || 0)) / 1000;
     var rtf = new Intl.RelativeTimeFormat(window.i18n.locale(), { numeric: "auto", style: "short" });
     var a = Math.abs(diff);
     if (a < 45) return rtf.format(0, "second");
@@ -1701,6 +1733,9 @@
       if (o) openHistory(+o.getAttribute("data-open"));
     });
     window.addEventListener("pagehide", flushDeletes);
+    if (!(typeof Request !== "undefined" && "keepalive" in Request.prototype)) {
+      document.addEventListener("visibilitychange", function () { if (document.hidden) flushDeletes(); });
+    }
     $("rail-toggle").innerHTML = icons.history;
     $("rail-close").innerHTML = icons.close;
     $("rail-toggle").addEventListener("click", function () { setDrawer(!document.body.classList.contains("drawer-open")); });
@@ -1734,6 +1769,7 @@
     renderHistory();
     var tst = null;
     var undo = function () {
+      if (!S.pendingDeletes.has(id)) return;
       var ae = document.activeElement;
       var refocus = !ae || ae === document.body || $("rail").contains(ae) || !!(tst && tst.el.contains(ae));
       clearTimeout(S.pendingDeletes.get(id)); S.pendingDeletes.delete(id); renderHistory();
@@ -2043,4 +2079,5 @@
   window.i18n.apply();
   wire();
   loadStatus(0);
+  GS.booted = true;
 })();

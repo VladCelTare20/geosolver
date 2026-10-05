@@ -717,12 +717,33 @@
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
+  var nativeInert = typeof HTMLElement !== "undefined" && "inert" in HTMLElement.prototype;
+  var openModals = [];
+  function keepFocusIn(e) {
+    var top = openModals[openModals.length - 1];
+    if (!top || !e.target.closest || !e.target.closest("[data-gs-inert]")) return;
+    var t0 = top.querySelector("button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])") || top;
+    if (t0 === top && top.tabIndex < 0) top.setAttribute("tabindex", "-1");
+    t0.focus({ preventScroll: true });
+  }
+  function setInert(x, on) {
+    x.inert = on;
+    if (nativeInert) return;
+    if (on) {
+      x.setAttribute("data-gs-inert", x.getAttribute("aria-hidden") || "");
+      x.setAttribute("aria-hidden", "true");
+    } else if (x.hasAttribute("data-gs-inert")) {
+      var prev = x.getAttribute("data-gs-inert");
+      x.removeAttribute("data-gs-inert");
+      if (prev) x.setAttribute("aria-hidden", prev); else x.removeAttribute("aria-hidden");
+    }
+  }
   function modal(el, on, label) {
     if (on) {
       var list = [];
       for (var n = el; n && n.parentElement && n !== document.body; n = n.parentElement) {
         Array.prototype.forEach.call(n.parentElement.children, function (sib) {
-          if (sib !== n && !sib.inert && sib.tagName !== "SCRIPT" && sib.id !== "toasts" && sib.id !== "announce" && sib.id !== "announce-status") { sib.inert = true; list.push(sib); }
+          if (sib !== n && !sib.inert && sib.tagName !== "SCRIPT" && sib.id !== "toasts" && sib.id !== "announce" && sib.id !== "announce-status") { setInert(sib, true); list.push(sib); }
         });
       }
       inerted.set(el, list);
@@ -730,9 +751,18 @@
       el.setAttribute("role", "dialog");
       el.setAttribute("aria-modal", "true");
       if (label) el.setAttribute("aria-label", label);
+      if (!nativeInert) {
+        openModals.push(el);
+        if (openModals.length === 1) document.addEventListener("focusin", keepFocusIn);
+      }
     } else {
-      (inerted.get(el) || []).forEach(function (x) { x.inert = false; });
+      (inerted.get(el) || []).forEach(function (x) { setInert(x, false); });
       inerted.delete(el);
+      if (!nativeInert) {
+        var at = openModals.indexOf(el);
+        if (at >= 0) openModals.splice(at, 1);
+        if (!openModals.length) document.removeEventListener("focusin", keepFocusIn);
+      }
       el.removeEventListener("keydown", trapTab);
       el.removeAttribute("aria-modal");
       el.removeAttribute("role");
