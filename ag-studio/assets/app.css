@@ -851,7 +851,7 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
 }
 
 /* Touch targets: after every component rule so these win at equal specificity. */
-@media (pointer: coarse) {
+@media screen and (pointer: coarse) {
   :root { --target: 48px; --hdr-ctl: 48px; --pan: 44px; }
   .filter { min-height: 48px; padding: 0 14px; }
   .cite { position: relative; min-width: 36px; height: 36px; }
@@ -879,7 +879,7 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .guest-note a, .err-where .link-btn, .refine .link-btn { display: inline-block; padding-block: 14px; margin-block: -14px; }
   .guest-note, .refine { margin-bottom: var(--s1); }
 }
-@media (pointer: coarse) and (max-width: 359px) {
+@media screen and (pointer: coarse) and (max-width: 359px) {
   :root { --hdr-ctl: 44px; }
   .lang-seg > button { min-width: 44px; }
 }

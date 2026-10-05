@@ -236,6 +236,25 @@ cargo run -p alphageometry-rs --bin ddar -- --bench   # engine speed on the IMO 
 The release build targets the host CPU (`.cargo/config.toml`), appropriate for a
 locally-run prover; delete that file for a portable binary.
 
+### Device coverage
+
+Three source-level suites run with `cargo test`; the browser suites run with
+Playwright against live servers (setup in
+[`ag-studio/tests/CODEMAP.md`](ag-studio/tests/CODEMAP.md)).
+
+| Suite | Covers |
+| --- | --- |
+| `tests/compat.rs` | Browser baseline (Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17): late CSS only with a fallback, `:has()` never in a selector list, a media-query copy of every container query, no too-new JS, the old-browser and no-JS notes on every page |
+| `tests/mobile_css.rs` | Phone invariants: hover rules, 16 px fields, safe-area gutters, 48 px touch targets, narrow-screen wrapping, Back-button layers |
+| `tests/desktop_css.rs` | Tablet/desktop invariants: print stylesheet, figure wheel never trapping scroll, paste/drop, wide and 1024–1199 px columns, contrast and forced colours |
+| `tests/compat-inventory.mjs` | Every CSS/HTML/JS feature in `assets/` against MDN compat data for the baseline |
+| `tests/webkit/compat-robustness.mjs` | Chromium, Firefox, WebKit: old-browser guard, failed script, JavaScript off, refused storage and cookies, offline and silent connections, slow network, no `inert`, clock skew, memory over 40 solves, server restart |
+| `tests/webkit/iphone-layout.mjs` | WebKit, iPhone SE / 15 / 15 Pro Max, portrait and landscape: no sideways scroll, notch gutters, 16 px editor, figure peek, double tap |
+| `tests/webkit/iphone-e2e.mjs` | The whole flow on those iPhones, light and dark: password, solve, steps, pinch, PDF/PNG share, AI, Describe, Photo, Romanian, accounts and history |
+| `tests/webkit/android-layout.mjs` | Chromium and Firefox at Android sizes from 180 px (page zoom) and the Galaxy Fold cover screen to unfolded, portrait and landscape, light/EN and dark/RO, also at 125/150/200 % text: no overflow, clipping or crowded 48 px targets |
+| `tests/webkit/android-e2e.mjs` | The flow on Android: installability, gate, real two-finger pinch, Back closing full screen and the drawer, downloads then Share, clipboard, AI, Photo, Romanian |
+| `tests/webkit/desktop-e2e.mjs` | Chromium, Firefox, WebKit on laptops, 1080p and iPads: keyboard-only flow, wheel/Ctrl-wheel/gesture pinch, pen, downloads, clipboard, print media, paste and drop, errors, accounts rail and drawer |
+
 ## Deploying on a Linux server
 
 A single binary (UI, fonts, and grammar are baked in) plus one SQLite file for
