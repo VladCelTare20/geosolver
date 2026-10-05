@@ -164,6 +164,7 @@ impl<'a> Ctx<'a> {
         match &fact.reason {
             Reason::Assumption(_) | Reason::Construction(_) => return FactClass::Hyp,
             Reason::EqualRadius(..) | Reason::TransferAddMul(..) => return FactClass::Silent,
+            Reason::Formula(..) if t.rows_of(Table::Ratio, f).all(|r| t.canon_ratio(r).is_zero()) => return FactClass::SilentHyp,
             Reason::Concyclic(p) if {
                 let mut q = p.clone();
                 q.sort_unstable();
@@ -443,6 +444,26 @@ impl<'a> Ctx<'a> {
 
     pub fn line_through(&self, pts: &[PointId], h: FactId) -> Option<&LineObj> {
         self.lines.iter().filter(|l| l.fact < h && pts.iter().all(|p| l.pts.contains(p))).min_by_key(|l| (l.src.len(), l.fact))
+    }
+
+    pub fn main_triangle(&self) -> Option<[PointId; 3]> {
+        let t = self.t;
+        if t.n < 3 || t.orient(0, 1, 2) == 0 || (0..3).any(|p| t.name(p).starts_with('_')) {
+            return None;
+        }
+        Some([0, 1, 2])
+    }
+
+    pub fn circumcentre(&self) -> Option<(PointId, [PointId; 3])> {
+        let tri = self.main_triangle()?;
+        let t = self.t;
+        (3..t.n as PointId).find(|&o| {
+            !t.name(o).starts_with('_') && {
+                let d: Vec<f64> = tri.iter().map(|&v| t.dist(o, v)).collect();
+                d[0] > 1e-9 && d.iter().all(|x| (x - d[0]).abs() < 1e-9 * d[0].max(1.0)) && tri.iter().all(|&v| t.dm(o, v).is_some())
+            }
+        })
+        .map(|o| (o, tri))
     }
 
     pub fn collinear_hyp(&self, pts: &[PointId]) -> bool {

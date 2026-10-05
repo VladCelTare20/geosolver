@@ -151,6 +151,11 @@ pub fn sentence(nm: &Namer, s: &Sentence) -> Value {
 pub fn setup(nm: &Namer, s: &SetupLine) -> Value {
     match s {
         SetupLine::DirectedAngles => json!({"kind": "directed_angles"}),
+        SetupLine::Notation { triangle, circumcentre } => json!({
+            "kind": "notation",
+            "triangle": names_of(nm, &[triangle.0, triangle.1, triangle.2]),
+            "circumcentre": circumcentre.map(|c| (nm.name)(c)),
+        }),
         SetupLine::Circle { name, through, centre, diameter } => json!({
             "kind": "circle",
             "name": name,
@@ -196,6 +201,10 @@ pub fn block(nm: &Namer, b: &Block) -> Value {
 }
 
 pub fn to_json(hp: &HumanProof, nm: &Namer) -> Value {
+    super::text::with_notation(&hp.setup, || to_json_inner(hp, nm))
+}
+
+fn to_json_inner(hp: &HumanProof, nm: &Namer) -> Value {
     if !hp.available {
         return Value::Null;
     }

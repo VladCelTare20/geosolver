@@ -155,6 +155,13 @@ fn setup_lines(cx: &Ctx, blocks: &[Block]) -> Vec<SetupLine> {
     if directed {
         out.push(SetupLine::DirectedAngles);
     }
+    let trig = blocks.iter().any(|b| b.body.iter().any(|s| matches!(s, Sentence::Computation { comp: CompKind::Trig, .. })));
+    if trig {
+        if let Some(tri) = cx.main_triangle() {
+            let centre = cx.circumcentre().map(|x| x.0);
+            out.push(SetupLine::Notation { triangle: (tri[0], tri[1], tri[2]), circumcentre: centre });
+        }
+    }
     let mut used: Vec<PointId> = Vec::new();
     for b in blocks {
         used.extend(b.points.iter().copied());

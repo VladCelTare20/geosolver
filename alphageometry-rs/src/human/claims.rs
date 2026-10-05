@@ -921,6 +921,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
 
     fn chain_sentences(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> (Vec<Sentence>, usize, bool) {
         let cx = self.w.cx;
+        if target.table == Table::Ratio && support.iter().any(|(i, _)| self.is_trig(*i)) {
+            if let Some((s, n)) = self.trig_lemmas(target, h, then.clone(), focus) {
+                return (s, n, false);
+            }
+        }
         let eligible = self.eligible(h);
         let splits: Vec<(LinComb, LinComb)> = target
             .splits
@@ -1083,6 +1088,90 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         (vec![Sentence::Pooled { stmt, reasons, combination }], n, true)
     }
 
+    fn trig_lemmas(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<(Vec<Sentence>, usize)> {
+        let cx = self.w.cx;
+        let t = cx.t;
+        let (s1, s2, k) = match &target.stmt {
+            Stmt::RatioConst { s1, s2, value } => (*s1, *s2, value.clone()),
+            Stmt::Cong { s1, s2 } => (*s1, *s2, Rat::one()),
+            _ => return None,
+        };
+        let (o, tri) = cx.circumcentre()?;
+        let rv = t.dm(o, tri[0])?;
+        let rlen = t.dist(o, tri[0]);
+        let mut vars: Vec<VarId> = t.sines.iter().map(|s| t.sine_canon(s.var)).collect();
+        vars.sort_unstable();
+        vars.dedup();
+        let main = |v: VarId| t.sines.iter().find(|s| s.var == v).is_some_and(|s| [s.v, s.p, s.q].iter().all(|p| tri.contains(p)));
+        vars.sort_by_key(|&v| (!main(v), v));
+        for &v in &vars {
+            let sval = t.values[Table::Ratio.idx()].get(v as usize).copied().unwrap_or(0.0);
+            if sval <= 1e-9 {
+                continue;
+            }
+            let mut lem: Vec<((PointId, PointId), Rat, LinComb)> = Vec::new();
+            for s in [s1, s2] {
+                let Some(q) = super::classify::small_rational(t.dist(s.0, s.1) / (rlen * sval)) else { break };
+                if q.denom_i64().is_none_or(|d| d > 2) || q.numer_i64().is_none_or(|n| n > 4) {
+                    break;
+                }
+                let (Some(ds), Some(c)) = (t.dm(s.0, s.1), t.prime_const(&q)) else { break };
+                let row = &(&(&ds - &rv) - &LinComb::singleton(v, Rat::one())) - &c;
+                if !t.holds(Table::Ratio, &row) || !self.w.in_admissible_span(Table::Ratio, &row, h, None) {
+                    break;
+                }
+                lem.push((s, q, row));
+            }
+            if lem.len() != 2 || &lem[0].1 / &lem[1].1 != k {
+                continue;
+            }
+            let trig = match ratio_expr(cx, &LinComb::singleton(v, Rat::one())) {
+                Expr::Prod { factors } if factors.len() == 1 => factors[0].0.clone(),
+                _ => continue,
+            };
+            let mut out: Vec<Sentence> = Vec::new();
+            let mut stmts: Vec<Stmt> = Vec::new();
+            let mut ok = true;
+            for (s, q, row) in &lem {
+                let Some((support, _)) = self.w.certify(Table::Ratio, row, h, focus, None) else {
+                    ok = false;
+                    break;
+                };
+                let mut f: Vec<(Expr, i32)> = Vec::new();
+                if !q.is_one() {
+                    f.push((Expr::Num { value: q.clone() }, 1));
+                }
+                f.push((Expr::Seg { a: o, b: tri[0] }, 1));
+                f.push((trig.clone(), 1));
+                let l = Expr::Seg { a: s.0, b: s.1 };
+                let r = Expr::Prod { factors: f };
+                let (Some((_, lraw)), Some((_, rraw))) = (super::expr::eval(t, &l), super::expr::eval(t, &r)) else {
+                    ok = false;
+                    break;
+                };
+                let stmt = Stmt::Eq { lhs: l.clone(), rhs: r.clone() };
+                let fake = Target { table: Table::Ratio, row: row.clone(), splits: vec![super::classify::Split { l, r, lraw, rraw }], stmt: stmt.clone(), alts: Vec::new() };
+                match self.computation(&fake, &support, h) {
+                    Some(c) => out.push(c),
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+                stmts.push(stmt);
+            }
+            if !ok {
+                continue;
+            }
+            let reasons: Vec<Reason> = stmts.iter().enumerate().map(|(i, s)| Reason::Lemma { stmt: s.clone(), block: PENDING_BLOCK, sentence: i as u16 }).collect();
+            let combination = vec![Term { reason: 0, row: 0, coef: Rat::one() }, Term { reason: 1, row: 0, coef: Rat::from_int(-1) }];
+            out.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons, combination });
+            let n = out.iter().map(|s| if let Sentence::Computation { links, .. } = s { links.len() } else { 1 }).sum();
+            return Some((out, n));
+        }
+        None
+    }
+
     fn is_trig(&self, i: usize) -> bool {
         let a = &self.w.atoms[i];
         match a.src {
@@ -1094,8 +1183,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     fn computation(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId) -> Option<Sentence> {
         let cx = self.w.cx;
         let split = target.splits.first()?;
-        let mut items: Vec<(usize, Rat)> = support.iter().filter(|(i, _)| self.w.atoms[*i].cost > 0).cloned().collect();
-        let mut cur = split.lraw.clone();
+        let canon = |c: &LinComb| cx.t.canon_ratio(c);
+        let mut items: Vec<(usize, Rat)> = support.iter().filter(|(i, _)| self.w.atoms[*i].cost > 0 && !canon(&self.w.atoms[*i].row).is_zero()).cloned().collect();
+        let mut cur = canon(&split.lraw);
         let lhs = |c: &LinComb| c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).count();
         let mut seq: Vec<(usize, Rat, LinComb)> = Vec::new();
         while !items.is_empty() {
@@ -1103,15 +1193,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 .iter()
                 .enumerate()
                 .map(|(k, (i, l))| {
-                    let nx = LinComb::combine(&cur, &self.w.atoms[*i].row, &-l);
+                    let nx = LinComb::combine(&cur, &canon(&self.w.atoms[*i].row), &-l);
                     (k, (lhs(&nx), *i))
                 })
                 .min_by_key(|x| x.1)?;
             let (i, l) = items.remove(k);
-            cur = LinComb::combine(&cur, &self.w.atoms[i].row, &-&l);
+            cur = LinComb::combine(&cur, &canon(&self.w.atoms[i].row), &-&l);
             seq.push((i, l, cur.clone()));
         }
-        if !(&cur - &split.rraw).is_zero() {
+        if !canon(&(&cur - &split.rraw)).is_zero() {
             return None;
         }
         let mut groups: Vec<(Vec<(usize, Rat)>, LinComb)> = Vec::new();

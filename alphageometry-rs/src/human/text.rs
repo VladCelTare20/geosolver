@@ -30,16 +30,64 @@ pub fn disp(raw: &str) -> String {
         head.extend(c.to_uppercase());
     }
     let tail: String = chars.collect();
-    if lead.chars().all(|c| c.is_lowercase()) {
-        head.push_str(&tail);
-    } else {
-        head.push_str(&tail);
+    let low = |c: char| -> Option<char> {
+        Some(match c {
+            'a' => 'ₐ',
+            'e' => 'ₑ',
+            'o' => 'ₒ',
+            'x' => 'ₓ',
+            'h' => 'ₕ',
+            'k' => 'ₖ',
+            'l' => 'ₗ',
+            'm' => 'ₘ',
+            'n' => 'ₙ',
+            'p' => 'ₚ',
+            's' => 'ₛ',
+            't' => 'ₜ',
+            'i' => 'ᵢ',
+            'j' => 'ⱼ',
+            'r' => 'ᵣ',
+            'u' => 'ᵤ',
+            'v' => 'ᵥ',
+            _ => return None,
+        })
+    };
+    let sub: Option<String> = if !tail.is_empty() && tail.chars().count() <= 2 && tail.chars().all(|c| c.is_lowercase()) { tail.chars().map(low).collect() } else { None };
+    match sub {
+        Some(s) => head.push_str(&s),
+        None => head.push_str(&tail),
     }
     if rest.chars().all(|c| c.is_ascii_digit()) {
         format!("{head}{}", subscript(rest))
     } else {
         format!("{head}{rest}")
     }
+}
+
+thread_local! {
+    static NOTATION: std::cell::Cell<Option<(Tri, Option<PointId>)>> = const { std::cell::Cell::new(None) };
+}
+
+pub fn with_notation<R>(setup: &[SetupLine], f: impl FnOnce() -> R) -> R {
+    let n = setup.iter().find_map(|s| if let SetupLine::Notation { triangle, circumcentre } = s { Some((*triangle, *circumcentre)) } else { None });
+    let old = NOTATION.with(|c| c.replace(n));
+    let r = f();
+    NOTATION.with(|c| c.set(old));
+    r
+}
+
+fn vertex_angle(n: &dyn PointNames, e: &Expr) -> Option<String> {
+    let ((a, b, c), _) = NOTATION.with(|c| c.get())?;
+    let Expr::Angle { a: x, b: v, c: z, directed: false } = e else { return None };
+    let tri = [a, b, c];
+    if !tri.contains(v) || !tri.contains(x) || !tri.contains(z) || x == z || x == v || z == v {
+        return None;
+    }
+    Some(n.get(*v))
+}
+
+fn radius(a: PointId, b: PointId) -> bool {
+    NOTATION.with(|c| c.get()).is_some_and(|((p, q, r), o)| o.is_some_and(|o| (a == o && [p, q, r].contains(&b)) || (b == o && [p, q, r].contains(&a))))
 }
 
 pub trait PointNames {
@@ -180,9 +228,31 @@ pub fn expr(n: &dyn PointNames, e: &Expr) -> String {
         Expr::Seg { a, b } => n.pts(&[*a, *b]),
         Expr::Sq { a, b } => format!("{}²", n.pts(&[*a, *b])),
         Expr::Prod { factors } => {
-            let num: Vec<String> = factors.iter().filter(|(_, k)| *k > 0).map(|(x, k)| pow(n, x, *k)).collect();
-            let den: Vec<String> = factors.iter().filter(|(_, k)| *k < 0).map(|(x, k)| pow(n, x, -*k)).collect();
-            let num_s = if num.is_empty() { "1".to_string() } else { num.join("·") };
+            let trig = factors.iter().any(|(x, _)| matches!(x, Expr::Sin { .. } | Expr::Cos { .. }));
+            let show = |x: &Expr, k: i32| -> String {
+                match x {
+                    Expr::Seg { a, b } if trig && radius(*a, *b) => pow_text("R".into(), k),
+                    _ => pow(n, x, k),
+                }
+            };
+            let join = |v: Vec<(String, bool)>| -> String {
+                let mut out = String::new();
+                for (i, (s, num)) in v.iter().enumerate() {
+                    if i > 0 && !(v[i - 1].1 && s == "R") {
+                        out.push('·');
+                    }
+                    let _ = num;
+                    out.push_str(s);
+                }
+                out
+            };
+            let mut num: Vec<(String, bool)> = factors.iter().filter(|(_, k)| *k > 0).map(|(x, k)| (show(x, *k), matches!(x, Expr::Num { .. }))).collect();
+            let mut den: Vec<String> = factors.iter().filter(|(_, k)| *k < 0).map(|(x, k)| show(x, -*k)).collect();
+            while let (Some(i), Some(j)) = (num.iter().position(|x| x.0 == "R"), den.iter().position(|x| x == "R")) {
+                num.remove(i);
+                den.remove(j);
+            }
+            let num_s = if num.is_empty() { "1".to_string() } else { join(num) };
             if den.is_empty() {
                 num_s
             } else if den.len() == 1 {
@@ -191,14 +261,23 @@ pub fn expr(n: &dyn PointNames, e: &Expr) -> String {
                 format!("{num_s} / ({})", den.join("·"))
             }
         }
-        Expr::Sin { angle } => format!("sin{}", expr(n, angle)),
-        Expr::Cos { angle } => format!("cos{}", expr(n, angle)),
+        Expr::Sin { angle } => match vertex_angle(n, angle) {
+            Some(v) => format!("sin {v}"),
+            None => format!("sin{}", expr(n, angle)),
+        },
+        Expr::Cos { angle } => match vertex_angle(n, angle) {
+            Some(v) => format!("cos {v}"),
+            None => format!("cos{}", expr(n, angle)),
+        },
         Expr::Num { value } => value.to_string(),
     }
 }
 
 fn pow(n: &dyn PointNames, x: &Expr, k: i32) -> String {
-    let base = expr(n, x);
+    pow_text(expr(n, x), k)
+}
+
+fn pow_text(base: String, k: i32) -> String {
     match k {
         1 => base,
         2 => format!("{base}²"),
@@ -448,12 +527,32 @@ pub struct Rendered {
 }
 
 pub fn render(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], raw_line: &dyn Fn(FactId) -> String) -> Rendered {
+    with_notation(&hp.setup, || render_inner(t, hp, aux_desc, raw_line))
+}
+
+fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], raw_line: &dyn Fn(FactId) -> String) -> Rendered {
     let n = Names::new(t, &hp.setup);
     let mut lines: Vec<String> = Vec::new();
     let claims: BTreeMap<u16, u16> = hp.blocks.iter().filter_map(|b| if let BlockKind::Claim(k) = b.kind { Some((b.id, k)) } else { None }).collect();
     for s in &hp.setup {
         match s {
             SetupLine::DirectedAngles => lines.push("∡ denotes directed angles modulo 180°.".into()),
+            SetupLine::Notation { triangle, circumcentre } => {
+                let tri = n.pts(&[triangle.0, triangle.1, triangle.2]);
+                let angles = format!("{}, {}, {}", n.get(triangle.0), n.get(triangle.1), n.get(triangle.2));
+                lines.push(match circumcentre {
+                    Some(o) => format!(
+                        "Write {angles} for the angles of triangle {tri} and R = {}{} = {}{} = {}{} for its circumradius.",
+                        n.get(*o),
+                        n.get(triangle.0),
+                        n.get(*o),
+                        n.get(triangle.1),
+                        n.get(*o),
+                        n.get(triangle.2)
+                    ),
+                    None => format!("Write {angles} for the angles of triangle {tri}."),
+                });
+            }
             SetupLine::Circle { name, through, centre, diameter } => {
                 let nm = if name.is_empty() { format!("({})", n.pts(through)) } else { name.clone() };
                 let mut l = match diameter {
@@ -483,11 +582,17 @@ pub fn render(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], 
     for b in &hp.blocks {
         let mut body = String::new();
         for s in &b.body {
-            if !body.is_empty() {
+            let text = sentence(&n, s, &claims, raw_line);
+            if body.is_empty() {
+                body.push_str(text.trim_start_matches('\n'));
+                continue;
+            }
+            if !body.ends_with('\n') && !text.starts_with('\n') {
                 body.push(' ');
             }
-            body.push_str(&sentence(&n, s, &claims, raw_line));
+            body.push_str(&text);
         }
+        let body = body.trim_end_matches('\n').to_string();
         match b.kind {
             BlockKind::Claim(k) => {
                 lines.push(format!("Claim {k}. {}.", cap(&stmt(&n, &b.stmt))));
@@ -571,13 +676,12 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
         }
         Sentence::Computation { terms, links, .. } => {
             let mut out = String::new();
-            for (i, t) in terms.iter().enumerate() {
-                if i == 0 {
-                    out.push_str(&format!("\n    {}", expr(n, t)));
-                } else {
-                    let rs: Vec<String> = links[i - 1].reasons.iter().map(|r| reason(n, r, claims)).collect();
-                    out.push_str(&format!("\n  = {}    [{}]", expr(n, t), rs.join("; ")));
-                }
+            let first = terms.first().map(|t| expr(n, t)).unwrap_or_default();
+            let pad: String = " ".repeat(first.chars().count());
+            for (i, t) in terms.iter().enumerate().skip(1) {
+                let rs: Vec<String> = reasons_text(n, &links[i - 1].reasons, claims);
+                let head = if i == 1 { first.clone() } else { pad.clone() };
+                out.push_str(&format!("\n    {head} = {}    [{}]", expr(n, t), rs.join("; ")));
             }
             out.push('\n');
             out

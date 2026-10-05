@@ -29,6 +29,7 @@ pub enum SetupLine {
     Circle { name: String, through: Vec<PointId>, centre: Option<PointId>, diameter: Option<Line> },
     Aux { point: PointId, aux_index: usize },
     Helper { point: PointId, meaning: HelperMeaning },
+    Notation { triangle: Tri, circumcentre: Option<PointId> },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

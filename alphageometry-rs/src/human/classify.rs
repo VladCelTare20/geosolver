@@ -201,9 +201,77 @@ pub fn fact_stmt(cx: &Ctx, f: FactId) -> Stmt {
                 }
             }
         },
-        Reason::Formula(name, text, p) => Stmt::Formula { text: format!("{name}: {text}"), pts: p.clone() },
+        Reason::Formula(name, text, p) => formula_stmt(cx, f).unwrap_or_else(|| Stmt::Formula { text: format!("{name}: {text}"), pts: p.clone() }),
         Reason::Assumption(_) | Reason::Construction(_) => cx.hyp_pred.get(&f).map(|p| pred_stmt(p)).unwrap_or(Stmt::Formula { text: String::new(), pts: vec![] }),
     }
+}
+
+fn line_angle_undirected(t: &crate::human::trace::EngineTrace, (a, b, c, d): (PointId, PointId, PointId, PointId)) -> Option<Expr> {
+    let v = [a, b].into_iter().find(|p| *p == c || *p == d)?;
+    let x = if a == v { b } else { a };
+    let z = if c == v { d } else { c };
+    if x == z || t.dir(v, x).is_none() || t.dir(v, z).is_none() {
+        return None;
+    }
+    Some(Expr::Angle { a: x, b: v, c: z, directed: false })
+}
+
+pub fn formula_stmt(cx: &Ctx, f: FactId) -> Option<Stmt> {
+    let t = cx.t;
+    let Reason::Formula(name, text, pts) = &t.facts[f as usize].reason else { return None };
+    let key = theorem_key(name);
+    let angs = parse_angles(text, pts);
+    let trig = |(s, l): &(Rat, (PointId, PointId, PointId, PointId))| -> Option<Expr> {
+        let e = line_angle_undirected(t, *l)?;
+        let s = s.mod_one();
+        if s.is_zero() {
+            Some(Expr::Sin { angle: Box::new(e) })
+        } else if s == Rat::new(1, 2) {
+            Some(Expr::Cos { angle: Box::new(e) })
+        } else {
+            None
+        }
+    };
+    let stmt = match key {
+        TheoremKey::LawOfSines => {
+            let start = text.find("△")?;
+            let tri: String = text[start..].chars().take_while(|c| *c != ',').collect();
+            return Some(Stmt::Formula { text: format!("law of sines in {tri}"), pts: pts.clone() });
+        }
+        TheoremKey::EqualSines if angs.len() >= 2 => Stmt::Eq { lhs: trig(&angs[0])?, rhs: trig(&angs[1])? },
+        TheoremKey::DoubleAngle if angs.len() >= 2 => {
+            let x = line_angle_undirected(t, angs[0].1)?;
+            let y = line_angle_undirected(t, angs[1].1)?;
+            if !angs[0].0.is_zero() {
+                return None;
+            }
+            Stmt::Eq {
+                lhs: Expr::Sin { angle: Box::new(y) },
+                rhs: Expr::Prod { factors: vec![(Expr::Num { value: Rat::from_int(2) }, 1), (Expr::Sin { angle: Box::new(x.clone()) }, 1), (Expr::Cos { angle: Box::new(x) }, 1)] },
+            }
+        }
+        TheoremKey::SineConst if !angs.is_empty() && name.trim_start_matches("sine of ").trim_end_matches('°') == "90" && angs[0].0.is_zero() => {
+            let e = line_angle_undirected(t, angs[0].1)?;
+            let st = Stmt::AngleConst { angle: e.clone(), degrees: Rat::from_int(90) };
+            let (_, raw) = super::expr::eval(t, &e)?;
+            let mut row = raw;
+            row.add_term(ANGLE_UNIT, Rat::new(-1, 2));
+            if cx.support_facts(Table::Angle, &t.exact(Table::Angle, &row), f + 1).is_some() {
+                return Some(st);
+            }
+            Stmt::Eq { lhs: Expr::Sin { angle: Box::new(e) }, rhs: Expr::Num { value: Rat::one() } }
+        }
+        _ => return None,
+    };
+    let Stmt::Eq { lhs, rhs } = &stmt else { return None };
+    let (_, l) = super::expr::eval(t, lhs)?;
+    let (_, r) = super::expr::eval(t, rhs)?;
+    let mine = t.canon_ratio(&(&l - &r));
+    let ok = t.rows_of(Table::Ratio, f).any(|row| {
+        let c = t.canon_ratio(row);
+        c == mine || c == mine.negated()
+    });
+    ok.then_some(stmt)
 }
 
 pub fn small_rational(r: f64) -> Option<Rat> {

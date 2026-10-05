@@ -223,7 +223,8 @@ impl<'c, 'a> Checker<'c, 'a> {
             for tb in Table::ALL {
                 for (i, (g, r)) in cx.t.rows[tb.idx()].iter().enumerate() {
                     if *g < h && cx.in_cl.get(*g as usize).copied().unwrap_or(false) {
-                        v[tb.idx()].insert(i as u32, r);
+                        let r2 = if tb == Table::Ratio { cx.t.canon_ratio(r) } else { r.clone() };
+                        v[tb.idx()].insert(i as u32, &r2);
                     }
                 }
             }
@@ -234,6 +235,7 @@ impl<'c, 'a> Checker<'c, 'a> {
     fn proven(&mut self, h: FactId, tb: Table, row: &LinComb) -> bool {
         let t = self.cx.t;
         let row = exact(t, tb, row.clone());
+        let row = if tb == Table::Ratio { t.canon_ratio(&row) } else { row };
         self.basis(h)[tb.idx()].contains(&row)
     }
 
@@ -324,6 +326,10 @@ impl<'c, 'a> Checker<'c, 'a> {
                 self.residual_ok(tb, &(&a - &b), &(&x - &y), directed)
             }
             Sentence::Because { stmt, .. } => stmt == st,
+            Sentence::Computation { terms, .. } => {
+                let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
+                terms.first() == Some(lhs) && terms.last() == Some(rhs)
+            }
             _ => false,
         }
     }
@@ -408,7 +414,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                 cache.insert(term.reason, rows);
             }
             let (t, row) = cache[&term.reason].get(term.row as usize)?.clone();
-            if matches!(r, Reason::Atom { .. }) && !self.basis(h)[t.idx()].contains(&row) {
+            if matches!(r, Reason::Atom { .. }) && !self.proven(h, t, &row) {
                 return None;
             }
             tb = t;
