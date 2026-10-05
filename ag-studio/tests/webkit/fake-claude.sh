@@ -12,7 +12,7 @@ PROMPT=$2
 sleep 1
 case "$PROMPT" in
   *"translate it into a .geo program"*|*"Translate this geometry problem"*)
-    printf '```geo\n# Isosceles base angles\nB C = segment\nA = point: dist(A, B) = dist(A, C)\nprove eqangle(B, C, B, A, C, A, C, B)\n```\n'
+    printf '```geo\n# Stewart: AD^2 = 14\nB = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = point: dist(A,B)=5, dist(A,C)=4\nprove dist(A,D)^2 = 14\n```\n'
     exit 0 ;;
   Problema:*)
     printf 'Deoarece AB = AC, triunghiul ABC este isoscel, deci unghiurile de la baza B si C sunt egale. Aceasta este o explicatie de proba scrisa de stub.\n'

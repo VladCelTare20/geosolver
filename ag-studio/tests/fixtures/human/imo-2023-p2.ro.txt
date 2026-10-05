@@ -1,26 +1,32 @@
-∡ notează unghiuri orientate modulo 180°. Fie Ω cercul (ABC), cu centrul O; N, S, E, P se află pe Ω. Fie ω cercul (BDL), cu centrul O₁; P se află pe ω. XP este tangentă la ω în P.
+∡ notează unghiuri orientate modulo 180°.
+
+∡CBN = ∡CAN    [unghiuri înscrise în (ABCN)]
+     = ∡NAB    [AI este bisectoarea ∠BAC]
+     = ∡NCB    [N, C, B, A conciclice]
+
+Deci NB = NC.
 
 Afirmația 1. Punctele T, E, S, O sunt conciclice.
 
 Demonstrație.
 
 ∡STO = ∡SBE + 90°    [OT ⟂ BE]
-     = ∡SNE + 90°    [unghiuri înscrise în Ω]
-     = ∡NEO + 90°    [ON = OE]
-     = ∡SEO    [NS este diametru în Ω]
+     = ∡SNE + 90°    [unghiuri înscrise în (BNSE)]
+     = ∡OSE    [NS este diametru]
+     = ∡SEO    [unghiul la centru ∠NOE = 2∠NSE]
 
 deci punctele T, E, S, O sunt conciclice.
 
 Afirmația 2. Punctele T, P, X, O sunt conciclice.
 
-Demonstrație. Un calcul de unghiuri care folosește Afirmația 1, tangența dreptei XP la ω, unghiurile înscrise în Ω și ω, DL ∥ BC, OT ⟂ BE, bisectoarea AN a ∠BAC, diametrul NS al cercului Ω și razele cercului Ω arată că ∡SXP = ∡TOP.
+Demonstrație. Un calcul de unghiuri care folosește OT ⟂ BE, unghiurile înscrise în (ABCNSEP) și (BDLP), tangența dreptei PX la (BDLP), DL ∥ BC, mediatoarea ON a segmentului BC și ON = OP arată că punctele T, P, X, O sunt conciclice.
 
 Afirmația 3. Punctele T, P, E, D sunt conciclice.
 
-Demonstrație. Un calcul de unghiuri care folosește Afirmația 1, unghiurile înscrise în Ω și ω, DL ∥ BC, OT ⟂ BE, bisectoarea AN a ∠BAC și diametrul NS al cercului Ω arată că ∡ETD = ∡EPD.
+Demonstrație. Un calcul de unghiuri care folosește Afirmația 1, unghiurile înscrise în (ABCNSEP) și (BDLP), DL ∥ BC, mediatoarea ON a segmentului BC, OA = OE și unghiul la centru ∠AOE = 2∠APE arată că punctele T, P, E, D sunt conciclice.
 
-Afirmația 4. XA = XP.
+Afirmația 4. △OAX ≅ △OPX.
 
-Demonstrație. Un calcul de unghiuri care folosește Afirmațiile 2 și 3, tangența dreptei XP la ω, unghiurile înscrise în Ω și ω, bisectoarea AN a ∠BAC, OT ⟂ BE, DL ∥ BC și diametrul NS al cercului Ω arată că ∡AOX = ∡XOP. Din cazul de congruență LUL (raze în Ω), △OAX ≅ △OPX. XA = XP (△OAX ≅ △OPX).
+Demonstrație. Un calcul de unghiuri care folosește Afirmațiile 1, 2 și 3, unghiurile înscrise în (ABCNSEP), diametrul NS, tangența dreptei PX la (BDLP) și OA = OP arată că ∡AOX = ∡XOP. OA : OX = OP : OX (OA = OP). Deci △OAX ≅ △OPX.
 
-În final, un calcul de unghiuri care folosește Afirmația 4, tangența dreptei XP la ω, unghiurile înscrise în Ω și ω, DL ∥ BC, AD ⟂ BC, bisectoarea AN a ∠BAC și diametrul NS al cercului Ω arată că ∡BAX = ∡XAC. AX este bisectoarea ∠BAC. ∎
+În final, un calcul de unghiuri care folosește AD ⟂ BC, unghiurile înscrise în (ABCNSEP) și (BDLP), bisectoarea AI a ∠BAC, DL ∥ BC, diametrul NS, tangența dreptei PX la (BDLP) și XA = XP (Afirmația 4) arată că ∡BAX = ∡XAC. ∎

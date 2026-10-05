@@ -57,7 +57,7 @@
    * as names, so ordinary words keep their roman type. */
   function math(text, prose) {
     var s = String(text == null ? "" : text);
-    if (!prose) return esc(s).replace(NAME_RE, nameHtml);
+    if (!prose) return esc(s).replace(NAME_RE, nameHtml).replace(/((?:sin|cos)?[∠∡△])((?:<i>.*?<\/i>)+)/g, '<span class="m-nb">$1$2</span>');
     return s.split(/(\s+|[(),.;:!?—–])/).map(function (tok) {
       if (isNameTok(tok)) return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
       if (/[A-Z]/.test(tok) && /[·/]/.test(tok)) return tok.split(/([·/])/).map(mathPart).join("");
@@ -278,10 +278,23 @@
     };
   }
 
-  var HP_KINDS = ["coll", "cyclic", "lies_on", "bisects", "tangent", "radical_axis"];
-  var HP_QUALIFY = { parallel: 1, orthocentre: 1 };
-  var HP_ARITY1 = { inscribed: 1, radii: 1, central_angle: 1, equal_arcs: 1, law_of_sines: 1 };
+  var HP_KINDS = { coll: 1, cyclic: 1, bisects: 1, tangent: 1, oncircle: 1, radical_axis: 1, coincide: 1 };
   var HP_KEEP = /^[a-zăâîșțşţ]/;
+  var HP_ANGULAR = { coll: 1, cyclic: 1, perp: 1, para: 1, eqangle: 1, aconst: 1, bisects: 1, tangent: 1 };
+  var HP_UNORDERED = { cong: 1, perp: 1, para: 1, coll: 1, cyclic: 1 };
+
+  function hpSame(a, b) {
+    if (!a || !b || a.kind !== b.kind) return false;
+    var ps = function (s) { return (s.points || []).slice().sort().filter(function (x, i, v) { return i === 0 || v[i - 1] !== x; }).join("|"); };
+    if (ps(a) !== ps(b)) return false;
+    var un = !!HP_UNORDERED[a.kind];
+    var norm = function (s) {
+      var v = (s.args || []).map(function (x) { return un ? Array.from(String(x)).sort().join("") : String(x); });
+      if (un || s.kind === "eqangle") v.sort();
+      return v.join("|");
+    };
+    return norm(a) === norm(b);
+  }
 
   function hpDoc(h, view, opts) {
     opts = opts || {};
@@ -291,10 +304,11 @@
     var HAS = function (k) { return window.i18n && window.i18n.hasIn ? window.i18n.hasIn(L, k) : !!(window.i18n && window.i18n.has(k)); };
     var SP = plain ? function (x) { return x; } : spoken;
     var links = [];
-    var claims = {};
+    var claims = {}, claimOfBlock = {};
     var steps = (view && view.proof && view.proof.steps) || [];
     var names = ((view && view.points) || []).map(function (p) { return p.name; });
-    (h.blocks || []).forEach(function (b) { if (b.kind === "claim" && b.n != null) claims[b.n] = b; });
+    var setupCircles = (h.setup || []).filter(function (s) { return s.kind === "circle"; });
+    (h.blocks || []).forEach(function (b) { if (b.kind === "claim" && b.n != null) { claims[b.n] = b; claimOfBlock[b.id] = b.n; } });
 
     function fillKey(key, vars) {
       var s = esc(T(key));
@@ -314,84 +328,192 @@
       if (items.length < 2) return items.join("");
       return items.slice(0, -1).join(", ") + esc(T("hp.and")) + items[items.length - 1];
     }
+    function allIn(pts, c) { return pts.every(function (p) { return c.indexOf(p) >= 0; }); }
+    function circleShown(c) { return c.name ? c.name : "(" + (c.through || []).slice(0, 3).join("") + ")"; }
+    function namedCircle(pts, centre) {
+      for (var i = 0; i < setupCircles.length; i++) {
+        var c = setupCircles[i], on = allIn(pts, c.through || []);
+        if ((centre && c.centre === centre && on) || (!centre && pts.length >= 3 && on)) return circleShown(c);
+      }
+      return null;
+    }
+    function seenCircle(pts) {
+      var found = null;
+      function consider(c) { if (c.length >= 4 && allIn(pts, c) && (!found || c.length < found.length)) found = c; }
+      (h.blocks || []).forEach(function (b) {
+        (b.objects || []).forEach(function (o) { if (o.circle) consider(o.circle); });
+        (b.body || []).forEach(function (s) {
+          var rs = s.kind === "chain" || s.kind === "computation" ? [].concat.apply([], (s.links || []).map(function (l) { return l.reasons || []; })) : (s.reasons || []);
+          rs.forEach(function (r) { if (r.kind === "atom" && r.key === "inscribed") consider(r.args || []); });
+        });
+      });
+      return found ? "(" + found.join("") + ")" : null;
+    }
+    function circleRef(pts, centre) {
+      var n = namedCircle(pts, centre);
+      if (n) return n;
+      if (pts.length === 3) { n = seenCircle(pts); if (n) return n; }
+      if (centre && pts.length < 3) return T("hp.circle.centred", { c: centre });
+      return "(" + pts.join("") + ")";
+    }
+    function formulaText(text) {
+      text = String(text || "");
+      var i = text.indexOf(": "), rule = null, body = text;
+      if (i > 0 && text.slice(0, i).indexOf("=") < 0) { rule = text.slice(0, i); body = text.slice(i + 2); }
+      if (L === "ro") {
+        body = body.replace("in △", "în △");
+        if (rule) rule = (window.i18n && window.i18n.theoremRo && window.i18n.theoremRo(rule)) || rule;
+      }
+      return rule ? rule + ": " + body : body;
+    }
     function stmtHtml(s, ctx) {
-      if (HP_KINDS.indexOf(s.kind) >= 0) {
-        var base = "hp.fact." + s.kind;
-        if (s.kind === "lies_on" && ctx === "s") base += /,/.test((s.args || [])[0] || "") ? ".other" : ".one";
-        var key = firstKey(ctxKeys(base, ctx));
+      var a = (s.args || []).map(function (x) { return math(x); });
+      var g = function (i) { return a[i] || ""; };
+      if (HP_KINDS[s.kind]) {
+        var key = firstKey(ctxKeys("hp.fact." + s.kind, ctx));
         if (key) {
-          var a = (s.args || []).map(function (x) { return math(x); });
-          var g = function (i) { return a[i] || ""; };
+          var raw = s.args || [];
           var vars = s.kind === "coll" || s.kind === "cyclic" ? { pts: a.join(", ") }
-            : s.kind === "lies_on" ? { p: g(0), obj: g(1) }
             : s.kind === "bisects" ? { line: g(0), angle: g(1) }
-            : s.kind === "tangent" ? { line: g(0), circle: g(1), p: g(2) }
-            : { line: g(0), c1: g(1), c2: g(2) };
+            : s.kind === "tangent" ? { line: g(0), p: g(1), circle: math(circleRef([], raw[2])) }
+            : s.kind === "oncircle" ? { p: g(0), circle: math(circleRef((s.points || []).filter(function (p) { return p !== raw[0]; }), null)) }
+            : s.kind === "radical_axis" ? { p: g(0), line: math((raw[1] || "") + (raw[2] || "")) }
+            : { a: g(0), b: g(1) };
           return SP(fillKey(key, vars));
         }
       }
+      if (s.kind === "formula") return SP(math(formulaText((s.args || [])[0])));
+      if (s.kind === "eq") return SP(g(0) + " = " + g(1));
       var out = SP(factHtml(s, T));
-      var short = ["perp", "para", "cong", "eqangle", "aconst", "simtri", "contri", "formula"].indexOf(s.kind) >= 0 && (s.args || []).join(" ").length <= 20;
+      var short = ["perp", "para", "cong", "eqangle", "aconst", "simtri", "contri", "rconst"].indexOf(s.kind) >= 0 && (s.args || []).join(" ").length <= 20;
       return short && !plain ? '<span class="hp-nb">' + out + "</span>" : out;
     }
-    function atomHtml(key, args, ctx) {
-      var k = firstKey(ctxKeys("hp.atom." + key, ctx));
-      if (!k) return esc(key);
+    function atomShown(r) {
+      var a = r.args || [], g = function (i) { return a[i] || ""; };
+      switch (r.key) {
+        case "inscribed": { var c = circleRef(a, null); return { base: "inscribed", args: [c], merge: c }; }
+        case "thales": { var n = namedCircle([g(0), g(1), g(2)], g(3)); return n ? { base: "thales", args: [g(0), g(1), n] } : { base: "thales.bare", args: [g(0), g(1)] }; }
+        case "tangent_chord": return { base: "tangent_chord", args: [g(0), g(1), circleRef([g(0), g(2), g(3)], g(4))] };
+        case "perp_bisector": return { base: "perp_bisector", args: a.slice(0, 4) };
+        case "parallel": return { base: "parallel", args: [g(4), g(5)] };
+        case "radii": { var rc = namedCircle([g(1), g(2)], g(0)); return rc ? { base: "radii", args: [rc], merge: rc } : { stmt: true }; }
+        case "isosceles": return { base: "isosceles", args: a.slice(0, 3) };
+        case "central_angle": { var cc = namedCircle([g(1), g(2), g(3)], g(0)); return cc ? { base: "central_angle", args: [cc], merge: cc } : { base: "central_angle.bare", args: a.slice(0, 4) }; }
+        case "power_of_point": return { base: "power_of_point", args: [g(0), circleRef(a.slice(1, 5), null)] };
+        case "midline": return { base: "midline", args: [g(0), g(1), [g(4), g(2), g(3)].sort().join("")] };
+        case "orthocentre": return { base: "orthocentre", args: [] };
+      }
+      return { base: r.key, args: a };
+    }
+    function atomTemplate(base, args, ctx) {
+      var k = firstKey(ctxKeys("hp.atom." + base, ctx));
+      if (!k) return esc(base);
       var s = esc(T(k));
-      (args || []).forEach(function (a, i) { s = s.split("{" + i + "}").join(math(a)); });
-      return key === "congruent" || key === "similar" || key === "isosceles" ? '<span class="hp-nb">' + SP(s) + "</span>" : SP(s);
+      args.forEach(function (x, i) { s = s.split("{" + i + "}").join(math(x)); });
+      return s;
+    }
+    function atomHtml(r, ctx) {
+      var sh = atomShown(r);
+      if (sh.stmt) return stmtHtml(r.stmt, "s");
+      var s = SP(atomTemplate(sh.base, sh.args, ctx));
+      return r.key === "isosceles" && !plain ? '<span class="hp-nb">' + s + "</span>" : s;
     }
     function claimLink(n, text) {
       if (plain) return text;
       return '<a class="hp-ref" href="#hp-claim-' + n + '" data-claim="' + n + '" tabindex="-1" aria-label="' + esc(T("hp.claim_go", { n: n })) + '">' + text + "</a>";
     }
+    function claimsLabel(ns) {
+      if (ns.length === 1) return claimLink(ns[0], esc(T("hp.claim_ref", { n: ns[0] })));
+      return fillKey("hp.claims_ref", { list: joinList(ns.map(function (n) { return claimLink(n, String(n)); })) });
+    }
+    function fromClaims(from) {
+      var ns = [];
+      (from || []).forEach(function (b) { var n = claimOfBlock[b]; if (n != null && ns.indexOf(n) < 0) ns.push(n); });
+      return ns.sort(function (x, y) { return x - y; });
+    }
     function stepLink(n, text) {
-      text = text == null ? esc(T("hp.step_ref", { n: n })) : text;
-      if (plain) return text;
+      text = text == null ? esc(T("hp.step_ref", { n: n == null ? "" : n })) : text;
+      if (plain || n == null) return text;
       return '<a class="hp-step" href="#step-' + n + '" data-step="' + n + '" tabindex="-1" aria-label="' + esc(T("hp.chip", { n: n })) + '">' + text + "</a>";
     }
+    function isFact(r) { return r && ["hyp", "claim", "atom", "engine"].indexOf(r.kind) < 0; }
     function factFor(s) {
       if (!s) return null;
-      if (s.kind === "lies_on" || s.kind === "coll") return { kind: "coll", args: s.points || [], points: s.points || [] };
-      if (s.kind === "cyclic") return { kind: "cyclic", args: s.points || [], points: s.points || [] };
+      if (s.kind === "coll" || s.kind === "cyclic") return { kind: s.kind, args: s.points || [], points: s.points || [] };
+      if (s.kind === "bisects" || s.kind === "oncircle" || s.kind === "tangent" || s.kind === "radical_axis" || s.kind === "coincide" || s.kind === "formula" || s.kind === "eq") return null;
       return s;
     }
     function lightOf(rs) {
       var pts = [], facts = [];
       function add(p) { if (names.indexOf(p) >= 0 && pts.indexOf(p) < 0) pts.push(p); }
-      (rs || []).forEach(function (r) {
+      function visit(r) {
         var s = null;
-        if (r.kind === "hyp" || r.kind === "fact") s = r.stmt;
-        else if (r.kind === "atom") s = r.stmt || null;
+        if (r.kind === "hyp" || r.kind === "atom") s = r.stmt;
+        else if (isFact(r)) s = r;
         else if (r.kind === "claim" && claims[r.n]) s = claims[r.n].stmt;
         else if (r.kind === "engine") steps.forEach(function (st) { if (st.n === r.step) s = st.fact; });
         if (s) {
           (s.points || []).forEach(add);
           var f = factFor(s);
           if (f && figShape([f])) facts.push(f);
-        } else if (r.kind === "atom") (r.args || []).forEach(function (a) { String(a).replace(/[A-Z][a-z]?[₀-₉]*[′″]*/g, function (m) { add(m); return m; }); });
-      });
+        }
+        if (r.kind === "atom") (r.args || []).forEach(add);
+      }
+      (rs || []).forEach(visit);
       return { points: pts, facts: facts };
     }
+    function becauseTexts(own, because) {
+      var out = [];
+      (because || []).forEach(function (b) {
+        var t;
+        if (b.kind === "atom" && hpSame(b.stmt, own)) {
+          var ns = fromClaims(b.from);
+          if (!ns.length) return;
+          t = claimsLabel(ns);
+        } else if (isFact(b) && hpSame(b, own) && !(b.because || []).length) return;
+        else if (b.kind === "hyp" && hpSame(b.stmt, own)) return;
+        else t = reasonHtml(b, "n");
+        if (out.indexOf(t) < 0) out.push(t);
+      });
+      return out;
+    }
     function reasonHtml(r, ctx) {
-      if (r.kind === "hyp" || r.kind === "fact") return stmtHtml(r.stmt, ctx);
-      if (r.kind === "claim") return claimLink(r.n, esc(T("hp.claim_ref", { n: r.n })));
+      if (r.kind === "hyp") return stmtHtml(r.stmt, ctx);
+      if (r.kind === "claim") return claimsLabel([r.n]);
       if (r.kind === "engine") return stepLink(r.step);
       if (r.kind === "atom") {
-        if (r.stmt && HP_QUALIFY[r.key] && ctx === "n") return stmtHtml(r.stmt, ctx) + ", " + atomHtml(r.key, r.args, ctx);
-        return atomHtml(r.key, r.args, ctx);
+        var text = atomHtml(r, ctx);
+        if ((r.key === "parallel" || r.key === "orthocentre") && ctx === "n") text = stmtHtml(r.stmt, ctx) + ", " + text;
+        var ns = fromClaims(r.from);
+        if (ns.length) text += " (" + claimsLabel(ns) + ")";
+        return text;
       }
-      return "";
+      var base = stmtHtml(r, ctx);
+      var inner = becauseTexts(r, r.because);
+      return inner.length ? base + " (" + inner.join("; ") + ")" : base;
     }
-    function merged(rs, ctx) {
+    function texts(rs, ctx, skipClaims) {
       var out = [], groups = {};
+      var facts = (rs || []).filter(isFact);
       (rs || []).forEach(function (r) {
-        if (r.kind === "atom" && !r.stmt && HP_ARITY1[r.key] && (r.args || []).length === 1) {
-          var g = groups[r.key];
-          if (g) { g.args.push(r.args[0]); out[g.at] = atomHtml(r.key, [joinList(g.args.map(function (x) { return x; }))], ctx); return; }
-          groups[r.key] = { at: out.length, args: [r.args[0]] };
+        if (skipClaims && r.kind === "claim") return;
+        if (r.kind === "atom") {
+          if (facts.some(function (f) { return hpSame(f, r.stmt); })) return;
+          var sh = atomShown(r);
+          if (sh.merge && !(r.from || []).length) {
+            var g = groups[r.key];
+            if (g) {
+              if (g.circles.indexOf(sh.merge) < 0) g.circles.push(sh.merge);
+              out[g.at] = SP(atomTemplate(r.key, [joinList(g.circles)], ctx));
+              return;
+            }
+            groups[r.key] = { at: out.length, circles: [sh.merge] };
+            out.push(reasonHtml(r, ctx));
+            return;
+          }
         }
-        out.push(reasonHtml(r, ctx));
+        var t = reasonHtml(r, ctx);
+        if (out.indexOf(t) < 0) out.push(t);
       });
       return out;
     }
@@ -399,12 +521,11 @@
       var ns = [];
       (rs || []).forEach(function (r) { if (r.kind === "claim" && ns.indexOf(r.n) < 0) ns.push(r.n); });
       ns.sort(function (a, b) { return a - b; });
-      var out = merged((rs || []).filter(function (r) { return r.kind !== "claim"; }), "l");
-      if (ns.length === 1) out.unshift(claimLink(ns[0], esc(T("hp.claim_ref", { n: ns[0] }))));
-      else if (ns.length > 1) out.unshift(fillKey("hp.claims_ref", { list: joinList(ns.map(function (n) { return claimLink(n, String(n)); })) }));
+      var out = texts(rs, "l", true);
+      if (ns.length) out.unshift(claimsLabel(ns));
       return joinList(out);
     }
-    function linkNote(l) { return merged(l.reasons, "n").join(", "); }
+    function linkNote(l) { return texts(l.reasons, "n", false).join(", "); }
     function register(rs) {
       links.push(lightOf(rs));
       return links.length - 1;
@@ -412,7 +533,7 @@
     function inline(terms, ls) {
       if (ls.length > 2) return false;
       var n = 0;
-      terms.forEach(function (x) { n += String(x).length + 3; });
+      terms.forEach(function (x) { n += Array.from(String(x)).length + 3; });
       return n <= 44;
     }
     function rows(terms, ls) {
@@ -420,11 +541,42 @@
         return { lhs: k === 0 ? SP(math(terms[0])) : "", lhsLen: k === 0 ? String(terms[0] || "").length : 0, rhs: SP(math(terms[k + 1])), why: linkNote(l), id: register(l.reasons) };
       });
     }
-    function part(s, lead) {
+    function computeRows(s) {
+      var rs = s.reasons || [];
+      var rowsOf = {};
+      (s.combination || []).forEach(function (c) { (rowsOf[c.reason] = rowsOf[c.reason] || []).push(c.row); });
+      return (s.combination || []).map(function (c) {
+        var r = rs[c.reason];
+        var many = (rowsOf[c.reason] || []).length > 1;
+        return { coef: esc(String(c.coef).replace(/^-/, "−")), eq: r ? reasonHtml(r, "s") + (many ? " [" + (c.row + 1) + "]" : "") : "", why: "", id: register(r ? [r] : []) };
+      });
+    }
+    function because(own, s) {
+      var st = stmtHtml(s.stmt, "s");
+      var rs = s.reasons || [];
+      if (!rs.length) return fillKey("hp.hence", { stmt: st });
+      var inner = rs.length === 1 && isFact(rs[0]) && hpSame(rs[0], s.stmt) && (rs[0].because || []).length ? rs[0].because : rs;
+      var restating = inner.every(function (r) {
+        if (isFact(r)) return hpSame(r, s.stmt);
+        if (r.kind === "hyp") return hpSame(r.stmt, s.stmt);
+        if (r.kind === "atom" && r.key === "radii") return hpSame(r.stmt, s.stmt) && !fromClaims(r.from).length;
+        return false;
+      });
+      if (restating) return hpSame(own, s.stmt) ? null : cap(st) + ".";
+      var notes = texts(inner, "n", false);
+      return notes.length ? cap(fillKey("hp.because", { stmt: st, reasons: notes.join("; ") })) : cap(st) + ".";
+    }
+    function pooledKey(st) {
+      if (HP_ANGULAR[st.kind]) return "hp.pooled.angle";
+      if (st.kind === "eq" && (st.args || []).some(function (x) { return /²/.test(x); })) return "hp.pooled.length";
+      return "hp.pooled.ratio";
+    }
+    function part(own, s, lead) {
       var withLead = function (html) { return lead ? esc(lead) + lowerFirst(html) : html; };
       var parts = [];
       if (s.kind === "chain") {
         var so = s.then ? stmtHtml(s.then, "s") : null;
+        var drawn = s.directed === false;
         if (inline(s.terms || [], s.links || [])) {
           var ids = (s.links || []).map(function (l) { return register(l.reasons); });
           var html = SP(math(s.terms[0]));
@@ -432,7 +584,7 @@
             var seg = " = " + SP(math(s.terms[k + 1]));
             html += plain ? seg : '<span class="hp-link" data-l="' + ids[k] + '" tabindex="-1">' + seg + "</span>";
           });
-          if (s.as_drawn) html = esc(T("hp.as_drawn_lead")) + html;
+          if (drawn) html = esc(T("hp.as_drawn_lead")) + html;
           var notes = [];
           (s.links || []).forEach(function (l, k) {
             var note = linkNote(l);
@@ -442,35 +594,39 @@
           html += so ? fillKey("hp.so_inline", { stmt: so }) : ".";
           parts.push({ text: withLead(html) });
         } else {
-          parts.push({ rows: rows(s.terms || [], s.links || []), drawn: !!s.as_drawn });
+          parts.push({ rows: rows(s.terms || [], s.links || []), drawn: drawn });
           if (so) parts.push({ text: fillKey("hp.so", { stmt: so }) });
         }
       } else if (s.kind === "because") {
-        var st = stmtHtml(s.stmt, "s");
-        var rs = merged(s.reasons, "n");
-        parts.push({ text: withLead(cap(rs.length ? fillKey("hp.because", { stmt: st, reasons: rs.join("; ") }) : st + ".")), light: register(s.reasons) });
+        var b = because(own, s);
+        if (b != null) parts.push({ text: withLead(b), light: register(s.reasons) });
       } else if (s.kind === "pooled") {
-        var key = s.table === "ratio" ? "hp.pooled.ratio" : s.table === "length" ? "hp.pooled.length" : "hp.pooled.angle";
-        var p = { text: withLead(cap(fillKey(key, { reasons: reasonsList(s.reasons), stmt: stmtHtml(s.stmt, "s") }))), light: register(s.reasons) };
+        var p = { text: withLead(cap(fillKey(pooledKey(s.stmt), { reasons: reasonsList(s.reasons), stmt: stmtHtml(s.stmt, "s") }))), light: register(s.reasons) };
         if ((s.combination || []).length) {
-          p.compute = s.combination.map(function (c) {
-            return { coef: esc(c.coef), eq: SP(math(c.eq)), why: c.reason ? reasonHtml(c.reason, "n") : "", id: register(c.reason ? [c.reason] : []) };
-          });
+          p.compute = computeRows(s);
           p.sum = fillKey("hp.compute.sum", { stmt: stmtHtml(s.stmt, "s") });
         }
         parts.push(p);
       } else if (s.kind === "theorem") {
         var thm = esc(T("hp.thm." + s.key));
-        var st2 = stmtHtml(s.stmt, "s");
-        var notes2 = merged(s.reasons, "n");
-        parts.push({ text: withLead(cap(notes2.length ? fillKey("hp.theorem_with", { thm: thm, reasons: notes2.join("; "), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 }))), light: register(s.reasons) });
+        var notes2 = texts(s.reasons, "n", false);
+        var text;
+        if (s.stmt.kind === "formula") {
+          var f = formulaText((s.stmt.args || [])[0]);
+          var rest = SP(math(f.indexOf(": ") > 0 ? f.slice(f.indexOf(": ") + 2) : f));
+          text = notes2.length ? fillKey("hp.apply_with", { thm: thm, reasons: notes2.join("; "), stmt: rest }) : fillKey("hp.apply", { thm: thm, stmt: rest });
+        } else {
+          var st2 = stmtHtml(s.stmt, "s");
+          text = notes2.length ? fillKey("hp.theorem_with", { thm: thm, reasons: notes2.join("; "), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
+        }
+        parts.push({ text: withLead(cap(text)), light: register(s.reasons) });
       } else if (s.kind === "computation") {
         parts.push({ rows: rows(s.terms || [], s.links || []) });
       } else if (s.kind === "raw") {
         var step = null;
         steps.forEach(function (x) { if (x.n === s.step) step = x; });
-        var text = step ? fillKey("hp.raw", { fact: SP(factHtml(step.fact, T)), rule: esc(ruleLabel(step)), n: stepLink(s.step, String(s.step)) }) : stepLink(s.step);
-        parts.push({ text: withLead(cap(text)), light: register([{ kind: "engine", step: s.step }]) });
+        var rt = step ? fillKey("hp.raw", { fact: SP(factHtml(step.fact, T)), rule: esc(ruleLabel(step)), n: stepLink(s.step, String(s.step)) }) : stepLink(s.step);
+        parts.push({ text: withLead(cap(rt)), light: register([{ kind: "engine", step: s.step }]) });
       }
       return parts;
     }
@@ -481,37 +637,61 @@
     function letLine(point, def) {
       return fillKey("hp.setup.let", { p: math(point), def: SP(math(article(def), true)) });
     }
-    function circleLine(c) {
-      var name = c.name || "", through = c.through || [];
-      var inName = name.replace(/[()]/g, "").split("");
-      var byPoints = name.charAt(0) === "(";
-      var used = [], s;
-      if (c.diameter) {
-        used = c.diameter.slice();
-        s = fillKey("hp.setup.circle_d", { name: math(name), d: math(c.diameter.join("")) });
-      } else if (byPoints && c.centre) {
-        used = inName.slice();
-        s = fillKey("hp.setup.centre_of", { name: math(name), c: math(c.centre) });
-      } else {
-        used = through.slice(0, 3);
-        s = fillKey("hp.setup.circle", { name: math(name), pts: math(used.join("")) });
+    function onClause(pts, name) {
+      return fillKey(pts.length === 1 ? "hp.setup.on.one" : "hp.setup.on.other", { pts: pts.map(function (p) { return math(p); }).join(", "), name: math(name) });
+    }
+    function circlesSentence() {
+      var clauses = [], byPoints = [];
+      setupCircles.forEach(function (c) {
+        var shown = circleShown(c), through = c.through || [];
+        if (c.diameter) {
+          var s = fillKey("hp.setup.circle_d", { name: math(shown), d: math(c.diameter.join("")) });
+          if (c.centre) s += fillKey("hp.setup.centre", { c: math(c.centre) });
+          var others = through.filter(function (p) { return c.diameter.indexOf(p) < 0; });
+          if (others.length) s += onClause(others, shown);
+          clauses.push(s + ".");
+        } else if (shown.charAt(0) === "(") {
+          var inName = shown.replace(/[()]/g, "");
+          byPoints.push({ name: shown, extra: through.filter(function (p) { return inName.indexOf(p) < 0; }), centre: c.centre });
+        } else {
+          var s2 = fillKey("hp.setup.circle", { name: math(shown), pts: math(through.slice(0, 3).join("")) });
+          if (c.centre) s2 += fillKey("hp.setup.centre", { c: math(c.centre) });
+          if (through.length > 3) s2 += onClause(through.slice(3), shown);
+          clauses.push(s2 + ".");
+        }
+      });
+      if (byPoints.length) {
+        var ns = byPoints.map(function (p) { return math(p.name); });
+        var cs = byPoints.filter(function (p) { return p.centre; }).map(function (p) { return math(p.centre); });
+        var key0 = byPoints[0].extra.join("|");
+        var shared = byPoints[0].extra.length > 0 && byPoints.every(function (p) { return p.extra.join("|") === key0; });
+        var s3 = shared
+          ? fillKey(byPoints[0].extra.length === 1 ? "hp.setup.lie.one" : "hp.setup.lie.other", { pts: joinList(byPoints[0].extra.map(function (p) { return math(p); })), circles: joinList(ns) })
+          : fillKey("hp.setup.circles", { circles: joinList(ns) });
+        if (cs.length === byPoints.length) s3 += fillKey(cs.length === 1 ? "hp.setup.centres.one" : "hp.setup.centres.other", { c: joinList(cs) });
+        if (!shared) byPoints.forEach(function (p) { if (p.extra.length) s3 += onClause(p.extra, p.name); });
+        clauses.push(cap(s3) + ".");
       }
-      if (c.centre && !(byPoints && !c.diameter)) s += fillKey("hp.setup.centre", { c: math(c.centre) });
-      var others = through.filter(function (p) { return used.indexOf(p) < 0 && inName.indexOf(p) < 0; });
-      if (others.length) s += fillKey(others.length === 1 ? "hp.setup.on.one" : "hp.setup.on.other", { pts: others.map(function (p) { return math(p); }).join(", "), name: math(name) });
-      return s + ".";
+      return clauses.join(" ");
     }
     var setup = [];
+    var circlesDone = false;
     (h.setup || []).forEach(function (line) {
       var text = null, cls = "";
       if (line.kind === "directed_angles") { text = SP(esc(T("hp.setup.directed"))); cls = "hp-conv"; }
-      else if (line.kind === "positive_sines") { text = esc(T("hp.setup.sines")); cls = "hp-conv"; }
-      else if (line.kind === "circle") text = circleLine(line);
-      else if (line.kind === "aux" || line.kind === "helper") {
-        var list = line.kind === "aux" ? (view && view.aux) || [] : (view && view.helpers) || [];
-        var a = line.kind === "aux" ? list[line.aux_index] : list.filter(function (x) { return x.name === line.point; })[0];
+      else if (line.kind === "circle") { if (!circlesDone) { circlesDone = true; text = circlesSentence() || null; } }
+      else if (line.kind === "aux") {
+        var a = ((view && view.aux) || [])[line.aux_index];
         if (a && opts.auxText) text = letLine(line.point, opts.auxText(a, T));
-      } else if (line.kind === "fact") text = cap(stmtHtml(line.stmt, "s")) + ".";
+      } else if (line.kind === "helper") {
+        var m = line.meaning || { kind: "point" };
+        if (m.kind === "midpoint") text = letLine(line.point, T("hp.helper.midpoint", { seg: (m.of || []).join("") }));
+        else if (m.kind === "reflection") text = letLine(line.point, T("hp.helper.reflection", { p: m.of, line: (m.line || []).join("") }));
+        else {
+          var hp = ((view && view.helpers) || []).filter(function (x) { return x.name === line.point; })[0];
+          if (hp && opts.auxText) text = letLine(line.point, opts.auxText(hp, T));
+        }
+      }
       if (text) setup.push({ html: text, cls: cls });
     });
     if (h.as_drawn) setup.push({ html: esc(T("hp.as_drawn")), cls: "hp-conv" });
@@ -520,7 +700,7 @@
       var parts = [];
       (b.body || []).forEach(function (s, i) {
         var lead = i === 0 && b.kind === "conclusion" && nClaims > 0 && s.kind === "pooled" ? T("hp.finally") : null;
-        part(s, lead).forEach(function (p) {
+        part(b.stmt, s, lead).forEach(function (p) {
           var last = parts[parts.length - 1];
           if (p.text != null && !p.compute && last && last.text != null && !last.compute) {
             last.text += " " + p.text;

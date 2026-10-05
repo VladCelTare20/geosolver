@@ -1,13 +1,17 @@
 ∡ notează unghiuri orientate modulo 180°. Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
 
-OM ⟂ BC (OM este mediatoarea segmentului BC). ON ⟂ AC (ON este mediatoarea segmentului AC). MN ∥ AB (MN este linie mijlocie în △ABC).
-
 Afirmația 1. △AHB ∼ △MON.
 
-Demonstrație. △AHB ∼ △MON (AH ∥ MO, ambele ⟂ BC; HB ∥ ON, ambele ⟂ AC; AB ∥ MN).
+Demonstrație. ∡HAB = ∡(AH, MN) = ∡OMN (MN este linie mijlocie în △ABC; AH ∥ OM, ambele ⟂ BC). ∡ABH = ∡(MN, BH) = ∡MNO (MN este linie mijlocie în △ABC; BH ∥ ON, ambele ⟂ AC). Deci △AHB ∼ △MON.
 
 Afirmația 2. △ABG ∼ △MNG.
 
-Demonstrație. △ABG ∼ △MNG (AB ∥ MN; G = AM ∩ BN).
+Demonstrație. ∡BAG = ∡NMG (MN este linie mijlocie în △ABC). Deci △ABG ∼ △MNG.
 
-AH : MO = AB : MN = AG : MG (Afirmația 1; Afirmația 2). ∡HAG = ∡OMG (AH ∥ MO). Din cazul de asemănare LUL, △AHG ∼ △MOG. ∡AGH = ∡MGO (△AHG ∼ △MOG). Punctele H, G, O sunt coliniare (A, G, M coliniare). ∎
+∡HAG = ∡OMG (AH ∥ OM, ambele ⟂ BC). Combinarea rapoartelor din Afirmațiile 1 și 2 arată că AH : AG = MO : MG. Deci △AHG ∼ △MOG.
+
+∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG]
+     = ∡OMB + 90°    [AH ⟂ BC]
+     = 0°    [OM este mediatoarea segmentului BC]
+
+deci punctele O, G, H sunt coliniare. ∎

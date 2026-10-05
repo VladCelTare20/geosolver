@@ -27,7 +27,9 @@ use ddar::aux_search::{
     Construction, WarmBase,
 };
 use ddar::geo;
-use ddar::runner::{solve_problem, solve_problem_with_proof};
+use ddar::human::EngineTrace;
+use ddar::proof::FactId;
+use ddar::runner::{solve_problem, solve_problem_with_proof, solve_problem_with_trace};
 use ddar::svg::{render_with, FigureOptions, Theme};
 use ddar::Problem;
 
@@ -172,6 +174,48 @@ pub struct Solution {
     /// draws its own interactive figure. Never serialized.
     #[serde(skip)]
     pub figure: Option<FigureSource>,
+    /// The engine's human-style proof of `proof` (`ddar::human`), for the
+    /// presentation layer. Never serialized.
+    #[serde(skip)]
+    pub human: Option<HumanSource>,
+}
+
+/// The human proof writer's output with what is needed to name it: the raw
+/// point names by engine id and the goal's fact closure (raw step `k` is
+/// `closure[k - 1]`).
+#[derive(Clone)]
+pub struct HumanSource {
+    pub proof: ddar::human::HumanProof,
+    pub names: Vec<String>,
+    pub closure: Vec<FactId>,
+}
+
+pub const HUMAN_ENV: &str = "AGSTUDIO_HUMAN_PROOFS";
+const HUMAN_MAX: Duration = Duration::from_secs(2);
+const HUMAN_MIN: Duration = Duration::from_millis(300);
+
+pub fn human_enabled() -> bool {
+    std::env::var_os(HUMAN_ENV).is_none_or(|v| v != "0")
+}
+
+type Traced = (String, EngineTrace, Vec<FactId>);
+
+fn traced_proof(problem: &Problem) -> Option<Traced> {
+    catch_unwind(AssertUnwindSafe(|| solve_problem_with_trace(problem))).ok()?.ok()?
+}
+
+fn write_human(problem: &Problem, first_aux: usize, aux: &[String], traced: &Traced, deadline: Option<Instant>) -> Option<HumanSource> {
+    if !human_enabled() {
+        return None;
+    }
+    let (_, trace, deps) = traced;
+    let goal = problem.goal.as_ref()?;
+    let now = Instant::now();
+    let left = deadline.map_or(HUMAN_MAX, |d| d.saturating_duration_since(now)).clamp(HUMAN_MIN, HUMAN_MAX);
+    let opts = ddar::human::Opts { deadline: Some(now + left), strict: false };
+    let infos = ddar::human::aux_infos(problem, first_aux, aux);
+    let hp = catch_unwind(AssertUnwindSafe(|| ddar::quiet_panic::quiet(|| ddar::human::write(trace, goal, deps, &infos, &opts)))).ok()?;
+    hp.available.then(|| HumanSource { proof: hp, names: trace.names.clone(), closure: trace.closure(deps) })
 }
 
 /// What a figure is drawn from: the (possibly augmented) problem, and the index
@@ -319,6 +363,9 @@ fn reconcile(sol: &mut Solution, want_proof: bool) {
         sol.proof = None;
         sol.proof_steps = None;
     }
+    if sol.proof.is_none() {
+        sol.human = None;
+    }
     sol.status = if sol.proved {
         Status::Proved
     } else if sol.goal_holds_numerically == Some(false) {
@@ -441,6 +488,7 @@ fn best_deductive(
             proof_steps,
             examined: Some(examined),
             figure: Some(FigureSource { problem: problem.clone(), aux_from: None }),
+            human: None,
         }
     };
 
@@ -534,8 +582,17 @@ fn best_deductive(
     let shortest_steps = best.first().map(|c| c.2);
     let pick = most_readable(&problem, &best, budget);
     if !best.is_empty() {
+        let (pick, human) = match pick {
+            Some((i, h)) => (Some(i), Some(h)),
+            None => (None, None),
+        };
         let (aux, proof, steps, _) = best.swap_remove(pick.unwrap_or(0));
         let readable = pick.is_some();
+        let descs: Vec<String> = aux.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+        let human = human.or_else(|| {
+            let aug = safe_apply(&problem, &aux)?;
+            write_human(&aug, problem.points.len(), &descs, &traced_proof(&aug)?, None)
+        });
         let method = if aux.is_empty() {
             Method::Ddar
         } else {
@@ -567,6 +624,7 @@ fn best_deductive(
                 )
             },
         );
+        sol.human = human;
         // Redraw from the augmented problem so the winning proof's auxiliary
         // constructions appear on the drawing (dashed, in the aux color).
         if !aux.is_empty() {
@@ -630,16 +688,16 @@ fn best_deductive(
                         .to_string(),
                 ));
             };
-            let proof = catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&aug)))
-                .ok()
-                .and_then(|r| r.ok().flatten());
+            let traced = traced_proof(&aug);
             let n = auxproof.constructions.len();
-            let steps = proof.as_deref().map(proof_size).map(|(s, _)| s).unwrap_or(0);
-            let aux = auxproof
+            let aux: Vec<String> = auxproof
                 .constructions
                 .iter()
                 .map(|c| format!("{} = {}", c.name, c.desc))
                 .collect();
+            let human = traced.as_ref().and_then(|t| write_human(&aug, problem.points.len(), &aux, t, None));
+            let proof = traced.map(|t| t.0);
+            let steps = proof.as_deref().map(proof_size).map(|(s, _)| s).unwrap_or(0);
             let mut sol = build(
                 true,
                 Method::AuxSearch,
@@ -651,6 +709,7 @@ fn best_deductive(
                     stats.runs
                 ),
             );
+            sol.human = human;
             // Same redraw: put the auxiliary constructions on the figure.
             if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                 sol.svg = aux_svg;
@@ -686,13 +745,13 @@ fn consider(best: &mut Vec<Candidate>, examined: &mut usize, aux: Vec<Constructi
     }
 }
 
-fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Option<usize> {
+fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Option<(usize, HumanSource)> {
     if cands.len() < 2 {
         return None;
     }
     let slice = (budget / 4).min(Duration::from_secs(5));
     let stop = Instant::now() + slice;
-    let mut best: Option<(usize, usize, usize)> = None;
+    let mut best: Option<((usize, usize, usize), HumanSource)> = None;
     for (i, (aux, _, steps, _)) in cands.iter().enumerate() {
         let now = Instant::now();
         if now >= stop {
@@ -702,18 +761,19 @@ fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Op
         let descs: Vec<String> = aux.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
         let infos = ddar::human::aux_infos(&aug, problem.points.len(), &descs);
         let opts = ddar::human::Opts { deadline: Some(stop.min(now + Duration::from_secs(2))), strict: false };
-        let Ok(Some((hp, ..))) = catch_unwind(AssertUnwindSafe(|| ddar::human::for_problem(&aug, &infos, &opts))) else {
+        let Ok(Some((hp, trace, deps, _))) = catch_unwind(AssertUnwindSafe(|| ddar::human::for_problem(&aug, &infos, &opts))) else {
             continue;
         };
         if !hp.available || hp.metrics.timed_out {
             continue;
         }
         let key = (hp.metrics.human_cost, *steps, i);
-        if best.is_none_or(|b| key < b) {
-            best = Some(key);
+        if best.as_ref().is_none_or(|b| key < b.0) {
+            let closure = trace.closure(&deps);
+            best = Some((key, HumanSource { proof: hp, names: trace.names, closure }));
         }
     }
-    best.map(|b| b.2)
+    best.map(|(k, h)| (k.2, h))
 }
 
 /// Apply constructions, containing any panic from a degenerate configuration
@@ -785,11 +845,20 @@ fn deductive_flow(
     };
 
     let direct_problem = problem.clone();
-    let direct = run_until(deadline, move || solve_problem_with_proof(&direct_problem));
+    let direct = run_until(deadline, move || solve_problem_with_trace(&direct_problem));
     let direct = match direct {
         Some(r) => r.map_err(|_| "solver panicked".to_string())?,
         None => Ok(None),
     };
+    let mut human = None;
+    let direct = direct.map(|d| {
+        d.map(|traced| {
+            if opts.want_proof {
+                human = write_human(&problem, problem.points.len(), &[], &traced, deadline);
+            }
+            traced.0
+        })
+    });
     let timed_out = || deadline.is_some_and(|d| Instant::now() >= d);
     let (proved, method, proof, aux_constructions, note) = match direct {
         Ok(None) if timed_out() => (false, Method::Ddar, None, Vec::new(), limit_note()),
@@ -859,9 +928,10 @@ fn deductive_flow(
                         aux_from: Some(problem.points.len()),
                     };
                     let proof = if opts.want_proof {
-                        catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&augmented)))
-                            .ok()
-                            .and_then(|r| r.ok().flatten())
+                        traced_proof(&augmented).map(|traced| {
+                            human = write_human(&augmented, problem.points.len(), &aux, &traced, deadline);
+                            traced.0
+                        })
                     } else {
                         None
                     };
@@ -904,6 +974,7 @@ fn deductive_flow(
         proof_steps,
         examined: None,
         figure: Some(figure),
+        human,
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -988,6 +1059,7 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
         proof_steps,
         examined: None,
         figure,
+        human: None,
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -1679,6 +1751,7 @@ mod tests {
             proof_steps: None,
             examined: None,
             figure: None,
+            human: None,
         }
     }
 }

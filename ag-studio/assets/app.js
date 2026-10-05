@@ -1221,6 +1221,7 @@
     });
   }
 
+  GS.auxText = auxText;
   function auxText(a, T) {
     T = T || t;
     var key = "aux." + a.kind;
@@ -1456,7 +1457,11 @@
       if (S.refining !== ctl) return;
       S.refining = null;
       if (S.sol !== first) return;
-      var better = r.ok && r.data.status === "proved" && stepCount(r.data) && stepCount(r.data) < stepCount(first);
+      var proved = r.ok && r.data.status === "proved" && stepCount(r.data);
+      var shorter = proved && stepCount(r.data) < stepCount(first);
+      var cost = function (s) { var h = humanOf(s); return h && h.metrics && h.metrics.human_cost != null ? h.metrics.human_cost : null; };
+      var clearer = proved && !shorter && cost(r.data) != null && (cost(first) == null || cost(r.data) < cost(first));
+      var better = shorter || clearer;
       if (!r.ok) {
         if (r.status === 401) authLost();
         var e1 = $("refine");
@@ -1467,7 +1472,7 @@
         return;
       }
       if (better) {
-        var msg = t("shorter.found", { n: tp("meta.steps", stepCount(r.data)), m: tp("meta.steps", stepCount(first)) });
+        var msg = shorter ? t("shorter.found", { n: tp("meta.steps", stepCount(r.data)), m: tp("meta.steps", stepCount(first)) }) : t("shorter.readable");
         var keep = focusMark();
         renderSolution(r.data, {});
         restoreFocus(keep);

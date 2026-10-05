@@ -1,31 +1,27 @@
-∡ denotes directed angles modulo 180°. Let ω be the circle with diameter BC, with centre O; M, N lie on ω. Let O₁ be the centre of (BMR); P lies on (BMR). Let O₂ be the centre of (CNR); P lies on (CNR). Let F be the foot of the perpendicular from B to AP₁. Angles written ∠ are undirected and read as drawn.
+∡ denotes directed angles modulo 180°. Let F be the foot of the perpendicular from B to AR. Angles written ∠ are undirected and read as drawn.
 
-Claim 1. A, B, F, N are concyclic.
+Claim 1. F, N, B, A are concyclic.
 
-Proof. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC is a diameter of ω).
+Proof. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC is a diameter), so F, N, B, A are concyclic.
 
-Claim 2. FB = FN.
+Claim 2. FN = BF.
 
-Proof. ∠BAF = ∠FAN (AR bisects ∠BAC). FB = FN (equal arcs in (ABFN)).
+Proof. ∡FAN = ∡BAF (AR bisects ∠BAC). By equal arcs and chords (Claim 1), FN = BF.
 
-Claim 3. A, F, R, P are collinear.
-
-Proof. AM·AB = AN·AC (power of A with respect to ω). By the radical axis theorem, A lies on RP. F lies on AR.
-
-Claim 4. △OBF ≅ △ONF.
-
-Proof. By the SSS congruence criterion (radii of ω; Claim 2), △OBF ≅ △ONF. FO bisects ∠BFN (△OBF ≅ △ONF).
-
-Claim 5. R, N, F, O are concyclic.
+Claim 3. R, N, F, O are concyclic.
 
 Proof.
 
 ∡RFN = ∡BFN + 90°    [BF ⟂ AR]
-     = 2∡FBN + 90°    [Claim 2]
-     = 2∡RAC + 90°    [Claim 1]
+     = 2∡FBN + 90°    [FB = FN (Claim 2)]
+     = 2∡FAN + 90°    [inscribed angles in (ABNF) (Claim 1)]
      = ∡BAC + 90°    [AR bisects ∠BAC]
-     = ∡MCN    [BC is a diameter of ω]
+     = ∡MCN    [BC is a diameter]
 
-As drawn, ∠MCN = ½∠MON = ∠RON (central angle in ω; OR bisects ∠MON), so R, N, F, O are concyclic.
+As drawn, ∠MCN = ½·∠MON = ∠RON (central angle ∠MON = 2∠MCN; OR bisects ∠MON), so R, N, F, O are concyclic.
 
-Finally, angle chasing with Claims 2, 4 and 5, the inscribed angles in (BMRP), △OMR ≅ △ONR, BF ⟂ AR, OR bisecting ∠MON and the central angles in ω shows that ∡(PB, AR) = ∡(BC, AR). PB ∥ BC (Claim 3). P lies on BC. ∎
+Claim 4. A, F, R, P are collinear.
+
+Proof. AB·AM = AC·AN (power of A with respect to (BMCN)). By the radical axis theorem (P, R, M, B concyclic; P, R, N, C concyclic; A, B, M collinear; A, N, C collinear), A, F, R, P are collinear.
+
+Finally, angle chasing with Claims 1, 3 and 4, the inscribed angles in (BCMN), the diameter BC, OR bisecting ∠MON, the perpendicular bisector OF of BN (Claim 2), P, R, N, C concyclic, OB = OM and OB = ON shows that P, B, C are collinear. ∎

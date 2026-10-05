@@ -1,6 +1,6 @@
 # Human proof writer — specification
 
-Status: engine side implemented on `wf/human-proofs-engine` (`alphageometry-rs/src/human/`, `ddar --human`, ag-studio `best` HumanCost selection); ag-studio rendering built separately against §7.2 and awaiting the converge step. See §13 for what was built, the measured coverage and the data model changes. Design branch `wf/human-proofs-design` (from `wf/release` 4ff884c).
+Status: engine side implemented on `wf/human-proofs-engine` (`alphageometry-rs/src/human/`, `ddar --human`, ag-studio `best` HumanCost selection); ag-studio rendering built on `wf/human-proofs-ui`; both wired together on `wf/human-proofs-wire` (§13.6). See §13 for what was built, the measured coverage and the data model changes. Design branch `wf/human-proofs-design` (from `wf/release` 4ff884c).
 Golden examples: [`docs/human-proofs/`](human-proofs/). Reference prototype: [`docs/human-proofs/prototype.patch`](human-proofs/prototype.patch) (evidence only — not product code).
 
 The owner asked for this verbatim:
@@ -762,7 +762,7 @@ Of the IMO proofs, 26 contain at least one pooled sentence.
 - **Closed keys.**
   - Atom: `inscribed, thales, tangent_chord, perp_bisector, parallel, radii, isosceles, central_angle, power_of_point, midline, orthocentre`.
   - Theorem: `radical_axis, arc_chord, angle_bisector_thm, angle_bisector_thm_converse, intercept, homothety, monge, menelaus, menelaus_converse, ceva_converse, bisector_concurrency, triangle_equality, pythagoras, perp_from_squares, squares_of_ratio, stewart, lengths_from_squares, law_of_sines, equal_sines, double_angle, triple_angle, sine_const, sines_converse, point_merge, tangent_merge, congruence, similarity, collinear, concyclic, other`.
-- **Step numbers.** `engine_steps`, and every `step`/`cites`, are **1-based positions in the engine's fact closure for the goal** (the raw `--proof` numbering). They are not yet the displayed numbers after `drop_restatements`, so ag-studio must renumber them at converge.
+- **Step numbers.** `engine_steps`, and every `step`/`cites`, are **1-based positions in the engine's fact closure for the goal** (the raw `--proof` numbering). ag-studio renumbers them to the displayed steps after `drop_restatements` (§13.6).
 - `metrics` carries the §8 counters plus `reproved, silent, pruned, theorem, fallback_facts, check_violations, human_cost`. `micros` and `timed_out` are not serialised.
 - Setup: `helper {point, meaning: {kind: midpoint, of} | {kind: reflection, of, line} | {kind: point}}`, and `aux {point, aux_index}`.
 
@@ -772,3 +772,13 @@ Of the IMO proofs, 26 contain at least one pooled sentence.
 - **Trig computations** are faithful but verbose: their reasons are the engine's formula strings.
 - **IMO 2008 P1** stays long. Its six-point circle is re-proved through centre distances, after 20 Pythagoras and squared-ratio steps.
 - **Aux wording.** An aux point whose construction has no wording falls back to `Let X = <construction>`.
+
+### 13.6 Wiring into ag-studio (`wf/human-proofs-wire`)
+
+- **Where it runs.** `engine.rs` takes the displayed proof from `runner::solve_problem_with_trace` (the same tracked re-solve as before) and runs `human::write` once after the verdict, inside the worker, with the solve's remaining time clamped to 0.3–2 s. `best` keeps the winning candidate's proof from `most_readable`. `AGSTUDIO_HUMAN_PROOFS=0` switches the writer off.
+- **Model.** ag-studio's `human_view.rs` mirrors this section's JSON exactly; the engine model is authoritative. ag-studio supplies point names (`present::Names`) and displayed step numbers, and sends a bisector hypothesis as `bisects`. Atom arguments stay engine point lists; the wording chooses circle names from them.
+- **Helper points.** An anonymous point that only fixes a line through a named vertex (bisector, perpendicular line) is shown as a named point of that line when every use allows it (`AP₁` → `AR`).
+- **No human proof** (`available: false`, Euclidean proofs): today's step list.
+- **MCP** returns the EN human proof first, then the full derivation. **Reports** print it as the PROOF section; the derivation is the optional appendix.
+- **Fixtures** in `ag-studio/tests/fixtures/human/` are real engine output; `HP_BLESS=1` regenerates them when the writer changes.
+

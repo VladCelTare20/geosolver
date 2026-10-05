@@ -1,31 +1,27 @@
-∡ notează unghiuri orientate modulo 180°. Fie ω cercul de diametru BC, cu centrul O; M, N se află pe ω. Fie O₁ centrul cercului (BMR); P se află pe (BMR). Fie O₂ centrul cercului (CNR); P se află pe (CNR). Fie F piciorul perpendicularei din B pe AP₁. Unghiurile notate ∠ sunt neorientate și sunt citite din figură.
+∡ notează unghiuri orientate modulo 180°. Fie F piciorul perpendicularei din B pe AR. Unghiurile notate ∠ sunt neorientate și sunt citite din figură.
 
-Afirmația 1. Punctele A, B, F, N sunt conciclice.
+Afirmația 1. Punctele F, N, B, A sunt conciclice.
 
-Demonstrație. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC este diametru în ω).
+Demonstrație. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC este diametru), deci punctele F, N, B, A sunt conciclice.
 
-Afirmația 2. FB = FN.
+Afirmația 2. FN = BF.
 
-Demonstrație. ∠BAF = ∠FAN (AR este bisectoarea ∠BAC). FB = FN (arce egale în (ABFN)).
+Demonstrație. ∡FAN = ∡BAF (AR este bisectoarea ∠BAC). Din egalitatea arcelor și a coardelor (Afirmația 1), FN = BF.
 
-Afirmația 3. Punctele A, F, R, P sunt coliniare.
-
-Demonstrație. AM·AB = AN·AC (puterea punctului A față de ω). Din teorema axei radicale, A se află pe RP. F se află pe AR.
-
-Afirmația 4. △OBF ≅ △ONF.
-
-Demonstrație. Din cazul de congruență LLL (raze în ω; Afirmația 2), △OBF ≅ △ONF. FO este bisectoarea ∠BFN (△OBF ≅ △ONF).
-
-Afirmația 5. Punctele R, N, F, O sunt conciclice.
+Afirmația 3. Punctele R, N, F, O sunt conciclice.
 
 Demonstrație.
 
 ∡RFN = ∡BFN + 90°    [BF ⟂ AR]
-     = 2∡FBN + 90°    [Afirmația 2]
-     = 2∡RAC + 90°    [Afirmația 1]
+     = 2∡FBN + 90°    [FB = FN (Afirmația 2)]
+     = 2∡FAN + 90°    [unghiuri înscrise în (ABNF) (Afirmația 1)]
      = ∡BAC + 90°    [AR este bisectoarea ∠BAC]
-     = ∡MCN    [BC este diametru în ω]
+     = ∡MCN    [BC este diametru]
 
-Din figură, ∠MCN = ½∠MON = ∠RON (unghi la centru în ω; OR este bisectoarea ∠MON), deci punctele R, N, F, O sunt conciclice.
+Din figură, ∠MCN = ½·∠MON = ∠RON (unghiul la centru ∠MON = 2∠MCN; OR este bisectoarea ∠MON), deci punctele R, N, F, O sunt conciclice.
 
-În final, un calcul de unghiuri care folosește Afirmațiile 2, 4 și 5, unghiurile înscrise în (BMRP), △OMR ≅ △ONR, BF ⟂ AR, bisectoarea OR a ∠MON și unghiurile la centru în ω arată că ∡(PB, AR) = ∡(BC, AR). PB ∥ BC (Afirmația 3). P se află pe BC. ∎
+Afirmația 4. Punctele A, F, R, P sunt coliniare.
+
+Demonstrație. AB·AM = AC·AN (puterea punctului A față de (BMCN)). Din teorema axei radicale (P, R, M, B conciclice; P, R, N, C conciclice; A, B, M coliniare; A, N, C coliniare), punctele A, F, R, P sunt coliniare.
+
+În final, un calcul de unghiuri care folosește Afirmațiile 1, 3 și 4, unghiurile înscrise în (BCMN), diametrul BC, bisectoarea OR a ∠MON, mediatoarea OF a segmentului BN (Afirmația 2), P, R, N, C conciclice, OB = OM și OB = ON arată că punctele P, B, C sunt coliniare. ∎

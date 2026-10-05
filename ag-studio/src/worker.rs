@@ -97,6 +97,8 @@ pub struct Request {
     pub lang: Lang,
     #[serde(default)]
     pub derivation: bool,
+    #[serde(default)]
+    pub human_text: Option<Lang>,
 }
 
 impl Request {
@@ -115,6 +117,7 @@ impl Request {
             present: false,
             lang: Lang::En,
             derivation: false,
+            human_text: None,
         }
     }
 
@@ -151,6 +154,8 @@ pub struct Reply {
     /// `present::solution_json` of the result, when `Request::present` was set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human: Option<String>,
 }
 
 impl Reply {
@@ -207,6 +212,7 @@ pub fn time_limit_solution(input: &str, limit: Duration) -> Solution {
         proof_steps: None,
         examined: None,
         figure: None,
+        human: None,
     }
 }
 
@@ -547,8 +553,12 @@ fn execute(req: &Request) -> Reply {
         (Ok(sol), Some(scale)) => render::svg_to_png(&sol.svg, scale).ok().map(encode),
         _ => None,
     };
+    let human = match (&result, req.human_text) {
+        (Ok(sol), Some(lang)) => present::human_text(sol, lang),
+        _ => None,
+    };
     let view = if req.present { view } else { None };
-    Reply { result, report, figure_png, view }
+    Reply { result, report, figure_png, view, human }
 }
 
 /// Exit the whole process with [`EXIT_HARD_LIMIT`] once `limit` has passed,
@@ -957,6 +967,7 @@ pub(crate) mod tests {
             report: None,
             figure_png: None,
             view: None,
+            human: None,
         };
         let mut out = b"\nrunning 1 test\n".to_vec();
         out.extend(serde_json::to_vec(&reply).unwrap());

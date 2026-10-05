@@ -555,12 +555,13 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
     let (mode, limit) = solve_limit(args);
     let mut job = worker::Request::new(&program, &opts, mode, limit);
     job.figure_png_scale = Some(1.5);
-    let (sol, figure_png) = match worker::run(&job, permit).await {
+    job.human_text = Some(crate::i18n::Lang::En);
+    let (sol, figure_png, human) = match worker::run(&job, permit).await {
         Outcome::Done(reply) => match reply.result {
-            Ok(sol) => (sol, reply.figure_png),
+            Ok(sol) => (sol, reply.figure_png, reply.human),
             Err(e) => return text_result(&format!("error: {e}"), true),
         },
-        Outcome::TimedOut => (worker::time_limit_solution(&program, job.limit()), None),
+        Outcome::TimedOut => (worker::time_limit_solution(&program, job.limit()), None, None),
         Outcome::Failed(e) => {
             note!("solve worker failed: {e}");
             return text_result("error: the solver process failed (crashed or ran out of memory)", true);
@@ -597,9 +598,18 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
             text.push_str(&format!("  + {c}\n"));
         }
     }
-    if let Some(proof) = &sol.proof {
-        text.push('\n');
-        text.push_str(proof);
+    match (&human, &sol.proof) {
+        (Some(h), Some(proof)) => {
+            text.push_str("\nPROOF\n\n");
+            text.push_str(h);
+            text.push_str(&format!("\n\nFULL DERIVATION ({} machine-checked steps)\n", sol.proof_steps.unwrap_or(0)));
+            text.push_str(proof);
+        }
+        (None, Some(proof)) => {
+            text.push('\n');
+            text.push_str(proof);
+        }
+        _ => {}
     }
     if let Some(evidence) = &sol.numeric_evidence {
         text.push('\n');

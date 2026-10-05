@@ -284,7 +284,7 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
                 _ => g(0),
             }
         }
-        "cong" | "length" | "eqangle" | "coincide" => format!("{} = {}", g(0), g(1)),
+        "cong" | "length" | "eqangle" | "coincide" | "eq" => format!("{} = {}", g(0), g(1)),
         "perp" => format!("{} \u{27c2} {}", g(0), g(1)),
         "para" => format!("{} \u{2225} {}", g(0), g(1)),
         "eqratio" => a.chunks(2).map(|c| c.join(" : ")).collect::<Vec<_>>().join(" = "),
@@ -725,6 +725,11 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32, deriv
     } else {
         secs
     });
+    if status == "proved" && view["note"]["key"] == "readable" {
+        if let Some(n) = view["note"]["n"].as_u64() {
+            meta.push(tpn(lang, "report.readable", n));
+        }
+    }
     let shown_steps = view["proof"]["steps"].as_array().map_or(0, |a| a.iter().filter(|s| s["kind"] == "step").count());
     if status == "proved" && shown_steps > 0 {
         meta.push(tpn(lang, "report.steps", shown_steps as u64));
@@ -1316,6 +1321,7 @@ mod tests {
         assert!(text.contains("/Count 1") || text.contains("/Count 2"), "a short proof fits on a page or two");
         let proof: Vec<String> = (1..=150usize).map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1))).collect();
         sol.proof = Some(proof.join("\n"));
+        sol.human = None;
         let pages = report_pages(&present::solution_json(&sol, Some("long")), Lang::En, true, false);
         assert!(pages.len() >= 3, "{} pages", pages.len());
         assert!(pages.iter().all(|p| p.contains("height=\"842\"")));
@@ -1333,6 +1339,7 @@ mod tests {
         .expect("solve");
         let proof: Vec<String> = (1..=3000usize).map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1))).collect();
         sol.proof = Some(proof.join("\n"));
+        sol.human = None;
         let pdf = report_pdf(&sol, Some("long")).expect("a long proof must still export to PDF");
         let text = String::from_utf8_lossy(&pdf);
         let boxes = text.matches("/MediaBox").count();

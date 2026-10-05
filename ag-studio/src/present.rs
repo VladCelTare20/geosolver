@@ -926,6 +926,8 @@ pub struct SubStep {
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct ProofView {
     pub steps: Vec<Step>,
+    #[serde(skip)]
+    pub shown: HashMap<usize, usize>,
     /// The concluding statement (the goal), when the proof states it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conclusion: Option<Fact>,
@@ -947,7 +949,8 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
             steps.push(step);
         }
     }
-    ProofView { steps: drop_restatements(steps), conclusion, style: "ddar" }
+    let (steps, shown) = drop_restatements(steps);
+    ProofView { steps, shown, conclusion, style: "ddar" }
 }
 
 /// One numbered DDAR proof line (`012. similar triangles: △ABC ∼ △DEF [003 & 007]`).
@@ -1289,7 +1292,7 @@ fn three_on_a_circle(problem: &Problem, names: &Names, raws: &[&str]) -> Option<
 /// Drop steps that only restate one cited step with the same points (the
 /// engine's `collinear: A I M [003]` after `assumption: coll A I M`), then
 /// renumber, pointing citations at the surviving step.
-fn drop_restatements(steps: Vec<Step>) -> Vec<Step> {
+fn drop_restatements(steps: Vec<Step>) -> (Vec<Step>, HashMap<usize, usize>) {
     fn key(f: &Fact) -> (&'static str, Vec<String>) {
         let mut p = f.points.clone();
         p.sort();
@@ -1312,7 +1315,17 @@ fn drop_restatements(steps: Vec<Step>) -> Vec<Step> {
     }
     let kept: Vec<Step> = steps.into_iter().filter(|s| !alias.contains_key(&s.n)).collect();
     let renum: HashMap<usize, usize> = kept.iter().enumerate().map(|(i, s)| (s.n, i + 1)).collect();
-    kept.into_iter()
+    let mut shown = renum.clone();
+    for &a in alias.keys() {
+        let mut d = a;
+        while let Some(&x) = alias.get(&d) {
+            d = x;
+        }
+        if let Some(&n) = renum.get(&d) {
+            shown.insert(a, n);
+        }
+    }
+    let steps = kept.into_iter()
         .map(|mut s| {
             s.n = renum[&s.n];
             let mut deps: Vec<usize> = s
@@ -1331,7 +1344,8 @@ fn drop_restatements(steps: Vec<Step>) -> Vec<Step> {
             s.deps = deps;
             s
         })
-        .collect()
+        .collect();
+    (steps, shown)
 }
 
 /// The theorems the Euclidean provers name in their sentences, as the step's
@@ -1727,7 +1741,7 @@ fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView
     let cited = cited_closure_facts(text, names);
     for st in steps.iter_mut() {
         if st.rule == "closure" {
-            let lines = drop_restatements(closures.remove(&st.n).unwrap_or_default());
+            let (lines, _) = drop_restatements(closures.remove(&st.n).unwrap_or_default());
             let known: Vec<Vec<Vec<String>>> = lines.iter().filter(|s| s.kind == "given").filter_map(|s| cong_key(&s.fact)).collect();
             let mut derived: Vec<SubStep> = Vec::new();
             for s in lines.into_iter().filter(|s| s.kind == "step") {
@@ -1772,7 +1786,7 @@ fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView
         .collect();
     let relations = steps.iter().filter(|s| s.kind != "construction" && s.rule != "closure").count();
     let conclusion = last_line.map(|l| euclid_conclusion(&l, names, relations == 1));
-    ProofView { steps, conclusion, style: "euclidean" }
+    ProofView { steps, shown: HashMap::new(), conclusion, style: "euclidean" }
 }
 
 fn split_disp(run: &str, points: &[String]) -> Option<Vec<String>> {
@@ -2332,7 +2346,33 @@ fn split_top(s: &str, seps: &[&str]) -> Vec<String> {
     parts
 }
 
-fn aux_view(raw: &str, names: &Names) -> AuxView {
+fn alias_runs(text: &str, names: &Names, aliases: &[(String, String, String)]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut run = String::new();
+    let flush = |run: &mut String, out: &mut String| {
+        let seg = names.segment(run).unwrap_or_default();
+        let hit = (seg.len() == 2).then(|| aliases.iter().find(|(x, v, _)| (seg[0] == *v && seg[1] == *x) || (seg[0] == *x && seg[1] == *v))).flatten();
+        match hit {
+            Some((_, v, on)) => out.push_str(&format!("{v}{on}")),
+            None => out.push_str(run),
+        }
+        run.clear();
+    };
+    for c in text.chars() {
+        if is_name_char(c) {
+            run.push(c);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
+fn aux_view(raw: &str, names: &Names, aliases: &[(String, String, String)]) -> AuxView {
+    let aliased = alias_runs(raw, names, aliases);
+    let raw = aliased.as_str();
     let (lhs, rhs) = raw.split_once(" = ").unwrap_or(("", raw));
     let name = names.get(lhs.trim());
     let rhs = rhs.trim();
@@ -2811,6 +2851,48 @@ fn bisector_helpers(p: &Problem) -> Vec<BisectorHelper> {
     out
 }
 
+fn line_helpers(p: &Problem) -> Vec<(u32, u32, u32)> {
+    let anonymous = |i: u32| p.points.get(i as usize).is_none_or(|q| q.name.starts_with('_'));
+    let mut out = Vec::new();
+    for x in 0..p.points.len() as u32 {
+        if !anonymous(x) || p.goal.as_ref().is_some_and(|g| g.points.contains(&x)) {
+            continue;
+        }
+        let mut vertex: Option<u32> = None;
+        let mut ok = true;
+        let mut colls: Vec<&Predicate> = Vec::new();
+        for q in p.preds.iter().filter(|q| q.points.contains(&x)) {
+            match q.name.as_str() {
+                "coll" => colls.push(q),
+                "perp" | "para" | "eqangle" if q.points.len() % 2 == 0 => {
+                    for pair in q.points.chunks(2) {
+                        let other = match pair {
+                            [a, b] if *a == x && *b != x => Some(*b),
+                            [a, b] if *b == x && *a != x => Some(*a),
+                            [a, b] if *a == x || *b == x => None,
+                            _ => continue,
+                        };
+                        match (other, vertex) {
+                            (Some(o), None) => vertex = Some(o),
+                            (Some(o), Some(v)) if o == v => {}
+                            _ => ok = false,
+                        }
+                    }
+                }
+                _ => ok = false,
+            }
+        }
+        let Some(v) = vertex.filter(|_| ok) else { continue };
+        if colls.iter().any(|c| !c.points.contains(&v)) {
+            continue;
+        }
+        if let Some(on) = colls.iter().flat_map(|c| c.points.iter().copied()).find(|&r| r != x && r != v && !anonymous(r)) {
+            out.push((x, v, on));
+        }
+    }
+    out
+}
+
 /// `p` with every helper in `hide` replaced by its named point on the same
 /// line, and the collinearities that only placed it dropped; the helper itself
 /// keeps its slot (ids stay valid) with no coordinates, so it is not drawn.
@@ -2850,6 +2932,10 @@ fn without_helpers(p: &Problem, hide: &[(u32, u32)], keep_lines: bool) -> Proble
 }
 
 pub fn build(sol: &Solution) -> View {
+    build_with(sol, true)
+}
+
+fn build_with(sol: &Solution, draw: bool) -> View {
     let original = Problem::parse(&sol.low_level).ok();
     let (fig_problem, aux_from) = match (&sol.figure, &original) {
         (Some(f), _) => (Some(f.problem.clone()), f.aux_from),
@@ -2865,7 +2951,6 @@ pub fn build(sol: &Solution) -> View {
     let aux_from = if introduced.is_empty() { aux_from } else { aux_from.or(Some(fig.points.len())) };
     let fig = if introduced.is_empty() { fig } else { with_introduced(&fig, &introduced) };
     let names = Names::build(&fig);
-    let orig = original.unwrap_or_else(|| fig.clone());
 
     let mut points: Vec<PointView> = fig
         .points
@@ -2880,9 +2965,24 @@ pub fn build(sol: &Solution) -> View {
             let aux_names: HashSet<String> = points.iter().filter(|p| p.aux).map(|p| p.name.clone()).collect();
             parse_ddar_proof(p, &fig, &names, &aux_names)
         }
-        (None, _) => ProofView { steps: vec![], conclusion: None, style: "none" },
+        (None, _) => ProofView { steps: vec![], shown: HashMap::new(), conclusion: None, style: "none" },
     };
-    let mut aux: Vec<AuxView> = sol.aux_constructions.iter().map(|a| aux_view(a, &names)).collect();
+    let orig = original.unwrap_or_else(|| fig.clone());
+    let line_aliases = line_helpers(&orig);
+    let raw_aliases: Vec<(String, String, String)> = line_aliases
+        .iter()
+        .map(|&(x, v, on)| (orig.point_name(x).to_string(), orig.point_name(v).to_string(), orig.point_name(on).to_string()))
+        .collect();
+    let at = |i: u32| fig.points.get(i as usize).map(|p| (p.value.x, p.value.y));
+    let aliases: Vec<crate::human_view::LineAlias> = line_aliases
+        .iter()
+        .filter_map(|&(x, v, on)| {
+            let (px, po, pv) = (at(x)?, at(on)?, at(v)?);
+            let same_ray = (px.0 - pv.0) * (po.0 - pv.0) + (px.1 - pv.1) * (po.1 - pv.1) > 0.0;
+            Some(crate::human_view::LineAlias { helper: x, vertex: v, on, same_ray })
+        })
+        .collect();
+    let mut aux: Vec<AuxView> = sol.aux_constructions.iter().map(|a| aux_view(a, &names, &raw_aliases)).collect();
     for i in &introduced {
         aux.push(AuxView { name: names.get(&i.raw), kind: i.kind.to_string(), args: i.args.clone(), text: i.text.clone(), same: None });
     }
@@ -2896,6 +2996,13 @@ pub fn build(sol: &Solution) -> View {
     }
     if let Some(c) = &proof.conclusion {
         cited.extend(c.points.iter().cloned());
+    }
+    let human = human_proof(sol, &names, &proof.shown, &aliases);
+    if let Some(h) = &human {
+        for b in &h.blocks {
+            cited.extend(b.points.iter().cloned());
+            cited.extend(b.stmt.points.iter().cloned());
+        }
     }
     let helpers = bisector_helpers(&orig);
     let helper_name = |x: u32| names.get(orig.point_name(x));
@@ -3038,7 +3145,7 @@ pub fn build(sol: &Solution) -> View {
             .any(|st| st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)")));
     let refuted = sol.status == Status::Refuted;
     let goal_in_figure = if refuted { crate::spread::Goal::Fails } else { crate::spread::Goal::Holds };
-    let redrawn = if !as_drawn && introduced.is_empty() && (!refuted || aux_from.is_none()) {
+    let redrawn = if draw && !as_drawn && introduced.is_empty() && (!refuted || aux_from.is_none()) {
         crate::spread::respread(&fig, aux_from, &sol.input, goal_in_figure)
     } else {
         None
@@ -3046,7 +3153,7 @@ pub fn build(sol: &Solution) -> View {
     let drawn = redrawn.as_ref().unwrap_or(&fig);
     let trimmed = (!hidden.is_empty()).then(|| without_helpers(drawn, &ids_in(drawn), true));
     let drawn = trimmed.as_ref().unwrap_or(drawn);
-    let svg = if drawn.points.is_empty() {
+    let svg = if !draw || drawn.points.is_empty() {
         String::new()
     } else {
         figure::render(drawn, aux_from, &names, &extras)
@@ -3064,21 +3171,16 @@ pub fn build(sol: &Solution) -> View {
         evidence: numeric_support(sol),
         source_title: source_title(&sol.input),
         svg,
-        human: human_proof(sol),
+        human,
     }
 }
 
-#[cfg(not(feature = "human-fixtures"))]
-fn human_proof(_sol: &Solution) -> Option<crate::human_view::HumanView> {
-    None
-}
-
-#[cfg(feature = "human-fixtures")]
-fn human_proof(sol: &Solution) -> Option<crate::human_view::HumanView> {
-    if !sol.proved {
-        return None;
-    }
-    crate::human_view::fixtures::from_env(&sol.input)
+fn human_proof(sol: &Solution, names: &Names, shown: &HashMap<usize, usize>, aliases: &[crate::human_view::LineAlias]) -> Option<crate::human_view::HumanView> {
+    let src = sol.human.as_ref().filter(|_| sol.proved && sol.method != Method::Euclidean)?;
+    let proof = crate::human_view::alias_lines(&src.proof, aliases);
+    let point = |p: u32| src.names.get(p as usize).map(|r| names.get(r)).unwrap_or_else(|| format!("P{p}"));
+    let step = |f: ddar::proof::FactId| src.closure.iter().position(|&x| x == f).and_then(|i| shown.get(&(i + 1)).copied());
+    crate::human_view::from_engine(&proof, &crate::human_view::Naming { point: &point, step: &step })
 }
 
 /// Where a compile error sits in the program, and which sentence explains it.
@@ -3518,6 +3620,14 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
 /// The JSON a solve answers with: the engine's own fields unchanged (with the
 /// figure replaced by the interactive one), the presentation `view`, and the
 /// title (the caller's, else the program's leading comment).
+pub fn human_text(sol: &Solution, lang: crate::i18n::Lang) -> Option<String> {
+    sol.human.as_ref()?;
+    let view = build_with(sol, false);
+    let h = view.human.as_ref()?;
+    let v = serde_json::to_value(&view).ok()?;
+    Some(crate::human_view::text(h, &v, lang))
+}
+
 pub fn solution_json(sol: &Solution, title: Option<&str>) -> serde_json::Value {
     let view = build(sol);
     let mut v = serde_json::to_value(sol).unwrap_or_default();
@@ -4152,7 +4262,7 @@ mod tests {
                 }
                 continue;
             }
-            let mut a = aux_view(&format!("X = {kind}{args}"), &names);
+            let mut a = aux_view(&format!("X = {kind}{args}"), &names, &[]);
             resolve_branch(&mut a, &at);
             let v = serde_json::to_value(&a).unwrap();
             for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
@@ -4167,25 +4277,25 @@ mod tests {
     fn excenters_name_their_vertex_and_line_circle_meets_say_which() {
         let at: HashMap<String, Pt> = [("A", (0.0, 0.0)), ("B", (4.0, 0.0)), ("C", (1.0, 3.0)), ("X", (2.0, -3.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
         let names = Names::build(&Problem { points: vec![], preds: vec![], goal: None });
-        let mut a = aux_view("X = excenter(A,B,C)", &names);
+        let mut a = aux_view("X = excenter(A,B,C)", &names, &[]);
         resolve_branch(&mut a, &at);
         let v = serde_json::to_value(&a).unwrap();
         assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::En), "excenter of △ABC opposite C");
         assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::Ro), "centrul cercului exînscris al triunghiului ABC corespunzător laturii AB");
         let h = 0.75f64.sqrt();
         let at: HashMap<String, Pt> = [("A", (-3.0, 0.5)), ("B", (-2.0, 0.5)), ("O", (0.0, 0.0)), ("R", (1.0, 0.0)), ("X", (-h, 0.5)), ("Y", (h, 0.5))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
-        let mut x = aux_view("X = intersect(AB, circle(O,R))", &names);
+        let mut x = aux_view("X = intersect(AB, circle(O,R))", &names, &[]);
         resolve_branch(&mut x, &at);
         let v = serde_json::to_value(&x).unwrap();
         assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::En), "intersection of line AB with the circle (O, OR) nearer to A");
-        let mut y = aux_view("Y = intersect(AB, circle(O,R))", &names);
+        let mut y = aux_view("Y = intersect(AB, circle(O,R))", &names, &[]);
         resolve_branch(&mut y, &at);
         let v = serde_json::to_value(&y).unwrap();
         assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::Ro), "intersecția dreptei AB cu cercul (O, OR) aflată mai departe de A");
         let cc = serde_json::json!({ "name": "X", "kind": "intersect", "args": ["circumcircle(A,B,C)", "circumcircle(C,D,E)"], "text": "" });
         assert_eq!(crate::render::aux_text(&cc, crate::i18n::Lang::En), "second intersection of the circumcircle of △ABC with the circumcircle of △CDE");
         let at: HashMap<String, Pt> = [("A", (-3.0, 0.0)), ("B", (-1.0, 0.0)), ("O", (0.0, 0.0)), ("R", (0.0, 1.0)), ("X", (1.0, 0.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
-        let mut s = aux_view("X = intersect(AB, circle(O,R))", &names);
+        let mut s = aux_view("X = intersect(AB, circle(O,R))", &names, &[]);
         resolve_branch(&mut s, &at);
         assert_eq!(s.kind, "intersect2", "B is on the circle, so X is the other meet");
     }

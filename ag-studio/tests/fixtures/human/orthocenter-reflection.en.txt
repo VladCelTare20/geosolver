@@ -1,10 +1,10 @@
 ∡ denotes directed angles modulo 180°.
 
-HK ⟂ BC (BC is the perpendicular bisector of HK). K lies on AH (AH ⟂ BC; HK ⟂ BC).
+∡AHK = 0° (AH ∥ HK, both ⟂ BC), so H, A, K are collinear.
 
-∡KBC = ∡BKH + 90°    [AH ⟂ BC]
-     = ∡AHB + 90°    [BK = BH]
-     = ∡HAC    [BH ⟂ AC]
-     = ∡KAC    [K on AH]
+∡ACB = ∡HBC + 90°    [BH ⟂ AC]
+     = ∡BHK    [BC is the perpendicular bisector of HK]
+     = ∡HKB    [BH = BK]
+     = ∡AKB    [H, A, K collinear]
 
-so A, B, K, C are concyclic. ∎
+so A, B, C, K are concyclic. ∎

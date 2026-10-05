@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 const EXPECT = !!process.env.EXPECT_HUMAN;
 
 export async function humanProofFlow(page, tag, check, shot, opts = {}) {
@@ -59,12 +62,11 @@ export async function humanProofFlow(page, tag, check, shot, opts = {}) {
     box.className = 'hp';
     document.body.appendChild(box);
     const perp = (a, b, pts) => ({ kind: 'perp', args: [a, b], points: pts });
-    const h = { version: 1, setup: [], blocks: [{ id: 1, kind: 'conclusion', stmt: { kind: 'eqangle', args: ['∡(AH, BC)', '∡(HK, BC)'], points: ['A', 'H', 'K', 'B', 'C'] },
-      body: [{ kind: 'pooled', table: 'angle', stmt: { kind: 'eqangle', args: ['∡(AH, BC)', '∡(HK, BC)'], points: ['A', 'H', 'K', 'B', 'C'] },
-        reasons: [{ kind: 'hyp', stmt: perp('AH', 'BC', ['A', 'H', 'B', 'C']) }, { kind: 'fact', stmt: perp('HK', 'BC', ['H', 'K', 'B', 'C']) }],
-        combination: [{ coef: '1', eq: '∡(AH, BC) = 90°', reason: { kind: 'hyp', stmt: perp('AH', 'BC', ['A', 'H', 'B', 'C']) } },
-          { coef: '−1', eq: '∡(HK, BC) = 90°', reason: { kind: 'fact', stmt: perp('HK', 'BC', ['H', 'K', 'B', 'C']) } }] }],
-      engine_steps: [], points: ['A', 'H', 'K', 'B', 'C'], objects: [] }] };
+    const h = { version: 1, as_drawn: false, setup: [], blocks: [{ id: 1, kind: 'conclusion', n: null, stmt: { kind: 'eqangle', args: ['∡(AH, BC)', '∡(HK, BC)'], points: ['A', 'B', 'C', 'H', 'K'] },
+      body: [{ kind: 'pooled', stmt: { kind: 'eqangle', args: ['∡(AH, BC)', '∡(HK, BC)'], points: ['A', 'B', 'C', 'H', 'K'] },
+        reasons: [{ kind: 'hyp', stmt: perp('AH', 'BC', ['A', 'B', 'C', 'H']), step: 1 }, { ...perp('HK', 'BC', ['B', 'C', 'H', 'K']), step: 2, block: null, because: [] }],
+        combination: [{ reason: 0, row: 0, coef: '1' }, { reason: 1, row: 0, coef: '-1' }] }],
+      engine_steps: [], points: ['A', 'H', 'K', 'B', 'C'], objects: [] }], metrics: {} };
     window.GS.renderHuman(box, h, { points: [], proof: { steps: [] } }, {});
     const btn = box.querySelector('.hp-compute-toggle');
     const before = btn && box.querySelector('.hp-compute').hidden;
@@ -81,6 +83,22 @@ export async function humanProofFlow(page, tag, check, shot, opts = {}) {
   check(f.sw <= f.vw, `${tag}: the proof tabs fit (${f.sw}/${f.vw})`);
   if (shot) await shot(page, 'full-derivation-from-chip');
   return true;
+}
+
+export async function humanParity(page, tag, check, dir) {
+  const names = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
+  const norm = (x) => x.split(/\s+/).join(' ').trim();
+  for (const name of names) {
+    const f = JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`), 'utf8'));
+    for (const lang of ['en', 'ro']) {
+      const want = fs.readFileSync(path.join(dir, `${name}.${lang}.txt`), 'utf8');
+      const got = await page.evaluate(([h, v, l]) => window.GS.humanText(h, v, { lang: l, auxText: window.GS.auxText }), [f.human, f.view, lang]);
+      const same = norm(got) === norm(want);
+      let at = 0;
+      if (!same) { const a = norm(got), b = norm(want); while (at < a.length && a[at] === b[at]) at++; }
+      check(same, `${tag}: the browser writes ${name} (${lang}) as the server does${same ? '' : ` — differs at ${at}: …${norm(got).slice(Math.max(0, at - 40), at + 60)}… vs …${norm(want).slice(Math.max(0, at - 40), at + 60)}…`}`);
+    }
+  }
 }
 
 export async function humanRomanian(page, tag, check, shot) {

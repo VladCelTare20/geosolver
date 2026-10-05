@@ -216,7 +216,7 @@ async function guestRun(devBase, land, scheme) {
 
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.click('#tab-describe');
-    await page.fill('#describe-input', 'Triangle ABC with AB = AC. Prove the base angles are equal.');
+    await page.fill('#describe-input', 'Triangle ABC with AB = 5, AC = 4, BC = 6 and D on BC with BD = 2. Prove AD² = 14.');
     await page.click('#solve');
     await settle(page);
     const dv = await page.evaluate(() => ({ v: document.getElementById('verdict').hidden ? '' : document.getElementById('verdict').innerText, e: document.getElementById('state-error').hidden ? '' : document.getElementById('state-error').innerText }));
