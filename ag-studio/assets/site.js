@@ -171,8 +171,8 @@
       '<div class="step-body"><div class="step-stmt">' + esc(t("proof.hyps", { list: ranges(given.map(function (s) { return s.n; })) })) + "</div>" +
       '<p class="step-meta"><button type="button" class="link-btn group-toggle" aria-expanded="false" tabindex="-1">' + esc(t("proof.hyps.show")) + "</button></p></div></li>";
   }
-  /** Render the numbered, cited steps into `ol`. `hooks.focus(points)` is
-   * called with the step's points on hover/focus (null on leave). */
+  /** Render the numbered, cited steps into `ol`. `hooks.focus(points, facts)`
+   * is called with the step's points and facts on hover/focus (null on leave). */
   function renderSteps(ol, proof, hooks) {
     hooks = hooks || {};
     var steps = (proof && proof.steps) || [];
@@ -192,12 +192,19 @@
     if (firstShown) firstShown.tabIndex = 0;
     function shown() { return items.filter(function (x) { return !x.hidden; }); }
     function pts(li) { var p = li.getAttribute("data-points"); return p ? p.split(" ") : []; }
+    function factsOf(li) {
+      if (li.classList.contains("is-conclusion")) return proof.conclusion ? [proof.conclusion] : null;
+      if (li.classList.contains("is-group")) return given.map(function (s) { return s.fact; });
+      var n = +li.getAttribute("data-n");
+      var st = steps.filter(function (s) { return s.n === n; })[0];
+      return st ? [st.fact] : null;
+    }
     function activate(li) {
       items.forEach(function (x) {
         x.classList.toggle("is-active", x === li);
         x.querySelectorAll(".cite, .group-toggle").forEach(function (c) { c.tabIndex = x === li ? 0 : -1; });
       });
-      if (hooks.focus) hooks.focus(li ? pts(li) : null);
+      if (hooks.focus) hooks.focus(li ? pts(li) : null, li ? factsOf(li) : null);
     }
     function setGroup(open) {
       items.forEach(function (x) { if (x.hasAttribute("data-restated")) x.hidden = !open; });
@@ -660,21 +667,109 @@
       el.removeAttribute("aria-label");
     }
   }
-  /** Emphasise the elements a set of points defines; null clears. */
-  Viewer.prototype.highlight = function (points) {
+  function factShape(f) {
+    if (!f || !f.points || !f.points.length) return null;
+    var names = f.points.slice().sort(function (x, y) { return y.length - x.length; });
+    var o = { pts: f.points.slice(), segs: [], circs: [], angles: [] };
+    function split(str) {
+      var x = String(str == null ? "" : str).replace(/[\u2220\u25b3()\s,]/g, ""), out = [], i = 0;
+      while (i < x.length) {
+        var m = null;
+        for (var k = 0; k < names.length; k++) if (x.substr(i, names[k].length) === names[k]) { m = names[k]; break; }
+        if (!m) return null;
+        out.push(m);
+        i += m.length;
+      }
+      return out;
+    }
+    function seg(str) { var q = split(str); if (!q || q.length !== 2) return false; o.segs.push(q); return true; }
+    function tri(str) { var q = split(str); if (!q || q.length !== 3) return false; o.segs.push([q[0], q[1]], [q[1], q[2]], [q[2], q[0]]); return true; }
+    function angle(str) {
+      str = String(str || "");
+      if (str.indexOf("(") >= 0) { var two = str.replace(/[\u2220()]/g, "").split(","); return two.length === 2 && seg(two[0]) && seg(two[1]); }
+      var q = split(str);
+      if (!q || q.length !== 3) return false;
+      o.segs.push([q[1], q[0]], [q[1], q[2]]);
+      o.angles.push(q);
+      return true;
+    }
+    function circ(centre, on) { if (!on || on.length < 2) return false; o.circs.push({ c: centre, on: on }); return true; }
+    function all(fn, list) { return list.every(fn); }
+    var a = f.args || [], ok;
+    switch (f.kind) {
+      case "coll":
+        for (var i = 0; i < o.pts.length; i++) for (var j = i + 1; j < o.pts.length; j++) o.segs.push([o.pts[i], o.pts[j]]);
+        ok = o.pts.length >= 2; break;
+      case "cyclic": ok = circ(null, o.pts); break;
+      case "circle": ok = circ(a[0], split(a[1])); break;
+      case "oncircle": ok = circ(a[0], a.slice(1)); break;
+      case "midp": { var ab = split(a[1]); ok = !!ab && ab.length === 2; if (ok) o.segs.push(ab, [a[0], ab[0]], [a[0], ab[1]]); break; }
+      case "cong": case "perp": case "para": ok = all(seg, a.slice(0, 2)); break;
+      case "length": ok = seg(a[0]); break;
+      case "eqdist": ok = all(seg, a); break;
+      case "eqangle": ok = all(angle, a.slice(0, 2)); break;
+      case "aconst": ok = angle(a[0]); break;
+      case "eqratio": ok = all(seg, a.slice(0, 4)); break;
+      case "rconst": ok = all(seg, a.slice(0, 2)); break;
+      case "para_ratio": ok = all(seg, a.slice(0, 6)); break;
+      case "simtri": case "contri": ok = all(tri, a.slice(0, 2)); break;
+      case "concur": ok = all(seg, a.slice(0, -1)); break;
+      case "incenter": case "excenter": case "in_or_excenter": ok = tri(a[1]); break;
+      case "coincide": case "points": ok = true; break;
+      default: ok = false;
+    }
+    return ok ? o : null;
+  }
+  function figShape(facts) {
+    var out = { pts: [], segs: [], circs: [], angles: [] };
+    for (var i = 0; i < facts.length; i++) {
+      var o = factShape(facts[i]);
+      if (!o) return null;
+      o.pts.forEach(function (p) { if (out.pts.indexOf(p) < 0) out.pts.push(p); });
+      out.segs = out.segs.concat(o.segs);
+      out.circs = out.circs.concat(o.circs);
+      out.angles = out.angles.concat(o.angles);
+    }
+    return facts.length ? out : null;
+  }
+  function shapeLit(el, pts, shape, S) {
+    var has = function (p) { return pts.indexOf(p) >= 0; };
+    var onSeg = function (list) { return shape.segs.some(function (q) { return list.indexOf(q[0]) >= 0 && list.indexOf(q[1]) >= 0; }); };
+    var cls = el.classList;
+    if (cls.contains("f-dot") || cls.contains("f-lbl") || cls.contains("f-lead")) return S.has(pts[0]);
+    if (el.tagName === "line") return onSeg(pts);
+    if (el.tagName === "circle") {
+      var c = el.getAttribute("data-c");
+      return shape.circs.some(function (k) {
+        var n = k.on.filter(has).length;
+        return n >= 3 || (!!k.c && k.c === c && n >= 2);
+      });
+    }
+    if (pts.length === 2) return shape.segs.some(function (q) { return (q[0] === pts[0] && q[1] === pts[1]) || (q[0] === pts[1] && q[1] === pts[0]); });
+    if (pts.length === 3) return shape.angles.some(function (q) { return q[1] === pts[0] && ((q[0] === pts[1] && q[2] === pts[2]) || (q[0] === pts[2] && q[2] === pts[1])); });
+    if (pts.length === 4) return onSeg(pts.slice(0, 2)) && onSeg(pts.slice(2));
+    return pts.every(function (p) { return S.has(p); });
+  }
+  /** Emphasise the elements a set of points defines; null clears. With
+   * `facts`, only the objects those facts name light up. */
+  Viewer.prototype.highlight = function (points, facts) {
     if (!this.svg) return;
     var S = points && points.length ? new Set(points) : null;
+    var shape = S && facts ? figShape([].concat(facts)) : null;
     this.svg.classList.toggle("has-focus", !!S);
     this.svg.querySelectorAll("[data-p]").forEach(function (el) {
       if (!S) { el.classList.remove("hl"); return; }
       var pts = el.getAttribute("data-p").split(" ");
-      var n = 0;
-      pts.forEach(function (p) { if (S.has(p)) n++; });
       var on;
-      if (el.classList.contains("f-dot") || el.classList.contains("f-lbl") || el.classList.contains("f-lead")) on = S.has(pts[0]);
-      else if (el.tagName === "line") on = n >= 2;
-      else if (el.tagName === "circle") { var c = el.getAttribute("data-c"); on = n >= 3 || (c && S.has(c) && n >= 2); }
-      else on = n === pts.length;
+      if (shape) on = shapeLit(el, pts, shape, S);
+      else {
+        var n = 0;
+        pts.forEach(function (p) { if (S.has(p)) n++; });
+        if (el.classList.contains("f-dot") || el.classList.contains("f-lbl") || el.classList.contains("f-lead")) on = S.has(pts[0]);
+        else if (el.tagName === "line") on = n >= 2;
+        else if (el.tagName === "circle") { var c = el.getAttribute("data-c"); on = n >= 3 || (c && S.has(c) && n >= 2); }
+        else on = n === pts.length;
+      }
       el.classList.toggle("hl", !!on);
     });
   };
@@ -757,5 +852,5 @@
     return { close: close, el: el, button: el.querySelector("button") };
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast };
+  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast };
 })();

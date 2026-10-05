@@ -14,7 +14,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 ## Notes
 - Every inline `<script>` is pinned by hash in the CSP (`security.rs:content_security_policy`, computed from these files at startup); page logic lives in the `.js` files, which `'self'` allows. Only the tiny theme/language no-flash snippet in each `<head>` is inline.
 - `site.js:Viewer` — zoom changes the SVG `viewBox` (crisp at any scale); labels and dots are re-sized per zoom from `data-x/y/dx/dy` so they stay a constant screen size.
-- `site.js:Viewer.highlight` — a line lights up when ≥ 2 of its points are in the step, a circle with ≥ 3 (or its centre + 2), marks when all of theirs are.
+- `site.js:Viewer.highlight(points, facts)` — with facts (steps, GIVEN, PROVE) only the objects the predicate names light up (`factShape`): cyclic → its circle, simtri → six sides, perp/para/cong → two segments, eqangle → the arms and the arc at the vertex, coll → its line; a drawn line is lit when it contains one of those segments. Facts it cannot read (prose, formulas) fall back to points: a line with ≥ 2 of them, a circle with ≥ 3 (or its centre + 2), marks when all of theirs are.
 - `app.js:solve` — a new solve clears the previous result before anything else, so an error can never sit next to an old verdict. "Shortest proof" shows the standard result first, then swaps in the best-mode proof only if it is strictly shorter.
 - `app.js:deleteHistory` — deletion is deferred 6 s for Undo; pending deletes are flushed with `keepalive` on `pagehide`.
 - Colour tokens were checked for WCAG AA (text ≥ 4.5:1, borders/graphics ≥ 3:1) in both themes.

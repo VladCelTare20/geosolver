@@ -827,14 +827,16 @@
     box.innerHTML = html;
     box.hidden = !(sol.title || given || v.goal || aux);
     var items = Array.prototype.slice.call(box.querySelectorAll("[data-points]"));
+    var facts = (v.given || []).concat(v.goal ? [v.goal] : []);
     items.forEach(function (el, i) {
       var pts = el.getAttribute("data-points").split(" ");
+      var fs = facts[i] ? [facts[i]] : null;
       el.tabIndex = i === 0 ? 0 : -1;
-      el.addEventListener("mouseenter", function () { viewer.highlight(pts); });
+      el.addEventListener("mouseenter", function () { viewer.highlight(pts, fs); });
       el.addEventListener("mouseleave", function () { if (document.activeElement !== el) viewer.highlight(null); });
       el.addEventListener("focus", function () {
         items.forEach(function (x) { x.tabIndex = x === el ? 0 : -1; });
-        viewer.highlight(pts);
+        viewer.highlight(pts, fs);
         if (stepsApi) stepsApi.markPoint(pts.length === 1 ? pts[0] : null);
       });
       el.addEventListener("blur", function () { viewer.highlight(null); if (stepsApi) stepsApi.markPoint(null); });
@@ -887,7 +889,7 @@
     $("steps-none").textContent = t("proof.none");
     var proofCard = $("steps").closest(".proof");
     proofCard.hidden = !proved;
-    if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts) { viewer.highlight(pts); } });
+    if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts, facts) { viewer.highlight(pts, facts); } });
     else { $("steps").innerHTML = ""; stepsApi = null; }
     var aiOK = proved && S.status && S.status.translate_logged_in && S.status.translate_installed;
     $("proof-tabs").hidden = !aiOK;

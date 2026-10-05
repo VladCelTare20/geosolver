@@ -18,7 +18,7 @@
     var cut = previewEnd(proof.steps);
     var steps = expanded ? proof.steps : proof.steps.slice(0, cut);
     GS.renderSteps($("steps"), { steps: steps, conclusion: expanded ? proof.conclusion : null }, {
-      focus: function (pts) { viewer.highlight(pts); },
+      focus: function (pts, facts) { viewer.highlight(pts, facts); },
     });
     var more = $("more");
     more.hidden = proof.steps.length <= cut;
