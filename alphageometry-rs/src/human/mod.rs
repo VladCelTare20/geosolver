@@ -197,7 +197,7 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
     for &f in &cx.closure {
         match cx.class[f as usize] {
             ctx::FactClass::Hyp => {}
-            ctx::FactClass::HypReg | ctx::FactClass::Silent => m.silent += 1,
+            ctx::FactClass::HypReg | ctx::FactClass::Silent | ctx::FactClass::SilentHyp => m.silent += 1,
             ctx::FactClass::TheoremReg(_) | ctx::FactClass::MergeReg(_) => m.silent += 1,
             _ => {
                 let raw = hp.blocks.iter().any(|b| b.kind == BlockKind::Raw && b.engine_facts.contains(&f));

@@ -21,12 +21,14 @@ pub struct Target {
     pub row: LinComb,
     pub splits: Vec<Split>,
     pub stmt: Stmt,
+    pub alts: Vec<Target>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Obl {
     pub label: &'static str,
     pub targets: Vec<Target>,
+    pub requires: Vec<FactId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +38,8 @@ pub enum Kind {
     Sim,
     Congruent,
     Cong,
+    Isosceles,
+    Length,
     Angle,
     Theorem(TheoremKey),
     Formula(TheoremKey),
@@ -101,18 +105,29 @@ pub fn kind(cx: &Ctx, f: FactId) -> Kind {
         Reason::Concyclic(_) => Kind::Cyclic,
         Reason::Collinear(_) => Kind::Coll,
         Reason::SimilarTriangles(a, b) => {
-            if ratio_one(cx, *a, *b) {
+            if self_similar(*a, *b) {
+                Kind::Isosceles
+            } else if ratio_one(cx, *a, *b) {
                 Kind::Congruent
             } else {
                 Kind::Sim
             }
         }
         Reason::TransferArcChord(..) => Kind::Cong,
+        Reason::TransferAddMul(..) => Kind::Length,
         Reason::Theorem(name, _) => Kind::Theorem(theorem_key(name)),
         Reason::Formula(name, _, _) => Kind::Formula(theorem_key(name)),
         Reason::PointMerge(..) | Reason::TangentMerge(..) => Kind::Merge,
         _ => Kind::Other,
     }
+}
+
+pub fn self_similar(a: (PointId, PointId, PointId), b: (PointId, PointId, PointId)) -> bool {
+    let mut s1 = [a.0, a.1, a.2];
+    let mut s2 = [b.0, b.1, b.2];
+    s1.sort_unstable();
+    s2.sort_unstable();
+    s1 == s2
 }
 
 pub fn opposite(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, PointId, PointId)) -> bool {
@@ -126,6 +141,14 @@ pub fn fact_stmt(cx: &Ctx, f: FactId) -> Stmt {
         Reason::Collinear(p) => Stmt::Coll { pts: p.clone() },
         Reason::SimilarTriangles(a, b) => {
             let opp = opposite(cx, *a, *b);
+            if self_similar(*a, *b) {
+                let ta = [a.0, a.1, a.2];
+                let tb = [b.0, b.1, b.2];
+                if let Some(i) = (0..3).find(|&i| ta[i] == tb[i]) {
+                    let others: Vec<PointId> = (0..3).filter(|&j| j != i).map(|j| ta[j]).collect();
+                    return Stmt::Cong { s1: (ta[i], others[0]), s2: (ta[i], others[1]) };
+                }
+            }
             if ratio_one(cx, *a, *b) {
                 Stmt::Congruent { t1: *a, t2: *b, opposite: opp }
             } else {
@@ -225,7 +248,7 @@ pub fn angle_target(cx: &Ctx, l: Expr, r: Expr, stmt: Stmt) -> Option<Target> {
     if !cx.t.holds(Table::Angle, &raw) {
         return None;
     }
-    Some(Target { table: Table::Angle, row: cx.t.exact(Table::Angle, &raw), splits: vec![Split { l, r, lraw, rraw }], stmt })
+    Some(Target { table: Table::Angle, row: cx.t.exact(Table::Angle, &raw), splits: vec![Split { l, r, lraw, rraw }], stmt, alts: Vec::new() })
 }
 
 pub fn ratio_target(cx: &Ctx, l: Expr, r: Expr, stmt: Stmt) -> Option<Target> {
@@ -235,7 +258,7 @@ pub fn ratio_target(cx: &Ctx, l: Expr, r: Expr, stmt: Stmt) -> Option<Target> {
     if !cx.t.holds(Table::Ratio, &raw) {
         return None;
     }
-    Some(Target { table: Table::Ratio, row: raw, splits: vec![Split { l, r, lraw, rraw }], stmt })
+    Some(Target { table: Table::Ratio, row: raw, splits: vec![Split { l, r, lraw, rraw }], stmt, alts: Vec::new() })
 }
 
 fn seg(a: PointId, b: PointId) -> Expr {
@@ -248,48 +271,119 @@ fn quot(num: Vec<Expr>, den: Vec<Expr>) -> Expr {
     Expr::Prod { factors: f }
 }
 
-pub fn cyclic_targets(cx: &Ctx, p: &[PointId]) -> Option<Vec<Target>> {
-    if p.len() < 4 {
-        return Some(Vec::new());
-    }
-    let mut out = Vec::new();
-    for j in 3..p.len() {
-        let q = [p[0], p[1], p[2], p[j]];
-        let stmt = Stmt::Cyclic { pts: q.to_vec() };
+pub fn cyc_forms(cx: &Ctx, q: [PointId; 4]) -> Vec<Target> {
+    let stmt = Stmt::Cyclic { pts: q.to_vec() };
+    let mut out: Vec<Target> = Vec::new();
+    for (a, b, c, d) in [(q[0], q[1], q[2], q[3]), (q[0], q[2], q[1], q[3]), (q[0], q[3], q[1], q[2])] {
         let mut t: Option<Target> = None;
-        for (a, b, c, d) in [(q[0], q[1], q[2], q[3]), (q[0], q[2], q[1], q[3]), (q[0], q[3], q[1], q[2]), (q[1], q[2], q[0], q[3]), (q[1], q[3], q[0], q[2]), (q[2], q[3], q[0], q[1])] {
-            if let Some(x) = angle_target(cx, ang_expr(a, c, b), ang_expr(a, d, b), stmt.clone()) {
+        for (x, y, u, v) in [(a, b, c, d), (c, d, a, b)] {
+            if let Some(n) = angle_target(cx, ang_expr(x, u, y), ang_expr(x, v, y), stmt.clone()) {
                 match &mut t {
-                    None => t = Some(x),
+                    None => t = Some(n),
                     Some(t0) => {
-                        if t0.row == x.row || t0.row == x.row.negated() {
-                            t0.splits.extend(x.splits);
+                        if t0.row == n.row || t0.row == n.row.negated() {
+                            t0.splits.extend(n.splits);
                         }
                     }
                 }
             }
         }
-        out.push(t?);
+        out.extend(t);
     }
-    Some(out)
+    out
 }
 
-pub fn coll_targets(cx: &Ctx, p: &[PointId], pivot: usize) -> Option<Vec<Target>> {
-    if p.len() < 3 {
-        return Some(Vec::new());
+fn with_alts(mut forms: Vec<Target>) -> Option<Target> {
+    if forms.is_empty() {
+        return None;
+    }
+    let mut first = forms.remove(0);
+    first.alts = forms;
+    Some(first)
+}
+
+fn triples(base: &[PointId], cap: usize) -> Vec<(PointId, PointId, PointId)> {
+    let mut out = Vec::new();
+    for i in 0..base.len() {
+        for j in i + 1..base.len() {
+            for k in j + 1..base.len() {
+                if out.len() < cap {
+                    out.push((base[i], base[j], base[k]));
+                }
+            }
+        }
+    }
+    out
+}
+
+pub fn cyclic_targets(cx: &Ctx, p: &[PointId], f: Option<FactId>) -> Option<(Vec<Target>, Vec<FactId>)> {
+    if p.len() < 4 {
+        return Some((Vec::new(), Vec::new()));
+    }
+    let mut base: Vec<PointId> = p[..3].to_vec();
+    let mut requires = Vec::new();
+    if let Some(f) = f {
+        let best = cx
+            .circles
+            .iter()
+            .filter(|c| c.fact < f && c.pts.len() >= 3 && c.pts.len() < p.len() && c.pts.iter().all(|x| p.contains(x)))
+            .max_by_key(|c| (c.pts.len(), std::cmp::Reverse(c.src.len()), std::cmp::Reverse(c.fact)));
+        if let Some(c) = best {
+            base = c.pts.clone();
+            requires.push(c.fact);
+        }
     }
     let mut out = Vec::new();
-    let v = p[pivot.min(p.len() - 1)];
-    let rest: Vec<PointId> = p.iter().copied().filter(|&x| x != v).collect();
-    let a = rest[0];
-    for &c in &rest[1..] {
-        if cx.collinear_hyp(&[v, a, c]) {
+    for &x in p.iter().filter(|x| !base.contains(x)) {
+        let mut forms = Vec::new();
+        for (a, b, c) in triples(&base, 10) {
+            forms.extend(cyc_forms(cx, [a, b, c, x]));
+        }
+        out.push(with_alts(forms)?);
+    }
+    Some((out, requires))
+}
+
+pub fn coll_targets(cx: &Ctx, p: &[PointId], f: Option<FactId>) -> Option<(Vec<Target>, Vec<FactId>)> {
+    if p.len() < 3 {
+        return Some((Vec::new(), Vec::new()));
+    }
+    let mut base: Vec<PointId> = p[..2].to_vec();
+    let mut requires = Vec::new();
+    if let Some(f) = f {
+        let best = cx
+            .lines
+            .iter()
+            .filter(|l| l.fact < f && l.pts.len() >= 2 && l.pts.len() < p.len() && l.pts.iter().all(|x| p.contains(x)))
+            .max_by_key(|l| (l.pts.len(), std::cmp::Reverse(l.src.len()), std::cmp::Reverse(l.fact)));
+        if let Some(l) = best {
+            base = l.pts.clone();
+            requires.push(l.fact);
+        }
+    }
+    let mut out = Vec::new();
+    for &c in p.iter().filter(|x| !base.contains(x)) {
+        if cx.collinear_hyp(&[base[0], base[1], c]) {
             continue;
         }
-        let stmt = Stmt::Coll { pts: vec![a, v, c] };
-        out.push(angle_target(cx, ang_expr(a, v, c), Expr::Const { degrees: Rat::zero() }, stmt)?);
+        let mut forms = Vec::new();
+        let mut pairs = 0;
+        for i in 0..base.len() {
+            for j in i + 1..base.len() {
+                if pairs >= 6 {
+                    continue;
+                }
+                pairs += 1;
+                let (a, b) = (base[i], base[j]);
+                let stmt = Stmt::Coll { pts: vec![a, b, c] };
+                for (x, v, y) in [(b, a, c), (a, b, c), (a, c, b)] {
+                    forms.extend(angle_target(cx, ang_expr(x, v, y), Expr::Const { degrees: Rat::zero() }, stmt.clone()));
+                }
+            }
+        }
+        out.push(with_alts(forms)?);
     }
-    Some(out)
+    Some((out, requires))
 }
 
 pub fn sim_obligations(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, PointId, PointId)) -> Vec<Obl> {
@@ -319,21 +413,21 @@ pub fn sim_obligations(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, 
     let r2 = ratio_at(b, a, c, y, x, z);
     let r3 = ratio_at(c, a, b, z, x, y);
     if let (Some(p), Some(q)) = (&a1, &a2) {
-        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()] });
+        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()], requires: vec![] });
     }
     if let (Some(p), Some(q)) = (&a1, &a3) {
-        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()] });
+        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()], requires: vec![] });
     }
     if let (Some(p), Some(q)) = (&a2, &a3) {
-        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()] });
+        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()], requires: vec![] });
     }
     for (aa, rr) in [(&a1, &r1), (&a2, &r2), (&a3, &r3)] {
         if let (Some(p), Some(q)) = (aa, rr) {
-            out.push(Obl { label: "SAS", targets: vec![p.clone(), q.clone()] });
+            out.push(Obl { label: "SAS", targets: vec![p.clone(), q.clone()], requires: vec![] });
         }
     }
     if let (Some(p), Some(q)) = (&r1, &r2) {
-        out.push(Obl { label: "SSS", targets: vec![p.clone(), q.clone()] });
+        out.push(Obl { label: "SSS", targets: vec![p.clone(), q.clone()], requires: vec![] });
     }
     out
 }
@@ -447,7 +541,7 @@ pub fn formula_obligation(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
         TheoremKey::LawOfSines => return Some(Vec::new()),
         _ => return None,
     }?;
-    Some(vec![Obl { label: "angles", targets: vec![target] }])
+    Some(vec![Obl { label: "angles", targets: vec![target], requires: vec![] }])
 }
 
 pub fn goal_obligations(cx: &Ctx, g: &Predicate) -> Vec<Obl> {
@@ -458,48 +552,46 @@ pub fn goal_obligations(cx: &Ctx, g: &Predicate) -> Vec<Obl> {
     let mut out = Vec::new();
     match g.name.as_str() {
         "coll" => {
-            for pivot in 0..p.len().min(3) {
-                if let Some(t) = coll_targets(cx, p, pivot) {
-                    out.push(Obl { label: "coll", targets: t });
-                }
+            if let Some((t, _)) = coll_targets(cx, p, None) {
+                out.push(Obl { label: "coll", targets: t, requires: vec![] });
             }
         }
         "cyclic" => {
-            if let Some(t) = cyclic_targets(cx, p) {
-                out.push(Obl { label: "cyclic", targets: t });
+            if let Some((t, _)) = cyclic_targets(cx, p, None) {
+                out.push(Obl { label: "cyclic", targets: t, requires: vec![] });
             }
         }
         "eqangle" if p.len() == 8 => {
             let l = line_angle_expr(pair(0), pair(2));
             let r = line_angle_expr(pair(4), pair(6));
             if let Some(t) = angle_target(cx, l, r, stmt.clone()) {
-                out.push(Obl { label: "eqangle", targets: vec![t] });
+                out.push(Obl { label: "eqangle", targets: vec![t], requires: vec![] });
             }
         }
         "para" if p.len() == 4 => {
             if let Some(t) = angle_target(cx, la(pair(2), pair(0)), Expr::Const { degrees: Rat::zero() }, stmt.clone()) {
-                out.push(Obl { label: "para", targets: vec![t] });
+                out.push(Obl { label: "para", targets: vec![t], requires: vec![] });
             }
         }
         "perp" if p.len() == 4 => {
             if let Some(t) = angle_target(cx, la(pair(2), pair(0)), Expr::Const { degrees: Rat::from_int(90) }, stmt.clone()) {
-                out.push(Obl { label: "perp", targets: vec![t] });
+                out.push(Obl { label: "perp", targets: vec![t], requires: vec![] });
             }
         }
         "aconst" | "s_angle" if p.len() == 4 => {
             let d = g.constants.first().cloned().unwrap_or_else(Rat::zero);
             if let Some(t) = angle_target(cx, la(pair(2), pair(0)), Expr::Const { degrees: d }, stmt.clone()) {
-                out.push(Obl { label: "aconst", targets: vec![t] });
+                out.push(Obl { label: "aconst", targets: vec![t], requires: vec![] });
             }
         }
         "cong" if p.len() == 4 => {
             if let Some(t) = ratio_target(cx, seg(p[0], p[1]), seg(p[2], p[3]), stmt.clone()) {
-                out.push(Obl { label: "cong", targets: vec![t] });
+                out.push(Obl { label: "cong", targets: vec![t], requires: vec![] });
             }
         }
         "eqratio" if p.len() == 8 => {
             if let Some(t) = ratio_target(cx, quot(vec![seg(p[0], p[1])], vec![seg(p[2], p[3])]), quot(vec![seg(p[4], p[5])], vec![seg(p[6], p[7])]), stmt.clone()) {
-                out.push(Obl { label: "eqratio", targets: vec![t] });
+                out.push(Obl { label: "eqratio", targets: vec![t], requires: vec![] });
             }
         }
         "rconst" if p.len() == 4 => {
@@ -511,7 +603,7 @@ pub fn goal_obligations(cx: &Ctx, g: &Predicate) -> Vec<Obl> {
             let mut f = vec![(seg(p[0], p[1]), 1)];
             f.extend(den.into_iter().map(|(e, _)| (e, -1)));
             if let Some(t) = ratio_target(cx, Expr::Prod { factors: f }, Expr::Num { value: Rat::one() }, stmt.clone()) {
-                out.push(Obl { label: "rconst", targets: vec![t] });
+                out.push(Obl { label: "rconst", targets: vec![t], requires: vec![] });
             }
         }
         _ => {}
@@ -525,17 +617,21 @@ pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
     match &t.facts[f as usize].reason {
         Reason::Concyclic(p) => {
             let mut out = Vec::new();
-            if let Some(ts) = cyclic_targets(cx, p) {
-                out.push(Obl { label: "inscribed", targets: ts });
+            if let Some((ts, req)) = cyclic_targets(cx, p, Some(f)) {
+                out.push(Obl { label: "inscribed", targets: ts, requires: req });
+            }
+            if let Some((ts, _)) = cyclic_targets(cx, p, None) {
+                out.push(Obl { label: "inscribed", targets: ts, requires: vec![] });
             }
             Some(out)
         }
         Reason::Collinear(p) => {
             let mut out = Vec::new();
-            for pivot in 0..p.len().min(3) {
-                if let Some(ts) = coll_targets(cx, p, pivot) {
-                    out.push(Obl { label: "coll", targets: ts });
-                }
+            if let Some((ts, req)) = coll_targets(cx, p, Some(f)) {
+                out.push(Obl { label: "coll", targets: ts, requires: req });
+            }
+            if let Some((ts, _)) = coll_targets(cx, p, None) {
+                out.push(Obl { label: "coll", targets: ts, requires: vec![] });
             }
             Some(out)
         }
@@ -559,7 +655,7 @@ pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
                             for (l, r) in [(ang_expr(a, z, b), ang_expr(c, w, d)), (ang_expr(a, z, b), ang_expr(d, w, c))] {
                                 let st = Stmt::EqAngle { lhs: l.clone(), rhs: r.clone() };
                                 if let Some(tg) = angle_target(cx, l, r, st) {
-                                    out.push(Obl { label: "arcs", targets: vec![tg] });
+                                    out.push(Obl { label: "arcs", targets: vec![tg], requires: vec![circle.fact] });
                                 }
                             }
                         }
@@ -567,7 +663,8 @@ pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
                 }
                 Some(out)
             } else {
-                ratio_target(cx, seg(a, b), seg(c, d), Stmt::Cong { s1: (a, b), s2: (c, d) }).map(|tg| vec![Obl { label: "chords", targets: vec![tg] }])
+                let cf = cx.circles.iter().filter(|k| k.fact < f && [a, b, c, d].iter().all(|x| k.pts.contains(x))).min_by_key(|k| (k.src.len(), k.fact))?.fact;
+                ratio_target(cx, seg(a, b), seg(c, d), Stmt::Cong { s1: (a, b), s2: (c, d) }).map(|tg| vec![Obl { label: "chords", targets: vec![tg], requires: vec![cf] }])
             }
         }
         Reason::Theorem("radical axis", p) if p.len() == 3 => {
@@ -596,7 +693,10 @@ pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
                             let r = Expr::Prod { factors: vec![(seg(x, e1), 1), (seg(x, e2), 1)] };
                             let st = Stmt::Eq { lhs: l.clone(), rhs: r.clone() };
                             if let Some(tg) = ratio_target(cx, l, r, st) {
-                                out.push(Obl { label: "powers", targets: vec![tg] });
+                                let mut req = vec![c1.fact, c2.fact];
+                                req.extend(cx.line_through(&[x, d1, d2], f).map(|l| l.fact));
+                                req.extend(cx.line_through(&[x, e1, e2], f).map(|l| l.fact));
+                                out.push(Obl { label: "powers", targets: vec![tg], requires: req });
                             }
                         }
                     }
@@ -605,6 +705,28 @@ pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
             Some(out)
         }
         Reason::Formula(..) => formula_obligation(cx, f),
+        Reason::TransferAddMul(ab, cd) => {
+            let stmt = fact_stmt(cx, f);
+            let (s1, s2, k) = match &stmt {
+                Stmt::RatioConst { s1, s2, value } => (*s1, *s2, value.clone()),
+                Stmt::Cong { s1, s2 } => (*s1, *s2, Rat::one()),
+                _ => (*cd, *ab, Rat::one()),
+            };
+            let mut out = Vec::new();
+            if let (Some(x), Some(y), Some(c)) = (t.dm(s1.0, s1.1), t.dm(s2.0, s2.1), t.prime_const(&k)) {
+                let row = &(&x - &y) - &c;
+                let tg = Target { table: Table::Ratio, row: row.clone(), splits: vec![Split { l: seg(s1.0, s1.1), r: seg(s2.0, s2.1), lraw: x, rraw: &y + &c }], stmt: stmt.clone(), alts: Vec::new() };
+                out.push(Obl { label: "lengths", targets: vec![tg], requires: vec![] });
+            }
+            if let (Some(x), Some(y)) = (t.single(Table::Add, s1.0, s1.1), t.single(Table::Add, s2.0, s2.1)) {
+                let mut ky = y.clone();
+                ky.mul_assign_scalar(&k);
+                let row = &x - &ky;
+                let tg = Target { table: Table::Add, row: row.clone(), splits: vec![Split { l: seg(s1.0, s1.1), r: seg(s2.0, s2.1), lraw: x, rraw: ky }], stmt: stmt.clone(), alts: Vec::new() };
+                out.push(Obl { label: "segments", targets: vec![tg], requires: vec![] });
+            }
+            Some(out)
+        }
         _ => {
             let _ = FactClass::Derived;
             None

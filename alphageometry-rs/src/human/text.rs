@@ -239,7 +239,15 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
     match r {
         Reason::Hyp { stmt: s, .. } => hyp_text(n, s),
         Reason::Claim { n: k, .. } => format!("Claim {k}"),
-        Reason::Atom { key, args, stmt: s, .. } => atom_text(n, *key, args, s),
+        Reason::Atom { key, args, stmt: s, from } => {
+            let base = atom_text(n, *key, args, s);
+            if from.is_empty() {
+                base
+            } else {
+                let f: Vec<String> = from.iter().map(|b| claims.get(b).map(|k| format!("Claim {k}")).unwrap_or_else(|| "above".into())).collect();
+                format!("{base} ({})", f.join(", "))
+            }
+        }
         Reason::Fact { stmt: s, block, because, .. } => {
             let base = match s {
                 Stmt::Coll { pts } if pts.len() >= 3 && block.is_some() => format!("{} on {}", n.get(pts[pts.len() - 1]), n.pts(&pts[..2])),
@@ -412,7 +420,7 @@ pub struct Rendered {
 pub fn render(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], raw_line: &dyn Fn(FactId) -> String) -> Rendered {
     let n = Names::new(t, &hp.setup);
     let mut lines: Vec<String> = Vec::new();
-    let claims: BTreeMap<u16, u16> = BTreeMap::new();
+    let claims: BTreeMap<u16, u16> = hp.blocks.iter().filter_map(|b| if let BlockKind::Claim(k) = b.kind { Some((b.id, k)) } else { None }).collect();
     for s in &hp.setup {
         match s {
             SetupLine::DirectedAngles => lines.push("∡ denotes directed angles modulo 180°.".into()),
@@ -492,7 +500,12 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
         }
         Sentence::Pooled { stmt: st, reasons, .. } => {
             let rs: Vec<String> = reasons.iter().map(|r| reason(n, r, claims)).collect();
-            format!("Angle chasing with {} gives {}.", join_and(&rs), stmt(n, st))
+            let angular = matches!(st, Stmt::Coll { .. } | Stmt::Cyclic { .. } | Stmt::Perp { .. } | Stmt::Para { .. } | Stmt::EqAngle { .. } | Stmt::AngleConst { .. });
+            if angular {
+                format!("Angle chasing with {} gives {}.", join_and(&rs), stmt(n, st))
+            } else {
+                format!("From {}, {}.", join_and(&rs), stmt(n, st))
+            }
         }
         Sentence::Theorem { key, stmt: st, reasons } => {
             if reasons.is_empty() {

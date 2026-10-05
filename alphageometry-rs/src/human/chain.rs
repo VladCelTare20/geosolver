@@ -176,6 +176,9 @@ pub fn bfs(
                 }
             }
         }
+        if std::env::var_os("HP_BFS").is_some() {
+            eprintln!("bfs split {si} expanded {expanded} nodes {} found {} eligible {} L {:?} R {:?}", nodes.len(), found.is_some(), eligible.len(), l, r);
+        }
         if let Some(end) = found {
             let mut seq: Vec<usize> = vec![end];
             let mut links: Vec<(usize, Rat)> = Vec::new();
@@ -273,18 +276,23 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
     let m1 = &cx.quot.members[(pos - QBASE) as usize];
     let m2 = &cx.quot.members[(neg - QBASE) as usize];
     let common: Vec<PointId> = m1.iter().copied().filter(|p| m2.contains(p)).collect();
-    let mut best: Option<(i64, Expr, Rat)> = None;
-    let consider = |e: Expr, form: LinComb, best: &mut Option<(i64, Expr, Rat)>, sc: i64| {
+    let mut best: Option<(i64, Expr, Rat, Rat)> = None;
+    let consider = |e: Expr, form: LinComb, best: &mut Option<(i64, Expr, Rat, Rat)>, sc: i64| {
         let q = cx.quot.q(&form);
-        let rest = LinComb::combine(node, &q, &-&k);
-        if rest.terms.iter().any(|(v, _)| *v != ANGLE_UNIT) {
-            return;
-        }
-        let c = rest.get(ANGLE_UNIT);
-        let c = if directed { c.mod_one() } else { c };
-        let sc = sc - if c.is_zero() { 0 } else { 5 } - if !directed && c.is_negative() { 20 } else { 0 };
-        if best.as_ref().is_none_or(|b| sc > b.0) {
-            *best = Some((sc, e, c));
+        for kk in [k.clone(), -&k] {
+            if directed && kk.is_negative() {
+                continue;
+            }
+            let rest = LinComb::combine(node, &q, &-&kk);
+            if rest.terms.iter().any(|(v, _)| *v != ANGLE_UNIT) {
+                continue;
+            }
+            let c = rest.get(ANGLE_UNIT);
+            let c = if directed { c.mod_one() } else { c };
+            let sc = sc - if c.is_zero() { 0 } else { 5 } - if !directed && c.is_negative() { 20 } else { 0 } - if kk.is_negative() { 10 } else { 0 };
+            if best.as_ref().is_none_or(|b| sc > b.0) {
+                *best = Some((sc, e.clone(), c, kk));
+            }
         }
     };
     if let Some(y) = pick(&common, &score) {
@@ -297,8 +305,25 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
                     if let (Some(a), Some(b)) = (t.dir(y, z), t.dir(y, x)) {
                         consider(Expr::Angle { a: x, b: y, c: z, directed: true }, &a - &b, &mut best, sc);
                     }
-                } else if let Some(form) = interior(t, x, y, z) {
-                    consider(Expr::Angle { a: x, b: y, c: z, directed: false }, form, &mut best, sc);
+                } else {
+                    if let Some(form) = interior(t, x, y, z) {
+                        consider(Expr::Angle { a: x, b: y, c: z, directed: false }, form, &mut best, sc);
+                    }
+                    if let Some(form) = interior(t, z, y, x) {
+                        consider(Expr::Angle { a: z, b: y, c: x, directed: false }, form, &mut best, sc);
+                    }
+                }
+            }
+        }
+    }
+    if best.is_none() && !directed && std::env::var_os("HP_BFS").is_some() {
+        eprintln!("angle_expr undirected failed: common {:?} m1 {:?} m2 {:?} k {} node {:?}", common, m1, m2, k, node);
+        if let Some(&y) = common.first() {
+            for &x in m2.iter() {
+                for &z in m1.iter() {
+                    if x != y && z != y {
+                        eprintln!("  interior({x},{y},{z}) = {:?}  q = {:?}", interior(t, x, y, z), interior(t, x, y, z).map(|f| cx.quot.q(&f)));
+                    }
                 }
             }
         }
@@ -310,10 +335,15 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
         let sc = 0;
         consider(Expr::LineAngle { l1, l2, directed: true }, form, &mut best, sc);
     }
-    let (_, e, c) = best?;
+    let (_, e, c, k) = best?;
     let mut terms: Vec<(Rat, Expr)> = Vec::new();
     if k == Rat::one() && c.is_zero() {
         return Some(e);
+    }
+    if k.is_negative() && !c.is_zero() {
+        terms.push((Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
+        terms.push((k, e));
+        return Some(Expr::Lin { terms });
     }
     terms.push((k, e));
     if !c.is_zero() {

@@ -47,6 +47,7 @@ pub struct Node {
     pub claim_no: u16,
     pub links: usize,
     pub pooled: bool,
+    pub requires: Vec<FactId>,
 }
 
 pub struct Writer<'c, 'a> {
@@ -55,6 +56,7 @@ pub struct Writer<'c, 'a> {
     pub nodes: BTreeMap<FactId, Node>,
     pub claim_cost: BTreeSet<FactId>,
     pub bfs_budget: usize,
+    pub span_cache: std::cell::RefCell<BTreeMap<(FactId, Option<FactId>), Vec<super::cert::Basis>>>,
 }
 
 fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &Ctx) -> u32 {
@@ -75,16 +77,42 @@ fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &C
 impl<'c, 'a> Writer<'c, 'a> {
     pub fn new(cx: &'c Ctx<'a>) -> Writer<'c, 'a> {
         let atoms = build_all(cx);
-        Writer { cx, atoms, nodes: BTreeMap::new(), claim_cost: BTreeSet::new(), bfs_budget: 20_000 }
+        Writer { cx, atoms, nodes: BTreeMap::new(), claim_cost: BTreeSet::new(), bfs_budget: 20_000, span_cache: std::cell::RefCell::new(BTreeMap::new()) }
     }
 
     pub fn certify(&self, tb: Table, target: &LinComb, h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(Vec<(usize, Rat)>, i64)> {
+        let mut banned: BTreeSet<usize> = BTreeSet::new();
+        let mut best = self.certify_inner(tb, target, h, focus, exclude, &banned)?;
+        for _ in 0..6 {
+            if self.cx.timed_out() {
+                break;
+            }
+            let worst = best
+                .0
+                .iter()
+                .map(|(i, _)| *i)
+                .filter(|&i| self.atoms[i].cost >= 3 && !banned.contains(&i))
+                .max_by_key(|&i| (self.atoms[i].cost, i));
+            let Some(w) = worst else { break };
+            banned.insert(w);
+            match self.certify_inner(tb, target, h, focus, exclude, &banned) {
+                Some(c) if c.1 < best.1 => best = c,
+                _ => {
+                    banned.remove(&w);
+                    break;
+                }
+            }
+        }
+        Some(best)
+    }
+
+    fn certify_inner(&self, tb: Table, target: &LinComb, h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>, banned: &BTreeSet<usize>) -> Option<(Vec<(usize, Rat)>, i64)> {
         let cx = self.cx;
         let mut idx: Vec<(u32, usize)> = self
             .atoms
             .iter()
             .enumerate()
-            .filter(|(_, a)| a.table == tb && a.admissible(h) && (exclude.is_none() || a.fact() != exclude))
+            .filter(|(i, a)| a.table == tb && a.admissible(h) && (exclude.is_none() || a.fact() != exclude) && !banned.contains(i))
             .map(|(i, a)| (eff(a, focus, &self.claim_cost, cx), i))
             .collect();
         idx.sort();
@@ -101,6 +129,21 @@ impl<'c, 'a> Writer<'c, 'a> {
         Some((out, cost))
     }
 
+    pub fn in_admissible_span(&self, tb: Table, row: &LinComb, h: FactId, exclude: Option<FactId>) -> bool {
+        let key = (h, exclude);
+        let mut cache = self.span_cache.borrow_mut();
+        let bases = cache.entry(key).or_insert_with(|| {
+            let mut v: Vec<super::cert::Basis> = Table::ALL.iter().map(|t| super::cert::Basis::new(&self.cx.piv[t.idx()], false)).collect();
+            for (i, a) in self.atoms.iter().enumerate() {
+                if a.admissible(h) && (exclude.is_none() || a.fact() != exclude) {
+                    v[a.table.idx()].insert(i as u32, &a.row);
+                }
+            }
+            v
+        });
+        bases[tb.idx()].contains(row)
+    }
+
     fn focus_of(&self, f: FactId) -> BTreeSet<PointId> {
         if f == GOAL {
             self.cx.goal.points.iter().copied().collect()
@@ -109,8 +152,8 @@ impl<'c, 'a> Writer<'c, 'a> {
         }
     }
 
-    fn certify_obls(&self, obls: &[Obl], h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(&'static str, Vec<Part>, i64)> {
-        let mut best: Option<(&'static str, Vec<Part>, i64)> = None;
+    fn certify_obls(&self, obls: &[Obl], h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> {
+        let mut best: Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> = None;
         for o in obls {
             if self.cx.timed_out() {
                 break;
@@ -119,10 +162,24 @@ impl<'c, 'a> Writer<'c, 'a> {
             let mut total = 0i64;
             let mut ok = true;
             for t in &o.targets {
-                match self.certify(t.table, &t.row, h, focus, exclude) {
-                    Some((s, c)) => {
+                let mut best_t: Option<(Vec<(usize, Rat)>, i64, Target)> = None;
+                let forms: Vec<&Target> = std::iter::once(t).chain(t.alts.iter()).collect();
+                for form in forms {
+                    if !self.in_admissible_span(form.table, &form.row, h, exclude) {
+                        continue;
+                    }
+                    if let Some((s, c)) = self.certify(form.table, &form.row, h, focus, exclude) {
+                        if best_t.as_ref().is_none_or(|b| c < b.1) {
+                            let mut chosen = form.clone();
+                            chosen.alts.clear();
+                            best_t = Some((s, c, chosen));
+                        }
+                    }
+                }
+                match best_t {
+                    Some((s, c, chosen)) => {
                         total += c;
-                        parts.push(Part { target: t.clone(), support: s });
+                        parts.push(Part { target: chosen, support: s });
                     }
                     None => {
                         ok = false;
@@ -130,8 +187,9 @@ impl<'c, 'a> Writer<'c, 'a> {
                     }
                 }
             }
+            let total = total + 4 * o.requires.iter().filter(|&&r| !self.cx.is_hyp(r)).count() as i64;
             if ok && best.as_ref().is_none_or(|b| total < b.2) {
-                best = Some((o.label, parts, total));
+                best = Some((o.label, parts, total, o.requires.clone()));
             }
         }
         best
@@ -210,6 +268,7 @@ impl<'c, 'a> Writer<'c, 'a> {
             claim_no: 0,
             links: 0,
             pooled: false,
+            requires: Vec::new(),
         };
         match fact_obligations(cx, f) {
             Some(obls) if obls.is_empty() && matches!(k, Kind::Formula(TheoremKey::LawOfSines)) => {
@@ -217,8 +276,14 @@ impl<'c, 'a> Writer<'c, 'a> {
                 node.label = "identity";
             }
             Some(obls) => {
-                if let Some((label, parts, cost)) = self.certify_obls(&obls, f, &focus, Some(f)) {
+                if let Some((label, parts, cost, req)) = self.certify_obls(&obls, f, &focus, Some(f)) {
                     node.deps = self.deps_of(&parts);
+                    for &r in &req {
+                        for s in cx.fact_sources(r) {
+                            node.deps.insert(cx.displayable(s));
+                        }
+                    }
+                    node.requires = req;
                     node.label = label;
                     node.parts = Some(parts);
                     node.cost = cost;
@@ -252,6 +317,35 @@ impl<'c, 'a> Writer<'c, 'a> {
         let cx = self.cx;
         let h = goal_fact.unwrap_or(cx.closure.last().map(|x| x + 1).unwrap_or(0));
         let obls = goal_obligations(cx, &cx.goal);
+        if std::env::var_os("HP_DEBUG").is_some() {
+            eprintln!("goal {:?} h {h} obligations {}", cx.goal, obls.len());
+            for o in &obls {
+                for t in &o.targets {
+                    let all = self.certify(t.table, &t.row, FactId::MAX - 2, &BTreeSet::new(), None).is_some();
+                    let at_h = self.certify(t.table, &t.row, h, &BTreeSet::new(), None).is_some();
+                    let excl = self.certify(t.table, &t.row, h, &BTreeSet::new(), goal_fact).is_some();
+                    eprintln!("  target {:?} all {all} at_h {at_h} excl {excl}", t.stmt);
+                    if let Some(g) = goal_fact {
+                        for tb in Table::ALL {
+                            let mut bc = super::cert::Basis::new(&cx.piv[tb.idx()], false);
+                            let mut ba = super::cert::Basis::new(&cx.piv[tb.idx()], false);
+                            for (i, (f, r)) in cx.t.rows[tb.idx()].iter().enumerate() {
+                                if *f < g {
+                                    ba.insert(i as u32, r);
+                                    if cx.in_cl[*f as usize] {
+                                        bc.insert(i as u32, r);
+                                    }
+                                }
+                            }
+                            for r in cx.t.rows_of(tb, g) {
+                                eprintln!("    row of goal fact in {:?}: closure-span {} all-span {}", tb, bc.contains(r), ba.contains(r));
+                            }
+                        }
+                        eprintln!("    premises {:?}", cx.t.facts[g as usize].premises);
+                    }
+                }
+            }
+        }
         let focus = self.focus_of(GOAL);
         let mut node = Node {
             fact: GOAL,
@@ -269,8 +363,9 @@ impl<'c, 'a> Writer<'c, 'a> {
             claim_no: 0,
             links: 0,
             pooled: false,
+            requires: Vec::new(),
         };
-        if let Some((label, parts, cost)) = self.certify_obls(&obls, h, &focus, goal_fact) {
+        if let Some((label, parts, cost, _)) = self.certify_obls(&obls, h, &focus, goal_fact) {
             node.deps = self.deps_of(&parts);
             node.label = label;
             node.parts = Some(parts);
@@ -298,13 +393,19 @@ impl<'c, 'a> Writer<'c, 'a> {
             let obls = if k == GOAL { goal_obligations(self.cx, &self.cx.goal) } else { fact_obligations(self.cx, k).unwrap_or_default() };
             let focus = self.focus_of(k);
             let exclude = if k == GOAL { n.extra.first().copied() } else { Some(k) };
-            if let Some((label, parts, cost)) = self.certify_obls(&obls, n.horizon, &focus, exclude) {
-                let deps = self.deps_of(&parts);
+            if let Some((label, parts, cost, req)) = self.certify_obls(&obls, n.horizon, &focus, exclude) {
+                let mut deps = self.deps_of(&parts);
+                for &r in &req {
+                    for s in self.cx.fact_sources(r) {
+                        deps.insert(self.cx.displayable(s));
+                    }
+                }
                 let n = self.nodes.get_mut(&k).unwrap();
                 n.label = label;
                 n.parts = Some(parts);
                 n.cost = cost;
                 n.deps = deps;
+                n.requires = req;
                 n.deps.remove(&k);
             }
         }
@@ -369,6 +470,13 @@ impl<'c, 'a> Writer<'c, 'a> {
             } else {
                 match n.kind {
                     Kind::Formula(_) => Role::Inline,
+                    Kind::Isosceles | Kind::Length => {
+                        if u <= 1 {
+                            Role::Inline
+                        } else {
+                            Role::Step
+                        }
+                    }
                     Kind::Sim => {
                         if only_goal && !aux {
                             Role::MergeConclusion
@@ -379,8 +487,10 @@ impl<'c, 'a> Writer<'c, 'a> {
                     Kind::Congruent => {
                         if aux || u >= 2 || long {
                             Role::Claim
-                        } else {
+                        } else if only_goal {
                             Role::Inline
+                        } else {
+                            Role::Step
                         }
                     }
                     Kind::Merge | Kind::Other => Role::Step,
@@ -491,8 +601,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
     fn reasons_for(&self, support: &[(usize, Rat)], h: FactId, collapse: bool) -> (Vec<Reason>, Vec<Term>) {
+        let cx = self.w.cx;
         let mut reasons: Vec<Reason> = Vec::new();
         let mut terms: Vec<Term> = Vec::new();
+        let mut extra: Vec<Reason> = Vec::new();
         for (i, lam) in support {
             let a = &self.w.atoms[*i];
             if a.cost == 0 {
@@ -507,6 +619,20 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             };
             terms.push(Term { reason: pos as u16, row, coef: lam.clone() });
+            if let AtomSrc::Human(_) = a.src {
+                for s in &a.sources {
+                    if let Some(r) = self.inline.get(&cx.displayable(*s)) {
+                        if !extra.contains(r) {
+                            extra.push(r.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for r in extra {
+            if !reasons.contains(&r) {
+                reasons.push(r);
+            }
         }
         (reasons, terms)
     }
@@ -523,7 +649,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
                 let srcs_ok = a.sources.iter().all(|s| {
                     let d = cx.displayable(*s);
-                    self.allowed.contains(&d) || cx.class.get(d as usize).is_some_and(|c| matches!(c, FactClass::Hyp | FactClass::HypReg))
+                    self.allowed.contains(&d) || cx.class.get(d as usize).is_some_and(|c| matches!(c, FactClass::Hyp | FactClass::HypReg | FactClass::SilentHyp))
                 });
                 if !srcs_ok {
                     return false;
@@ -555,10 +681,18 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             })
             .collect();
-        let path = bfs(cx, &self.w.atoms, &eligible, target.table, &fix_exact(cx, target, &splits), &penalty, self.w.bfs_budget);
+        let path = if matches!(target.table, Table::Angle | Table::Ratio) {
+            bfs(cx, &self.w.atoms, &eligible, target.table, &fix_exact(cx, target, &splits), &penalty, self.w.bfs_budget)
+        } else {
+            None
+        };
         if let Some(p) = path {
             if p.links.len() <= 8 && !p.links.is_empty() {
-                if let Some(s) = self.path_sentences(target, &p, h, then.clone(), focus) {
+                let r = self.path_sentences(target, &p, h, then.clone(), focus);
+                if std::env::var_os("HP_BFS").is_some() {
+                    eprintln!("path links {} lambdas {:?} sentences {}", p.links.len(), p.links.iter().map(|x| x.1.to_string()).collect::<Vec<_>>(), r.is_some());
+                }
+                if let Some(s) = r {
                     return (s, p.links.len(), false);
                 }
             }
@@ -569,7 +703,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             .map(|(i, l)| (*i, l.clone(), self.w.atoms[*i].q.clone()))
             .filter(|(_, _, q)| target.table != Table::Angle || !q.terms.iter().all(|(v, _)| *v == ANGLE_UNIT))
             .collect();
-        let ex = fix_exact(cx, target, &splits);
+        let ex = if matches!(target.table, Table::Angle | Table::Ratio) { fix_exact(cx, target, &splits) } else { Vec::new() };
         let mut budget = 200_000usize;
         for (si, (l, r)) in ex.iter().enumerate() {
             if let Some(order) = dfs_order(cx, target.table, l, r, &items, &mut budget) {
@@ -692,6 +826,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         for j in 0..n {
             let directed = half_at.is_none_or(|h0| j <= h0) && target.table == Table::Angle;
             let directed_term = directed && half_at.is_none_or(|h0| j < h0 || (j == h0 && h0 > 0));
+            if std::env::var_os("HP_BFS").is_some() {
+                eprintln!("term {j} directed {directed_term} node {:?}", p.nodes[j]);
+            }
             let e = if j == 0 && directed_term {
                 split.l.clone()
             } else if j == n - 1 && (directed_term || target.table != Table::Angle) {
@@ -712,6 +849,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             links.push(Link { reasons: rs, combination: cs });
         }
         match half_at {
+            None if links.len() == 1 && target.table != Table::Angle => {
+                let l = links.into_iter().next().unwrap();
+                sentences.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons: l.reasons, combination: l.combination });
+            }
             None => sentences.push(Sentence::Chain { terms: terms.into_iter().map(|x| x.0).collect(), links, then, directed: target.table == Table::Angle }),
             Some(h0) => {
                 self.as_drawn = true;
@@ -721,10 +862,37 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
                 let mut t2: Vec<Expr> = Vec::new();
                 for j in h0..n {
-                    let e = angle_expr(cx, &p.nodes[j], false, &[&pts_of(j), &pts_of(j.saturating_sub(1))], focus)?;
-                    t2.push(e);
+                    let e = angle_expr(cx, &p.nodes[j], false, &[&pts_of(j), &pts_of(j.saturating_sub(1))], focus);
+                    if e.is_none() && std::env::var_os("HP_BFS").is_some() {
+                        eprintln!("undirected node {j} has no display: {:?}", p.nodes[j]);
+                    }
+                    t2.push(e?);
                 }
-                sentences.push(Sentence::Chain { terms: t2, links: links[h0..].to_vec(), then, directed: false });
+                let mut l2: Vec<Link> = links[h0..].to_vec();
+                let all_neg = t2.iter().all(|e| matches!(e, Expr::Lin { terms } if terms.len() == 1 && terms[0].0.is_negative()));
+                if all_neg {
+                    t2 = t2
+                        .into_iter()
+                        .map(|e| match e {
+                            Expr::Lin { terms } => {
+                                let (k, x) = terms.into_iter().next().unwrap();
+                                let k = -k;
+                                if k.is_one() {
+                                    x
+                                } else {
+                                    Expr::Lin { terms: vec![(k, x)] }
+                                }
+                            }
+                            e => e,
+                        })
+                        .collect();
+                    for l in l2.iter_mut() {
+                        for t in l.combination.iter_mut() {
+                            t.coef = -t.coef.clone();
+                        }
+                    }
+                }
+                sentences.push(Sentence::Chain { terms: t2, links: l2, then, directed: false });
             }
         }
         Some(sentences)
@@ -733,8 +901,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
 
 fn penalty(a: &Atom) -> i64 {
     let mut p = 0i64;
-    if let AtomSrc::Line(_) = a.src {
-        p += 5;
+    match a.src {
+        AtomSrc::Line(_) => p += 5,
+        AtomSrc::Human(_) => p += 3,
+        _ => {}
     }
     p + 5 * a.sources.len() as i64
 }
@@ -791,6 +961,18 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             allowed: BTreeSet::new(),
             as_drawn: false,
         }
+    }
+
+    pub fn fact_reason(&self, r: FactId) -> Reason {
+        let cx = self.w.cx;
+        let d = cx.displayable(r);
+        if let (Some(&b), Some(Role::Claim)) = (self.block_of.get(&d), self.role.get(&d)) {
+            return Reason::Claim { n: self.claim_no.get(&d).copied().unwrap_or(0), block: b, fact: d };
+        }
+        if let Some(Reason::Fact { stmt, block, because, .. }) = self.inline.get(&d) {
+            return Reason::Fact { stmt: stmt.clone(), fact: r, block: *block, because: because.clone() };
+        }
+        Reason::Fact { stmt: fact_stmt(cx, r), fact: r, block: self.block_of.get(&d).copied(), because: Vec::new() }
     }
 
     pub fn node_sentences(&mut self, f: FactId) -> (Vec<Sentence>, usize, bool) {
@@ -853,15 +1035,17 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             pooled |= p;
             out.extend(s);
         }
+        let requires = self.w.nodes[&f].requires.clone();
+        let req_reasons: Vec<Reason> = requires.iter().map(|&r| self.fact_reason(r)).collect();
         match node_kind {
-            Kind::Sim | Kind::Congruent if f != GOAL => {
+            Kind::Sim | Kind::Congruent | Kind::Isosceles if f != GOAL => {
                 out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
             }
             Kind::Cong => {
-                out.push(Sentence::Theorem { key: TheoremKey::ArcChord, stmt: node_stmt.clone(), reasons: Vec::new() });
+                out.push(Sentence::Theorem { key: TheoremKey::ArcChord, stmt: node_stmt.clone(), reasons: req_reasons });
             }
             Kind::Theorem(k) => {
-                out.push(Sentence::Theorem { key: k, stmt: node_stmt.clone(), reasons: Vec::new() });
+                out.push(Sentence::Theorem { key: k, stmt: node_stmt.clone(), reasons: req_reasons });
             }
             _ => {}
         }

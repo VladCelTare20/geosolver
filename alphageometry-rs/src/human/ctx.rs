@@ -19,6 +19,7 @@ pub enum FactClass {
     TheoremReg(FactId),
     MergeReg(FactId),
     Silent,
+    SilentHyp,
     Derived,
     Outside,
 }
@@ -268,13 +269,18 @@ impl<'a> Ctx<'a> {
         for (i, r) in hyp_rows[1].iter().enumerate() {
             hb.insert(i as u32, r);
         }
+        if std::env::var_os("HP_DEBUG").is_some() {
+            for &f in &self.closure {
+                eprintln!("fact {f} class {:?} premises {:?} reason {:?}", self.class[f as usize], t.facts[f as usize].premises, t.facts[f as usize].reason);
+            }
+        }
         for &f in &self.closure.clone() {
             if self.class[f as usize] != FactClass::Derived {
                 continue;
             }
             if let Reason::Concyclic(p) = &t.facts[f as usize].reason {
                 if hyp_circles.iter().any(|c| p.iter().all(|x| c.contains(x))) {
-                    self.class[f as usize] = FactClass::Silent;
+                    self.class[f as usize] = FactClass::SilentHyp;
                     continue;
                 }
                 let n = t.n as PointId;
@@ -287,7 +293,7 @@ impl<'a> Ctx<'a> {
                         })
                 });
                 if by_centre {
-                    self.class[f as usize] = FactClass::Silent;
+                    self.class[f as usize] = FactClass::SilentHyp;
                 }
             }
         }
@@ -332,7 +338,7 @@ impl<'a> Ctx<'a> {
             return s.clone();
         }
         let out: BTreeSet<FactId> = match self.class.get(f as usize).copied().unwrap_or(FactClass::Outside) {
-            FactClass::Hyp | FactClass::HypReg | FactClass::Outside => BTreeSet::new(),
+            FactClass::Hyp | FactClass::HypReg | FactClass::SilentHyp | FactClass::Outside => BTreeSet::new(),
             FactClass::Derived => [f].into_iter().collect(),
             FactClass::TheoremReg(g) | FactClass::MergeReg(g) => [g].into_iter().collect(),
             FactClass::Silent => {
@@ -362,7 +368,7 @@ impl<'a> Ctx<'a> {
     pub fn row_cost(&self, g: FactId) -> u32 {
         match self.class[g as usize] {
             FactClass::Hyp | FactClass::HypReg => 1,
-            FactClass::Silent => 2,
+            FactClass::Silent | FactClass::SilentHyp => 2,
             _ => 5,
         }
     }

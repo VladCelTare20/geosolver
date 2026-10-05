@@ -182,6 +182,31 @@ pub fn conclusion_forms(t: &EngineTrace, s: &Stmt) -> Option<Vec<(Table, LinComb
             }
             Some(out)
         }
+        Stmt::Cyclic { pts } => {
+            let mut out = Vec::new();
+            for q in super::claims::subsets4(pts) {
+                let ang = |x: PointId, y: PointId, z: PointId| -> Option<LinComb> { Some(&t.dir(y, z)? - &t.dir(y, x)?) };
+                for (a, b, c, d) in [(q[0], q[1], q[2], q[3]), (q[0], q[2], q[1], q[3]), (q[0], q[3], q[1], q[2])] {
+                    if let (Some(x), Some(y)) = (ang(a, c, b), ang(a, d, b)) {
+                        out.push((Table::Angle, &x - &y));
+                    }
+                }
+            }
+            Some(out)
+        }
+        Stmt::Cong { s1, s2 } | Stmt::RatioConst { s1, s2, .. } => {
+            let mut out = stmt_targets(t, s)?;
+            let k = match s {
+                Stmt::RatioConst { value, .. } => value.clone(),
+                _ => Rat::one(),
+            };
+            if let (Some(x), Some(y)) = (t.single(Table::Add, s1.0, s1.1), t.single(Table::Add, s2.0, s2.1)) {
+                let mut ky = y;
+                ky.mul_assign_scalar(&k);
+                out.push((Table::Add, &x - &ky));
+            }
+            Some(out)
+        }
         _ => stmt_targets(t, s),
     }
 }
@@ -313,6 +338,18 @@ impl<'c, 'a> Checker<'c, 'a> {
                         return Err(format!("fact reason cites block {b} from block {cur}"));
                     }
                 }
+                if let Some(st) = match r {
+                    Reason::Fact { stmt, .. } => Some(stmt),
+                    _ => None,
+                } {
+                    if let Some(targets) = stmt_targets(cx.t, st) {
+                        for (tb, row) in targets {
+                            if !self.proven(fact + 1, tb, &row) {
+                                return Err(format!("fact reason {fact} states something its engine fact does not give"));
+                            }
+                        }
+                    }
+                }
                 for x in because {
                     self.reason_ok(blocks, cur, h, x)?;
                 }
@@ -369,8 +406,10 @@ impl<'c, 'a> Checker<'c, 'a> {
             } else {
                 c.is_zero()
             }
-        } else {
+        } else if tb == Table::Ratio {
             cx.t.canon_ratio(&d).is_zero()
+        } else {
+            d.is_zero()
         }
     }
 
@@ -388,7 +427,7 @@ impl<'c, 'a> Checker<'c, 'a> {
         Ok(())
     }
 
-    fn sentence_ok(&mut self, blocks: &[Block], cur: u16, h: FactId, s: &Sentence) -> Result<(), String> {
+    fn sentence_ok(&mut self, blocks: &[Block], cur: u16, h: FactId, s: &Sentence, start: Option<(&Expr, &Expr)>) -> Result<(), String> {
         let t = self.cx.t;
         match s {
             Sentence::Chain { terms, links, directed, then } => {
@@ -403,10 +442,28 @@ impl<'c, 'a> Checker<'c, 'a> {
                     self.link_ok(blocks, h, &terms[k], &terms[k + 1], l, d)?;
                 }
                 if let Some(st) = then {
-                    let (tb, first) = eval(t, &terms[0]).ok_or("chain start")?;
-                    let (_, last) = eval(t, terms.last().unwrap()).ok_or("chain end")?;
+                    let (tb, last) = eval(t, terms.last().unwrap()).ok_or("chain end")?;
+                    let diff = match start {
+                        None => {
+                            let (_, first) = eval(t, &terms[0]).ok_or("chain start")?;
+                            &first - &last
+                        }
+                        Some((pfirst, plast)) => {
+                            let (_, pf) = eval(t, pfirst).ok_or("chain start")?;
+                            let (_, pl) = eval(t, plast).ok_or("chain start")?;
+                            let (_, cf) = eval(t, &terms[0]).ok_or("chain start")?;
+                            let mut found: Option<LinComb> = None;
+                            for sgn in [Rat::one(), Rat::from_int(-1)] {
+                                let junction = LinComb::combine(&pl, &cf, &-&sgn);
+                                if self.residual_ok(Table::Angle, &junction, &LinComb::zero(), true) {
+                                    found = Some(LinComb::combine(&pf, &last, &-&sgn));
+                                    break;
+                                }
+                            }
+                            found.ok_or("chains do not join")?
+                        }
+                    };
                     let targets = conclusion_forms(t, st).ok_or("chain conclusion has no algebraic form")?;
-                    let diff = &first - &last;
                     let ok = targets.iter().any(|(_, x)| self.residual_ok(tb, &diff, x, true) || self.residual_ok(tb, &diff, &x.negated(), true));
                     if !ok && !targets.is_empty() {
                         let mut ok_all = false;
@@ -426,7 +483,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                 if !combination.is_empty() {
                     let targets = conclusion_forms(t, stmt).ok_or("pooled statement has no algebraic form")?;
                     let (tb, sum) = self.combo(blocks, h, reasons, combination).ok_or("pooled combination does not resolve, or uses an atom row outside the engine span")?;
-                    let ok = targets.iter().any(|(_, x)| self.residual_ok(tb, x, &sum, true) || self.residual_ok(tb, &x.negated(), &sum, true));
+                    let ok = targets.iter().any(|(t2, x)| *t2 == tb && (self.residual_ok(tb, x, &sum, true) || self.residual_ok(tb, &x.negated(), &sum, true)));
                     if !ok {
                         let q: Vec<String> = targets.iter().map(|(_, x)| format!("{:?}", self.cx.quot.q(&(&x.clone() - &sum)))).collect();
                         return Err(format!("pooled combination does not equal the statement {:?}: residuals {:?}", stmt, q));
@@ -502,6 +559,21 @@ impl<'c, 'a> Checker<'c, 'a> {
     }
 }
 
+fn same_angle(a: Option<&Expr>, b: Option<&Expr>) -> bool {
+    fn strip(e: &Expr) -> Expr {
+        match e {
+            Expr::Angle { a, b, c, .. } => Expr::Angle { a: *a, b: *b, c: *c, directed: true },
+            Expr::LineAngle { l1, l2, .. } => Expr::LineAngle { l1: *l1, l2: *l2, directed: true },
+            Expr::Lin { terms } => Expr::Lin { terms: terms.iter().map(|(k, x)| (k.clone(), strip(x))).collect() },
+            x => x.clone(),
+        }
+    }
+    match (a, b) {
+        (Some(x), Some(y)) => strip(x) == strip(y),
+        _ => false,
+    }
+}
+
 pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
     let mut ch = Checker::new(cx);
     let mut out = Vec::new();
@@ -514,10 +586,19 @@ pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
             out.push(Violation { block: b.id, rule: "I1", detail: e });
         }
         let h = if b.kind == BlockKind::Conclusion { b.horizon.max(cx.closure.last().map(|x| x + 1).unwrap_or(0)) } else { b.horizon };
+        let mut prev: Option<(Expr, Expr)> = None;
         for s in &b.body {
-            if let Err(e) = ch.sentence_ok(&blocks, b.id, h, s) {
+            let st = match s {
+                Sentence::Chain { terms, .. } if same_angle(prev.as_ref().map(|p| &p.1), terms.first()) => prev.as_ref().map(|p| (&p.0, &p.1)),
+                _ => None,
+            };
+            if let Err(e) = ch.sentence_ok(&blocks, b.id, h, s, st) {
                 out.push(Violation { block: b.id, rule: "I2", detail: e });
             }
+            prev = match s {
+                Sentence::Chain { terms, then: None, .. } => Some((terms[0].clone(), terms[terms.len() - 1].clone())),
+                _ => None,
+            };
         }
     }
     if !blocks.last().is_some_and(|b| b.kind == BlockKind::Conclusion) {
