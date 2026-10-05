@@ -299,6 +299,46 @@ pub fn decomps(c: &LinComb) -> Vec<Vec<Term2>> {
     out
 }
 
+pub fn decomps_upto(c: &LinComb, max_terms: usize) -> Vec<Vec<Term2>> {
+    fn go(m: &[(VarId, Rat)], left: usize, acc: &mut Vec<Term2>, out: &mut Vec<Vec<Term2>>) {
+        if m.is_empty() {
+            let mut v = acc.clone();
+            v.sort();
+            if !out.contains(&v) {
+                out.push(v);
+            }
+            return;
+        }
+        if left == 0 || out.len() >= 64 {
+            return;
+        }
+        let first = &m[0];
+        if !small_coef(&first.1) {
+            return;
+        }
+        for j in 1..m.len() {
+            let mut rest: Vec<(VarId, Rat)> = m[1..].to_vec();
+            let k = j - 1;
+            rest[k].1 = &rest[k].1 + &first.1;
+            rest.retain(|x| !x.1.is_zero());
+            acc.push(term_of(first, m[j].0));
+            go(&rest, left - 1, acc, out);
+            acc.pop();
+        }
+    }
+    if c.terms.iter().any(|(v, _)| *v != ANGLE_UNIT && *v < QBASE) {
+        return Vec::new();
+    }
+    let cl = classes(c);
+    let sum: Rat = cl.iter().fold(Rat::zero(), |s, x| &s + &x.1);
+    if !sum.is_zero() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    go(&cl, max_terms, &mut Vec::new(), &mut out);
+    out
+}
+
 pub fn term_comb(t: &Term2) -> LinComb {
     let mut c = LinComb::singleton(t.1, t.0.clone());
     c.add_term(t.2, -&t.0);
@@ -355,6 +395,26 @@ pub fn ratio_shape(cx: &Ctx, c: &LinComb) -> Option<i64> {
         3 | 4 => Some(9),
         _ => None,
     }
+}
+
+pub fn ratio_splits_loose(cx: &Ctx, s: &LinComb) -> Vec<(LinComb, LinComb)> {
+    let piv = |v: VarId| cx.piv[1].get(v as usize).copied().unwrap_or(true);
+    let p: Vec<(VarId, Rat)> = s.terms.iter().filter(|(v, _)| piv(*v)).cloned().collect();
+    let two = Rat::from_int(2);
+    if p.len() < 2 || p.len() > 6 || p.iter().any(|(_, k)| !k.abs().is_one() && k.abs() != two) {
+        return Vec::new();
+    }
+    let pos: Vec<&(VarId, Rat)> = p.iter().filter(|x| !x.1.is_negative()).collect();
+    let neg = p.len() - pos.len();
+    if pos.is_empty() || neg == 0 || pos.len() > 3 || neg > 3 {
+        return Vec::new();
+    }
+    let mut a = LinComb::zero();
+    for x in pos {
+        a.add_term(x.0, x.1.clone());
+    }
+    let end = LinComb::combine(&a, s, &Rat::from_int(-1));
+    vec![(a, end)]
 }
 
 pub fn ratio_splits(cx: &Ctx, s: &LinComb) -> Vec<(LinComb, LinComb)> {
