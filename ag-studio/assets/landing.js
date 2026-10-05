@@ -18,7 +18,7 @@
     var cut = previewEnd(proof.steps);
     var steps = expanded ? proof.steps : proof.steps.slice(0, cut);
     GS.renderSteps($("steps"), { steps: steps, conclusion: expanded ? proof.conclusion : null }, {
-      focus: function (pts) { viewer.highlight(pts); },
+      focus: function (pts, facts) { viewer.highlight(pts, facts); },
       describedBy: "steps-kbd",
     });
     var more = $("more");
@@ -82,6 +82,15 @@
     var fit = function () { GS.fitLabels(hs, heroVb, $("hero-fig").getBoundingClientRect()); };
     fit();
     if (window.ResizeObserver) new ResizeObserver(fit).observe($("hero-fig"));
+    var fitCase = function () {
+      var vp = $("case-fig");
+      vp.style.height = "";
+      var w = vp.getBoundingClientRect().width, hNow = vp.getBoundingClientRect().height;
+      var want = Math.max(260, w * heroVb.h / heroVb.w + 24);
+      if (w && hNow - want > 8) vp.style.height = Math.round(want) + "px";
+    };
+    fitCase();
+    window.addEventListener("resize", fitCase);
     viewer = new GS.Viewer({ frame: $("case-fig").parentNode, viewport: $("case-fig"), zoomIn: $("z-in"), zoomOut: $("z-out"), fit: $("z-fit") });
     viewer.setSvg(d.svg, t("case.title"));
     paintStats();

@@ -148,9 +148,8 @@
     return out.join(", ");
   }
   function stepHtml(s, hidden) {
-    var cites = (s.deps || []).map(function (d, k) {
-      var a = '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
-      return k === 0 ? '<span class="nw"><span class="cite-arrow" aria-hidden="true">←</span><span class="sr-only">' + esc(t("proof.from")) + " </span>" + a + "</span>" : a;
+    var cites = (s.deps || []).map(function (d) {
+      return '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
     }).join(" ");
     var subs = (s.subs || []).map(function (u) {
       return '<li><span class="math">' + fact(u.fact) + '</span> <span class="rule">' + esc(ruleLabel(u)) + "</span></li>";
@@ -160,7 +159,9 @@
       '<span class="step-n" aria-hidden="true">' + s.n + "</span>" +
       '<div class="step-body"><div class="step-stmt math"><span class="sr-only">' + esc(t("proof.step_sr", { n: s.n })) + " </span>" + fact(s.fact) + "</div>" +
       (subs ? '<ul class="step-subs" role="list">' + subs + "</ul>" : "") +
-      '<p class="step-meta"><span class="rule">' + esc(ruleLabel(s)) + "</span>" + (cites ? " " + cites : "") + "</p></div></li>";
+      '<p class="step-meta">' + (cites
+        ? '<span class="nw"><span class="rule">' + esc(ruleLabel(s)) + '</span><span class="cite-arrow" aria-hidden="true">←</span><span class="sr-only"> ' + esc(t("proof.from")) + ' </span></span><span class="cites">' + cites + "</span>"
+        : '<span class="rule">' + esc(ruleLabel(s)) + "</span>") + "</p></div></li>";
   }
   /** One row standing for every step that only restates a hypothesis or a
    * construction (they stay in the list, hidden, so citations still land). */
@@ -173,8 +174,8 @@
       '<div class="step-body"><div class="step-stmt">' + esc(t("proof.hyps", { list: list })) + "</div>" +
       '<p class="step-meta"><button type="button" class="link-btn group-toggle" aria-expanded="false" tabindex="-1" data-list="' + esc(list) + '" aria-label="' + esc(t("proof.hyps.show_sr", { list: list })) + '">' + esc(t("proof.hyps.show")) + "</button></p></div></li>";
   }
-  /** Render the numbered, cited steps into `ol`. `hooks.focus(points)` is
-   * called with the step's points on hover/focus (null on leave). */
+  /** Render the numbered, cited steps into `ol`. `hooks.focus(points, facts)`
+   * is called with the step's points and facts on hover/focus (null on leave). */
   function renderSteps(ol, proof, hooks) {
     hooks = hooks || {};
     var steps = (proof && proof.steps) || [];
@@ -195,12 +196,19 @@
     if (hooks.describedBy) items.forEach(function (li) { li.setAttribute("aria-describedby", hooks.describedBy); });
     function shown() { return items.filter(function (x) { return !x.hidden; }); }
     function pts(li) { var p = li.getAttribute("data-points"); return p ? p.split(" ") : []; }
+    function factsOf(li) {
+      if (li.classList.contains("is-conclusion")) return proof.conclusion ? [proof.conclusion] : null;
+      if (li.classList.contains("is-group")) return given.map(function (s) { return s.fact; });
+      var n = +li.getAttribute("data-n");
+      var st = steps.filter(function (s) { return s.n === n; })[0];
+      return st ? [st.fact] : null;
+    }
     function activate(li) {
       items.forEach(function (x) {
         x.classList.toggle("is-active", x === li);
         x.querySelectorAll(".cite, .group-toggle").forEach(function (c) { c.tabIndex = x === li ? 0 : -1; });
       });
-      if (hooks.focus) hooks.focus(li ? pts(li) : null);
+      if (hooks.focus) hooks.focus(li ? pts(li) : null, li ? factsOf(li) : null);
     }
     function setGroup(open) {
       items.forEach(function (x) { if (x.hasAttribute("data-restated")) x.hidden = !open; });
@@ -488,10 +496,33 @@
     var leadOf = {};
     svg.querySelectorAll(".f-lead").forEach(function (el) { leadOf[el.getAttribute("data-p")] = true; });
     var dots = Array.prototype.map.call(svg.querySelectorAll(".f-dot"), function (el) { return [+el.getAttribute("cx"), +el.getAttribute("cy")]; });
-    var segs = [];
+    var segs = [], circs = [], marks = [];
     svg.querySelectorAll("line.f-line, line.f-seg, line.f-ext, line.f-goal, line.f-aux").forEach(function (el) {
       segs.push([+el.getAttribute("x1"), +el.getAttribute("y1"), +el.getAttribute("x2"), +el.getAttribute("y2"), el.classList.contains("f-goal") ? 12 : 8]);
     });
+    svg.querySelectorAll("circle.f-circ, circle.f-goal").forEach(function (el) {
+      circs.push([+el.getAttribute("cx"), +el.getAttribute("cy"), +el.getAttribute("r"), el.classList.contains("f-goal") ? 12 : 8]);
+    });
+    var mk = Math.max(1, Math.min(2.2, k));
+    svg.querySelectorAll("path.f-mark, path.f-goal").forEach(function (el) {
+      var nums = (el.getAttribute("d") || "").match(/-?\d+(\.\d+)?/g) || [], pts = [];
+      for (var i = 0; i + 1 < nums.length; i += 2) pts.push([+nums[i], +nums[i + 1]]);
+      var a = el.getAttribute("data-a");
+      if (a) {
+        a = a.split(",").map(Number);
+        pts = pts.map(function (q) { return [a[0] + (q[0] - a[0]) * mk, a[1] + (q[1] - a[1]) * mk]; });
+      }
+      if (pts.length > 1) marks.push({ pts: pts, a: a, w: el.classList.contains("f-goal") ? 12 : 8 });
+    });
+    function circleHitsBox(c, b) {
+      var nx = Math.min(Math.max(c[0], b[0]), b[2]), ny = Math.min(Math.max(c[1], b[1]), b[3]);
+      var far = Math.max(Math.hypot(b[0] - c[0], b[1] - c[1]), Math.hypot(b[2] - c[0], b[1] - c[1]), Math.hypot(b[0] - c[0], b[3] - c[1]), Math.hypot(b[2] - c[0], b[3] - c[1]));
+      return Math.hypot(nx - c[0], ny - c[1]) <= c[2] && far >= c[2];
+    }
+    function ownMark(m, x, y) {
+      if (m.a) return Math.hypot(m.a[0] - x, m.a[1] - y) < 1;
+      return m.pts.every(function (q) { return Math.hypot(q[0] - x, q[1] - y) < 26 * Math.max(1, k); });
+    }
     var gap = 3 / s, placed = [], leads = [], out = [];
     labels.forEach(function (el) {
       var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx0 = +el.getAttribute("data-dx"), dy0 = +el.getAttribute("data-dy");
@@ -519,6 +550,11 @@
           placed.forEach(function (q) { if (segHitsBox(x, y, lx, ly, q)) c += 14; });
         }
         segs.forEach(function (g) { if (g[4] > 2 && segHitsBox(g[0], g[1], g[2], g[3], b)) c += g[4]; });
+        circs.forEach(function (g) { if (circleHitsBox(g, b)) c += g[3]; });
+        marks.forEach(function (m) {
+          if (ownMark(m, x, y)) return;
+          for (var i = 1; i < m.pts.length; i++) if (segHitsBox(m.pts[i - 1][0], m.pts[i - 1][1], m.pts[i][0], m.pts[i][1], b)) { c += m.w; return; }
+        });
         var hard = c - ring * 0.35;
         segs.forEach(function (g) { if (g[4] <= 2 && segHitsBox(g[0], g[1], g[2], g[3], b)) c += g[4]; });
         return { c: c, hard: hard, b: b, ext: ext, lead: L - ext > dotR + 3 / s ? [x, y, x + ux * (L - ext), y + uy * (L - ext)] : null };
@@ -666,21 +702,109 @@
       el.removeAttribute("aria-label");
     }
   }
-  /** Emphasise the elements a set of points defines; null clears. */
-  Viewer.prototype.highlight = function (points) {
+  function factShape(f) {
+    if (!f || !f.points || !f.points.length) return null;
+    var names = f.points.slice().sort(function (x, y) { return y.length - x.length; });
+    var o = { pts: f.points.slice(), segs: [], circs: [], angles: [] };
+    function split(str) {
+      var x = String(str == null ? "" : str).replace(/[\u2220\u25b3()\s,]/g, ""), out = [], i = 0;
+      while (i < x.length) {
+        var m = null;
+        for (var k = 0; k < names.length; k++) if (x.substr(i, names[k].length) === names[k]) { m = names[k]; break; }
+        if (!m) return null;
+        out.push(m);
+        i += m.length;
+      }
+      return out;
+    }
+    function seg(str) { var q = split(str); if (!q || q.length !== 2) return false; o.segs.push(q); return true; }
+    function tri(str) { var q = split(str); if (!q || q.length !== 3) return false; o.segs.push([q[0], q[1]], [q[1], q[2]], [q[2], q[0]]); return true; }
+    function angle(str) {
+      str = String(str || "");
+      if (str.indexOf("(") >= 0) { var two = str.replace(/[\u2220()]/g, "").split(","); return two.length === 2 && seg(two[0]) && seg(two[1]); }
+      var q = split(str);
+      if (!q || q.length !== 3) return false;
+      o.segs.push([q[1], q[0]], [q[1], q[2]]);
+      o.angles.push(q);
+      return true;
+    }
+    function circ(centre, on) { if (!on || on.length < 2) return false; o.circs.push({ c: centre, on: on }); return true; }
+    function all(fn, list) { return list.every(fn); }
+    var a = f.args || [], ok;
+    switch (f.kind) {
+      case "coll":
+        for (var i = 0; i < o.pts.length; i++) for (var j = i + 1; j < o.pts.length; j++) o.segs.push([o.pts[i], o.pts[j]]);
+        ok = o.pts.length >= 2; break;
+      case "cyclic": ok = circ(null, o.pts); break;
+      case "circle": ok = circ(a[0], split(a[1])); break;
+      case "oncircle": ok = circ(a[0], a.slice(1)); break;
+      case "midp": { var ab = split(a[1]); ok = !!ab && ab.length === 2; if (ok) o.segs.push(ab, [a[0], ab[0]], [a[0], ab[1]]); break; }
+      case "cong": case "perp": case "para": ok = all(seg, a.slice(0, 2)); break;
+      case "length": ok = seg(a[0]); break;
+      case "eqdist": ok = all(seg, a); break;
+      case "eqangle": ok = all(angle, a.slice(0, 2)); break;
+      case "aconst": ok = angle(a[0]); break;
+      case "eqratio": ok = all(seg, a.slice(0, 4)); break;
+      case "rconst": ok = all(seg, a.slice(0, 2)); break;
+      case "para_ratio": ok = all(seg, a.slice(0, 6)); break;
+      case "simtri": case "contri": ok = all(tri, a.slice(0, 2)); break;
+      case "concur": ok = all(seg, a.slice(0, -1)); break;
+      case "incenter": case "excenter": case "in_or_excenter": ok = tri(a[1]); break;
+      case "coincide": case "points": ok = true; break;
+      default: ok = false;
+    }
+    return ok ? o : null;
+  }
+  function figShape(facts) {
+    var out = { pts: [], segs: [], circs: [], angles: [] };
+    for (var i = 0; i < facts.length; i++) {
+      var o = factShape(facts[i]);
+      if (!o) return null;
+      o.pts.forEach(function (p) { if (out.pts.indexOf(p) < 0) out.pts.push(p); });
+      out.segs = out.segs.concat(o.segs);
+      out.circs = out.circs.concat(o.circs);
+      out.angles = out.angles.concat(o.angles);
+    }
+    return facts.length ? out : null;
+  }
+  function shapeLit(el, pts, shape, S) {
+    var has = function (p) { return pts.indexOf(p) >= 0; };
+    var onSeg = function (list) { return shape.segs.some(function (q) { return list.indexOf(q[0]) >= 0 && list.indexOf(q[1]) >= 0; }); };
+    var cls = el.classList;
+    if (cls.contains("f-dot") || cls.contains("f-lbl") || cls.contains("f-lead")) return S.has(pts[0]);
+    if (el.tagName === "line") return onSeg(pts);
+    if (el.tagName === "circle") {
+      var c = el.getAttribute("data-c");
+      return shape.circs.some(function (k) {
+        var n = k.on.filter(has).length;
+        return n >= 3 || (!!k.c && k.c === c && n >= 2);
+      });
+    }
+    if (pts.length === 2) return shape.segs.some(function (q) { return (q[0] === pts[0] && q[1] === pts[1]) || (q[0] === pts[1] && q[1] === pts[0]); });
+    if (pts.length === 3) return shape.angles.some(function (q) { return q[1] === pts[0] && ((q[0] === pts[1] && q[2] === pts[2]) || (q[0] === pts[2] && q[2] === pts[1])); });
+    if (pts.length === 4) return onSeg(pts.slice(0, 2)) && onSeg(pts.slice(2));
+    return pts.every(function (p) { return S.has(p); });
+  }
+  /** Emphasise the elements a set of points defines; null clears. With
+   * `facts`, only the objects those facts name light up. */
+  Viewer.prototype.highlight = function (points, facts) {
     if (!this.svg) return;
     var S = points && points.length ? new Set(points) : null;
+    var shape = S && facts ? figShape([].concat(facts)) : null;
     this.svg.classList.toggle("has-focus", !!S);
     this.svg.querySelectorAll("[data-p]").forEach(function (el) {
       if (!S) { el.classList.remove("hl"); return; }
       var pts = el.getAttribute("data-p").split(" ");
-      var n = 0;
-      pts.forEach(function (p) { if (S.has(p)) n++; });
       var on;
-      if (el.classList.contains("f-dot") || el.classList.contains("f-lbl") || el.classList.contains("f-lead")) on = S.has(pts[0]);
-      else if (el.tagName === "line") on = n >= 2;
-      else if (el.tagName === "circle") { var c = el.getAttribute("data-c"); on = n >= 3 || (c && S.has(c) && n >= 2); }
-      else on = n === pts.length;
+      if (shape) on = shapeLit(el, pts, shape, S);
+      else {
+        var n = 0;
+        pts.forEach(function (p) { if (S.has(p)) n++; });
+        if (el.classList.contains("f-dot") || el.classList.contains("f-lbl") || el.classList.contains("f-lead")) on = S.has(pts[0]);
+        else if (el.tagName === "line") on = n >= 2;
+        else if (el.tagName === "circle") { var c = el.getAttribute("data-c"); on = n >= 3 || (c && S.has(c) && n >= 2); }
+        else on = n === pts.length;
+      }
       el.classList.toggle("hl", !!on);
     });
   };
@@ -780,5 +904,5 @@
     return { close: close, el: el, button: el.querySelector("button") };
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast };
+  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast };
 })();

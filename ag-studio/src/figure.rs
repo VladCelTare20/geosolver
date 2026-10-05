@@ -344,11 +344,9 @@ fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<
                     };
                     if hit {
                         penalty += match (el.role, &el.shape) {
-                            (Role::Goal, Shape::Path(..)) => 2.2,
+                            (_, Shape::Path(_, pts)) if own_mark(el.anchor, pts, p, k) => 2.2,
                             (Role::Goal, _) => 12.0,
-                            (_, Shape::Path(..)) => 4.0,
-                            (_, Shape::Line(..)) => 8.0,
-                            _ => 3.0,
+                            _ => 8.0,
                         };
                     }
                 }
@@ -376,6 +374,13 @@ pub(crate) fn name_markup(name: &str) -> String {
             format!(r#"{}<tspan font-size="75%" baseline-shift="sub">{b}</tspan>{}"#, esc(&a.to_string()), esc(&rest))
         }
         _ => esc(name),
+    }
+}
+
+fn own_mark(anchor: Option<Pt>, pts: &[Pt], p: Pt, k: f64) -> bool {
+    match anchor {
+        Some(a) => len(sub(a, p)) < 1.0,
+        None => !pts.is_empty() && pts.iter().all(|q| len(sub(*q, p)) < 26.0 * k.max(1.0)),
     }
 }
 
@@ -1164,7 +1169,11 @@ pub fn relabel(svg: &str, k: f64) -> String {
             }
         } else if l.starts_with("<path") {
             if let Some(d) = attr_of(l, "d") {
-                els.push(el(Shape::Path(String::new(), path_points(d))));
+                let anchor = attr_of(l, "data-a").and_then(|a| {
+                    let (x, y) = a.split_once(',')?;
+                    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+                });
+                els.push(El { anchor, ..el(Shape::Path(String::new(), path_points(d))) });
             }
         }
     }
@@ -1238,6 +1247,57 @@ mod tests {
 
     fn svg(src: &str) -> String {
         crate::present::build(&solve(src, &SolveOptions::default()).expect("solve")).svg
+    }
+
+    fn label_hits(s: &str, k: f64) -> Vec<String> {
+        use super::*;
+        let lines: Vec<&str> = s.lines().collect();
+        let circles: Vec<(Pt, f64)> = lines
+            .iter()
+            .filter(|l| l.starts_with("<circle") && !l.contains("f-dot"))
+            .filter_map(|l| Some(((num_attr(l, "cx")?, num_attr(l, "cy")?), num_attr(l, "r")?)))
+            .collect();
+        let marks: Vec<(Option<Pt>, Vec<Pt>)> = lines
+            .iter()
+            .filter(|l| l.starts_with("<path"))
+            .filter_map(|l| {
+                let a = attr_of(l, "data-a").and_then(|a| {
+                    let (x, y) = a.split_once(',')?;
+                    Some((x.parse().ok()?, y.parse().ok()?))
+                });
+                Some((a, path_points(attr_of(l, "d")?)))
+            })
+            .collect();
+        let mut out = Vec::new();
+        for l in lines.iter().filter(|l| l.starts_with("<text") && l.contains("f-lbl")) {
+            let name = attr_of(l, "data-p").unwrap_or("");
+            let (Some(x), Some(y), Some(px), Some(py)) = (num_attr(l, "x"), num_attr(l, "y"), num_attr(l, "data-x"), num_attr(l, "data-y")) else { continue };
+            let (w, h) = (label_width(name) * k, LABEL_FS * k * 0.9);
+            let c = (x, y - LABEL_FS * k * 0.34);
+            let bx = (c.0 - w / 2.0, c.1 - h / 2.0, c.0 + w / 2.0, c.1 + h / 2.0);
+            if circles.iter().any(|(cc, r)| circle_hits_box(*cc, *r, bx)) {
+                out.push(format!("{name} on a circle"));
+            }
+            if marks.iter().any(|(a, pts)| !own_mark(*a, pts, (px, py), k) && pts.windows(2).any(|w2| seg_hits_box(w2[0], w2[1], bx))) {
+                out.push(format!("{name} on a mark"));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn labels_keep_off_circles_and_marks() {
+        for src in [
+            "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
+            "A B C = triangle\nO = circumcenter(A, B, C)\nG = centroid(A, B, C)\nH = orthocenter(A, B, C)\nprove coll(O, G, H)",
+            "A B C = triangle\nMa = midpoint(B, C)\nMb = midpoint(A, C)\nMc = midpoint(A, B)\nF = foot(A, line(B, C))\nprove cyclic(Ma, Mb, Mc, F)",
+            "A B C = triangle\nP = on_circum(A, B, C)\nX = foot(P, line(B, C))\nY = foot(P, line(C, A))\nZ = foot(P, line(A, B))\nprove coll(X, Y, Z)",
+        ] {
+            let s = svg(src);
+            assert_eq!(label_hits(&s, 1.0), Vec::<String>::new(), "{src}");
+            let r = super::relabel(&s, 1.4);
+            assert_eq!(label_hits(&r, 1.4), Vec::<String>::new(), "report: {src}");
+        }
     }
 
     #[test]

@@ -14,7 +14,7 @@
 
   var EXAMPLES = [
     { id: "ortho", en: "Orthocenter reflection", ro: "Simetricul ortocentrului", tag: "cyclic",
-      c: { en: "The reflection of the orthocenter in a side lies on the circumcircle.", ro: "Simetricul ortocentrului față de o latură se află pe cercul circumscris." },
+      c: { en: "Orthocenter reflection: H reflected in BC\nlies on the circumcircle.", ro: "Simetricul ortocentrului: simetricul lui H\nfață de BC se află pe cercul circumscris." },
       body: "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))" },
     { id: "euler", en: "Euler line", ro: "Dreapta lui Euler", tag: "coll",
       c: { en: "Euler line: circumcenter, centroid and orthocenter are collinear.", ro: "Dreapta lui Euler: centrul cercului circumscris, centrul de greutate și ortocentrul sunt coliniare." },
@@ -44,7 +44,7 @@
       c: { en: "The median splits the triangle into two triangles of equal area.", ro: "Mediana împarte triunghiul în două triunghiuri de arii egale." },
       body: "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)" },
   ];
-  function exampleSrc(ex, lang) { return "# " + ex.c[lang || window.i18n.current()] + "\n" + ex.body; }
+  function exampleSrc(ex, lang) { return ex.c[lang || window.i18n.current()].split("\n").map(function (l) { return "# " + l + "\n"; }).join("") + ex.body; }
   function exampleOf(src) {
     for (var i = 0; i < EXAMPLES.length; i++) {
       if (src === exampleSrc(EXAMPLES[i], "en") || src === exampleSrc(EXAMPLES[i], "ro")) return EXAMPLES[i];
@@ -946,15 +946,17 @@
     box.innerHTML = html;
     box.hidden = !(sol.title || given || v.goal || aux || helpers);
     var items = Array.prototype.slice.call(box.querySelectorAll("[data-points]"));
+    var facts = (v.given || []).concat(v.goal ? [v.goal] : []);
     items.forEach(function (el, i) {
       var pts = el.getAttribute("data-points").split(" ");
+      var fs = facts[i] ? [facts[i]] : null;
       el.tabIndex = i === 0 ? 0 : -1;
       if (items.length > 1) el.setAttribute("aria-describedby", "st-kbd");
-      el.addEventListener("mouseenter", function () { viewer.highlight(pts); });
+      el.addEventListener("mouseenter", function () { viewer.highlight(pts, fs); });
       el.addEventListener("mouseleave", function () { if (document.activeElement !== el) viewer.highlight(null); });
       el.addEventListener("focus", function () {
         items.forEach(function (x) { x.tabIndex = x === el ? 0 : -1; });
-        viewer.highlight(pts);
+        viewer.highlight(pts, fs);
         if (stepsApi) stepsApi.markPoint(pts.length === 1 ? pts[0] : null);
       });
       el.addEventListener("blur", function () { viewer.highlight(null); if (stepsApi) stepsApi.markPoint(null); });
@@ -1009,7 +1011,7 @@
     $("steps-none").textContent = t("proof.none");
     var proofCard = $("steps").closest(".proof");
     proofCard.hidden = !proved;
-    if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts) { viewer.highlight(pts); }, describedBy: "proof-kbd" });
+    if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts, facts) { viewer.highlight(pts, facts); }, describedBy: "proof-kbd" });
     else { $("steps").innerHTML = ""; stepsApi = null; }
     var aiOK = !!(proved && S.status && S.status.translate_logged_in && S.status.translate_installed);
     $("proof-tabs").hidden = !aiOK;
@@ -1121,7 +1123,7 @@
     return t("fig.aria", { pts: pts, goal: v.goal ? GS.factText(v.goal) : "—" });
   }
   function renderFigure(sol) {
-    if (!sol.svg) { viewer.setSvg(""); $("fig-empty").hidden = false; figTools(false); return; }
+    if (!sol.svg) { fitViewportToFigure(""); viewer.setSvg(""); $("fig-empty").hidden = false; figTools(false); return; }
     $("fig-empty").hidden = true;
     figTools(true);
     fitViewportToFigure(sol.svg);
@@ -1130,18 +1132,31 @@
     $("fig-legend").querySelector(".lg-aux").hidden = !((sol.view && sol.view.aux) || []).length;
     $("fig-legend").querySelector(".lg-goal").hidden = !viewer.svg || !viewer.svg.querySelector(".f-goal");
   }
+  var fittedSvg = "";
   function fitViewportToFigure(svg) {
-    var vp = $("fig-viewport");
+    fittedSvg = svg || "";
+    var vp = $("fig-viewport"), frame = $("fig-frame");
     vp.style.height = "";
-    if (!window.matchMedia("(max-width: 1023px)").matches) return;
-    var m = /viewBox="([^"]+)"/.exec(svg);
+    frame.style.removeProperty("--fig-fit");
+    var m = /viewBox="([^"]+)"/.exec(fittedSvg);
     var b = m ? m[1].split(/\s+/).map(Number) : null;
     var w = vp.getBoundingClientRect().width;
     if (!b || !(b[2] > 0) || !(b[3] > 0) || !w) return;
+    if (!window.matchMedia("(max-width: 1023px)").matches) {
+      var spare = vp.getBoundingClientRect().height - Math.max(320, w * b[3] / b[2] + 24);
+      if (spare > 8) frame.style.setProperty("--fig-fit", Math.round(frame.getBoundingClientRect().height - spare) + "px");
+      return;
+    }
     var ratio = Math.max(0.6, Math.min(1.25, b[3] / b[2]));
     var cap = window.matchMedia("(max-width: 767px)").matches ? 0.7 : 0.6;
     vp.style.height = Math.round(Math.min(w * ratio, window.innerHeight * cap)) + "px";
   }
+
+  var refitTimer = 0;
+  window.addEventListener("resize", function () {
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(function () { if (fittedSvg) fitViewportToFigure(fittedSvg); }, 120);
+  });
 
   // ------------------------------------------------------- shorter proofs --
   function refineShorter(first) {
@@ -1432,7 +1447,7 @@
         '<button type="button" class="hist-open" data-open="' + r.id + '"' + (S.activeHistory === r.id ? ' aria-current="true"' : "") + ">" +
         '<span class="hist-title" title="' + esc(title) + '">' + histTitleHtml(r) + "</span>" +
         '<span class="hist-meta"><span class="chip tone-' + TONE[st] + '">' + icons[ICON[st]] + esc(t("status." + st)) + "</span>" +
-        '<time datetime="' + new Date(r.created_at * 1000).toISOString() + '">' + esc(relTime(r.created_at)) + "</time></span></button>" +
+        '<time datetime="' + new Date(r.created_at * 1000).toISOString() + '" title="' + esc(relTime(r.created_at)) + '">' + esc(relTime(r.created_at)) + "</time></span></button>" +
         '<button type="button" class="icon-btn hist-del" data-del="' + r.id + '" aria-label="' + esc(t("hist.delete", { title: title })) + '" title="' + esc(t("hist.delete", { title: title })) + '">' + icons.trash + "</button></li>";
     }).join("");
     var empty = $("hist-empty");
