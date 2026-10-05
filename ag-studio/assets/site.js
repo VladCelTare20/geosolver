@@ -35,6 +35,7 @@
     text: '<svg viewBox="0 0 24 24" ' + P + '><path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9"/></svg>',
     sparkle: '<svg viewBox="0 0 24 24" ' + P + '><path d="M12 3.5 13.8 9 19.5 10.8 13.8 12.6 12 18.5 10.2 12.6 4.5 10.8 10.2 9Z"/></svg>',
     book: '<svg viewBox="0 0 24 24" ' + P + '><path d="M4.5 5.5a2 2 0 0 1 2-2h12v15h-12a2 2 0 0 0-2 2v-15Z"/><path d="M4.5 20.5a2 2 0 0 1 2-2h12v2h-12"/></svg>',
+    login: '<svg viewBox="0 0 24 24" ' + P + '><path d="M14.5 3.5h4a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-4M10 16.5 14.5 12 10 7.5M14.5 12h-11"/></svg>',
     logout: '<svg viewBox="0 0 24 24" ' + P + '><path d="M9.5 20.5h-4a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2h4M16 16.5 20.5 12 16 7.5M20.5 12h-11"/></svg>',
     retry: '<svg viewBox="0 0 24 24" ' + P + '><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6l2.5 2.5"/><path d="M20.5 3.5v5h-5"/></svg>',
     eye: '<svg viewBox="0 0 24 24" ' + P + '><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
@@ -712,6 +713,9 @@
     if (!this.els.full) return;
     on = on == null ? !this.isFull() : on;
     if (on === this.isFull()) return;
+    var me = this;
+    if (on) { this.closeByBack = function () { me.toggleFull(false); }; backLayer(this.closeByBack); }
+    else dropLayer(this.closeByBack);
     f.classList.toggle("is-full", on);
     if (f.parentElement) f.parentElement.classList.toggle("has-full", on);
     lockScroll(on);
@@ -721,10 +725,26 @@
       this.els.full.innerHTML = on ? icons.collapse : icons.expand;
       this.els.full.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    var me = this;
     requestAnimationFrame(function () { me.reset(); });
     if (on) this.els.viewport.focus({ preventScroll: true, focusVisible: !byPointer });
   };
+
+  var layers = [], skipPops = 0;
+  function backLayer(close) {
+    layers.push(close);
+    try { history.pushState({ gsLayer: layers.length }, ""); } catch (e) {}
+  }
+  function dropLayer(close) {
+    var i = layers.lastIndexOf(close);
+    if (i < 0) return;
+    layers.splice(i, 1);
+    if (history.state && history.state.gsLayer) { skipPops++; history.back(); }
+  }
+  window.addEventListener("popstate", function () {
+    if (skipPops > 0) { skipPops--; return; }
+    var close = layers.pop();
+    if (close) close();
+  });
 
   var locks = 0, lockY = 0;
   function lockScroll(on) {
@@ -1035,5 +1055,5 @@
     return new Promise(function () {});
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, lockScroll: lockScroll, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
+  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, lockScroll: lockScroll, backLayer: backLayer, dropLayer: dropLayer, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
 })();

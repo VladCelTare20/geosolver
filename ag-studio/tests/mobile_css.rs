@@ -1,10 +1,11 @@
-//! iPhone layout invariants of the shipped stylesheet and pages, checked on the
+//! iPhone and Android layout invariants of the shipped stylesheet and pages, checked on the
 //! source text (the browser-level checks are `tests/webkit/iphone-layout.mjs`).
 
 const APP_CSS: &str = include_str!("../assets/app.css");
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 const AUTH_HTML: &str = include_str!("../assets/auth.html");
 const LANDING_HTML: &str = include_str!("../assets/landing.html");
+const GATE_HTML: &str = include_str!("../assets/gate.html");
 
 struct Rule {
     selector: String,
@@ -166,19 +167,58 @@ fn full_height_blocks_use_dynamic_viewport_units_with_a_fallback() {
 }
 
 #[test]
-fn touch_controls_reach_44px() {
+fn touch_controls_reach_48px() {
     let all = rules(APP_CSS);
     let coarse: Vec<&Rule> = all.iter().filter(|r| r.media.iter().any(|m| m.contains("pointer: coarse"))).collect();
     let has = |sel: &str, prop: &str, val: &str| coarse.iter().any(|r| r.selector.split(',').any(|s| s.trim() == sel) && decl(r, prop) == Some(val));
-    assert!(has(":root", "--target", "44px"));
-    assert!(has(".btn-sm", "min-height", "44px"));
-    assert!(has(".toast .btn", "min-height", "44px"));
-    assert!(has(".menu [role=\"menuitem\"]", "min-height", "44px"));
-    assert!(has(".filter", "min-height", "44px"));
-    assert!(has(".err-detail summary", "min-height", "44px"));
-    assert!(has(".cite::after", "inset", "-4px"), "36px cite + 4px each side");
-    assert!(has(".seg > button::after", "inset", "-3px -1px"), "38px segment + 3px each side");
-    assert!(has(":root", "--pan", "40px"));
+    assert!(has(":root", "--target", "48px"));
+    assert!(has(":root", "--hdr-ctl", "48px"));
+    assert!(has(".btn-sm", "min-height", "48px"));
+    assert!(has(".toast .btn", "min-height", "48px"));
+    assert!(has(".menu [role=\"menuitem\"]", "min-height", "48px"));
+    assert!(has(".filter", "min-height", "48px"));
+    assert!(has(".input", "min-height", "48px"));
+    assert!(has(".err-detail summary", "min-height", "48px"));
+    assert!(has(".cite::after", "inset", "-6px"), "36px cite + 6px each side");
+    assert!(has(".step-meta .cites", "gap", "12px"), "cite hit areas must not overlap");
+    assert!(has(".seg > button", "min-height", "42px"));
+    assert!(has(".seg > button::after", "inset", "-3px -1px"), "42px segment + 3px each side");
+    assert!(has(".lang-seg > button", "min-width", "48px"));
+    assert!(has(":root", "--pan", "44px"));
+    let narrow = coarse.iter().any(|r| r.media.iter().any(|m| m.contains("max-width: 359px")) && r.selector == ":root" && decl(r, "--hdr-ctl") == Some("44px"));
+    assert!(narrow, "below 360 px the header controls stay at the 44px minimum so the header fits");
+    let auth = rules(&style_blocks(AUTH_HTML));
+    assert!(auth.iter().any(|r| r.media.iter().any(|m| m.contains("pointer: coarse")) && r.selector == ".back" && decl(r, "min-height") == Some("48px")));
+    assert!(GATE_HTML.contains(".gate-submit { width: 100%; min-height: 48px;"));
+}
+
+#[test]
+fn narrow_screens_wrap_instead_of_scrolling_sideways() {
+    let all = rules(APP_CSS);
+    let plain = |sel: &str, prop: &str, val: &str| all.iter().any(|r| r.media.is_empty() && r.selector.split(',').any(|s| s.trim() == sel) && decl(r, prop).is_some_and(|v| v.contains(val)));
+    assert!(plain(".site-header .inner", "display", "flex") && plain(".site-header .inner", "flex-wrap", "wrap"));
+    assert!(plain(".header-tools", "flex-wrap", "wrap"));
+    assert!(plain(".composer-title", "flex-wrap", "wrap"));
+    assert!(plain(".tabs", "flex-wrap", "wrap") && plain(".tabs > button", "min-width", "max-content"));
+    assert!(plain("#effort", "flex-wrap", "wrap"));
+    assert!(plain(".actions", "flex-wrap", "wrap"));
+    assert!(plain(".fig-tools", "flex-wrap", "wrap"));
+    assert!(plain(".example-chips .btn", "white-space", "normal"));
+    let at = |w: &str, sel: &str| all.iter().any(|r| r.media.iter().any(|m| m.contains(w)) && r.selector.contains(sel));
+    assert!(at("max-width: 339px", ".signin-btn .lbl"), "sign-in becomes an icon below 340 px");
+    assert!(at("max-width: 299px", ".shell"), "tighter gutters below 300 px (Galaxy Fold cover screen, page zoom)");
+    assert!(at("max-width: 259px", ".site-header"), "the header stops being sticky once it may wrap");
+    assert!(INDEX_HTML.contains("class=\"btn btn-secondary btn-sm signin-btn\" id=\"signin\""));
+    assert!(LANDING_HTML.contains("signin-btn"));
+}
+
+#[test]
+fn back_button_closes_drawer_and_full_screen() {
+    let site = include_str!("../assets/site.js");
+    let app = include_str!("../assets/app.js");
+    assert!(site.contains("addEventListener(\"popstate\"") && site.contains("history.pushState({ gsLayer"));
+    assert!(site.contains("backLayer(this.closeByBack)") && site.contains("dropLayer(this.closeByBack)"));
+    assert!(app.contains("GS.backLayer(closeDrawerByBack)") && app.contains("GS.dropLayer(closeDrawerByBack)"));
 }
 
 #[test]

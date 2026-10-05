@@ -48,7 +48,7 @@
   .hero h1 { font-family: var(--font-math); font-size: clamp(2rem, 4.4vw, var(--fs-39)); font-weight: 600; line-height: 1.12; letter-spacing: -0.01em; margin-bottom: var(--s4); }
   .lede { font-size: var(--fs-16); color: var(--text-2); max-width: 52ch; line-height: 1.6; margin-bottom: var(--s5); }
   .cta { display: flex; gap: var(--s3); flex-wrap: wrap; }
-  .cta .btn { flex: 1 1 auto; }
+  .cta .btn { flex: 1 1 auto; white-space: normal; text-align: center; line-height: 1.25; padding-block: 8px; }
   .nw { white-space: nowrap; }
   .trust { list-style: none; padding: 0; margin: var(--s5) 0 0; display: grid; gap: var(--s2); font-size: var(--fs-14); color: var(--text-2); }
   .trust li { display: flex; gap: var(--s2); align-items: center; }
@@ -87,14 +87,15 @@
   .how h3 { font-size: var(--fs-16); font-weight: 650; }
   .how p { color: var(--text-2); }
   .how code { font-family: var(--font-mono); font-size: 0.92em; }
-  .closing { text-align: center; padding: var(--s7) var(--s5); display: grid; gap: var(--s3); justify-items: center; margin-bottom: var(--s7); }
+  .closing { text-align: center; padding: var(--s7) var(--s5); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); justify-items: center; margin-bottom: var(--s7); }
+  .closing .btn { white-space: normal; text-align: center; line-height: 1.25; padding-block: 8px; max-width: 100%; }
   .closing h2 { font-family: var(--font-math); font-size: clamp(1.5rem, 3vw, var(--fs-31)); font-weight: 600; }
   .closing p { color: var(--text-2); }
-  .header-cta { display: flex; gap: var(--s2); align-items: center; }
+  .header-cta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); align-items: center; margin-left: auto; }
   @media (max-width: 1000px) {
-    .hero { grid-template-columns: 1fr; gap: var(--s5); padding-top: var(--s6); }
+    .hero { grid-template-columns: minmax(0, 1fr); gap: var(--s5); padding-top: var(--s6); }
     .hero-fig { display: none; }
-    .case-body { grid-template-columns: 1fr; }
+    .case-body { grid-template-columns: minmax(0, 1fr); }
     .case-text { border-right: 0; border-bottom: 1px solid var(--border); }
     .case-fig { order: -1; border-bottom: 1px solid var(--border); }
     .case-fig .sticky { position: static; }
@@ -104,13 +105,20 @@
   }
   @media (max-width: 600px) {
     .wrap { padding: 0 max(var(--s4), var(--sai-r)) 0 max(var(--s4), var(--sai-l)); }
-    .features { grid-template-columns: 1fr; }
+    .features { grid-template-columns: minmax(0, 1fr); }
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .case-text { padding: var(--s4); }
     .case-head { padding: var(--s3) var(--s4); }
     .cta .btn { flex: 1 1 100%; }
     .header-cta .btn { padding: 0 var(--s3); }
     .section { padding: var(--s6) 0; }
+  }
+  @media (max-width: 299px) {
+    .wrap { padding: 0 max(var(--s2), var(--sai-r)) 0 max(var(--s2), var(--sai-l)); }
+    .feature, .how li, .case-text { padding: var(--s3); }
+    .case-head { padding: var(--s3); }
+    .closing { padding: var(--s6) var(--s3); }
+    .stats { grid-template-columns: minmax(0, 1fr); }
   }
 </style>
 <script src="/assets/i18n.js"></script>
@@ -120,7 +128,7 @@
 <div class="gs-note" id="gs-fail" role="alert"><div lang="en"><h2>GeoSolver did not finish loading</h2><p>Reload the page. If this keeps happening, update your browser.</p><a href="">Reload</a></div><div lang="ro"><h2>GeoSolver nu s-⁠a încărcat complet</h2><p>Reîncarcă pagina. Dacă se repetă, actualizează browserul.</p><a href="">Reîncarcă</a></div></div>
 <noscript><div class="gs-note gs-show gs-both" role="alert"><div lang="en"><h2>GeoSolver needs JavaScript</h2><p>Turn JavaScript on in your browser settings, then reload this page.</p></div><div lang="ro"><h2>GeoSolver are nevoie de JavaScript</h2><p>Activează JavaScript în setările browserului, apoi reîncarcă pagina.</p></div></div></noscript>
 <a class="skip-link" href="#main" data-i18n="nav.skip">Skip to content</a>
-<header class="site-header">
+<header class="site-header has-signin">
   <div class="inner">
     <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">
       <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -133,7 +141,7 @@
         <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
       </div>
       <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
-      <a class="btn btn-secondary btn-sm" href="/auth" data-i18n="nav.signin">Sign in</a>
+      <a class="btn btn-secondary btn-sm signin-btn" href="/auth"><span class="lbl-ic" data-icon="login" aria-hidden="true"></span><span class="lbl" data-i18n="nav.signin">Sign in</span></a>
     </div>
   </div>
 </header>
