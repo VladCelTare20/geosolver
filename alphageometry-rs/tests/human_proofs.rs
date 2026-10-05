@@ -309,3 +309,34 @@ fn the_jgex_corpus_never_shows_a_failed_check() {
     assert!(available * 100 >= proved * 97, "human proofs for {available} of {proved}");
     eprintln!("jgex direct: proved {proved}, human {available}, raw blocks {raw_blocks}");
 }
+
+#[test]
+fn checker_rejects_false_atom_instances() {
+    use ddar::human::AtomKey;
+    let c = imo_2004_p1();
+    let s = solve(&c);
+    let base = write(&s, &strict());
+    let id = |n: &str| c.problem.points.iter().position(|p| p.name == n).unwrap() as ddar::predicate::PointId;
+    let (a, b, cc, o, m, n, r) = (id("a"), id("b"), id("c"), id("o"), id("m"), id("n"), id("r"));
+    let with = |key: AtomKey, args: Vec<ddar::predicate::PointId>| -> HumanProof {
+        let mut hp = base.clone();
+        let l = first_chain_link(&mut hp, false).expect("a chain link");
+        l.reasons.push(Reason::Atom { key, stmt: Stmt::Coll { pts: vec![a, b, cc] }, args, from: Vec::new() });
+        hp
+    };
+    let controls = [(AtomKey::Thales, vec![b, cc, n, o]), (AtomKey::PowerOfPoint, vec![a, b, m, cc, n])];
+    for (key, args) in controls {
+        assert!(verify(&s, &with(key, args.clone())).is_empty(), "true {key:?} {args:?} rejected");
+    }
+    let false_instances = [
+        (AtomKey::Thales, vec![b, cc, n, r]),
+        (AtomKey::TangentChord, vec![b, a, cc, n, o]),
+        (AtomKey::PowerOfPoint, vec![a, b, m, cc, r]),
+        (AtomKey::Midline, vec![o, m, b, a, cc]),
+        (AtomKey::PerpBisector, vec![o, r, b, cc]),
+        (AtomKey::Radii, vec![r, b, cc]),
+    ];
+    for (key, args) in false_instances {
+        assert!(!verify(&s, &with(key, args.clone())).is_empty(), "false {key:?} {args:?} accepted");
+    }
+}

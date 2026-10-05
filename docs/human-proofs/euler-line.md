@@ -103,3 +103,26 @@ The prototype certifies 023 through the engine's own route (circle C, O, M, N). 
 - EN text matches after whitespace normalisation.
 - 020, 021 and 025 must not appear in any block.
 - Metrics: raw 27 → 5 blocks, 8 display lines, about 105 words.
+
+## Produced by the implementation (engine writer, branch wf/human-proofs-engine)
+
+Pinned verbatim in `alphageometry-rs/tests/golden/human/euler_line.en.txt` (test `golden_examples_render_as_recorded`; `golden_examples_have_the_planned_shape` pins the structure). Every block passed the independent checker in strict mode.
+
+```
+∡ denotes directed angles modulo 180°.
+Let M be the midpoint of BC.
+Let N be the midpoint of AC.
+
+Claim 1. △AHB ∼ △MON.
+Proof. ∡HAB = ∡(AH, MN) = ∡OMN (midline MN ∥ BA; AH ∥ OM, both ⟂ BC). ∡ABH = ∡(MN, BH) = ∡MNO (midline MN ∥ BA; BH ∥ ON, both ⟂ AC). Hence △AHB ∼ △MON.
+Claim 2. △ABG ∼ △MNG.
+Proof. ∡BAG = ∡NMG (midline MN ∥ BA). Hence △ABG ∼ △MNG.
+∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). From Claim 1 and Claim 2, AH : AG = MO : MG. Hence △AHG ∼ △MOG. ∡OGH = ∡(OM, AH) = ∡OMB + 90° = 0° (△AHG ∼ △MOG; AH ⟂ BC; OM is the perpendicular bisector of BC), so O, G, H are collinear. ∎
+```
+
+Deviations from the target:
+- The setup introduces M and N as midpoints (the program's helpers); "so that G = AM ∩ BN" is not stated (G is a hypothesis point).
+- The opening sentence (OM ⟂ BC, ON ⟂ CA, MN ∥ AB) is not a separate block: those facts are silent registrations or atoms, cited inline where used ("OM is the perpendicular bisector of BC", "midline MN ∥ BA").
+- Claim 1 is proved by two angle chains (AA) rather than by "parallel sides"; each chain is checked link by link.
+- Claim 2 cites only the midline (the angle at G is between the same two lines on both sides, so it costs nothing); the target also cites G = AM ∩ BN.
+- The finale proves △AHG ∼ △MOG (SAS from Claims 1 and 2) and then the collinearity as one chain ending in `0°`, instead of "∡AGH = ∡MGO … so are H, G, O".

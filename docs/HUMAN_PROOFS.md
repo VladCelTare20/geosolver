@@ -1,6 +1,6 @@
 # Human proof writer — specification
 
-Status: design, ready for implementation. Branch `wf/human-proofs-design` (from `wf/release` 4ff884c).
+Status: engine side implemented on `wf/human-proofs-engine` (`alphageometry-rs/src/human/`, `ddar --human`, ag-studio `best` HumanCost selection); ag-studio rendering built separately against §7.2 and awaiting the converge step. See §13 for what was built, the measured coverage and the data model changes. Design branch `wf/human-proofs-design` (from `wf/release` 4ff884c).
 Golden examples: [`docs/human-proofs/`](human-proofs/). Reference prototype: [`docs/human-proofs/prototype.patch`](human-proofs/prototype.patch) (evidence only — not product code).
 
 The owner asked for this verbatim:
@@ -693,3 +693,82 @@ HP_HUMAN=1 target/release/hproof --corpus corpus/imo_ag_30.txt translated_imo_20
 HP_HUMAN=1 HP_SUMMARY=1 …                          # one SUMMARY line per problem (§4.2)
 HP_VERBOSE=1 HP_CHAINS=1 …                        # engine-premise certificates and chains
 ```
+
+
+---
+
+## 13. Implementation status (engine side, `wf/human-proofs-engine`)
+
+### 13.1 What was built
+
+- `alphageometry-rs/src/human/` (map: `src/human/CODEMAP.md`): trace export, exact certificates, the atom vocabulary of §6.2 (perpendicular bisector, parallel, midline and orthocentre included), shortest single-angle chains first, then DFS ordering, then pooled sentences with their exact combination, trig computations, claim selection with a strict cap of 7, setup and aux lines, and the independent checker with per-block fallback to raw steps.
+- `ddar --human` prints EN text, `--human-json` prints the §7.2 JSON, and `--human-stats <file>` (corpus mode) writes one metrics row per proved conjunct.
+- `ag-studio best`: `consider` keeps the 16 shortest proofs, and `most_readable` returns the lowest HumanCost within min(25 % of budget, 5 s). The note is `most readable of N proofs examined: …` (key `readable`, EN + RO).
+- Tests: `alphageometry-rs/tests/human_proofs.rs` covers:
+  - goldens, verbatim and structural;
+  - every block re-verified;
+  - mutation tests: coefficient, reasons, chain term, atom arguments, conclusion, block order, missing conclusion;
+  - false atom instances (Thales off-centre, tangent–chord without ⟂, power of a point on a non-concyclic quadruple, midline with a non-midpoint, perpendicular bisector, radii);
+  - fallback, determinism across runs and threads, expired deadlines;
+  - the JGEX corpus with zero checker violations.
+
+  ag-studio's `best_mode_returns_a_proof_at_least_as_readable_as_the_imo_2023_p2_golden` (ignored by default; 60 s) covers best mode.
+
+### 13.2 Deviations from §5–§6
+
+- **§5.2 obligation recording is not in the engine.** The writer rebuilds obligations from the fact log and the figure (`classify.rs`). It offers every algebraic form of a concyclic, collinear or similar fact as an alternative, because these facts are not linear consequences of their premises (only one inscribed form is). Merged circles and lines are covered by a chain of 4- or 3-point subsets (`Writer::cover`). A concyclic fact may also be re-proved as equal distances from a centre. The engine change is therefore only `ElimCore.fact_rows` (tracked mode), `engine/export.rs`, and `runner::solve_problem_with_trace`.
+- **§5.3:** the trace carries no line/circle creation table. The writer derives line and circle objects as of each fact from the fact log (`ctx.rs:build_objects`). Two §5.3 items were **not done**: a separate "tracking on/off gives identical fact logs" test, and a `hyperfine` overhead measurement. The engine soundness gate below is the evidence that nothing changed outside tracked mode.
+- **Theorem facts with only squared-length rows** (Pythagoras, squares of ratios) are stated as `Expr::Sq` equations. Theorems with no single-row statement stay `Stmt::Formula` and are never claims.
+
+### 13.3 Measured coverage (writer run on every proved conjunct, `ddar --corpus … --human-stats`)
+
+| | IMO (30 conjuncts) | JGEX (240 conjuncts / 231 problems) |
+|---|---|---|
+| human proof available | 30/30 | 240/240 |
+| panics / checker violations shown | 0 / 0 | 0 / 0 |
+| derived steps: re-proved / fallback / silent / pruned / theorem | 293 / 10 / 455 / 86 / 74 (of 918) | 564 / 18 / 1647 / 347 / 91 (of 2667) |
+| fallback blocks (problems) | 10 of 339 (5) | 18 of 721 (14) |
+| claims / sentences / chains / pooled / links | 144 / 661 / 191 / 100 / 452 | 225 / 1286 / 427 / 166 / 1019 |
+| raw steps → EN lines / words | 1447 → 530 / 12603 | 4685 → 1167 / 26267 |
+| median lines per raw step / words per raw step | 0.34 / 7.9 | 0.22 / 4.0 |
+| writer time median / p95 / max | 10.9 / 68.7 / 162.7 ms | 0.6 / 4.6 / 124.9 ms |
+
+The §9.6 compactness gates are only partly met on IMO:
+- Median blocks is 7.5, against the target of ≤ 6.
+- Median sentences per raw step is 0.42, against the target of ≤ 0.30.
+- Max claims is 7 and no chain has more than 8 links; both gates hold.
+
+Of the IMO proofs, 26 contain at least one pooled sentence.
+
+### 13.4 Data model changes (relative to §7.1/§7.2)
+
+- `HumanProof.available: bool`. When it is false, the JSON is `null` (§7.2's `human: null`), and ag-studio shows the full derivation.
+- Block JSON: `kind` is `"claim" | "step" | "conclusion" | "raw"`, and `n` (the claim number) is `null` for non-claims. `Block.horizon` is engine-internal (not serialised).
+- **Combinations.** `Link.combination`, and the `combination` of `Because` and `Pooled` (also new on `Because`), are `[{reason, row, coef}]`:
+  - `reason` indexes the sentence's or link's `reasons`;
+  - `row` indexes that reason's rows (an atom or fact can carry several);
+  - `coef` is an exact rational as a string.
+  This replaces `(AtomRef, Rat)`.
+- **Reasons:**
+  - `hyp {stmt, step}`;
+  - `claim {n, block, step}`;
+  - `atom {key, args, stmt, from}`, where `from` lists the block ids whose claims establish the atom's template;
+  - `engine {step}`.
+  - New: a **fact reason**, an earlier displayed or inlined statement, serialised as the statement object `{kind, args, points}` plus `step`, `block` (or null) and `because` (nested reasons for an inlined fact).
+- `Sentence::Raw {engine_fact, cites}` replaces `engine_line`. JSON: `{kind: "raw", step, cites: [steps]}`.
+- `Computation` names its kind field `comp` (`ratio | length | trig`), because `kind` is the tag.
+- **Statements.** Added: `eq {lhs, rhs}` (typeset expressions), `formula`, `rconst`, `tangent`, `radical_axis`, `oncircle`, `coincide`. Emitted kinds: `coll, cyclic, perp, para, eqangle, aconst, cong, eqratio, rconst, simtri, contri, oncircle, tangent, radical_axis, coincide, formula, eq`.
+- **Expressions.** `Expr::Sq {a, b}` (squared length, typeset `AB²`) was added. Terms are typeset strings, as in §7.2.
+- **Closed keys.**
+  - Atom: `inscribed, thales, tangent_chord, perp_bisector, parallel, radii, isosceles, central_angle, power_of_point, midline, orthocentre`.
+  - Theorem: `radical_axis, arc_chord, angle_bisector_thm, angle_bisector_thm_converse, intercept, homothety, monge, menelaus, menelaus_converse, ceva_converse, bisector_concurrency, triangle_equality, pythagoras, perp_from_squares, squares_of_ratio, stewart, lengths_from_squares, law_of_sines, equal_sines, double_angle, triple_angle, sine_const, sines_converse, point_merge, tangent_merge, congruence, similarity, collinear, concyclic, other`.
+- **Step numbers.** `engine_steps`, and every `step`/`cites`, are **1-based positions in the engine's fact closure for the goal** (the raw `--proof` numbering). They are not yet the displayed numbers after `drop_restatements`, so ag-studio must renumber them at converge.
+- `metrics` carries the §8 counters plus `reproved, silent, pruned, theorem, fallback_facts, check_violations, human_cost`. `micros` and `timed_out` are not serialised.
+- Setup: `helper {point, meaning: {kind: midpoint, of} | {kind: reflection, of, line} | {kind: point}}`, and `aux {point, aux_index}`.
+
+### 13.5 Known weaknesses
+
+- **Pooled sentences.** 100 of the IMO sentences are pooled angle chases. These are cases where no single-angle chain of at most 8 links exists over the admissible atoms, typically when a step combines two circles and a tangency (IMO 2023 P2 Claims 2–3, the 2004 P1 finale).
+- **Trig computations** are faithful but verbose: their reasons are the engine's formula strings.
+- **IMO 2008 P1** stays long. Its six-point circle is re-proved through centre distances, after 20 Pythagoras and squared-ratio steps.
+- **Aux wording.** An aux point whose construction has no wording falls back to `Let X = <construction>`.

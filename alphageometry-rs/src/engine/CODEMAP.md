@@ -9,6 +9,7 @@ figure only picks configuration branches and rejects degenerate cases.
 ## Files
 - `classics.rs` — rule switches (`Rule`, `Ddar::set_rule`, env `DDAR_DISABLE_RULES=sqlen,menelaus,bisconc,trieq`), the per-engine done-sets (`Done`), Menelaus + its converse, Ceva's converse, bisector concurrency, and the equality case of the triangle inequality.
 - `sqlen.rs` — the squared-length table (`dsq`, Yuclid arXiv 2510.01346 §2.3.2): feeds and reads `s(XY)=|XY|²`.
+- `export.rs` — `Ddar::trace()`: the read-only `human::EngineTrace` (facts, fact rows of the four tables, figure values, pair-variable maps, prime constants, sine variables from `trig.rs`'s corner/class maps).
 - `trig.rs` — law-of-sines rows in the DDAR closure, multiple-angle product rows and the converse of the law of sines; `TrigMode` from `GEO_TRIG` / `ddar --trig` (off, fallback, lazy, always; default fallback since wf/final-hard-r1).
 
 ## Notes

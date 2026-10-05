@@ -6,7 +6,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `geo.rs` — the `.geo` language: parse, expand constructions, sample a figure, compile to predicates. Point cap counts expanded points.
 - `predicate.rs` — the low-level AlphaGeometry predicate language and parser.
 - `engine.rs` — DDAR deductive closure; goals include `acompute` (angle) and `rcompute` (ratio fixed to a constant).
-- `elim_core.rs`, `elimination.rs`, `lincomb.rs`, `rational.rs` — exact Gaussian elimination over rationals (angles, ratios, distances, squared lengths).
+- `elim_core.rs`, `elimination.rs`, `lincomb.rs`, `rational.rs` — exact Gaussian elimination over rationals (angles, ratios, distances, squared lengths). With tracking on, `ElimCore.fact_rows` keeps each fact's added row (read only by `engine/export.rs`).
 - `fingerprint.rs` — linear fingerprints of `LinComb`s mod 2^61−1; can only rule an equality out.
 - `aux_search.rs` — LM-free auxiliary-point search over DDAR: the classical construction library, `WarmBase`, and the entry points (`solve_max_until` → `aux_rollout::search`; `depth1_solvers` and `rollouts_until` split it for ag-studio's best mode).
 - `aux_virtual.rs` — new candidate kinds: virtual lines (parallel / perpendicular / tangent / isogonal through a point) met with figure lines and circles, intersections with circles the closure proved, harmonic conjugates.
@@ -19,9 +19,9 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `numerics.rs` — f64 geometry oracle.
 - `svg.rs` — figure rendering; all text is XML-escaped here.
 - `quiet_panic.rs` — one process-wide hook, thread-local mute.
-- `runner.rs` — helpers shared by `bin/ddar.rs` and tests.
+- `runner.rs` — helpers shared by `bin/ddar.rs` and tests; `solve_problem_with_trace` returns the proof text, the `EngineTrace` and the goal's fact deps for the human writer.
 - `corpus.rs` — reader for the original AlphaGeometry corpus language (`corpus/*.txt`, constructions from `corpus/defs.txt`) → `Problem`.
-- `bench.rs` — solve-rate benchmark: `solve_one` (DDAR, then aux search, under a deadline) and `run_corpus` (one child process per problem, killed at budget + grace; `RunConfig.child_flag` picks the child mode).
+- `bench.rs` — solve-rate benchmark: `solve_one` (DDAR, then aux search, under a deadline) and `run_corpus` (one child process per problem, killed at budget + grace; `RunConfig.child_flag` picks the child mode; `RunConfig.human_stats` makes each child print one `HUMAN\t` metrics line per proved conjunct, collected into `Outcome.human`).
 - `fuzz.rs` — soundness fuzzer: genuinely false variants of corpus problems, each run through DDAR + aux search in its own process; any proof is a soundness bug (exit 2). Run under the bench lock: `flock ~/Projects/geosolver-bench/.bench.lock ddar --fuzz-false corpus/jgex_ag_231.txt --per 8 --budget 10 --jobs 6 --threads 2 --out f.tsv` (cases in `f.tsv.cases.txt`, proofs of any proved case in `f.tsv.proofs/`).
 
 ## Notes
@@ -77,5 +77,6 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 
 ## Subfolders
 - [engine/](engine/CODEMAP.md) — classical closure rules (squared lengths, Menelaus/Ceva, bisector concurrency, triangle equality) and the trig rows of the DDAR closure (law of sines, multiple-angle products, converse; `--trig`, fallback by default).
-- `bin/` — `ddar.rs`, the engine CLI (`--help` lists modes).
+- [human/](human/CODEMAP.md) — the deterministic human-style proof writer, its checker and data model.
+- `bin/` — `ddar.rs`, the engine CLI (`--help` lists modes); `--human` / `--human-json` print the human proof, `--human-stats <file>` (corpus) writes the writer's metrics per proof.
 - [ratio/](ratio/CODEMAP.md) — the trigonometric layer of the metric ratio prover.

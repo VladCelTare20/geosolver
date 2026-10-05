@@ -88,3 +88,20 @@ The ½·[005] + ½·[006] pair in 007 is exactly the row "BC ⟂ HK". The perpen
 - The chain terms match exactly.
 - EN and RO text match after whitespace normalisation.
 - Metrics: raw 8 steps → 2 blocks, 5 display lines, about 65 words (EN; RO about 65).
+
+## Produced by the implementation (engine writer, branch wf/human-proofs-engine)
+
+Pinned verbatim in `alphageometry-rs/tests/golden/human/orthocenter_reflection.en.txt` (test `golden_examples_render_as_recorded`; `golden_examples_have_the_planned_shape` pins the structure). Every block passed the independent checker in strict mode.
+
+```
+∡ denotes directed angles modulo 180°.
+
+∡AHK = 0° (AH ∥ HK, both ⟂ BC), so H, A, K are collinear.
+∡ACB = ∡HBC + 90° = ∡BHK = ∡HKB = ∡AKB (BH ⟂ AC; BC is the perpendicular bisector of HK; BH = BK; K on HA), so A, B, C, K are concyclic. ∎
+```
+
+Deviations from the target (all equivalent; none changes what is proved):
+- Two blocks, no claims, as planned. The first block states the collinearity as a one-link chain `∡AHK = 0° (AH ∥ HK, both ⟂ BC)`; the target spells out BK = BH, CK = CH and the perpendicular bisector first. The writer cites the Parallel atom (two lines ⟂ BC) directly.
+- The conclusion chain runs from ∡ACB to ∡AKB instead of ∡KBC … ∡KAC. Both are inscribed-angle forms of the same concyclicity; the writer takes the cheapest form whose certificate is a pure single-angle chain. Same four links with the same reasons (BH ⟂ AC; BC the perpendicular bisector of HK; BH = BK; K on AH).
+- The point order in "A, B, C, K are concyclic" follows the engine goal.
+- The RO text is rendered by ag-studio from the structured blocks, not by the engine.
