@@ -14,7 +14,7 @@
 //! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
 //! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
 //! | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
-//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` calls per 24 h (0 = no daily cap; the per-minute limit always applies) |
+//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` calls per 24 h, counted once the request is valid (0 = no daily cap; the per-minute limit always applies) |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |

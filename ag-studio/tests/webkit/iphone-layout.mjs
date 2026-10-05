@@ -42,6 +42,10 @@ try {
       const errors = [];
       page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(BASE + '/');
+      if (new URL(page.url()).pathname === '/gate') {
+        await page.fill('#pw', PASSWORD);
+        await Promise.all([page.waitForURL((u) => new URL(u).pathname !== '/gate'), page.click('.gate-submit')]);
+      }
       await page.waitForFunction(() => window.GS && !document.documentElement.classList.contains('i18n-pending'));
       await page.waitForTimeout(300);
       const vw = () => page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);

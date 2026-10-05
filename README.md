@@ -84,6 +84,28 @@ cargo run --release -p ag-studio -- serve --port 8787
 Type a problem (or paste a `.geo` program, or drop a photo) and press **Solve**.
 Download the proof + figure as PDF or PNG.
 
+#### On an iPhone
+
+The web app is built for Safari on iPhone (SE through Pro Max, portrait and
+landscape, light and dark):
+
+- **Password once.** A server with a shared password (`AGSTUDIO_BASIC_AUTH`)
+  shows a password page instead of Safari's login dialog; the device then
+  stays signed in for 180 days. Keychain can save the password. "Forget this
+  device" in the footer signs that phone out.
+- **Add to Home Screen.** In Safari, Share → **Add to Home Screen** installs
+  GeoSolver with its own icon, name and launch screen, and it opens full screen
+  like an app. The Home Screen app keeps its cookies apart from Safari, so it
+  asks for the password once more on first launch.
+- **Photo.** Take a picture or pick one from Photos; the phone shrinks it
+  (longest side 2048 px) and removes location data before it is uploaded.
+- **Figure.** Pinch or double-tap to zoom, drag to pan. Tapping a step while
+  the figure is off screen shows a small copy of the figure with that step lit.
+- **Export.** PDF and PNG open the share sheet (Save Image, Save to Files,
+  AirDrop) from a "Share / Save" button; SVG shares straight from the menu.
+- **Language.** Romanian or English follows the phone's language until you
+  pick one with EN / RO.
+
 ### 2. Inside Claude Desktop / Claude Code (MCP)
 
 Add this to your Claude Desktop config

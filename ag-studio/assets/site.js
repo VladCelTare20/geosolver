@@ -928,10 +928,10 @@
     var region = document.getElementById("toasts");
     if (!region) return null;
     Array.prototype.forEach.call(region.querySelectorAll(".toast"), function (old) {
-      if (old.getAttribute("data-msg") === msg && old._gsClose) old._gsClose();
+      if ((old.getAttribute("data-msg") === msg || (!opts.action && old.classList.contains("plain"))) && old._gsClose) old._gsClose();
     });
     var el = document.createElement("div");
-    el.className = "toast";
+    el.className = opts.action ? "toast" : "toast plain";
     el.setAttribute("data-msg", msg);
     el.innerHTML = '<div class="grow"></div>';
     el.firstChild.textContent = msg;
