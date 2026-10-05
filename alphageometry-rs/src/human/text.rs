@@ -263,10 +263,26 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
                 Stmt::Coll { pts } if pts.len() >= 3 && block.is_some() => format!("{} on {}", n.get(pts[pts.len() - 1]), n.pts(&pts[..2])),
                 _ => stmt(n, s),
             };
-            if because.is_empty() {
+            let mut inner: Vec<String> = Vec::new();
+            for b in because {
+                let t = match b {
+                    Reason::Atom { stmt: s2, from, .. } if same_stmt(s2, s) => {
+                        let f: Vec<String> = from.iter().filter_map(|x| claims.get(x).map(|k| format!("Claim {k}"))).collect();
+                        if f.is_empty() {
+                            continue;
+                        }
+                        f.join(", ")
+                    }
+                    Reason::Fact { stmt: s2, because: bb, .. } if same_stmt(s2, s) && bb.is_empty() => continue,
+                    _ => reason(n, b, claims),
+                };
+                if !inner.contains(&t) {
+                    inner.push(t);
+                }
+            }
+            if inner.is_empty() {
                 base
             } else {
-                let inner: Vec<String> = because.iter().map(|b| reason(n, b, claims)).collect();
                 format!("{base} ({})", inner.join(", "))
             }
         }
@@ -518,7 +534,13 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
                     [Reason::Atom { stmt: s2, key: AtomKey::Radii, from, .. }] => !from.is_empty() && same_stmt(s2, st),
                     _ => false,
                 };
-                if restates || (rs.len() == 1 && rs[0] == own) {
+                let from_claims: Vec<String> = match inner {
+                    [Reason::Atom { from, .. }] => from.iter().filter_map(|b| claims.get(b).map(|k| format!("Claim {k}"))).collect(),
+                    _ => Vec::new(),
+                };
+                if restates && !from_claims.is_empty() {
+                    format!("{} ({}).", cap(&own), from_claims.join(", "))
+                } else if restates || (rs.len() == 1 && rs[0] == own) {
                     format!("{} (shown above).", cap(&own))
                 } else {
                     format!("{} ({}).", cap(&own), rs.join("; "))
