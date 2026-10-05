@@ -64,16 +64,40 @@ pub fn disp(raw: &str) -> String {
     }
 }
 
+type CircleNames = Vec<(String, Vec<PointId>, Option<PointId>)>;
+
 thread_local! {
     static NOTATION: std::cell::Cell<Option<(Tri, Option<PointId>)>> = const { std::cell::Cell::new(None) };
+    static CIRCLES: std::cell::RefCell<CircleNames> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 pub fn with_notation<R>(setup: &[SetupLine], f: impl FnOnce() -> R) -> R {
     let n = setup.iter().find_map(|s| if let SetupLine::Notation { triangle, circumcentre } = s { Some((*triangle, *circumcentre)) } else { None });
+    let circles: CircleNames = setup
+        .iter()
+        .filter_map(|s| if let SetupLine::Circle { name, through, centre, .. } = s { (!name.is_empty()).then(|| (name.clone(), through.clone(), *centre)) } else { None })
+        .collect();
     let old = NOTATION.with(|c| c.replace(n));
+    let old_c = CIRCLES.with(|c| c.replace(circles));
     let r = f();
     NOTATION.with(|c| c.set(old));
+    CIRCLES.with(|c| c.replace(old_c));
     r
+}
+
+pub fn circle_name(pts: &[PointId]) -> Option<String> {
+    if pts.len() < 3 {
+        return None;
+    }
+    CIRCLES.with(|c| c.borrow().iter().find(|(_, through, _)| pts.iter().all(|p| through.contains(p))).map(|x| x.0.clone()))
+}
+
+pub fn circle_by_centre(o: PointId) -> Option<String> {
+    CIRCLES.with(|c| c.borrow().iter().find(|(_, _, centre)| *centre == Some(o)).map(|x| x.0.clone()))
+}
+
+pub fn subscript_digits(s: &str) -> String {
+    subscript(s)
 }
 
 fn vertex_angle(n: &dyn PointNames, e: &Expr) -> Option<String> {
@@ -131,6 +155,7 @@ impl Names {
                 let cand: Vec<String> = match meaning {
                     HelperMeaning::Midpoint { .. } => ["M", "N", "K", "L"].iter().map(|x| x.to_string()).collect(),
                     HelperMeaning::Reflection { of, .. } => vec![format!("{}′", map.get(of).cloned().unwrap_or_else(|| disp(t.name(*of))))],
+                    HelperMeaning::Perp { .. } | HelperMeaning::Para { .. } => ["U", "V", "W", "Q", "Z", "Y"].iter().map(|x| x.to_string()).collect(),
                     HelperMeaning::Point => Vec::new(),
                 };
                 let name = cand.into_iter().find(|c| !used.contains(c)).unwrap_or_else(|| loop {
@@ -326,6 +351,7 @@ pub fn hyp_text(n: &dyn PointNames, s: &Stmt) -> String {
 pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> String {
     let _ = claims;
     match r {
+        Reason::Hyp { stmt: Stmt::Cyclic { pts }, .. } if circle_name(pts).is_some() => format!("{} lie on {}", n.list(pts), circle_name(pts).unwrap_or_default()),
         Reason::Hyp { stmt: s, .. } => hyp_text(n, s),
         Reason::Claim { n: k, .. } => format!("Claim {k}"),
         Reason::Atom { key, args, stmt: s, from } => {
@@ -340,10 +366,15 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
         Reason::Fact { stmt: s, block, because, .. } => {
             let base = match s {
                 Stmt::Coll { pts } if pts.len() >= 3 && block.is_some() => format!("{} on {}", n.get(pts[pts.len() - 1]), n.pts(&pts[..2])),
+                Stmt::Cyclic { pts } if circle_name(pts).is_some() => format!("{} lie on {}", n.list(pts), circle_name(pts).unwrap_or_default()),
                 _ => stmt(n, s),
             };
             let mut inner: Vec<String> = Vec::new();
+            let others = because.iter().any(|x| !circle_member(x));
             for b in because {
+                if others && circle_member(b) {
+                    continue;
+                }
                 let t = match b {
                     Reason::Atom { stmt: s2, from, .. } if same_stmt(s2, s) => {
                         let f: Vec<String> = from.iter().filter_map(|x| claims.get(x).map(|k| format!("Claim {k}"))).collect();
@@ -373,14 +404,19 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
 pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> String {
     match key {
         AtomKey::Inscribed => {
-            if a.len() > 4 {
+            if let Some(name) = circle_name(a) {
+                format!("inscribed angles in {name}")
+            } else if a.len() > 4 {
                 format!("the inscribed angles in ({})", n.pts(a))
             } else {
                 format!("{} cyclic", n.pts(a))
             }
         }
         AtomKey::Thales => format!("{} is a diameter", n.pts(&[a[0], a[1]])),
-        AtomKey::TangentChord => format!("{} is tangent to the circle centred at {}", n.pts(&[a[0], a[1]]), n.get(a[4])),
+        AtomKey::TangentChord => match circle_by_centre(a[4]).or_else(|| circle_name(&a[2..4].iter().copied().chain([a[0]]).collect::<Vec<_>>())) {
+            Some(name) => format!("{} is tangent to {name}", n.pts(&[a[0], a[1]])),
+            None => format!("{} is tangent to the circle centred at {}", n.pts(&[a[0], a[1]]), n.get(a[4])),
+        },
         AtomKey::PerpBisector => format!("{} is the perpendicular bisector of {}", n.pts(&[a[0], a[1]]), n.pts(&[a[2], a[3]])),
         AtomKey::Parallel => format!("{} ∥ {}, both ⟂ {}", n.pts(&[a[0], a[1]]), n.pts(&[a[2], a[3]]), n.pts(&[a[4], a[5]])),
         AtomKey::Radii | AtomKey::Isosceles => stmt(n, s),
@@ -555,23 +591,43 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
             }
             SetupLine::Circle { name, through, centre, diameter } => {
                 let nm = if name.is_empty() { format!("({})", n.pts(through)) } else { name.clone() };
-                let mut l = match diameter {
-                    Some(d) => format!("Let {nm} be the circle with diameter {}", n.pts(&[d.0, d.1])),
-                    None => format!("Let {nm} be the circle through {}", n.list(through)),
+                let tri: Vec<PointId> = vec![0, 1, 2];
+                let circum = t.n >= 3 && t.orient(0, 1, 2) != 0 && tri.iter().all(|p| through.contains(p));
+                let rest: Vec<PointId> = through.iter().copied().filter(|p| !circum || !tri.contains(p)).collect();
+                let mut l = match (diameter, circum) {
+                    (Some(d), _) => format!("Let {nm} be the circle with diameter {}", n.pts(&[d.0, d.1])),
+                    (None, true) => format!("Let {nm} be the circumcircle of triangle {}", n.pts(&tri)),
+                    (None, false) => match centre {
+                        Some(c) => format!("Let {nm} be the circle centred at {} through {}", n.get(*c), n.list(through)),
+                        None => format!("Let {nm} be the circle through {}", n.list(through)),
+                    },
                 };
-                if let Some(c) = centre {
-                    l.push_str(&format!("; its centre is {}", n.get(*c)));
+                if circum {
+                    if let Some(c) = centre {
+                        l.push_str(&format!(", with centre {}", n.get(*c)));
+                    }
+                    if !rest.is_empty() {
+                        l.push_str(&format!("; {} lie on {nm}", n.list(&rest)));
+                        if rest.len() == 1 {
+                            l = l.replacen(" lie on ", " lies on ", 1);
+                        }
+                    }
                 }
                 l.push('.');
                 lines.push(l);
             }
-            SetupLine::Aux { point, aux_index } => {
+            SetupLine::Aux { point, aux_index, wording } => {
                 let desc = aux_desc.get(*aux_index).map(|x| x.1.clone()).unwrap_or_default();
-                lines.push(aux_text(&n, t, *point, &desc));
+                match wording {
+                    Some(w) => lines.push(super::aux::en(&n, &n.get(*point), w, &|p| circle_name(p))),
+                    None => lines.push(aux_text(&n, t, *point, &desc)),
+                }
             }
             SetupLine::Helper { point, meaning } => match meaning {
                 HelperMeaning::Midpoint { of } => lines.push(format!("Let {} be the midpoint of {}.", n.get(*point), n.pts(&[of.0, of.1]))),
                 HelperMeaning::Reflection { of, line } => lines.push(format!("Let {} be the reflection of {} in {}.", n.get(*point), n.get(*of), n.pts(&[line.0, line.1]))),
+                HelperMeaning::Perp { through, to } => lines.push(format!("Let {} be a point other than {} on the perpendicular from {} to {}.", n.get(*point), n.get(*through), n.get(*through), n.pts(&[to.0, to.1]))),
+                HelperMeaning::Para { through, to } => lines.push(format!("Let {} be a point other than {} on the parallel to {} through {}.", n.get(*point), n.get(*through), n.pts(&[to.0, to.1]), n.get(*through))),
                 HelperMeaning::Point => {}
             },
         }
@@ -581,8 +637,20 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
     }
     for b in &hp.blocks {
         let mut body = String::new();
-        for s in &b.body {
-            let text = sentence(&n, s, &claims, raw_line);
+        for (si, s) in b.body.iter().enumerate() {
+            let mut text = sentence(&n, s, &claims, raw_line);
+            let congruence = matches!(s, Sentence::Because { stmt: Stmt::Sim { .. } | Stmt::Congruent { .. }, .. });
+            if congruence {
+                if let Some(Sentence::Because { stmt: next, reasons, .. }) = b.body.get(si + 1) {
+                    if reasons.is_empty() && !matches!(next, Stmt::Sim { .. } | Stmt::Congruent { .. }) {
+                        text = format!("{}, so {}", text.trim_end_matches('.'), stmt(&n, next));
+                    }
+                }
+            }
+            if si > 0 && matches!(s, Sentence::Because { stmt: st, reasons, .. } if reasons.is_empty() && !matches!(st, Stmt::Sim { .. } | Stmt::Congruent { .. })) && matches!(b.body.get(si - 1), Some(Sentence::Because { stmt: Stmt::Sim { .. } | Stmt::Congruent { .. }, .. })) {
+                body.push('.');
+                continue;
+            }
             if body.is_empty() {
                 body.push_str(text.trim_start_matches('\n'));
                 continue;
@@ -626,6 +694,9 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
             out
         }
         Sentence::Because { stmt: st, reasons, .. } => {
+            if !reasons.is_empty() && matches!(st, Stmt::Sim { .. } | Stmt::Congruent { .. }) {
+                return format!("Hence {} ({}).", stmt(n, st), reasons_text(n, reasons, claims).join("; "));
+            }
             if reasons.is_empty() {
                 format!("Hence {}.", stmt(n, st))
             } else {
@@ -693,10 +764,22 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
     }
 }
 
+fn circle_member(r: &Reason) -> bool {
+    match r {
+        Reason::Fact { stmt: Stmt::Cyclic { pts }, .. } | Reason::Hyp { stmt: Stmt::Cyclic { pts }, .. } => circle_name(pts).is_some(),
+        _ => false,
+    }
+}
+
 pub fn reasons_text(n: &dyn PointNames, rs: &[Reason], claims: &BTreeMap<u16, u16>) -> Vec<String> {
     let fact_stmts: Vec<&Stmt> = rs.iter().filter_map(|r| if let Reason::Fact { stmt, .. } = r { Some(stmt) } else { None }).collect();
     let mut out: Vec<String> = Vec::new();
+    let member = circle_member;
+    let others = rs.iter().any(|r| !member(r));
     for r in rs {
+        if others && member(r) {
+            continue;
+        }
         if let Reason::Atom { stmt, .. } = r {
             if fact_stmts.iter().any(|s| same_stmt(s, stmt)) {
                 continue;

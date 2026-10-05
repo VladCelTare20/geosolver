@@ -22,6 +22,73 @@ pub fn term(nm: &Namer, e: &Expr) -> String {
     expr_text(&FnNames(nm.name), e)
 }
 
+pub fn stmt_points(s: &Stmt) -> Vec<PointId> {
+    match s {
+        Stmt::Coll { pts } | Stmt::Cyclic { pts } | Stmt::Formula { pts, .. } => pts.clone(),
+        Stmt::Perp { l1, l2 } | Stmt::Para { l1, l2 } => vec![l1.0, l1.1, l2.0, l2.1],
+        Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs } => expr_points(lhs).into_iter().chain(expr_points(rhs)).collect(),
+        Stmt::AngleConst { angle, .. } => expr_points(angle),
+        Stmt::Cong { s1, s2 } | Stmt::RatioConst { s1, s2, .. } => vec![s1.0, s1.1, s2.0, s2.1],
+        Stmt::EqRatio { segs } => segs.iter().flat_map(|x| [x.0, x.1]).collect(),
+        Stmt::Sim { t1, t2, .. } | Stmt::Congruent { t1, t2, .. } => vec![t1.0, t1.1, t1.2, t2.0, t2.1, t2.2],
+        Stmt::OnCircle { p, circle } => std::iter::once(*p).chain(circle.iter().copied()).collect(),
+        Stmt::Tangent { p, line, .. } => vec![*p, line.0, line.1],
+        Stmt::RadicalAxis { x, u, v } => vec![*x, *u, *v],
+        Stmt::Coincide { a, b } => vec![*a, *b],
+    }
+}
+
+fn reason_points(r: &Reason, out: &mut Vec<PointId>) {
+    match r {
+        Reason::Hyp { stmt, .. } | Reason::Lemma { stmt, .. } => out.extend(stmt_points(stmt)),
+        Reason::Atom { args, .. } => out.extend(args.iter().copied()),
+        Reason::Fact { stmt, because, .. } => {
+            out.extend(stmt_points(stmt));
+            for b in because {
+                reason_points(b, out);
+            }
+        }
+        Reason::Claim { .. } | Reason::Engine { .. } => {}
+    }
+}
+
+pub fn sentence_points(s: &Sentence) -> Vec<PointId> {
+    let mut out = Vec::new();
+    match s {
+        Sentence::Chain { terms, links, then, .. } => {
+            for t in terms {
+                out.extend(expr_points(t));
+            }
+            for l in links {
+                for r in &l.reasons {
+                    reason_points(r, &mut out);
+                }
+            }
+            if let Some(t) = then {
+                out.extend(stmt_points(t));
+            }
+        }
+        Sentence::Computation { terms, links, .. } => {
+            for t in terms {
+                out.extend(expr_points(t));
+            }
+            for l in links {
+                for r in &l.reasons {
+                    reason_points(r, &mut out);
+                }
+            }
+        }
+        Sentence::Because { stmt, reasons, .. } | Sentence::Pooled { stmt, reasons, .. } | Sentence::Theorem { stmt, reasons, .. } => {
+            out.extend(stmt_points(stmt));
+            for r in reasons {
+                reason_points(r, &mut out);
+            }
+        }
+        Sentence::Raw { .. } => {}
+    }
+    out
+}
+
 pub fn stmt(nm: &Namer, s: &Stmt) -> Value {
     let (kind, args, points): (&str, Vec<String>, Vec<PointId>) = match s {
         Stmt::Coll { pts } => ("coll", names_of(nm, pts), pts.clone()),
@@ -78,7 +145,18 @@ pub fn reason(nm: &Namer, r: &Reason) -> Value {
     match r {
         Reason::Hyp { stmt: s, fact } => json!({"kind": "hyp", "stmt": stmt(nm, s), "step": (nm.step)(*fact)}),
         Reason::Claim { n, block, fact } => json!({"kind": "claim", "n": n, "block": block, "step": (nm.step)(*fact)}),
-        Reason::Atom { key, stmt: s, args, from } => json!({"kind": "atom", "key": key.as_str(), "args": names_of(nm, args), "stmt": stmt(nm, s), "from": from}),
+        Reason::Atom { key, stmt: s, args, from } => {
+            let mut v = json!({"kind": "atom", "key": key.as_str(), "args": names_of(nm, args), "stmt": stmt(nm, s), "from": from});
+            let circle = match key {
+                AtomKey::Inscribed => super::text::circle_name(args),
+                AtomKey::TangentChord => super::text::circle_by_centre(args[4]),
+                _ => None,
+            };
+            if let Some(c) = circle {
+                v["circle"] = json!(c);
+            }
+            v
+        }
         Reason::Fact { stmt: s, fact, block, because } => {
             let mut v = stmt(nm, s);
             v["step"] = json!((nm.step)(*fact));
@@ -163,11 +241,22 @@ pub fn setup(nm: &Namer, s: &SetupLine) -> Value {
             "centre": centre.map(|c| (nm.name)(c)),
             "diameter": diameter.map(|d| vec![(nm.name)(d.0), (nm.name)(d.1)]),
         }),
-        SetupLine::Aux { point, aux_index } => json!({"kind": "aux", "point": (nm.name)(*point), "aux_index": aux_index}),
+        SetupLine::Aux { point, aux_index, wording } => {
+            let mut v = json!({"kind": "aux", "point": (nm.name)(*point), "aux_index": aux_index});
+            if let Some(w) = wording {
+                v["wording"] = json!({
+                    "key": w.key,
+                    "args": w.args.iter().map(|a| json!({"key": a.key, "pts": names_of(nm, &a.pts)})).collect::<Vec<_>>(),
+                });
+            }
+            v
+        }
         SetupLine::Helper { point, meaning } => {
             let m = match meaning {
                 HelperMeaning::Midpoint { of } => json!({"kind": "midpoint", "of": [(nm.name)(of.0), (nm.name)(of.1)]}),
                 HelperMeaning::Reflection { of, line } => json!({"kind": "reflection", "of": (nm.name)(*of), "line": [(nm.name)(line.0), (nm.name)(line.1)]}),
+                HelperMeaning::Perp { through, to } => json!({"kind": "perp", "through": (nm.name)(*through), "to": [(nm.name)(to.0), (nm.name)(to.1)]}),
+                HelperMeaning::Para { through, to } => json!({"kind": "para", "through": (nm.name)(*through), "to": [(nm.name)(to.0), (nm.name)(to.1)]}),
                 HelperMeaning::Point => json!({"kind": "point"}),
             };
             json!({"kind": "helper", "point": (nm.name)(*point), "meaning": m})

@@ -603,6 +603,9 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
     let pi = node.get(ANGLE_UNIT);
     let score = |p: PointId| -> i64 {
         let mut s = 0;
+        if t.name(p).starts_with('_') {
+            s -= 40;
+        }
         if focus.contains(&p) {
             s += 3;
         }

@@ -27,7 +27,7 @@ pub struct HumanProof {
 pub enum SetupLine {
     DirectedAngles,
     Circle { name: String, through: Vec<PointId>, centre: Option<PointId>, diameter: Option<Line> },
-    Aux { point: PointId, aux_index: usize },
+    Aux { point: PointId, aux_index: usize, wording: Option<super::aux::AuxWording> },
     Helper { point: PointId, meaning: HelperMeaning },
     Notation { triangle: Tri, circumcentre: Option<PointId> },
 }
@@ -37,6 +37,8 @@ pub enum SetupLine {
 pub enum HelperMeaning {
     Midpoint { of: Line },
     Reflection { of: PointId, line: Line },
+    Perp { through: PointId, to: Line },
+    Para { through: PointId, to: Line },
     Point,
 }
 

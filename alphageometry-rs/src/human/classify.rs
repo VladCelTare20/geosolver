@@ -535,7 +535,14 @@ pub fn sim_obligations(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, 
         let rexp = if opp { ang_expr(rr, pp, qq) } else { ang_expr(qq, pp, rr) };
         angle_target(cx, l, rexp, Stmt::EqAngle { lhs: ang_expr(q, p, r), rhs: if opp { ang_expr(rr, pp, qq) } else { ang_expr(qq, pp, rr) } })
     };
+    let same = |u: (PointId, PointId), v: (PointId, PointId)| (u.0.min(u.1), u.0.max(u.1)) == (v.0.min(v.1), v.0.max(v.1));
     let ratio_at = |p: PointId, q: PointId, r: PointId, pp: PointId, qq: PointId, rr: PointId| -> Option<Target> {
+        if same((p, r), (pp, rr)) {
+            return ratio_target(cx, seg(p, q), seg(pp, qq), Stmt::Cong { s1: (p, q), s2: (pp, qq) });
+        }
+        if same((p, q), (pp, qq)) {
+            return ratio_target(cx, seg(p, r), seg(pp, rr), Stmt::Cong { s1: (p, r), s2: (pp, rr) });
+        }
         ratio_target(
             cx,
             quot(vec![seg(p, q)], vec![seg(p, r)]),
@@ -750,6 +757,25 @@ pub fn goal_obligations(cx: &Ctx, g: &Predicate) -> Vec<Obl> {
     }
     let _ = ANGLE_UNIT;
     out
+}
+
+pub fn dehelper(cx: &Ctx, s: Stmt) -> Stmt {
+    let t = cx.t;
+    let helper = |p: PointId| t.name(p).starts_with('_');
+    let class = |a: PointId, b: PointId| t.var(Table::Angle, a, b).and_then(|v| cx.quot.class_of(v));
+    let fix = |l: (PointId, PointId)| -> (PointId, PointId) {
+        if !helper(l.0) && !helper(l.1) {
+            return l;
+        }
+        let Some(c) = class(l.0, l.1) else { return l };
+        let keep = if helper(l.0) { l.1 } else { l.0 };
+        cx.quot.members[c as usize].iter().copied().find(|&p| p != keep && !helper(p) && class(keep, p) == Some(c)).map(|p| (keep, p)).unwrap_or(l)
+    };
+    match s {
+        Stmt::Perp { l1, l2 } => Stmt::Perp { l1: fix(l1), l2: fix(l2) },
+        Stmt::Para { l1, l2 } => Stmt::Para { l1: fix(l1), l2: fix(l2) },
+        other => other,
+    }
 }
 
 pub fn small_circle(cx: &Ctx, f: FactId) -> Option<(PointId, Vec<PointId>)> {

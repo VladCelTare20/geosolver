@@ -1,4 +1,5 @@
 pub mod atoms;
+pub mod aux;
 pub mod cert;
 pub mod chain;
 pub mod check;
@@ -138,7 +139,108 @@ fn helper_meaning(cx: &Ctx, p: PointId) -> HelperMeaning {
             return HelperMeaning::Reflection { of: s, line: (cs[0], cs[1]) };
         }
     }
+    for q in &preds {
+        if (q.name == "perp" || q.name == "para") && q.points.len() == 4 {
+            let a = &q.points;
+            for (l, m) in [((a[0], a[1]), (a[2], a[3])), ((a[2], a[3]), (a[0], a[1]))] {
+                let other = if l.0 == p { Some(l.1) } else if l.1 == p { Some(l.0) } else { None };
+                if let Some(o) = other {
+                    if o != p && !m.0.eq(&p) && !m.1.eq(&p) {
+                        return if q.name == "perp" { HelperMeaning::Perp { through: o, to: m } } else { HelperMeaning::Para { through: o, to: m } };
+                    }
+                }
+            }
+        }
+    }
     HelperMeaning::Point
+}
+
+fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine> {
+    let t = cx.t;
+    let mut maximal: Vec<Vec<PointId>> = Vec::new();
+    for c in &cx.circles {
+        if c.pts.len() < 3 {
+            continue;
+        }
+        if let Some(m) = maximal.iter_mut().find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3) {
+            for &p in &c.pts {
+                if !m.contains(&p) {
+                    m.push(p);
+                }
+            }
+        } else {
+            maximal.push(c.pts.clone());
+        }
+    }
+    for m in maximal.iter_mut() {
+        m.sort_unstable();
+    }
+    let mut count = vec![0usize; maximal.len()];
+    let mut hit = |pts: &[PointId]| {
+        if let Some(i) = maximal.iter().position(|m| pts.len() >= 3 && pts.iter().all(|p| m.contains(p))) {
+            count[i] += 1;
+        }
+    };
+    for b in blocks {
+        for s in &b.body {
+            let mut v: Vec<&Reason> = all_reasons(s);
+            let mut nested: Vec<&Reason> = Vec::new();
+            for r in &v {
+                if let Reason::Fact { because, .. } = r {
+                    nested.extend(because.iter());
+                }
+            }
+            v.extend(nested);
+            for r in v {
+                match r {
+                    Reason::Atom { key: AtomKey::Inscribed, args, .. } => hit(args),
+                    Reason::Hyp { stmt: Stmt::Cyclic { pts }, .. } | Reason::Fact { stmt: Stmt::Cyclic { pts }, .. } => hit(pts),
+                    _ => {}
+                }
+            }
+        }
+    }
+    for a in aux {
+        if let SetupLine::Aux { wording: Some(w), .. } = a {
+            for arg in &w.args {
+                if arg.key == "aux.circumcircle" {
+                    hit(&arg.pts);
+                }
+            }
+        }
+    }
+    let tri = cx.main_triangle();
+    let mut greek = ["ω", "γ", "Γ", "σ", "τ", "κ"].into_iter();
+    let mut out = Vec::new();
+    let mut order: Vec<usize> = (0..maximal.len()).filter(|&i| count[i] >= 2).collect();
+    order.sort_by_key(|&i| (std::cmp::Reverse(tri.is_some_and(|t3| t3.iter().all(|p| maximal[i].contains(p)))), maximal[i].clone()));
+    let mut used_names: Vec<String> = Vec::new();
+    for i in order {
+        let m = &maximal[i];
+        let centre = (0..t.n as PointId).find(|&o| {
+            !m.contains(&o) && !t.name(o).starts_with('_') && {
+                let d0 = t.dist(o, m[0]);
+                d0 > 1e-9 && m.iter().all(|&p| (t.dist(o, p) - d0).abs() < 1e-9 * d0.max(1.0))
+            }
+        });
+        let circum = tri.is_some_and(|t3| t3.iter().all(|p| m.contains(p)));
+        let name = if circum && !used_names.iter().any(|n| n == "Ω") {
+            "Ω".to_string()
+        } else if let Some(sub) = centre.map(|o| t.name(o).trim_start_matches(|c: char| c.is_alphabetic()).to_string()).filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())) {
+            format!("ω{}", text::subscript_digits(&sub))
+        } else {
+            match greek.next() {
+                Some(g) => g.to_string(),
+                None => continue,
+            }
+        };
+        if used_names.contains(&name) {
+            continue;
+        }
+        used_names.push(name.clone());
+        out.push(SetupLine::Circle { name, through: m.clone(), centre, diameter: None });
+    }
+    out
 }
 
 fn all_reasons(s: &Sentence) -> Vec<&Reason> {
@@ -165,12 +267,19 @@ fn setup_lines(cx: &Ctx, blocks: &[Block]) -> Vec<SetupLine> {
     let mut used: Vec<PointId> = Vec::new();
     for b in blocks {
         used.extend(b.points.iter().copied());
-    }
-    for (i, a) in cx.aux.iter().enumerate() {
-        if used.contains(&a.point) {
-            out.push(SetupLine::Aux { point: a.point, aux_index: i });
+        used.extend(view::stmt_points(&b.stmt));
+        for s in &b.body {
+            used.extend(view::sentence_points(s));
         }
     }
+    let mut aux_lines = Vec::new();
+    for (i, a) in cx.aux.iter().enumerate() {
+        if used.contains(&a.point) {
+            aux_lines.push(SetupLine::Aux { point: a.point, aux_index: i, wording: aux::parse(cx.t, a.point, &a.desc) });
+        }
+    }
+    out.extend(named_circles(cx, blocks, &aux_lines));
+    out.extend(aux_lines);
     let mut helpers: Vec<PointId> = used.iter().copied().filter(|&p| cx.t.name(p).starts_with('_')).collect();
     helpers.sort_unstable();
     helpers.dedup();

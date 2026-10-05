@@ -79,6 +79,21 @@ impl LemmaCand {
     }
 }
 
+pub fn reason_stmt(r: &Reason) -> Option<&Stmt> {
+    match r {
+        Reason::Hyp { stmt, .. } | Reason::Atom { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Lemma { stmt, .. } => Some(stmt),
+        _ => None,
+    }
+}
+
+pub fn same_cong(a: &Stmt, b: &Stmt) -> bool {
+    let n = |x: (PointId, PointId)| (x.0.min(x.1), x.0.max(x.1));
+    match (a, b) {
+        (Stmt::Cong { s1, s2 }, Stmt::Cong { s1: t1, s2: t2 }) => (n(*s1) == n(*t1) && n(*s2) == n(*t2)) || (n(*s1) == n(*t2) && n(*s2) == n(*t1)),
+        _ => a == b,
+    }
+}
+
 fn integral_node(c: &LinComb) -> bool {
     c.terms.iter().all(|(v, k)| *v < QBASE || k.is_integer())
 }
@@ -700,6 +715,8 @@ impl<'c, 'a> Writer<'c, 'a> {
             let long = size >= 3;
             let role = if n.parts.is_none() && !n.theorem {
                 Role::Raw
+            } else if self.restates(n) {
+                Role::Inline
             } else {
                 match n.kind {
                     Kind::Formula(_) => Role::Inline,
@@ -711,7 +728,7 @@ impl<'c, 'a> Writer<'c, 'a> {
                         }
                     }
                     Kind::Isosceles | Kind::Length => {
-                        if u <= 1 {
+                        if u <= 1 || size <= 3 {
                             Role::Inline
                         } else {
                             Role::Step
@@ -759,6 +776,21 @@ impl<'c, 'a> Writer<'c, 'a> {
                 self.nodes.get_mut(&c).unwrap().role = Role::Step;
             }
         }
+    }
+
+    pub fn atom_statement(&self, i: usize) -> Stmt {
+        let a = &self.atoms[i];
+        match a.src {
+            AtomSrc::Human(key) => atom_stmt(key, &a.args),
+            AtomSrc::Hyp(f) => fact_stmt(self.cx, f),
+            AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => fact_stmt(self.cx, self.cx.displayable(f)),
+        }
+    }
+
+    fn restates(&self, n: &Node) -> bool {
+        let Some(parts) = &n.parts else { return false };
+        let atoms: Vec<usize> = parts.iter().flat_map(|p| p.support.iter().filter(|(i, _)| self.atoms[*i].cost > 0).map(|(i, _)| *i)).collect();
+        !atoms.is_empty() && atoms.iter().all(|&i| same_cong(&self.atom_statement(i), &n.stmt))
     }
 
     pub fn live_nodes(&self) -> Vec<FactId> {
@@ -835,7 +867,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
                 (Reason::Atom { key, stmt: atom_stmt(key, &a.args), args: a.args.clone(), from }, a.row_idx)
             }
-            AtomSrc::Hyp(f) => (Reason::Hyp { stmt: fact_stmt(cx, f), fact: f }, a.row_idx),
+            AtomSrc::Hyp(f) => (Reason::Hyp { stmt: super::classify::dehelper(cx, fact_stmt(cx, f)), fact: f }, a.row_idx),
             AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => {
                 let d = cx.displayable(f);
                 if let (Some(&b), Some(Role::Claim)) = (self.block_of.get(&d), self.role.get(&d)) {
@@ -1771,7 +1803,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     let d = cx.displayable(p);
                     if cx.is_hyp(p) {
                         if matches!(cx.class[p as usize], FactClass::Hyp) {
-                            reasons.push(Reason::Hyp { stmt: fact_stmt(cx, p), fact: p });
+                            reasons.push(Reason::Hyp { stmt: super::classify::dehelper(cx, fact_stmt(cx, p)), fact: p });
                         }
                     } else if let Some(&b) = self.block_of.get(&d) {
                         match self.role.get(&d) {
@@ -1840,7 +1872,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
         match node_kind {
             Kind::Sim | Kind::Congruent | Kind::Isosceles if f != GOAL => {
-                out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+                let mut folded: Vec<Reason> = Vec::new();
+                out.retain(|s| match s {
+                    Sentence::Because { stmt: st @ Stmt::Cong { .. }, reasons, .. } if reasons.len() == 1 && reason_stmt(&reasons[0]).is_some_and(|r| same_cong(r, st)) => {
+                        folded.push(reasons[0].clone());
+                        false
+                    }
+                    _ => true,
+                });
+                out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: folded, combination: Vec::new() });
             }
             Kind::Cong => {
                 out.push(Sentence::Theorem { key: TheoremKey::ArcChord, stmt: node_stmt.clone(), reasons: req_reasons });
@@ -1863,9 +1903,48 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let n = &self.w.nodes[&f];
             self.role.insert(f, n.role);
         }
+        let reach = self.w.reachable();
+        let users = self.w.users(&reach);
+        let mut absorb: BTreeMap<FactId, FactId> = BTreeMap::new();
+        let mut restate: BTreeMap<FactId, Stmt> = BTreeMap::new();
+        for &c in &order {
+            let n = &self.w.nodes[&c];
+            if self.role[&c] != Role::Claim || !matches!(n.kind, Kind::Sim | Kind::Congruent) {
+                continue;
+            }
+            let Some(us) = users.get(&c) else { continue };
+            if us.len() != 1 {
+                continue;
+            }
+            let u = *us.iter().next().unwrap();
+            if let Some(parts) = &self.w.nodes[&u].parts {
+                let via: Vec<usize> = parts.iter().flat_map(|p| p.support.iter().map(|x| x.0)).filter(|&i| self.w.atoms[i].fact().map(|g| cx.displayable(g)) == Some(c) || self.w.atoms[i].sources.iter().any(|s| cx.displayable(*s) == c)).collect();
+                let stmts: Vec<Stmt> = via.iter().map(|&i| self.w.atom_statement(i)).collect();
+                let human = via.iter().all(|&i| matches!(self.w.atoms[i].src, AtomSrc::Human(AtomKey::Radii | AtomKey::Isosceles)));
+                let h = self.w.nodes[&c].horizon.max(c) + 1;
+                let proven = |s: &Stmt| {
+                    super::check::stmt_targets(cx.t, s).is_some_and(|rows| rows.iter().all(|(tb, r)| cx.support_facts(*tb, &cx.t.exact(*tb, r), h).is_some()))
+                };
+                if human && !stmts.is_empty() && stmts.iter().all(|s| matches!(s, Stmt::Cong { .. }) && same_cong(s, &stmts[0])) && proven(&stmts[0]) {
+                    restate.insert(c, stmts[0].clone());
+                    continue;
+                }
+            }
+            if u == GOAL || self.role.get(&u) != Some(&Role::Inline) {
+                continue;
+            }
+            let un = &self.w.nodes[&u];
+            if matches!(un.stmt, Stmt::Cong { .. } | Stmt::EqAngle { .. }) && un.deps.iter().all(|d| *d == c || !self.w.nodes.contains_key(d)) {
+                absorb.insert(c, u);
+            }
+        }
+        let absorbed: BTreeSet<FactId> = absorb.values().copied().collect();
         let mut merge_sentences: Vec<Sentence> = Vec::new();
         let mut merge_facts: Vec<FactId> = Vec::new();
         for &f in &order {
+            if absorbed.contains(&f) {
+                continue;
+            }
             if cx.timed_out() {
                 let n = &self.w.nodes[&f];
                 let id = self.blocks.len() as u16 + 1;
@@ -1939,8 +2018,26 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         sentences
                     };
                     bind_pending(&mut body, id);
+                    let mut stmt = stmt;
+                    let mut facts = facts;
+                    let mut horizon = node.horizon;
+                    if let (Some(&u), BlockKind::Claim(k)) = (absorb.get(&f), kind) {
+                        let un = &self.w.nodes[&u];
+                        stmt = un.stmt.clone();
+                        facts.push(u);
+                        horizon = horizon.max(un.horizon);
+                        body.push(Sentence::Because { stmt: stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+                        self.block_of.insert(u, id);
+                        self.role.insert(u, Role::Claim);
+                        self.claim_no.insert(u, k);
+                        self.allowed.insert(u);
+                    }
+                    if let (Some(s), BlockKind::Claim(_)) = (restate.get(&f), kind) {
+                        stmt = s.clone();
+                        body.push(Sentence::Because { stmt: stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+                    }
                     let objects = objects_of(&stmt);
-                    self.blocks.push(Block { id, kind, stmt, body, engine_facts: facts, points, objects, horizon: node.horizon });
+                    self.blocks.push(Block { id, kind, stmt, body, engine_facts: facts, points, objects, horizon });
                     self.block_of.insert(f, id);
                     self.allowed.insert(f);
                     let _ = (links, pooled);
@@ -1962,6 +2059,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
         points.sort_unstable();
         points.dedup();
+        if facts.is_empty() {
+            facts = goal.deps.iter().copied().filter(|&d| d != GOAL && cx.in_cl.get(d as usize).copied().unwrap_or(false)).collect();
+            if facts.is_empty() {
+                facts.extend(cx.closure.last().copied());
+            }
+        }
         let stmt = goal.stmt.clone();
         let objects = objects_of(&stmt);
         self.blocks.push(Block { id, kind: BlockKind::Conclusion, stmt, body: all, engine_facts: facts, points, objects, horizon: goal.horizon });

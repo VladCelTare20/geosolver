@@ -681,6 +681,9 @@ pub fn check(cx: &Ctx, hp: &mut HumanProof, strict: bool) -> usize {
         for b in hp.blocks.iter_mut() {
             if bad.contains(&b.id) {
                 b.kind = BlockKind::Raw;
+                if let Some(&f) = b.engine_facts.first() {
+                    b.stmt = super::classify::fact_stmt(cx, f);
+                }
                 b.body = b
                     .engine_facts
                     .iter()
