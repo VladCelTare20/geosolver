@@ -621,6 +621,7 @@ pub fn theorem_ro(name: &str) -> Option<&'static str> {
         "perpendicular from squared lengths" => "perpendicularitate din pătrate de lungimi",
         "squares of proportional lengths" => "pătratele unor lungimi proporționale",
         "lengths from squared lengths" => "lungimi din pătratele lor",
+        "equality case of the triangle inequality" => "cazul de egalitate al inegalității triunghiului",
         "equal or supplementary angles have equal sines" => "unghiurile egale sau suplementare au sinusuri egale",
         "sine of 30°" | "sine of 30°: 1/2" => "sinusul lui 30°",
         "sine of 45°" | "sine of 45°: √2/2" => "sinusul lui 45°",
