@@ -14,7 +14,7 @@
 <link rel="preload" href="/assets/fonts/stix-two-text.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/app.css">
 <style>
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--s5); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 max(var(--s5), var(--sai-r)) 0 max(var(--s5), var(--sai-l)); }
   .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: var(--s7); align-items: center; padding: var(--s7) 0 var(--s6); }
   .eyebrow { font-size: var(--fs-13); font-weight: 600; color: var(--accent); letter-spacing: 0.02em; margin-bottom: var(--s3); }
   .hero h1 { font-family: var(--font-math); font-size: clamp(2rem, 4.4vw, var(--fs-39)); font-weight: 600; line-height: 1.12; letter-spacing: -0.01em; margin-bottom: var(--s4); }
@@ -75,7 +75,7 @@
     .how { grid-template-columns: 1fr; }
   }
   @media (max-width: 600px) {
-    .wrap { padding: 0 var(--s4); }
+    .wrap { padding: 0 max(var(--s4), var(--sai-r)) 0 max(var(--s4), var(--sai-l)); }
     .features { grid-template-columns: 1fr; }
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .case-text { padding: var(--s4); }

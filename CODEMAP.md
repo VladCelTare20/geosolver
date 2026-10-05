@@ -30,5 +30,6 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 - [alphageometry-rs/src/](alphageometry-rs/src/CODEMAP.md) — the engine.
 - [ag-studio/src/](ag-studio/src/CODEMAP.md) — the product binary.
 - [ag-studio/assets/](ag-studio/assets/CODEMAP.md) — the web pages (app, landing, sign-in), design system, fonts.
+- [ag-studio/tests/](ag-studio/tests/CODEMAP.md) — binary integration tests, iPhone CSS invariants, the WebKit iPhone check.
 - `deploy/` — Docker, nginx, systemd; `DEPLOY.md` mirrors the env table in `ag-studio/src/security.rs`.
 - `corpus/` — AlphaGeometry problem sets (data, not code).
