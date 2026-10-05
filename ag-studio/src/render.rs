@@ -343,6 +343,9 @@ pub fn aux_text(a: &Value, lang: Lang) -> String {
             key = "aux.intersect2".to_string();
         }
     }
+    if key == "aux.intersect2" && raw_args.first().is_some_and(|a| a.split_once('(').is_some_and(|(h, _)| !h.is_empty() && h.chars().all(|c| c.is_ascii_lowercase() || c == '_'))) {
+        key = "aux.intersect2_shape".to_string();
+    }
     let template = i18n::t(lang, &key);
     if template == i18n::t(lang, "aux.__none__") {
         return raw;
@@ -358,7 +361,13 @@ pub fn aux_text(a: &Value, lang: Lang) -> String {
     for (i, p) in args.iter().enumerate() {
         s = s.replace(&format!("{{{i}}}"), p);
     }
-    if s.contains('{') { raw } else { s }
+    if s.contains('{') {
+        return raw;
+    }
+    match a["same"].as_str() {
+        Some(p) => s + &i18n::tf(lang, "aux.same", &[("p", p.to_string())]),
+        None => s,
+    }
 }
 
 fn rule_text(step: &Value, lang: Lang) -> String {
@@ -406,7 +415,7 @@ fn counter_text(c: &Value, lang: Lang) -> Option<String> {
             ("a", l(0)),
             ("b", l(1)),
             ("lhs", fmt_num(lhs, lang, digits)),
-            ("rhs", fmt_num(rhs, lang, digits)),
+            ("rhs", fmt_num(rhs, lang, if matches!(kind, "angle" | "values") && rhs.fract() == 0.0 { 0 } else { digits })),
         ],
     ))
 }
@@ -583,18 +592,18 @@ struct Typeset<'a> {
 }
 
 impl Typeset<'_> {
-    fn is_name_run(&self, tok: &str) -> bool {
-        let mut rest = tok.trim_end_matches(['²', '³']);
+    fn name_run<'t>(&self, tok: &'t str) -> Option<Vec<&'t str>> {
+        let mut rest = tok;
         if rest.is_empty() || !rest.starts_with(|c: char| c.is_uppercase()) {
-            return false;
+            return None;
         }
+        let mut out = Vec::new();
         while !rest.is_empty() {
-            let Some(n) = self.names.iter().filter(|n| rest.starts_with(**n)).max_by_key(|n| n.len()) else {
-                return false;
-            };
+            let n = self.names.iter().filter(|n| rest.starts_with(**n)).max_by_key(|n| n.len())?;
+            out.push(&rest[..n.len()]);
             rest = &rest[n.len()..];
         }
-        true
+        Some(out)
     }
 
     fn spans(&self, text: &str) -> String {
@@ -610,9 +619,10 @@ impl Typeset<'_> {
             let core = &tok[lead.len()..];
             let trail_len = core.chars().rev().take_while(|c| matches!(c, '|' | ')' | ']' | '²' | '³')).map(char::len_utf8).sum::<usize>();
             let (name, trail) = core.split_at(core.len() - trail_len);
-            if self.is_name_run(name) {
+            if let Some(parts) = self.name_run(name) {
                 out.push_str(&escape_xml(&lead));
-                out.push_str(&format!("<tspan font-style=\"italic\">{}</tspan>", escape_xml(name)));
+                let set: String = parts.iter().map(|p| crate::figure::name_markup(p)).collect();
+                out.push_str(&format!("<tspan font-style=\"italic\">{set}</tspan>"));
                 out.push_str(&escape_xml(trail));
             } else {
                 out.push_str(&escape_xml(tok));
@@ -792,15 +802,16 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
         section(&mut blocks, i18n::t(lang, "report.counter"), 1);
         lines_block(&mut blocks, &wrap(&c, cols), t.ink, 400, false, &ts, 0);
     }
-    if let Some(aux) = view["aux"].as_array().filter(|a| !a.is_empty()) {
-        section(&mut blocks, i18n::t(lang, "report.aux"), aux.len());
+    for (field, heading, ink) in [("helpers", "report.helpers", INK), ("aux", "report.aux", AUX_INK)] {
+        let Some(aux) = view[field].as_array().filter(|a| !a.is_empty()) else { continue };
+        section(&mut blocks, i18n::t(lang, heading), aux.len());
         for (i, a) in aux.iter().enumerate() {
             let name = a["name"].as_str().unwrap_or("");
             let lines = wrap(&format!("{name}: {}", aux_text(a, lang)), cols);
             let mut b = String::new();
             for (k, l) in lines.iter().enumerate() {
                 let inner = match l.strip_prefix(&format!("{name}:")).filter(|_| k == 0) {
-                    Some(rest) => format!("<tspan fill=\"{AUX_INK}\" font-weight=\"600\">{}</tspan>:{}", ts.spans(name), ts.spans(rest)),
+                    Some(rest) => format!("<tspan fill=\"{ink}\" font-weight=\"600\">{}</tspan>:{}", ts.spans(name), ts.spans(rest)),
                     None => ts.spans(l),
                 };
                 b.push_str(&txt(MARGIN, 12.0 + k as f32 * LEADING, BODY_FS, 400, INK, MATH, &inner));
@@ -1200,6 +1211,11 @@ mod tests {
         let shown = serde_json::json!({"status": "refuted", "method": "ddar", "view": {"counterexample": {"kind": "ratios", "lhs": 1.0, "rhs": 2.0, "labels": ["AM : MB", "AC : CB"]}}});
         assert_eq!(method_text(&shown, Lang::En).as_deref(), Some("Numerical counterexample"));
         assert_eq!(counter_text(&shown["view"]["counterexample"], Lang::En).as_deref(), Some("In the sampled figure AM : MB = 1.0000 but AC : CB = 2.0000."));
+        let perp = serde_json::json!({"kind": "angle", "lhs": 32.94, "rhs": 90.0, "labels": ["CM", "AB"]});
+        assert_eq!(counter_text(&perp, Lang::En).as_deref(), Some("In the sampled figure the angle between CM and AB is 32.9°, not 90°."));
+        assert_eq!(counter_text(&perp, Lang::Ro).as_deref(), Some("În figura eșantionată unghiul dintre CM și AB este 32,9°, nu 90°."));
+        let metric = serde_json::json!({"kind": "values", "lhs": 1.25, "rhs": 2.0, "labels": []});
+        assert_eq!(counter_text(&metric, Lang::En).as_deref(), Some("In one sampled figure the left side is 1.2500 and the right side is 2."));
         let numeric = serde_json::json!({"status": "holds-numerically", "numeric_samples": 48, "view": {"note": {"key": "no_euclid"}}});
         assert_eq!(
             verdict_copy(&numeric, Lang::Ro).1,
@@ -1208,7 +1224,7 @@ mod tests {
         let budget = serde_json::json!({"status": "not-proved", "method": "aux-search", "view": {"note": {"key": "budget", "runs": 5000}}});
         assert!(verdict_copy(&budget, Lang::Ro).1.contains("(5.000 de rulări deductive)"), "{:?}", verdict_copy(&budget, Lang::Ro));
         let drawn = serde_json::json!({"status": "proved", "method": "euclidean", "view": {"as_drawn": true, "note": {"key": "euclid"}}});
-        assert_eq!(verdict_copy(&drawn, Lang::En).0, "Proved for the configuration shown");
+        assert_eq!(verdict_copy(&drawn, Lang::En).0, "Proved as drawn");
     }
 
     fn label_sizes_on_page(v: &Value) -> Vec<f32> {

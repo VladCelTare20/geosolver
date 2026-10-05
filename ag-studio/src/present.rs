@@ -272,6 +272,36 @@ impl Names {
     }
 }
 
+fn coincidence_tol(problem: &Problem) -> Option<f64> {
+    let (mut lo, mut hi) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
+    for p in &problem.points {
+        let (x, y) = (p.value.x, p.value.y);
+        if x.is_finite() && y.is_finite() {
+            lo = (lo.0.min(x), lo.1.min(y));
+            hi = (hi.0.max(x), hi.1.max(y));
+        }
+    }
+    let extent = (hi.0 - lo.0).max(hi.1 - lo.1);
+    (extent.is_finite() && extent > 1e-9).then_some(extent * 1e-7)
+}
+
+pub(crate) fn twins(problem: &Problem) -> HashMap<u32, u32> {
+    let Some(tol) = coincidence_tol(problem) else { return HashMap::new() };
+    let pts = &problem.points;
+    let same = |a: usize, b: usize| (pts[a].value.x - pts[b].value.x).hypot(pts[a].value.y - pts[b].value.y) <= tol;
+    let mut out = HashMap::new();
+    for i in 0..pts.len() {
+        if !pts[i].name.starts_with('_') {
+            continue;
+        }
+        let named = (0..pts.len()).find(|&j| !pts[j].name.starts_with('_') && same(i, j));
+        if let Some(j) = named.or_else(|| (0..i).find(|&j| same(i, j))) {
+            out.insert(i as u32, j as u32);
+        }
+    }
+    out
+}
+
 /// A `cong` read as "centre + two points at equal distance": `(c, a, b)` with
 /// `ca = cb`.
 fn cong_center3(p: &[u32]) -> Option<(u32, u32, u32)> {
@@ -1314,13 +1344,15 @@ const KNOWN_THEOREMS: &[(&str, &str)] = &[
     ("trigonometric ceva", "trigonometric Ceva"),
     ("power of the point", "power of a point"),
     ("tangent\u{2013}secant power", "power of a point"),
-    ("thales' theorem", "Thales' theorem"),
+    ("thales' theorem", "Thales's theorem"),
     ("pythagorean theorem", "Pythagorean theorem"),
     ("stewart's theorem", "Stewart's theorem"),
     ("apollonius's median theorem", "Apollonius's median theorem"),
     ("menelaus's theorem", "Menelaus's theorem"),
+    ("menelaus' theorem", "Menelaus's theorem"),
     ("ceva's theorem", "Ceva's theorem"),
-    ("angle-bisector theorem", "angle-bisector theorem"),
+    ("angle-bisector theorem", "angle bisector theorem"),
+    ("angle bisector theorem", "angle bisector theorem"),
     ("basic proportionality (intercept) theorem", "basic proportionality (intercept) theorem"),
     ("geometric-mean (altitude) relation", "geometric-mean (altitude) relation"),
     ("geometric-mean (leg) relation", "geometric-mean (leg) relation"),
@@ -1566,7 +1598,7 @@ fn euclid_rule(body: &str) -> (&'static str, &'static str, Option<String>) {
         return ("step", "closure", None);
     }
     if let Some(name) = known_theorem(body).or_else(|| cited_theorem(body)) {
-        return ("step", "theorem", Some(name));
+        return ("step", "theorem", Some(crate::i18n::prose_en(&name)));
     }
     if body.contains("(given)") || body.contains("(hypothesis)") || body.starts_with("Given: ") {
         let derives = body.contains(", so ");
@@ -2262,6 +2294,8 @@ pub struct AuxView {
     pub args: Vec<String>,
     /// The engine's description with renamed points, as a fallback.
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub same: Option<String>,
 }
 
 fn split_top(s: &str, seps: &[&str]) -> Vec<String> {
@@ -2302,12 +2336,205 @@ fn aux_view(raw: &str, names: &Names) -> AuxView {
         Some(i) if rhs.ends_with(')') => (rhs[..i].to_string(), &rhs[i + 1..rhs.len() - 1]),
         _ => (String::from("other"), rhs),
     };
-    let args = split_top(inner, &[",", " -> ", " over ", " in ", " on ", " of ", " to "])
+    let args = split_top(inner, &[",", " -> ", " over ", " in ", " on ", " of ", " to ", " wrt "])
         .into_iter()
         .filter(|a| !a.is_empty())
         .map(|a| names.rename_text(&a, false))
         .collect();
-    AuxView { name, kind, args, text: names.rename_text(rhs, false) }
+    AuxView { name, kind, args, text: names.rename_text(rhs, false), same: None }
+}
+
+fn split_shown(run: &str, at: &HashMap<String, Pt>) -> Option<Vec<String>> {
+    if run.is_empty() {
+        return Some(Vec::new());
+    }
+    let mut keys: Vec<&String> = at.keys().filter(|k| run.starts_with(k.as_str())).collect();
+    keys.sort_by_key(|k| std::cmp::Reverse(k.len()));
+    keys.into_iter().find_map(|k| {
+        split_shown(&run[k.len()..], at).map(|mut rest| {
+            rest.insert(0, k.clone());
+            rest
+        })
+    })
+}
+
+fn circle_of(arg: &str, at: &HashMap<String, Pt>) -> Option<(Pt, f64, Vec<String>)> {
+    let (head, inner) = arg.trim().strip_suffix(')')?.split_once('(')?;
+    let pts: Vec<String> = inner.split(',').map(|s| s.trim().trim_start_matches("centre ").trim_start_matches("center ").to_string()).collect();
+    let p = |k: usize| pts.get(k).and_then(|n| at.get(n)).copied();
+    match (head.trim(), pts.len()) {
+        ("circle", 2) => {
+            let (o, a) = (p(0)?, p(1)?);
+            Some((o, dist(o, a), pts))
+        }
+        ("circumcircle", 3) => {
+            let (a, b, c) = (p(0)?, p(1)?, p(2)?);
+            let d = 2.0 * (a.0 * (b.1 - c.1) + b.0 * (c.1 - a.1) + c.0 * (a.1 - b.1));
+            if d.abs() < 1e-12 {
+                return None;
+            }
+            let sq = |q: Pt| q.0 * q.0 + q.1 * q.1;
+            let o = (
+                (sq(a) * (b.1 - c.1) + sq(b) * (c.1 - a.1) + sq(c) * (a.1 - b.1)) / d,
+                (sq(a) * (c.0 - b.0) + sq(b) * (a.0 - c.0) + sq(c) * (b.0 - a.0)) / d,
+            );
+            Some((o, dist(o, a), pts))
+        }
+        _ => None,
+    }
+}
+
+fn side_of(p: Pt, a: Pt, b: Pt) -> f64 {
+    (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0)
+}
+
+fn resolve_branch(a: &mut AuxView, at: &HashMap<String, Pt>) {
+    let Some(&me) = at.get(&a.name) else { return };
+    match a.kind.as_str() {
+        "excenter" if a.args.len() == 3 => {
+            let v: Option<Vec<Pt>> = a.args.iter().map(|n| at.get(n).copied()).collect();
+            let opposite = v.and_then(|v| {
+                let away: Vec<usize> = (0..3).filter(|&k| side_of(v[k], v[(k + 1) % 3], v[(k + 2) % 3]) * side_of(me, v[(k + 1) % 3], v[(k + 2) % 3]) < 0.0).collect();
+                (away.len() == 1).then(|| away[0])
+            });
+            match opposite {
+                Some(k) => {
+                    let side = format!("{}{}", a.args[(k + 1) % 3], a.args[(k + 2) % 3]);
+                    let vertex = a.args[k].clone();
+                    a.args.push(vertex);
+                    a.args.push(side);
+                }
+                None => a.kind = "excenter_any".into(),
+            }
+        }
+        "intersect" if a.args.len() == 2 => {
+            let Some(line) = split_shown(a.args[0].trim(), at).filter(|v| v.len() == 2) else { return };
+            let Some((o, r, _)) = circle_of(&a.args[1], at) else { return };
+            let (p, q) = (at[&line[0]], at[&line[1]]);
+            let tol = 1e-6 * r.max(1e-12);
+            if let Some(&e) = [p, q].iter().find(|e| (dist(**e, o) - r).abs() < tol) {
+                if dist(e, me) > tol && (dist(me, o) - r).abs() < tol {
+                    a.kind = "intersect2".into();
+                }
+                return;
+            }
+            let d = (q.0 - p.0, q.1 - p.1);
+            let (dd, f) = (d.0 * d.0 + d.1 * d.1, (p.0 - o.0, p.1 - o.1));
+            let (b, c) = (2.0 * (f.0 * d.0 + f.1 * d.1), f.0 * f.0 + f.1 * f.1 - r * r);
+            let disc = b * b - 4.0 * dd * c;
+            if dd < 1e-24 || disc <= 0.0 {
+                return;
+            }
+            let roots = [(-b - disc.sqrt()) / (2.0 * dd), (-b + disc.sqrt()) / (2.0 * dd)];
+            let pts = roots.map(|t| (p.0 + d.0 * t, p.1 + d.1 * t));
+            let (mine, other) = if dist(pts[0], me) <= dist(pts[1], me) { (pts[0], pts[1]) } else { (pts[1], pts[0]) };
+            if dist(mine, me) > 1e-6 * r.max(1e-12) {
+                return;
+            }
+            let gap = |e: Pt| dist(e, other) - dist(e, mine);
+            let (k, g) = if gap(p).abs() >= gap(q).abs() { (0, gap(p)) } else { (1, gap(q)) };
+            if g.abs() < 0.05 * dist(mine, other) {
+                return;
+            }
+            a.kind = if g > 0.0 { "intersect_near" } else { "intersect_far" }.into();
+            a.args.push(line[k].clone());
+        }
+        _ => {}
+    }
+}
+
+fn helper_points(fig: &Problem, names: &Names, upto: usize) -> Vec<AuxView> {
+    let upto = upto.min(fig.points.len());
+    let twin = twins(fig);
+    let mut defined: HashSet<String> = fig.points.iter().filter(|p| !p.name.starts_with('_')).map(|p| names.get(&p.name)).collect();
+    let mut out = Vec::new();
+    for (i, p) in fig.points[..upto].iter().enumerate() {
+        let shown = names.get(&p.name);
+        if !p.name.starts_with('_') || defined.contains(&shown) {
+            continue;
+        }
+        defined.insert(shown.clone());
+        let me = i as u32;
+        let defs: Vec<&Predicate> = fig.preds.iter().filter(|q| q.points.contains(&me) && q.points.iter().all(|&x| x <= me)).collect();
+        let (kind, args) = helper_definition(&defs, me, &|x| names.get(fig.point_name(x)));
+        let text = format!("{kind}({})", args.join(", "));
+        let same = twin.get(&me).map(|&j| names.get(fig.point_name(j)));
+        out.push(AuxView { name: shown, kind: kind.to_string(), args, text, same });
+    }
+    out
+}
+
+fn helper_definition(defs: &[&Predicate], me: u32, n: &dyn Fn(u32) -> String) -> (&'static str, Vec<String>) {
+    let of = |name: &'static str| defs.iter().filter(move |q| q.name == name).map(|q| q.points.as_slice());
+    let colls: Vec<&[u32]> = of("coll").collect();
+    let on_line = |a: u32, b: u32| colls.iter().any(|c| c.contains(&a) && c.contains(&b) && c.contains(&me));
+    let centres: Vec<(u32, u32, u32)> = of("cong").filter_map(|q| if q.len() == 4 { cong_center3(q) } else { None }).collect();
+    for &(c, a, b) in &centres {
+        if c == me && on_line(a, b) {
+            return ("midpoint", vec![n(a), n(b)]);
+        }
+        if (b == me || a == me) && on_line(if b == me { a } else { b }, c) {
+            return ("reflect", vec![n(if b == me { a } else { b }), n(c)]);
+        }
+    }
+    let partners: Vec<(u32, u32)> = centres.iter().filter_map(|&(c, a, b)| if b == me { Some((c, a)) } else if a == me { Some((c, b)) } else { None }).collect();
+    if let [(c1, s1), (c2, s2)] = partners[..] {
+        if s1 == s2 && c1 != c2 && c1 != me && c2 != me {
+            return ("reflect", vec![n(s1), format!("{}{}", n(c1), n(c2))]);
+        }
+    }
+    let around: Vec<(u32, u32)> = centres.iter().filter(|&&(c, _, _)| c == me).map(|&(_, a, b)| (a, b)).collect();
+    if around.len() >= 2 {
+        let mut pts: Vec<u32> = Vec::new();
+        for &(a, b) in &around {
+            for x in [a, b] {
+                if !pts.contains(&x) {
+                    pts.push(x);
+                }
+            }
+        }
+        if pts.len() == 3 {
+            return ("circumcenter", pts.iter().map(|&x| n(x)).collect());
+        }
+    }
+    for q in of("perp") {
+        if q.len() == 4 && q[1] == me && on_line(q[2], q[3]) {
+            return ("foot", vec![n(q[0]), format!("{}{}", n(q[2]), n(q[3]))]);
+        }
+    }
+    if defs.len() == 1 {
+        let q = &defs[0].points;
+        match (defs[0].name.as_str(), q.len()) {
+            ("eqangle", 8) if q[3] == me && q[5] == me && q[0] == q[2] && q[2] == q[4] && q[4] == q[6] => {
+                return ("on_bisector", vec![n(q[1]), n(q[0]), n(q[7])]);
+            }
+            ("perp", 4) if q[1] == me => return ("on_perp", vec![n(q[0]), format!("{}{}", n(q[2]), n(q[3]))]),
+            ("para", 4) if q[1] == me => return ("on_para", vec![n(q[0]), format!("{}{}", n(q[2]), n(q[3]))]),
+            _ => {}
+        }
+        if let [(c, a, b)] = centres[..] {
+            if c == me {
+                return ("on_perp_bisector", vec![n(a), n(b)]);
+            }
+        }
+    }
+    if defs.is_empty() {
+        return ("free", Vec::new());
+    }
+    let shape = |q: &Predicate| {
+        let others: Vec<u32> = q.points.iter().copied().filter(|&x| x != me).collect();
+        match (q.name.as_str(), others.len()) {
+            ("coll", 2) => Some((false, format!("{}{}", n(others[0]), n(others[1])))),
+            ("cyclic", 3) => Some((true, format!("circumcircle({},{},{})", n(others[0]), n(others[1]), n(others[2])))),
+            _ => None,
+        }
+    };
+    if let [p, q] = defs {
+        if let (Some((c1, s1)), Some((c2, s2))) = (shape(p), shape(q)) {
+            return (if c1 || c2 { "common_point" } else { "intersect" }, vec![s1, s2]);
+        }
+    }
+    ("helper", Vec::new())
 }
 
 struct Introduced {
@@ -2526,6 +2753,8 @@ pub struct View {
     pub goal: Option<Fact>,
     pub proof: ProofView,
     pub aux: Vec<AuxView>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub helpers: Vec<AuxView>,
     pub note: Note,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counterexample: Option<Counter>,
@@ -2570,11 +2799,23 @@ pub fn build(sol: &Solution) -> View {
     // placeholder `XY = XY` the compiler emits for fixed lengths — those are
     // restated from the program as `XY = 6`.
     let mut given: Vec<Fact> = Vec::new();
+    let twin = twins(&orig);
+    let own: Vec<Fact> = orig.preds.iter().filter(|p| !p.points.iter().any(|i| twin.contains_key(i))).map(|p| fact_of_pred(&orig, &names, p)).collect();
     for pred in &orig.preds {
         if is_tautology(pred) {
             continue;
         }
-        let f = fact_of_pred(&orig, &names, pred);
+        let mut shown = pred.clone();
+        if pred.points.iter().any(|i| twin.contains_key(i)) {
+            let moved = Predicate { points: pred.points.iter().map(|i| *twin.get(i).unwrap_or(i)).collect(), ..pred.clone() };
+            if own.contains(&fact_of_pred(&orig, &names, &moved)) {
+                continue;
+            }
+            if pred.points.iter().filter_map(|i| twin.get(i)).all(|j| !pred.points.contains(j)) {
+                shown = moved;
+            }
+        }
+        let f = fact_of_pred(&orig, &names, &shown);
         if !given.contains(&f) {
             given.push(f);
         }
@@ -2660,8 +2901,13 @@ pub fn build(sol: &Solution) -> View {
     }
     let mut aux: Vec<AuxView> = sol.aux_constructions.iter().map(|a| aux_view(a, &names)).collect();
     for i in &introduced {
-        aux.push(AuxView { name: names.get(&i.raw), kind: i.kind.to_string(), args: i.args.clone(), text: i.text.clone() });
+        aux.push(AuxView { name: names.get(&i.raw), kind: i.kind.to_string(), args: i.args.clone(), text: i.text.clone(), same: None });
     }
+    let shown_at: HashMap<String, Pt> = fig.points.iter().map(|p| (names.get(&p.name), (p.value.x, p.value.y))).filter(|(_, v)| v.0.is_finite() && v.1.is_finite()).collect();
+    for a in aux.iter_mut() {
+        resolve_branch(a, &shown_at);
+    }
+    let helpers = helper_points(&fig, &names, aux_from.unwrap_or(fig.points.len()));
 
     let extras = figure::Extras {
         polygons: source_polygons(&sol.input),
@@ -2690,6 +2936,7 @@ pub fn build(sol: &Solution) -> View {
         goal,
         proof,
         aux,
+        helpers,
         note: classify_note(sol),
         counterexample: counterexample(&orig, &names, sol),
         evidence: numeric_support(sol),
@@ -3495,7 +3742,7 @@ mod tests {
         assert!(sol.proved);
         assert!(v.points.iter().any(|p| p.name == "N" && p.aux), "{:?}", v.points);
         assert!(v.svg.contains(">N</text>"), "N is labelled in the figure");
-        assert!(v.aux.iter().any(|a| a.name == "N" && a.kind == "intersect"), "{:?}", v.aux);
+        assert!(v.aux.iter().any(|a| a.name == "N" && a.kind == "intersect2"), "{:?}", v.aux);
         let ro = crate::i18n::prose_ro(&v.proof.steps.iter().find(|s| s.rule == "theorem").unwrap().fact.args[0]);
         assert!(ro.contains("față de cercul (O"), "{ro}");
         assert!(v.proof.steps[0].fact.args[0].contains("through A, B, C"), "{:?}", v.proof.steps[0].fact.args);
@@ -3643,5 +3890,137 @@ mod tests {
         let d = diagnose(src, "compile error: multiple goals specified");
         assert_eq!((d.key, d.line, d.col), ("multiple_goals", 3, 1));
         assert!(crate::i18n::compile_message(crate::i18n::Lang::Ro, &d).starts_with("Este permisă o singură concluzie"));
+    }
+
+    fn engine_aux_samples() -> Vec<(String, String)> {
+        let sources = [include_str!("../../alphageometry-rs/src/aux_search.rs"), include_str!("../../alphageometry-rs/src/aux_virtual.rs")];
+        let mut tritangent: Vec<String> = Vec::new();
+        for part in sources[0].split("(\"").skip(1) {
+            if let Some((w, rest)) = part.split_once('"') {
+                if rest.starts_with(", -sa") || rest.starts_with(", sa") {
+                    tritangent.push(w.to_string());
+                }
+            }
+        }
+        assert!(tritangent.contains(&"excenter".to_string()) && tritangent.contains(&"incenter".to_string()), "{tritangent:?}");
+        let mut out = Vec::new();
+        for src in sources {
+            for part in src.split("format!(\"").skip(1) {
+                let Some((tpl, _)) = part.split_once('"') else { continue };
+                let Some((head, _)) = tpl.split_once('(') else { continue };
+                let heads: Vec<String> = match head {
+                    "{name}" => tritangent.clone(),
+                    h if !h.is_empty() && h.chars().all(|c| c.is_ascii_lowercase() || c == '_') => vec![h.to_string()],
+                    _ => continue,
+                };
+                for h in heads {
+                    let mut filled = String::new();
+                    let mut k = 0u8;
+                    let mut rest = &tpl[head.len()..];
+                    while let Some(at) = rest.find("{}") {
+                        filled.push_str(&rest[..at]);
+                        filled.push((b'A' + k) as char);
+                        k += 1;
+                        rest = &rest[at + 2..];
+                    }
+                    filled.push_str(rest);
+                    out.push((h, filled));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_aux_kind_the_engine_emits_reads_as_words_in_both_languages() {
+        let js = include_str!("../assets/i18n.js");
+        let inner_only = ["circle", "circumcircle", "para", "perp", "tangent_at"];
+        let empty = Problem { points: vec![], preds: vec![], goal: None };
+        let names = Names::build(&empty);
+        let at: HashMap<String, Pt> =
+            [("A", (0.0, 0.0)), ("B", (4.0, 0.0)), ("C", (1.0, 3.0)), ("D", (5.0, 5.0)), ("E", (-2.0, 1.0)), ("X", (2.0, -3.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
+        let samples = engine_aux_samples();
+        let kinds: HashSet<&str> = samples.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(kinds.len() >= 18, "{kinds:?}");
+        for (kind, args) in &samples {
+            if inner_only.contains(&kind.as_str()) {
+                for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
+                    let key = if kind.contains("circ") { format!("aux.{kind}") } else { format!("aux.line.{kind}") };
+                    assert_ne!(crate::i18n::t(lang, &key), crate::i18n::t(lang, "aux.__none__"), "{key}");
+                }
+                continue;
+            }
+            let mut a = aux_view(&format!("X = {kind}{args}"), &names);
+            resolve_branch(&mut a, &at);
+            let v = serde_json::to_value(&a).unwrap();
+            for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
+                let s = crate::render::aux_text(&v, lang);
+                assert!(s != a.text && !s.contains('{') && !s.contains(&format!("{kind}(")), "{kind}{args} in {lang:?}: {s:?}");
+            }
+            assert_eq!(js.matches(&format!("\"aux.{}\":", a.kind)).count(), 2, "aux.{} in both i18n.js catalogues", a.kind);
+        }
+    }
+
+    #[test]
+    fn excenters_name_their_vertex_and_line_circle_meets_say_which() {
+        let at: HashMap<String, Pt> = [("A", (0.0, 0.0)), ("B", (4.0, 0.0)), ("C", (1.0, 3.0)), ("X", (2.0, -3.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
+        let names = Names::build(&Problem { points: vec![], preds: vec![], goal: None });
+        let mut a = aux_view("X = excenter(A,B,C)", &names);
+        resolve_branch(&mut a, &at);
+        let v = serde_json::to_value(&a).unwrap();
+        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::En), "excenter of △ABC opposite C");
+        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::Ro), "centrul cercului exînscris al triunghiului ABC corespunzător laturii AB");
+        let h = 0.75f64.sqrt();
+        let at: HashMap<String, Pt> = [("A", (-3.0, 0.5)), ("B", (-2.0, 0.5)), ("O", (0.0, 0.0)), ("R", (1.0, 0.0)), ("X", (-h, 0.5)), ("Y", (h, 0.5))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
+        let mut x = aux_view("X = intersect(AB, circle(O,R))", &names);
+        resolve_branch(&mut x, &at);
+        let v = serde_json::to_value(&x).unwrap();
+        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::En), "intersection of line AB with the circle (O, OR) nearer to A");
+        let mut y = aux_view("Y = intersect(AB, circle(O,R))", &names);
+        resolve_branch(&mut y, &at);
+        let v = serde_json::to_value(&y).unwrap();
+        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::Ro), "intersecția dreptei AB cu cercul (O, OR) aflată mai departe de A");
+        let cc = serde_json::json!({ "name": "X", "kind": "intersect", "args": ["circumcircle(A,B,C)", "circumcircle(C,D,E)"], "text": "" });
+        assert_eq!(crate::render::aux_text(&cc, crate::i18n::Lang::En), "second intersection of the circumcircle of △ABC with the circumcircle of △CDE");
+        let at: HashMap<String, Pt> = [("A", (-3.0, 0.0)), ("B", (-1.0, 0.0)), ("O", (0.0, 0.0)), ("R", (0.0, 1.0)), ("X", (1.0, 0.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
+        let mut s = aux_view("X = intersect(AB, circle(O,R))", &names);
+        resolve_branch(&mut s, &at);
+        assert_eq!(s.kind, "intersect2", "B is on the circle, so X is the other meet");
+    }
+
+    #[test]
+    fn construction_helpers_are_defined_or_merged_with_the_users_point() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/centroid_ratio.geo")).unwrap();
+        let (_, v) = view(&src);
+        let names: Vec<&str> = v.points.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(v.svg.matches("class=\"f-lbl").count(), names.len() - 1, "the twin of Ma gets no second label: {names:?}");
+        assert!(!v.svg.contains("data-p=\"M\">M</text>"), "{names:?}");
+        let bc = v.given.iter().filter(|f| f.kind == "coll" && f.args.len() == 3 && f.args[..2] == ["B", "C"]).count();
+        assert_eq!(bc, 1, "the midpoint of BC is stated once: {:?}", v.given);
+        let defined: HashSet<&str> = v.helpers.iter().map(|h| h.name.as_str()).collect();
+        let user: HashSet<&str> = ["A", "B", "C", "G", "Ma"].into_iter().collect();
+        assert!(names.iter().all(|n| user.contains(n) || defined.contains(n)), "{names:?} {:?}", v.helpers);
+        let twin = v.helpers.iter().find(|h| h.kind == "midpoint" && h.args == ["B", "C"]).expect("the median's midpoint");
+        assert_eq!(twin.same.as_deref(), Some("Ma"));
+        assert_eq!(crate::render::aux_text(&serde_json::to_value(twin).unwrap(), crate::i18n::Lang::En), "midpoint of BC (the same point as Ma)");
+        assert!(v.helpers.iter().any(|h| h.kind == "midpoint" && h.args == ["A", "C"] && h.same.is_none()), "{:?}", v.helpers);
+        assert!(v.proof.steps.iter().all(|s| !s.fact.args.iter().any(|a| a == "MaB" && s.fact.args.iter().filter(|x| *x == a).count() > 1)), "no step degenerates");
+        assert!(v.svg.contains("M<tspan font-size=\"75%\" baseline-shift=\"sub\">a</tspan>"), "Ma is set with a subscript like the app");
+
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/incenter_bisector_ratio.geo")).unwrap();
+        let (_, v) = view(&src);
+        let p1 = v.helpers.iter().find(|h| h.name == "P\u{2081}").expect("P₁ is defined");
+        assert_eq!((p1.kind.as_str(), p1.args.clone()), ("on_bisector", vec!["B".to_string(), "A".to_string(), "C".to_string()]));
+        let shown = crate::render::aux_text(&serde_json::to_value(p1).unwrap(), crate::i18n::Lang::En);
+        assert_eq!(shown, "a point on the bisector of \u{2220}BAC");
+    }
+
+    #[test]
+    fn theorem_names_have_one_spelling() {
+        assert_eq!(crate::i18n::prose_en("Menelaus' theorem"), "Menelaus's theorem");
+        assert_eq!(crate::i18n::prose_en("Monge\u{2013}d'Alembert"), "Monge\u{2013}d'Alembert theorem");
+        assert_eq!(crate::i18n::prose_en("so by the angle-bisector theorem BD : DC = AB : AC"), "so by the angle bisector theorem BD : DC = AB : AC");
+        assert_eq!(euclid_rule("By the angle-bisector theorem (from D on BC), BD : DC = 2.").2.as_deref(), Some("angle bisector theorem"));
+        assert_eq!(crate::i18n::theorem_ro("Monge\u{2013}d'Alembert theorem"), Some("teorema Monge\u{2013}d'Alembert"));
     }
 }
