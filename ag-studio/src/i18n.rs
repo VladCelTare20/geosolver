@@ -63,8 +63,14 @@ fn en(key: &str) -> &'static str {
         // translate
         "translate.too_long" => "The description is too long. Shorten it and try again.",
         "translate.bad_image" => "The image could not be read. Try a PNG, JPG or WebP photo.",
+        "translate.heic" => "This photo is in HEIC format, which the server cannot read. Choose it from your photo library, or save it as a JPG first.",
+        "translate.image_too_large" => "The photo is larger than the server accepts. Choose a smaller photo, or take a screenshot of just the problem.",
         "translate.need_input" => "Describe the problem or choose a photo first.",
         "translate.failed" => "The translation stopped unexpectedly. Try again, or write the .geo program directly.",
+        "translate.timeout" => "The AI took longer than {s} s to read this problem, so it was stopped. Try again; a shorter description or a sharper, closer photo is read faster.",
+        "translate.ai_failed" => "The AI could not answer just now. Try again in a moment, or write the .geo program directly.",
+        "translate.unavailable" => "AI translation is unavailable on this server right now. Write the .geo program directly, or try again later.",
+        "translate.no_problem_photo" => "The AI could not find a geometry problem in this photo. Try a sharper photo of just the problem, or describe it in words.",
         // humanize
         "humanize.need_proof" => "There is no proof to explain.",
         "humanize.unavailable" => "AI explanations are not enabled on this server.",
@@ -74,6 +80,7 @@ fn en(key: &str) -> &'static str {
         // shared / security
         "err.too_long" => "The input is too long. Shorten it and try again.",
         "err.too_large" => "This program is longer than the server accepts. Shorten it, or use fewer points.",
+        "err.body_too_large" => "The request is larger than the server accepts.",
         "server.busy" => "Every solver slot is in use. Try again in a moment.",
         "server.busy_self.one" => "You can run one solve at a time, and yours is still running. Wait for it to finish, then try again.",
         "server.busy_self.other" => "You can run {n} solves at a time, and that many are still running. Wait for one to finish, then try again.",
@@ -266,8 +273,14 @@ fn ro(key: &str) -> &'static str {
         // translate
         "translate.too_long" => "Descrierea este prea lungă. Scurteaz-o și încearcă din nou.",
         "translate.bad_image" => "Imaginea nu a putut fi citită. Încearcă o fotografie PNG, JPG sau WebP.",
+        "translate.heic" => "Fotografia este în format HEIC, pe care serverul nu îl poate citi. Alege-o din galeria foto sau salveaz-o mai întâi ca JPG.",
+        "translate.image_too_large" => "Fotografia este mai mare decât acceptă serverul. Alege o fotografie mai mică sau fă o captură de ecran doar cu problema.",
         "translate.need_input" => "Descrie problema sau alege mai întâi o fotografie.",
         "translate.failed" => "Traducerea s-a oprit neașteptat. Încearcă din nou sau scrie direct programul .geo.",
+        "translate.timeout" => "AI-ul a avut nevoie de mai mult de {s} s ca să citească problema, așa că a fost oprit. Încearcă din nou; o descriere mai scurtă sau o fotografie mai clară, făcută mai de aproape, se citește mai repede.",
+        "translate.ai_failed" => "AI-ul nu a putut răspunde acum. Încearcă din nou în câteva momente sau scrie direct programul .geo.",
+        "translate.unavailable" => "Traducerea AI nu este disponibilă acum pe acest server. Scrie direct programul .geo sau încearcă mai târziu.",
+        "translate.no_problem_photo" => "AI-ul nu a găsit o problemă de geometrie în această fotografie. Încearcă o fotografie mai clară, doar cu problema, sau descrie-o în cuvinte.",
         // humanize
         "humanize.need_proof" => "Nu există o demonstrație de explicat.",
         "humanize.unavailable" => "Explicațiile AI nu sunt activate pe acest server.",
@@ -277,6 +290,7 @@ fn ro(key: &str) -> &'static str {
         // shared / security
         "err.too_long" => "Textul introdus este prea lung. Scurtează-l și încearcă din nou.",
         "err.too_large" => "Programul este mai lung decât acceptă serverul. Scurtează-l sau folosește mai puține puncte.",
+        "err.body_too_large" => "Cererea este mai mare decât acceptă serverul.",
         "server.busy" => "Toate locurile de rezolvare sunt ocupate. Încearcă din nou în câteva momente.",
         "server.busy_self.one" => "Poți rula o singură rezolvare deodată, iar a ta este încă în curs. Așteaptă să se termine, apoi încearcă din nou.",
         "server.busy_self.few" => "Poți rula {n} rezolvări deodată, iar tot atâtea sunt încă în curs. Așteaptă să se termine una, apoi încearcă din nou.",

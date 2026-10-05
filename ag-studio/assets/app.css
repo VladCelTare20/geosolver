@@ -311,7 +311,9 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .dz-ic svg { width: 28px; height: 28px; color: var(--text-3); }
 .dz-full { display: grid; gap: var(--s2); justify-items: center; }
 .dz-full img { max-height: 200px; max-width: 100%; border-radius: var(--r-control); border: 1px solid var(--border); }
-.dz-name { font-size: var(--fs-13); color: var(--text-2); }
+.dz-name { font-size: var(--fs-13); color: var(--text-2); overflow-wrap: anywhere; }
+.dz-meta { font-size: var(--fs-12); color: var(--text-3); font-variant-numeric: tabular-nums; margin-top: calc(-1 * var(--s1)); }
+.dz-busy { display: inline-flex; align-items: center; gap: var(--s2); color: var(--text-2); }
 .dz-actions { display: flex; justify-content: flex-end; }
 
 .geo-head { display: flex; align-items: center; justify-content: space-between; gap: 4px var(--s2); flex-wrap: wrap; }

@@ -170,6 +170,12 @@ fn signed_json(value: &serde_json::Value) -> Response {
 
 /// Hard ceiling on a decoded upload, independent of the body limit.
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+/// Uploaded photos are scaled down to this long edge before the model sees them.
+const MAX_IMAGE_EDGE: u32 = 2048;
+/// Larger images are refused before their pixels are allocated.
+const MAX_IMAGE_PIXELS: u64 = 64_000_000;
+/// JSON wrapping around the base64 image in a `/api/translate` body.
+const UPLOAD_JSON_OVERHEAD: usize = 4096;
 /// Titles are display labels; anything longer is truncated before use/storage.
 const MAX_TITLE_CHARS: usize = 200;
 /// Auxiliary constructions accepted by `/api/humanize`.
@@ -313,7 +319,7 @@ fn app_router(state: Shared) -> Router {
             security::security_headers,
         ))
         .layer(CompressionLayer::new())
-        // Covers a translate (75 s) or an Opus proof rewrite (~10–30 s, 90 s cap);
+        // Covers a translate (90 s CLI cap) or an Opus proof rewrite (~10–30 s, 90 s cap);
         // ordinary requests still return in well under a second.
         .layer(TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
@@ -414,6 +420,10 @@ struct Status {
     #[serde(skip_serializing_if = "Option::is_none")]
     username: Option<String>,
     solve_deadline_secs: u64,
+    /// How long one AI translation may run before the server stops it.
+    translate_timeout_secs: u64,
+    /// The largest photo `/api/translate` accepts, in bytes before base64.
+    max_image_bytes: usize,
     /// Whether a solver slot is free right now (else a solve waits in line).
     solver_free: bool,
     /// How long a solve waits in line for a slot before the server says busy.
@@ -452,6 +462,8 @@ async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Response
         guest,
         username: user.map(|u| u.username),
         solve_deadline_secs: state.config.solve_deadline.as_secs(),
+        translate_timeout_secs: translate::CHILD_TIMEOUT.as_secs(),
+        max_image_bytes: upload_image_limit(state.config.max_body_bytes),
         solver_free: state.heavy.available_permits() > 0,
         queue_wait_secs: state.config.queue_wait.as_secs_f64(),
         version: env!("CARGO_PKG_VERSION"),
@@ -478,10 +490,14 @@ where
     type Rejection = Response;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Response> {
+        let lang = i18n::lang_from_headers(req.headers());
         match Json::<T>::from_request(req, state).await {
             Ok(Json(v)) => Ok(ApiJson(v)),
             Err(rejection) => {
                 eprintln!("rejected request body: {rejection}");
+                if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+                    return Err(err_code(StatusCode::PAYLOAD_TOO_LARGE, "body_too_large", i18n::t(lang, "err.body_too_large")));
+                }
                 Err(err(rejection.status(), "invalid request body"))
             }
         }
@@ -1390,8 +1406,6 @@ struct TranslateReq {
     text: Option<String>,
     #[serde(default)]
     image_base64: Option<String>,
-    #[serde(default)]
-    filename: Option<String>,
 }
 
 async fn api_translate(
@@ -1411,55 +1425,72 @@ async fn api_translate(
             return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(i18n::lang_from_headers(&headers), "translate.too_long"));
         }
     }
+    let lang = i18n::lang_from_headers(&headers);
+    enum Input {
+        Text(String),
+        Image(Vec<u8>),
+    }
+    let input = match (req.image_base64, req.text) {
+        (Some(b64), _) => match decode_upload(&b64) {
+            Ok(bytes) => Input::Image(bytes),
+            Err(why) => return image_rejected(lang, why),
+        },
+        (None, Some(t)) if !t.trim().is_empty() => Input::Text(t),
+        _ => return err(StatusCode::BAD_REQUEST, i18n::t(lang, "translate.need_input")),
+    };
+    let photo = matches!(input, Input::Image(_));
     let permit = match heavy_permit(&state, &headers).await {
         Ok(p) => p,
         Err(e) => return e,
     };
 
-    // Build the source. An uploaded image goes to a private, auto-deleted temp
-    // file (random name, mode 0600) via `tempfile`.
-    enum Held {
-        Text(String),
-        Image(tempfile::NamedTempFile),
+    enum Failed {
+        Image(ImageReject),
+        Model(anyhow::Error),
     }
-    let held = match (req.image_base64, req.text) {
-        (Some(b64), _) => match decode_image(&b64, req.filename.as_deref()) {
-            Ok(tmp) => Held::Image(tmp),
-            Err(e) => {
-                eprintln!("translate: bad image upload: {e}");
-                return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.bad_image"));
-            }
-        },
-        (None, Some(t)) if !t.trim().is_empty() => Held::Text(t),
-        _ => return err(StatusCode::BAD_REQUEST, i18n::t(i18n::lang_from_headers(&headers), "translate.need_input")),
-    };
-
     let res = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        let source = match &held {
-            Held::Text(t) => translate::Source::Text(t.clone()),
-            Held::Image(tmp) => translate::Source::Image(tmp.path().to_path_buf()),
+        let mut held_image = None;
+        let source = match input {
+            Input::Text(t) => translate::Source::Text(t),
+            Input::Image(bytes) => {
+                let tmp = upright_jpeg_file(&bytes).map_err(Failed::Image)?;
+                let path = tmp.path().to_path_buf();
+                held_image = Some(tmp);
+                translate::Source::Image(path)
+            }
         };
-        let out = translate::translate(&source);
-        drop(held); // RAII: the temp image is deleted here, on every path
+        let out = translate::translate(&source).map_err(Failed::Model);
+        drop(held_image);
         out
     })
     .await;
 
     match res {
         Ok(Ok(t)) => Json(t).into_response(),
-        Ok(Err(e)) => {
-            eprintln!("translate error: {e}"); // detail to the operator's log, not the client
-            err(
-                StatusCode::BAD_GATEWAY,
-                i18n::t(i18n::lang_from_headers(&headers), "translate.no_problem"),
-            )
+        Ok(Err(Failed::Image(why))) => image_rejected(lang, why),
+        Ok(Err(Failed::Model(e))) => {
+            eprintln!("translate error: {e:#}");
+            translate_failed(lang, &e, photo)
         }
         Err(e) => {
             eprintln!("translate panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "translate.failed"))
+            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "translate.failed"))
         }
     }
+}
+
+/// The client-facing answer for a translation the model did not complete.
+fn translate_failed(lang: i18n::Lang, e: &anyhow::Error, photo: bool) -> Response {
+    let (code, key) = match translate::failure(e) {
+        Some(translate::Failure::TimedOut) => ("translate_timeout", "translate.timeout"),
+        Some(translate::Failure::NoProgram) if photo => ("cannot_translate", "translate.no_problem_photo"),
+        Some(translate::Failure::NoProgram) => ("cannot_translate", "translate.no_problem"),
+        Some(translate::Failure::SignedOut) => ("translate_unavailable", "translate.unavailable"),
+        None => ("translate_failed", "translate.ai_failed"),
+    };
+    let msg = i18n::t(lang, key).replace("{s}", &translate::CHILD_TIMEOUT.as_secs().to_string());
+    err_code(StatusCode::BAD_GATEWAY, code, msg)
 }
 
 // ------------------------------------------------------------ humanize ----
@@ -1545,27 +1576,122 @@ async fn api_humanize(
     }
 }
 
-/// Decode a base64 (optionally data-URL) image into a private temp file.
-fn decode_image(b64: &str, filename: Option<&str>) -> anyhow::Result<tempfile::NamedTempFile> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageReject {
+    Unreadable,
+    Heif,
+    TooLarge,
+    Storage,
+}
+
+fn image_rejected(lang: i18n::Lang, why: ImageReject) -> Response {
+    let (status, code, key) = match why {
+        ImageReject::Storage => (StatusCode::INTERNAL_SERVER_ERROR, "translate_failed", "translate.failed"),
+        ImageReject::Unreadable => (StatusCode::BAD_REQUEST, "bad_image", "translate.bad_image"),
+        ImageReject::Heif => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "heic", "translate.heic"),
+        ImageReject::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "image_too_large", "translate.image_too_large"),
+    };
+    err_code(status, code, i18n::t(lang, key))
+}
+
+/// The largest decoded image a `/api/translate` body of `body_limit` bytes can carry.
+fn upload_image_limit(body_limit: usize) -> usize {
+    MAX_IMAGE_BYTES.min(body_limit.saturating_sub(UPLOAD_JSON_OVERHEAD) / 4 * 3)
+}
+
+fn decode_upload(b64: &str) -> Result<Vec<u8>, ImageReject> {
     use base64::Engine;
     let data = b64.rsplit(',').next().unwrap_or(b64).trim();
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
-    if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
-        anyhow::bail!("image out of range");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|_| ImageReject::Unreadable)?;
+    if bytes.is_empty() {
+        return Err(ImageReject::Unreadable);
     }
-    let ext = filename
-        .and_then(|f| std::path::Path::new(f).extension())
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp"))
-        .unwrap_or_else(|| "png".to_string());
-    let mut f = tempfile::Builder::new()
-        .prefix("agstudio_upload_")
-        .suffix(&format!(".{ext}"))
-        .tempfile()?;
-    f.write_all(&bytes)?;
-    f.flush()?;
-    Ok(f)
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(ImageReject::TooLarge);
+    }
+    if is_heif(&bytes) {
+        return Err(ImageReject::Heif);
+    }
+    Ok(bytes)
+}
+
+fn is_heif(bytes: &[u8]) -> bool {
+    bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && matches!(
+            &bytes[8..12],
+            b"heic" | b"heix" | b"hevc" | b"hevx" | b"heim" | b"heis" | b"mif1" | b"msf1" | b"avif" | b"avis"
+        )
+}
+
+fn upright_jpeg(bytes: &[u8]) -> Result<Vec<u8>, ImageReject> {
+    use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
+    let mut reader = ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| ImageReject::Unreadable)?;
+    if !matches!(
+        reader.format(),
+        Some(ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif | ImageFormat::WebP)
+    ) {
+        return Err(if is_heif(bytes) { ImageReject::Heif } else { ImageReject::Unreadable });
+    }
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(20_000);
+    limits.max_image_height = Some(20_000);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder().map_err(|_| ImageReject::Unreadable)?;
+    let (w, h) = decoder.dimensions();
+    if u64::from(w) * u64::from(h) > MAX_IMAGE_PIXELS {
+        return Err(ImageReject::TooLarge);
+    }
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut img = DynamicImage::from_decoder(decoder).map_err(|_| ImageReject::Unreadable)?;
+    img.apply_orientation(orientation);
+    if img.width().max(img.height()) > MAX_IMAGE_EDGE {
+        img = img.resize(MAX_IMAGE_EDGE, MAX_IMAGE_EDGE, image::imageops::FilterType::Triangle);
+    }
+    let rgb = on_white(img);
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
+        .encode_image(&rgb)
+        .map_err(|_| ImageReject::Unreadable)?;
+    Ok(out)
+}
+
+fn on_white(img: image::DynamicImage) -> image::RgbImage {
+    if !img.color().has_alpha() {
+        return img.into_rgb8();
+    }
+    let rgba = img.into_rgba8();
+    let mut out = image::RgbImage::new(rgba.width(), rgba.height());
+    for (o, p) in out.pixels_mut().zip(rgba.pixels()) {
+        let a = u32::from(p[3]);
+        for c in 0..3 {
+            o[c] = ((u32::from(p[c]) * a + 255 * (255 - a) + 127) / 255) as u8;
+        }
+    }
+    out
+}
+
+fn upright_jpeg_file(bytes: &[u8]) -> Result<tempfile::NamedTempFile, ImageReject> {
+    let jpeg = upright_jpeg(bytes)?;
+    let write = || -> std::io::Result<tempfile::NamedTempFile> {
+        let mut f = tempfile::Builder::new()
+            .prefix("agstudio_upload_")
+            .suffix(".jpg")
+            .tempfile()?;
+        f.write_all(&jpeg)?;
+        f.flush()?;
+        Ok(f)
+    };
+    write().map_err(|e| {
+        eprintln!("translate: could not store the upload: {e}");
+        ImageReject::Storage
+    })
 }
 
 // --------------------------------------------------------------- export ----
@@ -3472,5 +3598,146 @@ mod tests {
     fn a_goal_joining_two_relations_is_not_called_degenerate() {
         assert_eq!(degenerate_goal("A B C = triangle\nM = midpoint(A, B)\nprove coll(A, M, B) \u{2227} coll(A, B, M)"), None);
         assert_eq!(degenerate_goal("A B C = triangle\nprove cyclic(A, B, C, A)").as_deref(), Some("A"));
+    }
+
+    fn jpeg_of(img: &image::RgbImage) -> Vec<u8> {
+        let mut out = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(img).unwrap();
+        out
+    }
+
+    fn with_exif_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
+        let mut tiff = b"MM\x00\x2a\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01\x00".to_vec();
+        tiff.extend_from_slice(&[orientation, 0, 0, 0, 0, 0, 0]);
+        tiff.extend_from_slice(b"GPSLAT51.5007N");
+        let mut app1 = b"Exif\x00\x00".to_vec();
+        app1.extend_from_slice(&tiff);
+        let len = (app1.len() + 2) as u16;
+        let mut out = jpeg[..2].to_vec();
+        out.extend_from_slice(&[0xff, 0xe1]);
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(&app1);
+        out.extend_from_slice(&jpeg[2..]);
+        out
+    }
+
+    fn contains(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn an_iphone_photo_is_turned_upright_and_loses_its_metadata() {
+        let src = image::RgbImage::from_fn(40, 20, |x, _| {
+            if x < 20 { image::Rgb([220, 20, 20]) } else { image::Rgb([20, 20, 220]) }
+        });
+        let photo = with_exif_orientation(&jpeg_of(&src), 6);
+        assert!(contains(&photo, b"GPSLAT51"));
+        let out = upright_jpeg(&photo).unwrap();
+        assert!(!contains(&out, b"Exif"), "EXIF survived the re-encode");
+        assert!(!contains(&out, b"GPSLAT51"), "location survived the re-encode");
+        let img = image::load_from_memory(&out).unwrap().into_rgb8();
+        assert_eq!((img.width(), img.height()), (20, 40), "orientation 6 was not applied");
+        let top = img.get_pixel(10, 5);
+        let bottom = img.get_pixel(10, 34);
+        assert!(top[0] > 150 && top[2] < 100, "top {top:?}");
+        assert!(bottom[2] > 150 && bottom[0] < 100, "bottom {bottom:?}");
+    }
+
+    #[test]
+    fn a_large_photo_is_scaled_to_the_model_edge() {
+        let src = image::RgbImage::from_fn(4032, 3024, |x, y| image::Rgb([(x % 251) as u8, (y % 241) as u8, 128]));
+        let out = upright_jpeg(&jpeg_of(&src)).unwrap();
+        let img = image::load_from_memory(&out).unwrap();
+        assert_eq!((img.width(), img.height()), (MAX_IMAGE_EDGE, 1536));
+    }
+
+    #[test]
+    fn a_transparent_png_lands_on_white() {
+        let src = image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 0, 0]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(src)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let out = upright_jpeg(&png).unwrap();
+        let px = *image::load_from_memory(&out).unwrap().into_rgb8().get_pixel(4, 4);
+        assert!(px.0.iter().all(|&c| c > 245), "{px:?}");
+    }
+
+    #[test]
+    fn uploads_are_sniffed_not_trusted_by_name() {
+        use base64::Engine;
+        let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+        let mut heic = vec![0, 0, 0, 0x18];
+        heic.extend_from_slice(b"ftypheic\x00\x00\x00\x00mif1heic");
+        assert_eq!(decode_upload(&b64(&heic)), Err(ImageReject::Heif));
+        assert_eq!(decode_upload(&format!("data:image/png;base64,{}", b64(&heic))), Err(ImageReject::Heif));
+        assert_eq!(decode_upload(""), Err(ImageReject::Unreadable));
+        assert_eq!(decode_upload("%%%"), Err(ImageReject::Unreadable));
+        assert_eq!(decode_upload(&b64(&vec![0xff; MAX_IMAGE_BYTES + 1])), Err(ImageReject::TooLarge));
+        assert_eq!(upright_jpeg(b"hello, not an image"), Err(ImageReject::Unreadable));
+        let jpeg = jpeg_of(&image::RgbImage::new(4, 4));
+        assert_eq!(decode_upload(&format!("data:image/jpeg;base64,{}", b64(&jpeg))).unwrap(), jpeg);
+    }
+
+    #[test]
+    fn the_advertised_photo_limit_fits_in_the_body_limit() {
+        let body = 8192 * 1024;
+        let n = upload_image_limit(body);
+        assert!(n > 6_000_000 && n < MAX_IMAGE_BYTES, "{n}");
+        assert!(n.div_ceil(3) * 4 + UPLOAD_JSON_OVERHEAD <= body);
+        assert_eq!(upload_image_limit(64 * 1024 * 1024), MAX_IMAGE_BYTES);
+    }
+
+    #[tokio::test]
+    async fn status_reports_the_translate_limits_the_client_shows() {
+        let (state, _dir) = test_state();
+        let (st, _, body) = call(&state, "GET", "/api/status", None, serde_json::json!({})).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(body["translate_timeout_secs"], translate::CHILD_TIMEOUT.as_secs());
+        assert_eq!(body["max_image_bytes"], upload_image_limit(state.config.max_body_bytes));
+    }
+
+    #[tokio::test]
+    async fn an_oversized_body_is_answered_as_too_large_not_as_a_program_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::from_env(0).unwrap();
+        config.db_path = dir.path().join("test.db");
+        config.max_body_bytes = 64 * 1024;
+        let state = AppState::new(config).unwrap();
+        let cookie = register_cookie(&state, "big-photo").await;
+        let huge = "A".repeat(100 * 1024);
+        let (st, _, body) = call(&state, "POST", "/api/translate", Some(&cookie), serde_json::json!({ "image_base64": huge })).await;
+        assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+        assert_eq!(body["code"], "body_too_large", "{body}");
+    }
+
+    #[test]
+    fn translate_failures_are_worded_by_kind() {
+        let lang = i18n::Lang::En;
+        let answer = |kind: Option<translate::Failure>, photo: bool| {
+            let e = match kind {
+                Some(k) => anyhow::Error::new(k).context("detail"),
+                None => anyhow::anyhow!("claude exited unsuccessfully: boom"),
+            };
+            let resp = translate_failed(lang, &e, photo);
+            assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+            let body = futures_body(resp);
+            (body["code"].as_str().unwrap().to_string(), body["error"].as_str().unwrap().to_string())
+        };
+        let (code, msg) = answer(Some(translate::Failure::TimedOut), false);
+        assert_eq!(code, "translate_timeout");
+        assert!(msg.contains("90 s"), "{msg}");
+        assert_eq!(answer(Some(translate::Failure::NoProgram), false).0, "cannot_translate");
+        assert!(answer(Some(translate::Failure::NoProgram), true).1.contains("photo"));
+        assert_eq!(answer(Some(translate::Failure::SignedOut), false).0, "translate_unavailable");
+        let (code, msg) = answer(None, false);
+        assert_eq!(code, "translate_failed");
+        assert!(!msg.contains("boom"), "operator detail leaked: {msg}");
+    }
+
+    fn futures_body(resp: Response) -> serde_json::Value {
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let bytes = rt.block_on(to_bytes(resp.into_body(), usize::MAX)).unwrap();
+        serde_json::from_slice(&bytes).unwrap()
     }
 }
