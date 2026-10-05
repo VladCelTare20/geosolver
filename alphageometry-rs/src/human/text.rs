@@ -19,6 +19,18 @@ fn subscript(s: &str) -> String {
 }
 
 pub fn disp(raw: &str) -> String {
+    disp_opt(raw, true)
+}
+
+pub fn letters_subscriptable(names: &[String]) -> bool {
+    names.iter().filter(|n| !n.starts_with('_')).all(|n| {
+        let lead: String = n.chars().take_while(|c| c.is_alphabetic()).collect();
+        let tail: String = lead.chars().skip(1).collect();
+        tail.is_empty() || disp_opt(n, true) != disp_opt(n, false)
+    })
+}
+
+pub fn disp_opt(raw: &str, letters: bool) -> String {
     if raw.is_empty() {
         return "?".into();
     }
@@ -52,7 +64,7 @@ pub fn disp(raw: &str) -> String {
             _ => return None,
         })
     };
-    let sub: Option<String> = if !tail.is_empty() && tail.chars().count() <= 2 && tail.chars().all(|c| c.is_lowercase()) { tail.chars().map(low).collect() } else { None };
+    let sub: Option<String> = if letters && !tail.is_empty() && tail.chars().count() <= 2 && tail.chars().all(|c| c.is_lowercase()) { tail.chars().map(low).collect() } else { None };
     match sub {
         Some(s) => head.push_str(&s),
         None => head.push_str(&tail),
@@ -140,11 +152,12 @@ impl PointNames for Names {
 
 impl Names {
     pub fn new(t: &EngineTrace, setup: &[SetupLine]) -> Names {
+        let letters = letters_subscriptable(&t.names);
         let mut map = BTreeMap::new();
         let mut used: Vec<String> = Vec::new();
         for (i, n) in t.names.iter().enumerate() {
             if !n.starts_with('_') {
-                let d = disp(n);
+                let d = disp_opt(n, letters);
                 used.push(d.clone());
                 map.insert(i as PointId, d);
             }
@@ -181,7 +194,7 @@ impl Names {
                         }
                     }
                 } else {
-                    disp(n)
+                    disp_opt(n, letters)
                 }
             });
         }
@@ -591,6 +604,11 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
             }
             SetupLine::Circle { name, through, centre, diameter } => {
                 let nm = if name.is_empty() { format!("({})", n.pts(through)) } else { name.clone() };
+                let aux_pts: Vec<PointId> = hp.setup.iter().filter_map(|s| if let SetupLine::Aux { point, .. } = s { Some(*point) } else { None }).collect();
+                let pos = hp.setup.iter().position(|x| std::ptr::eq(x, s)).unwrap_or(0);
+                let defined: Vec<PointId> = hp.setup[..pos].iter().filter_map(|s| if let SetupLine::Aux { point, .. } = s { Some(*point) } else { None }).collect();
+                let kept: Vec<PointId> = through.iter().copied().filter(|p| !aux_pts.contains(p) || defined.contains(p)).collect();
+                let through = if kept.len() >= 3 { &kept } else { through };
                 let tri: Vec<PointId> = vec![0, 1, 2];
                 let circum = t.n >= 3 && t.orient(0, 1, 2) != 0 && tri.iter().all(|p| through.contains(p));
                 let rest: Vec<PointId> = through.iter().copied().filter(|p| !circum || !tri.contains(p)).collect();

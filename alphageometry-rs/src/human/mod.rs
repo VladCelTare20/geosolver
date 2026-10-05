@@ -278,8 +278,25 @@ fn setup_lines(cx: &Ctx, blocks: &[Block]) -> Vec<SetupLine> {
             aux_lines.push(SetupLine::Aux { point: a.point, aux_index: i, wording: aux::parse(cx.t, a.point, &a.desc) });
         }
     }
-    out.extend(named_circles(cx, blocks, &aux_lines));
-    out.extend(aux_lines);
+    let mut circles = named_circles(cx, blocks, &aux_lines);
+    let def_point = |c: &SetupLine| -> Option<PointId> {
+        let SetupLine::Circle { through, .. } = c else { return None };
+        let mut v = through.clone();
+        v.sort_unstable();
+        v.get(2).copied().filter(|p| cx.is_aux(*p))
+    };
+    let early: Vec<SetupLine> = circles.iter().filter(|c| def_point(c).is_none()).cloned().collect();
+    circles.retain(|c| def_point(c).is_some());
+    out.extend(early);
+    for a in aux_lines {
+        let SetupLine::Aux { point, .. } = &a else { continue };
+        let p = *point;
+        out.push(a);
+        let (now, later): (Vec<SetupLine>, Vec<SetupLine>) = circles.into_iter().partition(|c| def_point(c) == Some(p));
+        out.extend(now);
+        circles = later;
+    }
+    out.extend(circles);
     let mut helpers: Vec<PointId> = used.iter().copied().filter(|&p| cx.t.name(p).starts_with('_')).collect();
     helpers.sort_unstable();
     helpers.dedup();

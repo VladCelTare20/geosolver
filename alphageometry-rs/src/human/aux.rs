@@ -144,6 +144,29 @@ fn on_shape(a: &AuxArg) -> Vec<PointId> {
     }
 }
 
+fn on_numerically(t: &EngineTrace, a: &AuxArg, p: PointId) -> bool {
+    let c = |i: usize| t.coord(a.pts[i]);
+    let q = t.coord(p);
+    let near = |x: f64, y: f64| (x - y).abs() < 1e-7 * (1.0 + x.abs().max(y.abs()));
+    match a.key {
+        "line" => t.orient(a.pts[0], a.pts[1], p) == 0,
+        "aux.circle" => near(t.dist(a.pts[0], p), t.dist(a.pts[0], a.pts[1])),
+        "aux.circumcircle" if a.pts.len() == 3 => {
+            let (x1, y1, x2, y2, x3, y3) = (c(0).0, c(0).1, c(1).0, c(1).1, c(2).0, c(2).1);
+            let d = 2.0 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2));
+            if d.abs() < 1e-12 {
+                return false;
+            }
+            let s = |x: f64, y: f64| x * x + y * y;
+            let ox = (s(x1, y1) * (y2 - y3) + s(x2, y2) * (y3 - y1) + s(x3, y3) * (y1 - y2)) / d;
+            let oy = (s(x1, y1) * (x3 - x2) + s(x2, y2) * (x1 - x3) + s(x3, y3) * (x2 - x1)) / d;
+            let r = ((x1 - ox).powi(2) + (y1 - oy).powi(2)).sqrt();
+            near(((q.0 - ox).powi(2) + (q.1 - oy).powi(2)).sqrt(), r)
+        }
+        _ => on_shape(a).contains(&p),
+    }
+}
+
 fn side(t: &EngineTrace, p: PointId, a: PointId, b: PointId) -> i32 {
     t.orient(a, b, p)
 }
@@ -263,7 +286,9 @@ pub fn parse(t: &EngineTrace, me: PointId, desc: &str) -> Option<AuxWording> {
                 return None;
             }
             let (a, b) = (shape(t, parts[0])?, shape(t, parts[1])?);
-            let common: Vec<PointId> = on_shape(&a).into_iter().filter(|p| *p != me && on_shape(&b).contains(p)).collect();
+            let mut cands = on_shape(&a);
+            cands.extend(on_shape(&b));
+            let common: Vec<PointId> = cands.into_iter().filter(|&p| p != me && on_numerically(t, &a, p) && on_numerically(t, &b, p)).collect();
             if let Some(&c) = common.first() {
                 return w("aux.intersect2", vec![a, b, AuxArg { key: "point", pts: vec![c] }]);
             }
