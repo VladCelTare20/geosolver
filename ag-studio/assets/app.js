@@ -603,6 +603,28 @@
     dz.addEventListener("dragleave", function () { dz.classList.remove("is-over"); });
     dz.addEventListener("drop", function (e) { e.preventDefault(); dz.classList.remove("is-over"); if (e.dataTransfer.files[0]) setPhoto(e.dataTransfer.files[0]); });
     $("photo-remove").addEventListener("click", function () { setPhoto(null); $("photo-input").focus(); });
+    if (!coarse()) { var dropTxt = dz.querySelector('[data-i18n="photo.drop"]'); if (dropTxt) { dropTxt.setAttribute("data-i18n", "photo.drop.paste"); dropTxt.textContent = t("photo.drop.paste"); } }
+    var hasFiles = function (e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], "Files") >= 0; };
+    document.addEventListener("dragover", function (e) { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = aiBlock() || S.busy ? "none" : "copy"; } });
+    document.addEventListener("drop", function (e) {
+      if (!hasFiles(e) || dz.contains(e.target)) return;
+      e.preventDefault();
+      takeImage(e.dataTransfer.files);
+    });
+    document.addEventListener("paste", function (e) {
+      var dt = e.clipboardData;
+      if (!dt || !dt.files || !dt.files.length) return;
+      var inText = e.target.closest && e.target.closest("textarea, input");
+      if (inText && (dt.getData("text/plain") || "").trim()) return;
+      if (takeImage(dt.files)) e.preventDefault();
+    });
+  }
+  function takeImage(files) {
+    var f = Array.prototype.filter.call(files || [], isImageFile)[0];
+    if (!f || aiBlock() || S.busy) return false;
+    if (S.mode !== "photo") setMode("photo", false, true);
+    setPhoto(f);
+    return true;
   }
 
   // ----------------------------------------------------------------- solve --
@@ -686,9 +708,13 @@
     if (on) vp.removeAttribute("aria-labelledby"); else vp.setAttribute("aria-labelledby", "fig-empty");
     $("fig-frame").querySelector(".fig-foot").hidden = !on;
   }
+  var figHintNow = "";
   function paintFigHint() {
     var coarse = matchMedia("(pointer: coarse)").matches;
-    $("fig-hint").innerHTML = coarse ? esc(t("fig.hint.coarse")) : esc(t("fig.hint.fine", { key: "\u0001" })).replace("\u0001", "<kbd>0</kbd>");
+    var wheel = !coarse && typeof viewer !== "undefined" && viewer && !viewer.pinned();
+    var html = coarse ? esc(t("fig.hint.coarse"))
+      : esc(t(wheel ? "fig.hint.wheel" : "fig.hint.fine", { key: "\u0001", mod: isMac ? "⌘" : "Ctrl" })).replace("\u0001", "<kbd>0</kbd>");
+    if (html !== figHintNow) { figHintNow = html; $("fig-hint").innerHTML = html; }
   }
   function fieldError(id, msg) {
     var el = $(id);
@@ -1848,6 +1874,7 @@
     frame: $("fig-frame"), viewport: $("fig-viewport"), zoomIn: $("z-in"), zoomOut: $("z-out"),
     fit: $("z-fit"), full: $("z-full"), label: $("zoom-label"),
   });
+  if (window.ResizeObserver) new ResizeObserver(function () { requestAnimationFrame(paintFigHint); }).observe($("fig-viewport"));
   viewer.onPoint = function (name) { return stepsApi ? stepsApi.markPoint(name) : []; };
   viewer.onPointAnnounce = function (name, used) {
     announce(used.length ? t("fig.point", { p: name, steps: used.join(", ") }) : t("fig.point.none", { p: name }));

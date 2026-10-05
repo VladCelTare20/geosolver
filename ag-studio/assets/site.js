@@ -288,11 +288,42 @@
       return Math.min(r.width / me.vb.w, r.height / me.vb.h) || 1;
     }
     this.scale = scale;
+    var gesture = null;
     vp.addEventListener("wheel", function (e) {
       if (!me.svg) return;
+      var dx = e.deltaX, dy = e.deltaY;
+      var unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? vp.clientHeight : 1;
+      dx *= unit; dy *= unit;
+      var pinch = e.ctrlKey || e.metaKey;
+      if (pinch && gesture) { e.preventDefault(); return; }
+      if (!pinch && (!me.pinned() || Math.abs(dx) > Math.abs(dy))) {
+        if (!me.zoomed()) return;
+        var got = me.panBy(-dx, -dy);
+        if (Math.abs(got[0]) + Math.abs(got[1]) > 0.5) e.preventDefault();
+        return;
+      }
+      if (!pinch && dy > 0 && !me.zoomed()) return;
       e.preventDefault();
-      me.zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0016));
+      var d = pinch ? Math.max(-25, Math.min(25, dy)) * 0.01 : Math.max(-120, Math.min(120, dy)) * 0.0016;
+      me.zoomAt(e.clientX, e.clientY, Math.exp(-d));
     }, { passive: false });
+    vp.addEventListener("gesturestart", function (e) {
+      if (!me.svg || pointers.size) return;
+      e.preventDefault();
+      gesture = { s: e.scale || 1 };
+    });
+    vp.addEventListener("gesturechange", function (e) {
+      if (!gesture) return;
+      e.preventDefault();
+      var s = e.scale || 1;
+      me.zoomAt(e.clientX, e.clientY, s / gesture.s);
+      gesture.s = s;
+    });
+    vp.addEventListener("gestureend", function (e) {
+      if (!gesture) return;
+      e.preventDefault();
+      gesture = null;
+    });
     var pad = document.createElement("div");
     pad.className = "pan-pad";
     pad.hidden = true;
@@ -669,6 +700,13 @@
     if (this.onPointAnnounce) this.onPointAnnounce(names[i], used || []);
   };
   Viewer.prototype.isFull = function () { return this.els.frame.classList.contains("is-full"); };
+  Viewer.prototype.pinned = function () {
+    for (var el = this.els.viewport.parentElement; el && el !== document.body; el = el.parentElement) {
+      var p = getComputedStyle(el).position;
+      if (p === "sticky" || p === "fixed") return true;
+    }
+    return false;
+  };
   Viewer.prototype.toggleFull = function (on, byPointer) {
     var f = this.els.frame;
     if (!this.els.full) return;

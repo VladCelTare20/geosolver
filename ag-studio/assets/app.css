@@ -649,6 +649,15 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
 @media (min-width: 1200px) {
   .rail-toggle { display: none !important; }
 }
+@media (min-width: 1800px) {
+  :root { --maxw: 1760px; }
+  .shell { grid-template-columns: minmax(0, 780px) minmax(0, 1fr); }
+  .has-rail .shell { grid-template-columns: 272px minmax(0, 760px) minmax(0, 1fr); }
+  .fig-frame { max-height: 1080px; }
+}
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .shell, .has-rail .shell { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+}
 @media (max-width: 1199px) and (max-height: 480px) {
   .rail { overflow-y: auto; }
   .rail > * { flex: none; }
@@ -722,6 +731,55 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .verdict { border-left: 4px solid CanvasText; }
   .chip[class*="tone-"] { border: 1px solid CanvasText; }
   .editor:focus-within, .input:focus, .textarea:focus { outline: 2px solid Highlight; outline-offset: 2px; }
+  .status-pill .dot, .tab-ai-dot { forced-color-adjust: none; box-shadow: none; border: 1.5px solid CanvasText; background: Canvas; }
+  .status-pill.on .dot { background: CanvasText; }
+}
+
+.verdict-text, .ai-text, .err-head p, .counter { max-width: 75ch; }
+@media (prefers-contrast: more) {
+  html:root:not(#contrast) { --text-3: var(--text-2); --border: var(--border-strong); --dz-border: var(--text-2); }
+  :focus-visible { outline-width: 3px; }
+  .hist-del { opacity: 1; }
+  .gs-fig.has-focus > :not(.hl) { opacity: 0.4; }
+}
+
+@media print {
+  html:root:not(#print) {
+    color-scheme: light;
+    --bg: #ffffff; --surface: #ffffff; --surface-2: #f4f4f2; --surface-3: #e9e9e5;
+    --text: #000000; --text-2: #33383d; --text-3: #4b525a;
+    --border: #c9ccc8; --border-strong: #8a9097;
+    --accent: #1f4fa0; --accent-hover: #183f80; --on-accent: #ffffff; --accent-soft: #e7eef9; --focus: #1f4fa0;
+    --shadow: none; --shadow-pop: none;
+    --proved: #17703a; --proved-bg: #e8f4ec; --proved-line: #a9d5b8;
+    --false: #b42318; --false-bg: #fdecea; --false-line: #f0b8b2;
+    --unproved: #8a5a00; --unproved-bg: #fff4db; --unproved-line: #ebcf8f;
+    --neutral: #4b525a; --neutral-bg: #eef0f2; --neutral-line: #c9ced3;
+    --info: #1f4fa0; --info-bg: #eaf0fa; --info-line: #b9cbea;
+    --fig-ink: #1b1f24; --fig-construction: #6e7a86; --fig-goal: #c8102e; --fig-aux: #b45309;
+    --fig-circle: #2a6fb0; --fig-mark: #4b525a; --fig-hl: #7c3aed; --fig-halo: #ffffff;
+    --fig-bg: #ffffff; --fig-lbl-dim: #5f666d; --fig-aux-dim: #9a4a08;
+    --code-kw: #8e2db5; --code-fn: #1f4fa0; --code-pt: #16191d; --code-num: #a14b00; --code-com: #5f6b76; --code-punct: #626a72;
+  }
+  @page { margin: 14mm 12mm; }
+  body { background: #fff; min-height: 0; }
+  .site-header, .skip-link, .rail, .rail-scrim, .toast-region, .fig-peek, .site-footer, .fig-tools, .fig-foot, .pan-pad,
+  .kbd-hint, .verdict-actions, .guest-note, .refine, #proof-tabs, #ai-regen, .details, .state-solving, .group-toggle,
+  .has-result .composer, .has-result .state-empty { display: none !important; }
+  .shell, .has-rail .shell { display: block; max-width: none; margin: 0; padding: 0; }
+  .shell > :not([hidden]) + :not([hidden]) { margin-top: 10px; }
+  .proof-area { display: block; }
+  .proof-area > * + * { margin-top: 10px; }
+  .card { box-shadow: none; }
+  .verdict { animation: none; break-inside: avoid; }
+  .verdict, .chip, .fig-viewport, .step.is-conclusion .step-n { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .statement, .figure-panel, .step, .facts li { break-inside: avoid; }
+  .figure-panel, .has-result .figure-panel { display: block; position: static; }
+  .fig-frame, .fig-frame.is-full { position: static; height: auto !important; min-height: 0; max-height: none; border: 1px solid var(--border); border-radius: var(--r-card); padding: 0; }
+  .fig-head { border-bottom: 0; padding: 8px 16px 0; }
+  .fig-viewport { height: 112mm !important; max-height: none !important; flex: none; }
+  .cite { border-color: var(--border-strong); }
+  a { color: inherit; }
 }
 
 /* Touch targets: after every component rule so these win at equal specificity. */
