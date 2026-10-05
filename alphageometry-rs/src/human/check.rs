@@ -588,8 +588,21 @@ pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
         let h = if b.kind == BlockKind::Conclusion { b.horizon.max(cx.closure.last().map(|x| x + 1).unwrap_or(0)) } else { b.horizon };
         let mut prev: Option<(Expr, Expr)> = None;
         for s in &b.body {
+            let joins = |terms: &Vec<Expr>| -> bool {
+                let Some(p) = prev.as_ref() else { return false };
+                if same_angle(Some(&p.1), terms.first()) {
+                    return true;
+                }
+                match (eval(cx.t, &p.1), terms.first().and_then(|e| eval(cx.t, e))) {
+                    (Some((Table::Angle, x)), Some((Table::Angle, y))) => [&x - &y, &x + &y].iter().any(|d| {
+                        let q = cx.quot.q(d);
+                        q.terms.iter().all(|(v, _)| *v == ANGLE_UNIT) && q.get(ANGLE_UNIT).is_integer()
+                    }),
+                    _ => false,
+                }
+            };
             let st = match s {
-                Sentence::Chain { terms, .. } if same_angle(prev.as_ref().map(|p| &p.1), terms.first()) => prev.as_ref().map(|p| (&p.0, &p.1)),
+                Sentence::Chain { terms, .. } if joins(terms) => prev.as_ref().map(|p| (&p.0, &p.1)),
                 _ => None,
             };
             if let Err(e) = ch.sentence_ok(&blocks, b.id, h, s, st) {
@@ -615,6 +628,9 @@ pub fn check(cx: &Ctx, hp: &mut HumanProof, strict: bool) -> usize {
     if std::env::var_os("HP_DEBUG").is_some() {
         for v in &first {
             eprintln!("violation block {} {}: {}", v.block, v.rule, v.detail);
+            if let Some(b) = hp.blocks.iter().find(|b| b.id == v.block) {
+                eprintln!("  stmt {:?}\n  facts {:?}\n  body {:?}", b.stmt, b.engine_facts, b.body);
+            }
         }
     }
     if strict {

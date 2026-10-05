@@ -177,11 +177,26 @@ pub fn fact_stmt(cx: &Ctx, f: FactId) -> Stmt {
                 Stmt::Coll { pts: p.clone() }
             }
             "angle bisector theorem (converse)" if p.len() == 4 => Stmt::EqAngle {
-                lhs: Expr::Angle { a: p[2], b: p[0], c: p[1], directed: false },
-                rhs: Expr::Angle { a: p[1], b: p[0], c: p[3], directed: false },
+                lhs: Expr::Angle { a: p[2], b: p[0], c: p[1], directed: true },
+                rhs: Expr::Angle { a: p[1], b: p[0], c: p[3], directed: true },
             },
+            "angle bisector theorem" if p.len() == 4 => Stmt::EqRatio { segs: vec![(p[1], p[2]), (p[1], p[3]), (p[0], p[2]), (p[0], p[3])] },
             "perpendicular from squared lengths" if p.len() == 4 => Stmt::Perp { l1: (p[0], p[1]), l2: (p[2], p[3]) },
-            _ => Stmt::Formula { text: name.to_string(), pts: p.clone() },
+            _ => {
+                let rows: Vec<&LinComb> = t.rows_of(Table::Ratio, f).collect();
+                if rows.len() == 1 && t.rows_of(Table::Angle, f).next().is_none() {
+                    let r = rows[0];
+                    let pos: LinComb = LinComb { terms: r.terms.iter().filter(|(_, k)| !k.is_negative()).cloned().collect() };
+                    let neg: LinComb = LinComb { terms: r.terms.iter().filter(|(_, k)| k.is_negative()).map(|(v, k)| (*v, -k)).collect() };
+                    let lhs = super::chain::ratio_expr(cx, &pos);
+                    let rhs = super::chain::ratio_expr(cx, &neg);
+                    Stmt::Eq { lhs, rhs }
+                } else if let Some(s) = sq_stmt(cx, f) {
+                    s
+                } else {
+                    Stmt::Formula { text: name.to_string(), pts: p.clone() }
+                }
+            }
         },
         Reason::Formula(name, text, p) => Stmt::Formula { text: format!("{name}: {text}"), pts: p.clone() },
         Reason::Assumption(_) | Reason::Construction(_) => cx.hyp_pred.get(&f).map(|p| pred_stmt(p)).unwrap_or(Stmt::Formula { text: String::new(), pts: vec![] }),
@@ -342,6 +357,59 @@ pub fn cyclic_targets(cx: &Ctx, p: &[PointId], f: Option<FactId>) -> Option<(Vec
         out.push(with_alts(forms)?);
     }
     Some((out, requires))
+}
+
+fn sq_stmt(cx: &Ctx, f: FactId) -> Option<Stmt> {
+    let t = cx.t;
+    let rows: Vec<&LinComb> = t.rows_of(Table::Sq, f).collect();
+    if rows.len() != 1 || Table::ALL.iter().any(|&tb| tb != Table::Sq && t.rows_of(tb, f).next().is_some()) {
+        return None;
+    }
+    let mut pair_of: std::collections::BTreeMap<crate::lincomb::VarId, (PointId, PointId)> = std::collections::BTreeMap::new();
+    for a in 0..t.n as PointId {
+        for b in (a + 1)..t.n as PointId {
+            if let Some(v) = t.var(Table::Sq, a, b) {
+                pair_of.entry(v).or_insert((a, b));
+            }
+        }
+    }
+    let mut lhs = Vec::new();
+    let mut rhs = Vec::new();
+    for (v, k) in rows[0].terms.iter() {
+        let &(a, b) = pair_of.get(v)?;
+        if k.is_negative() {
+            rhs.push((-k, Expr::Sq { a, b }));
+        } else {
+            lhs.push((k.clone(), Expr::Sq { a, b }));
+        }
+    }
+    if lhs.is_empty() || rhs.is_empty() {
+        return None;
+    }
+    let side = |v: Vec<(Rat, Expr)>| if v.len() == 1 && v[0].0.is_one() { v.into_iter().next().unwrap().1 } else { Expr::Lin { terms: v } };
+    Some(Stmt::Eq { lhs: side(lhs), rhs: side(rhs) })
+}
+
+pub fn centre_obligations(cx: &Ctx, p: &[PointId]) -> Vec<Obl> {
+    let t = cx.t;
+    let mut out = Vec::new();
+    if p.len() < 4 {
+        return out;
+    }
+    for o in 0..t.names.len() as PointId {
+        if p.contains(&o) {
+            continue;
+        }
+        let r0 = t.dist(o, p[0]);
+        if r0 < 1e-9 || p.iter().any(|&x| (t.dist(o, x) - r0).abs() > 1e-7 * r0.max(1.0)) {
+            continue;
+        }
+        let targets: Option<Vec<Target>> = p[1..].iter().map(|&x| ratio_target(cx, seg(o, p[0]), seg(o, x), Stmt::Cong { s1: (o, p[0]), s2: (o, x) })).collect();
+        if let Some(targets) = targets {
+            out.push(Obl { label: "centre", targets, requires: vec![] });
+        }
+    }
+    out
 }
 
 pub fn coll_targets(cx: &Ctx, p: &[PointId], f: Option<FactId>) -> Option<(Vec<Target>, Vec<FactId>)> {
@@ -560,6 +628,7 @@ pub fn goal_obligations(cx: &Ctx, g: &Predicate) -> Vec<Obl> {
             if let Some((t, _)) = cyclic_targets(cx, p, None) {
                 out.push(Obl { label: "cyclic", targets: t, requires: vec![] });
             }
+            out.extend(centre_obligations(cx, p));
         }
         "eqangle" if p.len() == 8 => {
             let l = line_angle_expr(pair(0), pair(2));
@@ -623,6 +692,7 @@ pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
             if let Some((ts, _)) = cyclic_targets(cx, p, None) {
                 out.push(Obl { label: "inscribed", targets: ts, requires: vec![] });
             }
+            out.extend(centre_obligations(cx, p));
             Some(out)
         }
         Reason::Collinear(p) => {

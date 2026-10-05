@@ -12,6 +12,9 @@ use crate::proof::{FactId, Reason as ER};
 use crate::rational::Rat;
 use std::collections::{BTreeMap, BTreeSet};
 
+const MERGED: &str = "merged";
+const MAX_CLAIMS: usize = 7;
+
 pub const GOAL: FactId = FactId::MAX - 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -316,7 +319,7 @@ impl<'c, 'a> Writer<'c, 'a> {
     fn make_goal(&self, goal_fact: Option<FactId>) -> Node {
         let cx = self.cx;
         let h = goal_fact.unwrap_or(cx.closure.last().map(|x| x + 1).unwrap_or(0));
-        let obls = goal_obligations(cx, &cx.goal);
+        let obls = self.goal_obls(goal_fact);
         if std::env::var_os("HP_DEBUG").is_some() {
             eprintln!("goal {:?} h {h} obligations {}", cx.goal, obls.len());
             for o in &obls {
@@ -365,13 +368,35 @@ impl<'c, 'a> Writer<'c, 'a> {
             pooled: false,
             requires: Vec::new(),
         };
-        if let Some((label, parts, cost, _)) = self.certify_obls(&obls, h, &focus, goal_fact) {
+        if let Some((label, parts, cost, req)) = self.certify_obls(&obls, h, &focus, goal_fact) {
             node.deps = self.deps_of(&parts);
+            for &r in &req {
+                for s in cx.fact_sources(r) {
+                    node.deps.insert(cx.displayable(s));
+                }
+            }
+            node.requires = req;
             node.label = label;
             node.parts = Some(parts);
             node.cost = cost;
         }
         node
+    }
+
+    fn goal_obls(&self, goal_fact: Option<FactId>) -> Vec<Obl> {
+        let cx = self.cx;
+        let mut obls = goal_obligations(cx, &cx.goal);
+        let Some(gf) = goal_fact else { return obls };
+        let gp: BTreeSet<PointId> = cx.goal.points.iter().copied().collect();
+        let fp: BTreeSet<PointId> = fact_points(cx, gf).into_iter().collect();
+        let merged = matches!((cx.goal.name.as_str(), &cx.t.facts[gf as usize].reason), ("coll", ER::Collinear(_)) | ("cyclic", ER::Concyclic(_)));
+        if merged && fp.len() > gp.len() && gp.is_subset(&fp) {
+            for mut o in fact_obligations(cx, gf).unwrap_or_default() {
+                o.label = MERGED;
+                obls.push(o);
+            }
+        }
+        obls
     }
 
     pub fn recertify_with_claims(&mut self) {
@@ -390,7 +415,7 @@ impl<'c, 'a> Writer<'c, 'a> {
             if n.parts.is_none() || n.theorem || n.label == "identity" {
                 continue;
             }
-            let obls = if k == GOAL { goal_obligations(self.cx, &self.cx.goal) } else { fact_obligations(self.cx, k).unwrap_or_default() };
+            let obls = if k == GOAL { self.goal_obls(n.extra.first().copied()) } else { fact_obligations(self.cx, k).unwrap_or_default() };
             let focus = self.focus_of(k);
             let exclude = if k == GOAL { n.extra.first().copied() } else { Some(k) };
             if let Some((label, parts, cost, req)) = self.certify_obls(&obls, n.horizon, &focus, exclude) {
@@ -470,6 +495,13 @@ impl<'c, 'a> Writer<'c, 'a> {
             } else {
                 match n.kind {
                     Kind::Formula(_) => Role::Inline,
+                    Kind::Theorem(_) if matches!(n.stmt, Stmt::Formula { .. }) => {
+                        if u <= 1 {
+                            Role::Inline
+                        } else {
+                            Role::Step
+                        }
+                    }
                     Kind::Isosceles | Kind::Length => {
                         if u <= 1 {
                             Role::Inline
@@ -508,15 +540,14 @@ impl<'c, 'a> Writer<'c, 'a> {
         }
         let mut claims: Vec<FactId> = self.nodes.values().filter(|n| n.role == Role::Claim).map(|n| n.fact).collect();
         claims.sort_unstable();
-        if claims.len() > 7 {
-            let excess = claims.len() - 7;
-            let mut demote: Vec<FactId> = claims
-                .iter()
-                .copied()
-                .filter(|c| users.get(c).map(|s| s.len()).unwrap_or(0) <= 1)
-                .collect();
-            demote.truncate(excess);
-            for c in demote {
+        if claims.len() > MAX_CLAIMS {
+            let score = |c: &FactId| -> (usize, i64, std::cmp::Reverse<FactId>) {
+                let n = &self.nodes[c];
+                (users.get(c).map(|s| s.len()).unwrap_or(0), n.cost, std::cmp::Reverse(*c))
+            };
+            let mut ranked = claims.clone();
+            ranked.sort_by_key(|c| std::cmp::Reverse(score(c)));
+            for c in ranked.into_iter().skip(MAX_CLAIMS) {
                 self.nodes.get_mut(&c).unwrap().role = Role::Step;
             }
         }
@@ -853,6 +884,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 let l = links.into_iter().next().unwrap();
                 sentences.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons: l.reasons, combination: l.combination });
             }
+            None if links.len() == 1 && then.as_ref().is_none_or(|t| matches!(t, Stmt::EqAngle { .. })) => {
+                let l = links.into_iter().next().unwrap();
+                sentences.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons: l.reasons, combination: l.combination });
+            }
             None => sentences.push(Sentence::Chain { terms: terms.into_iter().map(|x| x.0).collect(), links, then, directed: target.table == Table::Angle }),
             Some(h0) => {
                 self.as_drawn = true;
@@ -869,23 +904,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     t2.push(e?);
                 }
                 let mut l2: Vec<Link> = links[h0..].to_vec();
-                let all_neg = t2.iter().all(|e| matches!(e, Expr::Lin { terms } if terms.len() == 1 && terms[0].0.is_negative()));
-                if all_neg {
-                    t2 = t2
-                        .into_iter()
-                        .map(|e| match e {
-                            Expr::Lin { terms } => {
-                                let (k, x) = terms.into_iter().next().unwrap();
-                                let k = -k;
-                                if k.is_one() {
-                                    x
-                                } else {
-                                    Expr::Lin { terms: vec![(k, x)] }
-                                }
-                            }
-                            e => e,
-                        })
-                        .collect();
+                let negative = t2.iter().filter(|e| angle_sign(e) < 0).count();
+                if negative * 2 > t2.len() {
+                    t2 = t2.into_iter().map(negate_expr).collect();
                     for l in l2.iter_mut() {
                         for t in l.combination.iter_mut() {
                             t.coef = -t.coef.clone();
@@ -896,6 +917,40 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
         }
         Some(sentences)
+    }
+}
+
+fn angle_sign(e: &Expr) -> i32 {
+    match e {
+        Expr::Lin { terms } => terms
+            .iter()
+            .find(|(_, x)| matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }))
+            .map(|(k, _)| if k.is_negative() { -1 } else { 1 })
+            .unwrap_or(1),
+        _ => 1,
+    }
+}
+
+fn negate_expr(e: Expr) -> Expr {
+    match e {
+        Expr::Lin { terms } => {
+            let terms: Vec<(Rat, Expr)> = terms
+                .into_iter()
+                .map(|(k, x)| match x {
+                    Expr::Const { degrees } => (k, Expr::Const { degrees: -degrees }),
+                    x => (-k, x),
+                })
+                .collect();
+            if terms.len() == 1 && terms[0].0.is_one() && !matches!(terms[0].1, Expr::Const { .. }) {
+                terms.into_iter().next().unwrap().1
+            } else {
+                let mut t = terms;
+                t.sort_by_key(|(_, x)| matches!(x, Expr::Const { .. }));
+                Expr::Lin { terms: t }
+            }
+        }
+        Expr::Const { degrees } => Expr::Const { degrees: -degrees },
+        x => Expr::Lin { terms: vec![(Rat::from_int(-1), x)] },
     }
 }
 
@@ -1016,6 +1071,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         };
         let node_kind = node.kind;
         let node_stmt = node.stmt.clone();
+        let node_label = node.label;
         let nparts = parts.len();
         for (pi, part) in parts.iter().enumerate() {
             if !part.support.iter().any(|(i, _)| self.w.atoms[*i].cost > 0) {
@@ -1029,7 +1085,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             } else {
                 None
             };
-            let then = if f == GOAL && pi + 1 == nparts { Some(node_stmt.clone()) } else { then };
+            let then = if f == GOAL && pi + 1 == nparts && node_label != "centre" {
+                if node_label == MERGED {
+                    node.extra.first().map(|&gf| fact_stmt(cx, gf))
+                } else {
+                    Some(node_stmt.clone())
+                }
+            } else {
+                then
+            };
             let (s, l, p) = self.chain_sentences(&part.target, &part.support, h, then, &focus);
             links += l;
             pooled |= p;
@@ -1037,6 +1101,14 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
         let requires = self.w.nodes[&f].requires.clone();
         let req_reasons: Vec<Reason> = requires.iter().map(|&r| self.fact_reason(r)).collect();
+        if node_label == "centre" {
+            out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+            return (out, links, pooled);
+        }
+        if f == GOAL && node_label == MERGED {
+            out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+            return (out, links, pooled);
+        }
         match node_kind {
             Kind::Sim | Kind::Congruent | Kind::Isosceles if f != GOAL => {
                 out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: Vec::new(), combination: Vec::new() });

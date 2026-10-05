@@ -291,6 +291,7 @@ pub enum Expr {
     Const { degrees: Rat },
     Lin { terms: Vec<(Rat, Expr)> },
     Seg { a: PointId, b: PointId },
+    Sq { a: PointId, b: PointId },
     Prod { factors: Vec<(Expr, i32)> },
     Sin { angle: Box<Expr> },
     Cos { angle: Box<Expr> },

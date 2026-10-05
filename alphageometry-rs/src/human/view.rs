@@ -67,7 +67,7 @@ pub fn expr_points(e: &Expr) -> Vec<PointId> {
         Expr::Angle { a, b, c, .. } => vec![*a, *b, *c],
         Expr::LineAngle { l1, l2, .. } => vec![l1.0, l1.1, l2.0, l2.1],
         Expr::Lin { terms } => terms.iter().flat_map(|(_, x)| expr_points(x)).collect(),
-        Expr::Seg { a, b } => vec![*a, *b],
+        Expr::Seg { a, b } | Expr::Sq { a, b } => vec![*a, *b],
         Expr::Prod { factors } => factors.iter().flat_map(|(x, _)| expr_points(x)).collect(),
         Expr::Sin { angle } | Expr::Cos { angle } => expr_points(angle),
         Expr::Const { .. } | Expr::Num { .. } => Vec::new(),

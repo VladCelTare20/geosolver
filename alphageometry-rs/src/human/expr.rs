@@ -67,6 +67,7 @@ pub fn eval(t: &EngineTrace, e: &Expr) -> Option<(Table, LinComb)> {
             Some((table, out))
         }
         Expr::Seg { a, b } => Some((Table::Ratio, t.dm(*a, *b)?)),
+        Expr::Sq { a, b } => Some((Table::Sq, t.single(Table::Sq, *a, *b)?)),
         Expr::Prod { factors } => {
             let mut out = LinComb::zero();
             for (x, k) in factors {
