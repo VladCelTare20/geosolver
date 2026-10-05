@@ -1,7 +1,7 @@
 //! Server-side message localization (English/Romanian).
 //!
-//! The language is taken from the `lang` cookie the browser sets (see
-//! `assets/i18n.js`); absent or unrecognized, it defaults to English. Handlers
+//! The language is taken from the `lang` cookie (set by `assets/i18n.js`, or by
+//! the gate page's `?lang=`), else from `Accept-Language`, else English. Handlers
 //! return `t(lang, key)` for every user-facing string so a Romanian visitor
 //! sees Romanian errors too. Inherently-technical detail (parser/compiler
 //! output) is passed through verbatim by the caller.
@@ -16,21 +16,68 @@ pub enum Lang {
     Ro,
 }
 
-/// Read the preferred language from the request's `lang` cookie.
+/// The request's language: its `lang` cookie, else the first `Accept-Language`
+/// entry (q > 0) that is Romanian or English, else English.
 pub fn lang_from_headers(headers: &HeaderMap) -> Lang {
-    if let Some(cookie) = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()) {
-        for part in cookie.split(';') {
+    cookie_lang(headers)
+        .or_else(|| accept_language(headers))
+        .unwrap_or(Lang::En)
+}
+
+/// The `lang` cookie alone, if it names a supported language.
+pub fn cookie_lang(headers: &HeaderMap) -> Option<Lang> {
+    for v in headers.get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()) {
+        for part in v.split(';') {
             if let Some(v) = part.trim().strip_prefix("lang=") {
-                if v.eq_ignore_ascii_case("ro") {
-                    return Lang::Ro;
-                }
-                if v.eq_ignore_ascii_case("en") {
-                    return Lang::En;
+                if let Some(l) = Lang::from_code(v) {
+                    return Some(l);
                 }
             }
         }
     }
-    Lang::En
+    None
+}
+
+fn accept_language(headers: &HeaderMap) -> Option<Lang> {
+    let raw = headers.get(header::ACCEPT_LANGUAGE)?.to_str().ok()?;
+    let mut best: Option<(f32, usize, Lang)> = None;
+    for (i, item) in raw.split(',').enumerate() {
+        let mut parts = item.split(';');
+        let tag = parts.next().unwrap_or("").trim();
+        let q = parts
+            .filter_map(|p| p.trim().strip_prefix("q="))
+            .find_map(|q| q.trim().parse::<f32>().ok())
+            .unwrap_or(1.0);
+        if q <= 0.0 {
+            continue;
+        }
+        let primary = tag.split('-').next().unwrap_or("");
+        let Some(lang) = Lang::from_code(primary) else { continue };
+        if best.is_none_or(|(bq, bi, _)| q > bq || (q == bq && i < bi)) {
+            best = Some((q, i, lang));
+        }
+    }
+    best.map(|(_, _, l)| l)
+}
+
+impl Lang {
+    /// `en`/`ro` in any case.
+    pub fn from_code(code: &str) -> Option<Lang> {
+        if code.eq_ignore_ascii_case("ro") {
+            Some(Lang::Ro)
+        } else if code.eq_ignore_ascii_case("en") {
+            Some(Lang::En)
+        } else {
+            None
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Lang::En => "en",
+            Lang::Ro => "ro",
+        }
+    }
 }
 
 /// Localized message for `key`. Unknown keys return the key itself (so a missing
@@ -52,7 +99,23 @@ fn en(key: &str) -> &'static str {
         "auth.bad_creds" => "invalid username or password",
         "auth.login_fail" => "login failed",
         "auth.not_signed_in" => "not signed in",
-        "auth.sign_in_required" => "sign in required",
+        "auth.sign_in_required" => "Sign in to continue.",
+        "auth.sign_in_ai" => "Sign in to describe problems in words or photos.",
+        // gate
+        "gate.doctitle" => "Enter password · GeoSolver",
+        "gate.title" => "Enter the password",
+        "gate.sub" => "This GeoSolver is private. Enter the password you were given to continue.",
+        "gate.label" => "Password",
+        "gate.username" => "Username",
+        "gate.submit" => "Continue",
+        "gate.remember" => "You stay signed in on this device.",
+        "gate.wrong" => "That password is not correct. Check it and try again.",
+        "gate.empty" => "Enter the password.",
+        "gate.rate" => "Too many attempts. Wait a minute, then try again.",
+        "gate.required" => "Enter the site password first.",
+        "gate.forget" => "Forget this device",
+        "gate.lang" => "Language",
+        "translate.daily" => "You have used today's AI translations on this network. Write the problem as a .geo program, or try again tomorrow.",
         // solve
         "solve.empty" => "The program is empty.",
         "solve.failed" => "The prover stopped unexpectedly. Try again; if it happens again, simplify the problem.",
@@ -255,7 +318,23 @@ fn ro(key: &str) -> &'static str {
         "auth.bad_creds" => "nume de utilizator sau parolă incorecte",
         "auth.login_fail" => "autentificarea a eșuat",
         "auth.not_signed_in" => "neautentificat",
-        "auth.sign_in_required" => "este necesară autentificarea",
+        "auth.sign_in_required" => "Autentifică-te ca să continui.",
+        "auth.sign_in_ai" => "Autentifică-te ca să descrii probleme în cuvinte sau prin fotografii.",
+        // gate
+        "gate.doctitle" => "Introdu parola · GeoSolver",
+        "gate.title" => "Introdu parola",
+        "gate.sub" => "Acest GeoSolver este privat. Introdu parola primită ca să continui.",
+        "gate.label" => "Parolă",
+        "gate.username" => "Nume de utilizator",
+        "gate.submit" => "Continuă",
+        "gate.remember" => "Rămâi conectat pe acest dispozitiv.",
+        "gate.wrong" => "Parola nu este corectă. Verific-o și încearcă din nou.",
+        "gate.empty" => "Introdu parola.",
+        "gate.rate" => "Prea multe încercări. Așteaptă un minut, apoi încearcă din nou.",
+        "gate.required" => "Introdu mai întâi parola site-ului.",
+        "gate.forget" => "Uită acest dispozitiv",
+        "gate.lang" => "Limba",
+        "translate.daily" => "Ai folosit traducerile AI de azi din această rețea. Scrie problema ca program .geo sau încearcă din nou mâine.",
         // solve
         "solve.empty" => "Programul este gol.",
         "solve.failed" => "Motorul de demonstrare s-a oprit neașteptat. Încearcă din nou; dacă se repetă, simplifică problema.",
@@ -716,6 +795,47 @@ pub fn theorem_ro(name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn hdrs(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.append(axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(), v.parse().unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn language_comes_from_cookie_then_accept_language() {
+        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "ro-RO,ro;q=0.9,en;q=0.8")])), Lang::Ro);
+        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "en-US")])), Lang::En);
+        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "fr-FR,ro;q=0.5")])), Lang::Ro);
+        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "ro;q=0,en;q=0.2")])), Lang::En);
+        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "en;q=0.4,ro;q=0.9")])), Lang::Ro);
+        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "de-DE")])), Lang::En);
+        assert_eq!(lang_from_headers(&hdrs(&[])), Lang::En);
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("cookie", "a=1; lang=en"), ("accept-language", "ro-RO")])),
+            Lang::En,
+            "an explicit choice wins over the browser's language"
+        );
+        assert_eq!(lang_from_headers(&hdrs(&[("cookie", "lang=RO")])), Lang::Ro);
+        assert_eq!(lang_from_headers(&hdrs(&[("cookie", "x=1"), ("cookie", "lang=ro")])), Lang::Ro);
+    }
+
+    #[test]
+    fn gate_strings_exist_in_both_languages() {
+        for k in [
+            "gate.doctitle", "gate.title", "gate.sub", "gate.label", "gate.username", "gate.submit",
+            "gate.remember", "gate.wrong", "gate.empty", "gate.rate", "gate.required", "gate.forget",
+            "gate.lang", "translate.daily", "auth.sign_in_ai", "auth.sign_in_required",
+        ] {
+            for l in [Lang::En, Lang::Ro] {
+                assert_ne!(t(l, k), t(l, "no.such.key"), "{k} {l:?}");
+                assert_ne!(t(l, k), k, "{k} {l:?}");
+            }
+            assert_ne!(t(Lang::En, k), t(Lang::Ro, k), "{k} is not translated");
+        }
+    }
 
     #[test]
     fn plurals_follow_each_language() {

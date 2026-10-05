@@ -101,6 +101,7 @@
       })
         .catch(function () { return {}; })
         .then(function (data) {
+          if (GS.isGate(res.status, data)) return GS.toGate();
           if (res.ok && S.sessionEnded && url !== "/api/status") recheckSession();
           return { ok: res.ok, status: res.status, data: data || {}, retryAfter: parseInt(res.headers.get("retry-after"), 10) || null };
         });
@@ -159,6 +160,7 @@
 
   function paintAccount() {
     var st = S.status || {};
+    $("forget-device").hidden = st.gate !== "cookie";
     $("account").hidden = !st.signed_in;
     $("signin").hidden = !!st.signed_in || !(st.guest || S.sessionEnded);
     if (st.signed_in) {
@@ -182,6 +184,7 @@
     }
     pill.className = "status-pill " + cls;
     txt.textContent = t(key);
+    $("ai-pill-short").textContent = t(key.replace("ai.", "ai.short."));
     pill.title = tip;
   }
 
@@ -206,7 +209,7 @@
       g.hidden = false;
       body.hidden = true;
       var actions = '<button type="button" class="btn btn-secondary btn-sm" data-goto-geo>' + esc(t("unavailable.write_geo")) + "</button>";
-      if (block === "sign_in") actions = '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("unavailable.signin")) + "</a>" + actions;
+      if (block === "sign_in") actions = '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("unavailable.signin")) + '</a><a class="btn btn-secondary btn-sm" href="/auth?mode=register">' + esc(t("nav.create")) + "</a>" + actions;
       g.innerHTML = '<div class="banner ' + (block === "checking" ? "tone-info" : "tone-neutral") + '">' + (block === "checking" ? '<span class="spinner" aria-hidden="true"></span>' : icons.info) +
         "<div><p>" + esc(t("ai.reason." + block)) + '</p><div class="gate-actions">' + actions + "</div></div></div>";
     });
@@ -678,6 +681,9 @@
     paintDocTitle();
   }
 
+  function authLost() {
+    if (S.status && S.status.signed_in) sessionEnded();
+  }
   function sessionEnded() {
     if (S.sessionEnded) return;
     S.sessionEnded = true;
@@ -702,7 +708,8 @@
     if (r.status === 400 && d.code === "compile") {
       return { titleKey: "err.title.compile", body: d.error, diagnosis: d.diagnosis, detail: d.detail, compile: true };
     }
-    if (r.status === 401) { sessionEnded(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
+    if (r.status === 401 && d.code === "sign_in") return { titleKey: "err.title.auth", body: d.error, bodyKey: d.error ? null : "err.body.auth", signin: true };
+    if (r.status === 401) { authLost(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
     if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", n: d.limit || 1, retry: true, retryAfter: r.retryAfter };
     if (r.status === 503 && what !== "translate") return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true, retryAfter: r.retryAfter };
@@ -1173,7 +1180,7 @@
       if (S.sol !== first) return;
       var better = r.ok && r.data.status === "proved" && stepCount(r.data) && stepCount(r.data) < stepCount(first);
       if (!r.ok) {
-        if (r.status === 401) sessionEnded();
+        if (r.status === 401) authLost();
         var e1 = $("refine");
         var key = r.status === 503 || r.status === 429 ? "shorter.busy" : "shorter.failed";
         if (e1) e1.innerHTML = "<span>" + esc(t(key)) + "</span>";
@@ -1326,7 +1333,8 @@
       return res.text().catch(function () { return ""; }).then(function (x) {
         var d = {};
         if (ct.indexOf("json") >= 0) { try { d = JSON.parse(x) || {}; } catch (e) { d = {}; } }
-        if (res.status === 401) {
+        if (GS.isGate(res.status, d)) { closeToast(); return GS.toGate(); }
+        if (res.status === 401 && S.status && S.status.signed_in) {
           closeToast();
           sessionEnded();
           GS.toast(t("export.auth"), { ms: 9000 });

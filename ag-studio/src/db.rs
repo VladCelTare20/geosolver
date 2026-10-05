@@ -154,7 +154,11 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             method TEXT,
             created_at INTEGER NOT NULL
          );
-         CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, created_at DESC);",
+         CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, created_at DESC);
+         CREATE TABLE IF NOT EXISTS server_secrets (
+            name TEXT PRIMARY KEY,
+            value BLOB NOT NULL
+         );",
     )?;
     // Verdicts arrived after the history table; add the column to older DBs.
     let has_status = conn
@@ -183,6 +187,28 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         eprintln!("db: case-insensitive username index not created (legacy duplicates?): {e}");
     }
     Ok(())
+}
+
+/// The 32-byte server secret `name`, stored as `fresh` on first use. A row of
+/// the wrong length is replaced (logged), which revokes whatever it signed.
+pub fn server_secret(conn: &Connection, name: &str, fresh: [u8; 32]) -> rusqlite::Result<[u8; 32]> {
+    conn.execute(
+        "INSERT OR IGNORE INTO server_secrets (name, value) VALUES (?1, ?2)",
+        rusqlite::params![name, &fresh[..]],
+    )?;
+    let stored: Vec<u8> =
+        conn.query_row("SELECT value FROM server_secrets WHERE name = ?1", [name], |r| r.get(0))?;
+    match <[u8; 32]>::try_from(stored.as_slice()) {
+        Ok(k) => Ok(k),
+        Err(_) => {
+            eprintln!("db: server secret `{name}` had {} bytes, not 32; replacing it", stored.len());
+            conn.execute(
+                "UPDATE server_secrets SET value = ?2 WHERE name = ?1",
+                rusqlite::params![name, &fresh[..]],
+            )?;
+            Ok(fresh)
+        }
+    }
 }
 
 fn row_to_user(r: &rusqlite::Row) -> rusqlite::Result<User> {

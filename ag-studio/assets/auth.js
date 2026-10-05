@@ -130,6 +130,7 @@
       body: JSON.stringify({ username: username, password: $("password").value }),
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
+        if (GS.isGate(res.status, data)) return GS.toGate();
         if (res.ok) {
           formMsg("ok", t("auth.signed_in", { name: data.username || username }));
           setTimeout(function () { location.href = "/app"; }, 350);

@@ -7,9 +7,14 @@
 //! | Env var | Default | Effect |
 //! |---|---|---|
 //! | `AGSTUDIO_BIND` | `127.0.0.1:<port>` | interface/port to bind |
-//! | `AGSTUDIO_BASIC_AUTH` | (none) | require HTTP Basic auth. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
-//! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* Basic credentials per minute before 429 (0 = off) |
-//! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past Basic auth may solve, export and humanize without an account (no history). `1` without Basic auth refuses to start |
+//! | `AGSTUDIO_BASIC_AUTH` | (none) | the shared site password. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
+//! | `AGSTUDIO_GATE` | `form` | how browsers enter the shared password: `form` = the `/gate` password page, which sets a signed `gate` cookie (HTTP Basic is still accepted, for API clients); `basic` = only the HTTP Basic dialog (the behaviour before the gate page) |
+//! | `AGSTUDIO_GATE_KEY` | (generated, stored in the DB) | 64 hex chars: the HMAC key of the gate cookie. Malformed refuses to start. Rotating it (or the password) signs every device out |
+//! | `AGSTUDIO_GATE_DAYS` | 180 | how long the gate cookie lasts (1–400 days; renewed on visits after 7 days) |
+//! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
+//! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
+//! | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
+//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` calls per 24 h (0 = no daily cap; the per-minute limit always applies) |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
@@ -102,10 +107,48 @@ impl BasicAuth {
             Some(i) => (&decoded[..i], &decoded[i + 1..]),
             None => (&decoded[..], &[][..]),
         };
+        self.credentials_match(user, pass)
+    }
+
+    /// Whether a username/password pair (the gate form's fields) matches.
+    pub fn credentials_match(&self, user: &[u8], pass: &[u8]) -> bool {
         let pass_ok = ct_eq(&sha256(pass), &self.pass);
         let user_ok = self.user.as_ref().is_none_or(|u| ct_eq(&sha256(user), u));
         pass_ok & user_ok
     }
+
+    /// Whether the spec names a username (`user:pass`), which the gate page
+    /// then asks for.
+    pub fn has_user(&self) -> bool {
+        self.user.is_some()
+    }
+
+    /// A digest of the configured credentials. Gate cookies are signed over
+    /// it, so changing the password (or the user) revokes all of them.
+    pub fn cred_digest(&self) -> [u8; 32] {
+        let mut h = Sha256::new();
+        h.update(self.user.unwrap_or([0u8; 32]));
+        h.update(self.pass);
+        h.finalize().into()
+    }
+}
+
+/// How a browser presents the shared password.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GateMode {
+    Form,
+    Basic,
+}
+
+fn parse_hex32(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut k = [0u8; 32];
+    for (i, b) in k.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()?;
+    }
+    Some(k)
 }
 
 /// Parsed, validated server configuration.
@@ -114,8 +157,15 @@ pub struct Config {
     pub bind: SocketAddr,
     pub basic_auth: Option<BasicAuth>,
     pub basic_auth_fails_per_min: u32,
-    /// Visitors past Basic auth may use the solver without an account.
+    pub gate: GateMode,
+    /// `AGSTUDIO_GATE_KEY`; `None` = the key stored in the DB.
+    pub gate_key: Option<[u8; 32]>,
+    pub gate_days: u32,
+    /// Visitors past the shared password may use the solver without an account.
     pub guest_mode: bool,
+    /// Guests may also use Describe and Photo.
+    pub guest_ai: bool,
+    pub guest_ai_per_day: u32,
     pub max_concurrent: usize,
     pub rate_per_min: u32,
     pub translate_per_min: u32,
@@ -199,6 +249,27 @@ impl Config {
                         \"link + shared password\", never fully open"
                 .into());
         }
+        let guest_ai_raw = get("AGSTUDIO_GUEST_AI");
+        let guest_ai = if is_on(guest_ai_raw.as_deref()) {
+            true
+        } else if is_off(guest_ai_raw.as_deref()) {
+            false
+        } else {
+            guest_mode
+        };
+
+        let gate = match get("AGSTUDIO_GATE").as_deref().map(str::trim) {
+            None | Some("") | Some("form") => GateMode::Form,
+            Some("basic") => GateMode::Basic,
+            Some(other) => return Err(format!("invalid AGSTUDIO_GATE `{other}` (want `form` or `basic`)")),
+        };
+        let gate_key = match get("AGSTUDIO_GATE_KEY") {
+            None => None,
+            Some(v) => Some(parse_hex32(v.trim()).ok_or(
+                "AGSTUDIO_GATE_KEY is set but unusable: it must be 64 hex characters (32 bytes), \
+                 e.g. the output of `openssl rand -hex 32`",
+            )?),
+        };
 
         let public_hosts = get("AGSTUDIO_PUBLIC_HOST")
             .unwrap_or_default()
@@ -214,7 +285,12 @@ impl Config {
             bind,
             basic_auth,
             basic_auth_fails_per_min: num("AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN", 10) as u32,
+            gate,
+            gate_key,
+            gate_days: num("AGSTUDIO_GATE_DAYS", 180).clamp(1, 400) as u32,
             guest_mode,
+            guest_ai,
+            guest_ai_per_day: num("AGSTUDIO_GUEST_AI_PER_DAY", 0) as u32,
             max_concurrent: num("AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8)).max(1),
             rate_per_min: num("AGSTUDIO_RATE_PER_MIN", 120) as u32,
             translate_per_min: num("AGSTUDIO_TRANSLATE_PER_MIN", 12) as u32,
@@ -239,14 +315,24 @@ impl Config {
         self.guest_mode && self.basic_auth.is_some()
     }
 
+    /// Guests may use Describe and Photo, not only AI explanations.
+    pub fn guest_ai_allowed(&self) -> bool {
+        self.guest_allowed() && self.guest_ai
+    }
+
+    /// The `/gate` password page (and its cookie) is in use.
+    pub fn form_gate(&self) -> bool {
+        self.basic_auth.is_some() && self.gate == GateMode::Form
+    }
+
     /// A one-line human summary for the startup banner.
     pub fn summary(&self) -> String {
         format!(
             "auth: {}{} · concurrency: {} · rate: {}/min (translate {}/min) · body ≤ {} KB · proxy IPs: {}",
-            if self.basic_auth.is_some() {
-                "Basic (required)"
-            } else {
-                "none (open)"
+            match (&self.basic_auth, self.gate) {
+                (None, _) => "none (open)",
+                (Some(_), GateMode::Form) => "shared password (form + Basic)",
+                (Some(_), GateMode::Basic) => "shared password (Basic only)",
             },
             if self.guest_allowed() { ", guests allowed" } else { "" },
             self.max_concurrent,
@@ -284,6 +370,8 @@ pub struct AppState {
     status_snapshot: Mutex<(Option<(Instant, translate::Status)>, bool)>,
     /// Last time expired sessions were swept from the DB (see [`sweep_expired_sessions`]).
     session_sweep: Mutex<Option<Instant>>,
+    /// HMAC key of the gate cookie: `AGSTUDIO_GATE_KEY`, else the DB's.
+    pub gate_key: [u8; 32],
 }
 
 pub type Shared = Arc<AppState>;
@@ -307,6 +395,13 @@ impl AppState {
                 config.db_path.display()
             )
         })?;
+        let gate_key = match config.gate_key {
+            Some(k) => k,
+            None => {
+                crate::db::server_secret(&crate::db::lock(&db), "gate_key", crate::auth::random_key())
+                    .map_err(|e| format!("could not read the gate key from {}: {e}", config.db_path.display()))?
+            }
+        };
         Ok(Arc::new(AppState {
             heavy: Arc::new(Semaphore::new(config.max_concurrent)),
             render: Arc::new(Semaphore::new(config.max_concurrent)),
@@ -319,6 +414,7 @@ impl AppState {
             translate_status: tokio::sync::Mutex::new(None),
             status_snapshot: Mutex::new((None, false)),
             session_sweep: Mutex::new(None),
+            gate_key,
         }))
     }
 
@@ -470,6 +566,80 @@ mod tests {
     }
 
     #[test]
+    fn gate_settings_parse_and_fail_closed() {
+        let c = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough")]).unwrap();
+        assert_eq!(c.gate, GateMode::Form, "the password page is the default");
+        assert!(c.form_gate());
+        assert_eq!(c.gate_days, 180);
+        assert!(c.gate_key.is_none());
+        assert!(c.summary().starts_with("auth: shared password (form + Basic), guests allowed"), "{}", c.summary());
+        let b = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GATE", "basic")]).unwrap();
+        assert_eq!(b.gate, GateMode::Basic);
+        assert!(!b.form_gate());
+        assert!(!cfg(&[]).unwrap().form_gate(), "no password, no gate");
+        assert!(cfg(&[("AGSTUDIO_GATE", "cookie")]).is_err());
+        let hex = "00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF";
+        let k = cfg(&[("AGSTUDIO_GATE_KEY", hex)]).unwrap().gate_key.unwrap();
+        assert_eq!((k[0], k[1], k[31]), (0x00, 0x11, 0xff));
+        for bad in ["", "abc", &hex[..63], &format!("{hex}0"), &hex.replace('0', "g")] {
+            assert!(cfg(&[("AGSTUDIO_GATE_KEY", bad)]).is_err(), "{bad:?} must refuse to start");
+        }
+        assert_eq!(cfg(&[("AGSTUDIO_GATE_DAYS", "0")]).unwrap().gate_days, 1);
+        assert_eq!(cfg(&[("AGSTUDIO_GATE_DAYS", "9999")]).unwrap().gate_days, 400);
+    }
+
+    #[test]
+    fn guest_ai_follows_guest_mode_unless_set() {
+        let on = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough")]).unwrap();
+        assert!(on.guest_ai_allowed());
+        let off = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_AI", "0")]).unwrap();
+        assert!(off.guest_allowed() && !off.guest_ai_allowed());
+        let no_guests = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_MODE", "0")]).unwrap();
+        assert!(!no_guests.guest_ai_allowed());
+        let forced = cfg(&[("AGSTUDIO_GUEST_AI", "1")]).unwrap();
+        assert!(!forced.guest_ai_allowed(), "never without the shared password");
+        assert_eq!(cfg(&[("AGSTUDIO_GUEST_AI_PER_DAY", "30")]).unwrap().guest_ai_per_day, 30);
+    }
+
+    #[test]
+    fn cred_digest_changes_with_user_or_password() {
+        let d = |s: &str| BasicAuth::parse(s).unwrap().cred_digest();
+        assert_eq!(d(":hunter2hunter2"), d("hunter2hunter2"));
+        assert_ne!(d(":hunter2hunter2"), d(":hunter2hunter3"));
+        assert_ne!(d(":hunter2hunter2"), d("op:hunter2hunter2"));
+        assert_ne!(d("op:hunter2hunter2"), d("ops:hunter2hunter2"));
+        let a = BasicAuth::parse("op:hunter2hunter2").unwrap();
+        assert!(a.has_user());
+        assert!(a.credentials_match(b"op", b"hunter2hunter2"));
+        assert!(!a.credentials_match(b"GeoSolver", b"hunter2hunter2"));
+        let any = BasicAuth::parse(":hunter2hunter2").unwrap();
+        assert!(!any.has_user());
+        assert!(any.credentials_match(b"GeoSolver", b"hunter2hunter2"));
+    }
+
+    #[test]
+    fn hmac_matches_rfc_4231_style_vector() {
+        let key = [0x0bu8; 32];
+        let mac = hmac_sha256(&key, b"Hi There");
+        let hex: String = mac.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "198a607eb44bfbc69903a0f1cf2bbdc5ba0aa3f3d9ae3c1c7a3b1696a0b68cf7");
+    }
+
+    #[test]
+    fn public_paths_match_exactly() {
+        use axum::http::Method;
+        assert!(is_public(&Method::GET, "/icons/icon-192.png"));
+        assert!(!is_public(&Method::GET, "/icons/"));
+        assert!(!is_public(&Method::GET, "/icons/a/b"));
+        assert!(!is_public(&Method::GET, "/assets/app.js"));
+        assert!(!is_public(&Method::GET, "/assets/app.css/x"));
+        assert!(!is_public(&Method::GET, "/healthz/"));
+        assert!(is_public(&Method::POST, "/gate"));
+        assert!(!is_public(&Method::POST, "/manifest.webmanifest"));
+        assert!(!is_public(&Method::DELETE, "/gate"));
+    }
+
+    #[test]
     fn trust_proxy_defaults_off_and_public_hosts_parse() {
         let c = cfg(&[]).unwrap();
         assert!(!c.trust_proxy);
@@ -560,22 +730,29 @@ struct Window {
     start: Instant,
 }
 
-/// A simple per-IP fixed-window limiter with four buckets (general, translate,
-/// credential-guessing-sensitive auth, and failed Basic auth), memory bounded
-/// by a periodic sweep. Keys come from [`client_ip`] (IPv6 already cut to /64).
+/// A simple per-IP fixed-window limiter with five buckets (general, translate,
+/// credential-guessing-sensitive auth, failed shared passwords, and guest
+/// translations per day), memory bounded by a periodic sweep. Keys come from
+/// [`client_ip`] (IPv6 already cut to /64).
 #[derive(Default)]
 pub struct RateLimiter {
     general: HashMap<IpAddr, Window>,
     translate: HashMap<IpAddr, Window>,
     auth: HashMap<IpAddr, Window>,
     basic_fail: HashMap<IpAddr, Window>,
+    guest_ai_day: HashMap<IpAddr, Window>,
     last_sweep: Option<Instant>,
 }
 
 const WINDOW: Duration = Duration::from_secs(60);
+const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl RateLimiter {
     fn hit(map: &mut HashMap<IpAddr, Window>, ip: IpAddr, limit: u32, now: Instant) -> bool {
+        Self::hit_in(map, ip, limit, now, WINDOW)
+    }
+
+    fn hit_in(map: &mut HashMap<IpAddr, Window>, ip: IpAddr, limit: u32, now: Instant, window: Duration) -> bool {
         if limit == 0 {
             return true;
         }
@@ -583,7 +760,7 @@ impl RateLimiter {
             count: 0,
             start: now,
         });
-        if now.duration_since(w.start) >= WINDOW {
+        if now.duration_since(w.start) >= window {
             w.count = 0;
             w.start = now;
         }
@@ -607,8 +784,33 @@ impl RateLimiter {
             for m in [&mut self.general, &mut self.translate, &mut self.auth, &mut self.basic_fail] {
                 m.retain(|_, w| now.duration_since(w.start) < WINDOW);
             }
+            self.guest_ai_day.retain(|_, w| now.duration_since(w.start) < DAY);
             self.last_sweep = Some(now);
         }
+    }
+}
+
+impl AppState {
+    /// `ip` has used up its wrong-password budget for this minute.
+    pub fn password_guesses_exhausted(&self, ip: IpAddr) -> bool {
+        RateLimiter::exhausted(&relock(&self.rate).basic_fail, ip, self.config.basic_auth_fails_per_min, Instant::now())
+    }
+
+    /// Count one wrong shared password (Basic or the gate form) for `ip`.
+    pub fn count_wrong_password(&self, ip: IpAddr) {
+        let now = Instant::now();
+        let mut r = relock(&self.rate);
+        r.sweep(now);
+        RateLimiter::hit(&mut r.basic_fail, ip, self.config.basic_auth_fails_per_min, now);
+    }
+
+    /// Count one guest translation for `ip` against `AGSTUDIO_GUEST_AI_PER_DAY`;
+    /// false once the day's budget is spent.
+    pub fn guest_translation_allowed(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let mut r = relock(&self.rate);
+        r.sweep(now);
+        RateLimiter::hit_in(&mut r.guest_ai_day, ip, self.config.guest_ai_per_day, now, DAY)
     }
 }
 
@@ -650,7 +852,7 @@ fn rate_key(ip: IpAddr) -> IpAddr {
 /// enabled *and* the TCP peer is a trusted proxy, and then only its rightmost
 /// entry — the one that proxy appended; everything left of it is whatever the
 /// client chose to send.
-fn client_ip(cfg: &Config, req: &Request<Body>) -> IpAddr {
+pub(crate) fn client_ip(cfg: &Config, req: &Request<Body>) -> IpAddr {
     let peer = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
@@ -719,56 +921,162 @@ pub async fn host_guard(State(state): State<Shared>, req: Request<Body>, next: N
     next.run(req).await
 }
 
-/// Require HTTP Basic auth when configured. Wrong credentials are counted per
-/// client IP; past `basic_auth_fails_per_min` the IP gets 429 without its
-/// credentials even being checked, so the shared password can't be brute-forced.
-/// A request with no `Authorization` at all (a browser's first, pre-prompt
-/// request) gets the 401 challenge but is not counted.
-pub async fn auth(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
-    // The health probe is always reachable (no secret, no side effects).
-    if req.uri().path() == "/healthz" {
+/// Paths anyone may fetch without the shared password (GET/HEAD; `/gate`
+/// and `/gate/forget` also POST): the gate page itself and the static,
+/// secret-free files a home-screen install fetches without cookies. A
+/// trailing `{file}` matches one path segment.
+pub const PUBLIC_PATHS: &[&str] = &[
+    "/healthz",
+    "/gate",
+    "/gate/forget",
+    "/manifest.webmanifest",
+    "/favicon.svg",
+    "/favicon.ico",
+    "/apple-touch-icon.png",
+    "/apple-touch-icon-precomposed.png",
+    "/icons/{file}",
+    "/splash/{file}",
+    "/assets/app.css",
+    "/assets/fonts/{file}",
+    "/robots.txt",
+];
+
+fn is_public(method: &axum::http::Method, path: &str) -> bool {
+    use axum::http::Method;
+    if *method == Method::POST {
+        return path == "/gate" || path == "/gate/forget";
+    }
+    if *method != Method::GET && *method != Method::HEAD {
+        return false;
+    }
+    PUBLIC_PATHS.iter().any(|p| match p.strip_suffix("{file}") {
+        Some(dir) => path
+            .strip_prefix(dir)
+            .is_some_and(|f| !f.is_empty() && !f.contains('/')),
+        None => *p == path,
+    })
+}
+
+/// A top-level page load, as opposed to a `fetch()` or a subresource.
+pub fn is_navigation(req: &Request<Body>) -> bool {
+    use axum::http::Method;
+    if *req.method() != Method::GET && *req.method() != Method::HEAD {
+        return false;
+    }
+    match req.headers().get("sec-fetch-mode") {
+        Some(m) => m.as_bytes() == b"navigate",
+        None => req
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|a| a.contains("text/html")),
+    }
+}
+
+/// How a request got past the shared password, for `/api/status`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GateVia {
+    Cookie,
+    Basic,
+}
+
+const BASIC_CHALLENGE: &str = "Basic realm=\"GeoSolver\", charset=\"UTF-8\"";
+
+fn basic_challenge() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        [(header::WWW_AUTHENTICATE, BASIC_CHALLENGE)],
+        "Authentication required.",
+    )
+        .into_response()
+}
+
+/// A request that has not presented the shared password, under the form
+/// gate: a page load goes to `/gate`; an API call gets JSON `code: "gate"`.
+/// Only clients that send no `Sec-Fetch-Mode` (curl, scripts) get a Basic
+/// challenge: on a browser `fetch()` it would pop Safari's credentials sheet.
+fn gate_reject(req: &Request<Body>, nav: bool) -> Response {
+    if nav {
+        let target = req
+            .uri()
+            .path_and_query()
+            .map_or("/", |pq| pq.as_str());
+        return crate::gate::redirect_to_gate(target);
+    }
+    let lang = crate::i18n::lang_from_headers(req.headers());
+    let mut resp = if req.uri().path().starts_with("/api/") {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": crate::i18n::t(lang, "gate.required"), "code": "gate" })),
+        )
+            .into_response()
+    } else {
+        (StatusCode::UNAUTHORIZED, "Authentication required.").into_response()
+    };
+    if !req.headers().contains_key("sec-fetch-mode") {
+        resp.headers_mut()
+            .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static(BASIC_CHALLENGE));
+    }
+    resp
+}
+
+/// The shared-password gate. With `AGSTUDIO_GATE=form` (the default) a valid
+/// `gate` cookie passes, then HTTP Basic credentials; anything else is sent to
+/// the `/gate` page (see [`gate_reject`]). With `AGSTUDIO_GATE=basic` only
+/// Basic counts and every refusal is the Basic challenge. Wrong passwords
+/// (Basic or the form) share one per-IP budget; past
+/// `basic_auth_fails_per_min` the IP gets 429 without its credentials even
+/// being checked. A request with no `Authorization` at all is not counted.
+pub async fn auth(State(state): State<Shared>, mut req: Request<Body>, next: Next) -> Response {
+    let cfg = &state.config;
+    let Some(expected) = &cfg.basic_auth else {
+        return next.run(req).await;
+    };
+    let form = cfg.gate == GateMode::Form;
+    let path = req.uri().path();
+    if path == "/healthz" || (form && is_public(req.method(), path)) {
         return next.run(req).await;
     }
-    if let Some(expected) = &state.config.basic_auth {
-        let presented = req
-            .headers()
-            .get(header::AUTHORIZATION)
-            .map(|v| v.to_str().unwrap_or(""));
-        let ok = if let Some(got) = presented {
-            let ip = client_ip(&state.config, &req);
-            let limit = state.config.basic_auth_fails_per_min;
-            let now = Instant::now();
-            if RateLimiter::exhausted(&relock(&state.rate).basic_fail, ip, limit, now) {
-                return (
-                    StatusCode::TOO_MANY_REQUESTS,
-                    [(header::RETRY_AFTER, "60")],
-                    "Too many failed logins; try again in a minute.",
-                )
-                    .into_response();
+    let nav = is_navigation(&req);
+    if form {
+        if let Some(iat) = crate::gate::cookie_iat(&state, req.headers()) {
+            req.extensions_mut().insert(GateVia::Cookie);
+            let mut resp = next.run(req).await;
+            if nav && crate::gate::due_for_renewal(iat) {
+                crate::gate::append_cookie(&state, &mut resp);
             }
-            let ok = expected.matches(got);
-            if !ok {
-                let mut r = relock(&state.rate);
-                r.sweep(now);
-                RateLimiter::hit(&mut r.basic_fail, ip, limit, now);
-            }
-            ok
-        } else {
-            false
-        };
-        if !ok {
+            return resp;
+        }
+    }
+    let presented = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .map(|v| v.to_str().unwrap_or("").to_string());
+    if let Some(got) = presented {
+        let ip = client_ip(cfg, &req);
+        if state.password_guesses_exhausted(ip) {
             return (
-                StatusCode::UNAUTHORIZED,
-                [(
-                    header::WWW_AUTHENTICATE,
-                    "Basic realm=\"GeoSolver\", charset=\"UTF-8\"",
-                )],
-                "Authentication required.",
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, "60")],
+                "Too many failed logins; try again in a minute.",
             )
                 .into_response();
         }
+        if expected.matches(&got) {
+            req.extensions_mut().insert(GateVia::Basic);
+            let mut resp = next.run(req).await;
+            if form && nav {
+                crate::gate::append_cookie(&state, &mut resp);
+            }
+            return resp;
+        }
+        state.count_wrong_password(ip);
     }
-    next.run(req).await
+    if form {
+        gate_reject(&req, nav)
+    } else {
+        basic_challenge()
+    }
 }
 
 /// Claim the 5-minute session sweep slot, if it is due.
@@ -1013,12 +1321,24 @@ pub async fn security_headers(
 }
 
 /// Constant-time comparison of two equal-length digests.
-fn ct_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
+pub(crate) fn ct_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
     let mut diff = 0u8;
     for (x, y) in a.iter().zip(b.iter()) {
         diff |= x ^ y;
     }
     std::hint::black_box(diff) == 0
+}
+
+/// HMAC-SHA256 (RFC 2104) with a 32-byte key.
+pub(crate) fn hmac_sha256(key: &[u8; 32], msg: &[u8]) -> [u8; 32] {
+    let mut ipad = [0x36u8; 64];
+    let mut opad = [0x5cu8; 64];
+    for (i, b) in key.iter().enumerate() {
+        ipad[i] ^= b;
+        opad[i] ^= b;
+    }
+    let inner = Sha256::new().chain_update(ipad).chain_update(msg).finalize();
+    Sha256::new().chain_update(opad).chain_update(inner).finalize().into()
 }
 
 /// Apply process-wide, server-safe resource limits (idempotent; only sets what

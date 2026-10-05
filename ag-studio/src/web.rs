@@ -2,9 +2,10 @@
 //! JSON API that wraps the solver, the translator, and the PDF/PNG exporter.
 //!
 //! Hardened for exposure behind a reverse proxy (see [`crate::security`]): body
-//! limits, a concurrency gate, per-IP rate limiting, optional HTTP Basic auth
-//! (with an account-free guest mode behind it), a Host allow-list, security
-//! headers, gzip compression, and a request timeout.
+//! limits, a concurrency gate, per-IP rate limiting, an optional shared
+//! password (the `/gate` page or HTTP Basic, with an account-free guest mode
+//! behind it), a Host allow-list, security headers, gzip compression, and a
+//! request timeout.
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -25,12 +26,27 @@ use tower_http::timeout::TimeoutLayer;
 use crate::engine::{self, InputKind, SolveOptions};
 use crate::security::{self, AppState, Config, Shared};
 use crate::worker::{self, Outcome};
-use crate::{auth, db, i18n, present, render, translate};
+use crate::{auth, db, gate, i18n, present, pwa, render, translate};
 use ddar::svg::Theme;
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 const AUTH_HTML: &str = include_str!("../assets/auth.html");
 const LANDING_HTML: &str = include_str!("../assets/landing.html");
+
+fn index_html() -> &'static str {
+    static P: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    P.get_or_init(|| pwa::with_splash(INDEX_HTML))
+}
+
+fn auth_html() -> &'static str {
+    static P: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    P.get_or_init(|| pwa::with_splash(AUTH_HTML))
+}
+
+fn landing_html() -> &'static str {
+    static P: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    P.get_or_init(|| pwa::with_splash(LANDING_HTML))
+}
 
 /// Static files under `/assets/`: (name, content type, cache policy, bytes).
 const ASSETS: &[(&str, &str, &str, &[u8])] = &[
@@ -132,20 +148,8 @@ fn signing_key() -> &'static [u8; 32] {
     })
 }
 
-fn hmac_sha256(key: &[u8; 32], msg: &[u8]) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    let mut ipad = [0x36u8; 64];
-    let mut opad = [0x5cu8; 64];
-    for (i, b) in key.iter().enumerate() {
-        ipad[i] ^= b;
-        opad[i] ^= b;
-    }
-    let inner = Sha256::new().chain_update(ipad).chain_update(msg).finalize();
-    Sha256::new().chain_update(opad).chain_update(inner).finalize().into()
-}
-
 fn solution_sig(body: &str) -> String {
-    hmac_sha256(signing_key(), body.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    security::hmac_sha256(signing_key(), body.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn signed_solution(body: &str, sig: &str) -> Option<serde_json::Value> {
@@ -176,6 +180,8 @@ const MAX_TITLE_CHARS: usize = 200;
 const MAX_AUX_ITEMS: usize = 64;
 const HISTORY_PAGE_DEFAULT: i64 = 100;
 const HISTORY_PAGE_MAX: i64 = 200;
+/// Body limit of the `/gate` password form.
+const GATE_BODY_LIMIT: usize = 4096;
 /// How long login/register wait for an argon2 slot before answering 503.
 const ARGON2_QUEUE_WAIT: Duration = Duration::from_secs(10);
 
@@ -208,8 +214,10 @@ fn report_translate_status(state: Shared) {
         return;
     }
     tokio::spawn(async move {
+        let who = if state.config.guest_ai_allowed() { "accounts + guests" } else { "accounts only" };
+        let on = format!("on ({who}; local Claude subscription)");
         let note = match state.translate_status().await {
-            s if s.logged_in => "on (local Claude subscription)",
+            s if s.logged_in => on.as_str(),
             s if s.installed => "installed — run `claude auth login` to enable",
             _ => "off — install the `claude` CLI to enable",
         };
@@ -277,6 +285,19 @@ fn app_router(state: Shared) -> Router {
         .route("/", get(index))
         .route("/app", get(app_page))
         .route("/auth", get(auth_page))
+        .route(
+            "/gate",
+            get(gate::page).post(gate::submit).layer(DefaultBodyLimit::max(GATE_BODY_LIMIT)),
+        )
+        .route("/gate/forget", post(gate::forget))
+        .route("/manifest.webmanifest", get(pwa::manifest))
+        .route("/favicon.svg", get(pwa::favicon_svg))
+        .route("/favicon.ico", get(pwa::favicon_ico))
+        .route("/apple-touch-icon.png", get(pwa::apple_touch_icon))
+        .route("/apple-touch-icon-precomposed.png", get(pwa::apple_touch_icon))
+        .route("/icons/{file}", get(pwa::icon_file))
+        .route("/splash/{file}", get(pwa::splash_file))
+        .route("/robots.txt", get(pwa::robots))
         .route("/assets/{file}", get(asset))
         .route("/assets/fonts/{file}", get(font_asset))
         .route("/healthz", get(healthz))
@@ -331,11 +352,11 @@ async fn session_user(state: &Shared, headers: &HeaderMap) -> Option<db::User> {
 /// everyone else sees the public landing page pitching the product.
 async fn index(State(state): State<Shared>, headers: HeaderMap) -> Response {
     if state.config.guest_allowed() {
-        with_guest_id(&state, &headers, page(INDEX_HTML))
+        with_guest_id(&state, &headers, page(index_html()))
     } else if session_user(&state, &headers).await.is_some() {
         Redirect::to("/app").into_response()
     } else {
-        page(LANDING_HTML)
+        page(landing_html())
     }
 }
 
@@ -345,7 +366,7 @@ fn page(html: &'static str) -> Response {
 
 /// In guest mode, give a browser without one its own guest id, so guests
 /// sharing an address do not share one caller's solve slots.
-fn with_guest_id(state: &Shared, headers: &HeaderMap, mut resp: Response) -> Response {
+pub(crate) fn with_guest_id(state: &Shared, headers: &HeaderMap, mut resp: Response) -> Response {
     let secure = state.config.secure_cookies;
     if !state.config.guest_allowed() || auth::parse_guest(headers, secure).is_some() {
         return resp;
@@ -360,7 +381,7 @@ fn with_guest_id(state: &Shared, headers: &HeaderMap, mut resp: Response) -> Res
 /// unless guest mode lets Basic auth alone in.
 async fn app_page(State(state): State<Shared>, headers: HeaderMap) -> Response {
     if state.config.guest_allowed() || session_user(&state, &headers).await.is_some() {
-        with_guest_id(&state, &headers, page(INDEX_HTML))
+        with_guest_id(&state, &headers, page(index_html()))
     } else {
         Redirect::to("/auth").into_response()
     }
@@ -390,7 +411,7 @@ async fn font_asset(axum::extract::Path(file): axum::extract::Path<String>) -> R
 
 /// The login/register page (public — its own JS calls the `/api/auth/*` routes).
 async fn auth_page() -> Response {
-    page(AUTH_HTML)
+    page(auth_html())
 }
 
 /// Unauthenticated liveness probe for container / load-balancer health checks.
@@ -413,6 +434,10 @@ struct Status {
     guest: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     username: Option<String>,
+    /// `cookie` when this browser is past the shared password by the gate
+    /// cookie (the app then offers "Forget this device").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gate: Option<&'static str>,
     solve_deadline_secs: u64,
     /// Whether a solver slot is free right now (else a solve waits in line).
     solver_free: bool,
@@ -423,7 +448,11 @@ struct Status {
 
 /// Never waits on the `claude` probe: a stale or missing result is refreshed
 /// in the background and reported as `translate_checking`.
-async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Response {
+async fn api_status(
+    State(state): State<Shared>,
+    via: Option<axum::Extension<security::GateVia>>,
+    headers: HeaderMap,
+) -> Response {
     let user = session_user(&state, &headers).await;
     let probe = state.translate_status_now();
     let checking = probe.is_none();
@@ -436,7 +465,7 @@ async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Response
         Some("not_installed")
     } else if !s.logged_in {
         Some("not_logged_in")
-    } else if user.is_none() {
+    } else if user.is_none() && !state.config.guest_ai_allowed() {
         Some("sign_in")
     } else {
         None
@@ -451,6 +480,7 @@ async fn api_status(State(state): State<Shared>, headers: HeaderMap) -> Response
         signed_in: user.is_some(),
         guest,
         username: user.map(|u| u.username),
+        gate: via.filter(|v| v.0 == security::GateVia::Cookie).map(|_| "cookie"),
         solve_deadline_secs: state.config.solve_deadline.as_secs(),
         solver_free: state.heavy.available_permits() > 0,
         queue_wait_secs: state.config.queue_wait.as_secs_f64(),
@@ -1396,15 +1426,28 @@ struct TranslateReq {
 
 async fn api_translate(
     State(state): State<Shared>,
-    _user: SessionUser,
+    caller: Caller,
+    ip: Option<axum::Extension<security::ClientIp>>,
     headers: HeaderMap,
     ApiJson(req): ApiJson<TranslateReq>,
 ) -> Response {
+    if let Caller::Guest(_) = caller {
+        if !state.config.guest_ai {
+            let lang = i18n::lang_from_headers(&headers);
+            return err_code(StatusCode::UNAUTHORIZED, "sign_in", i18n::t(lang, "auth.sign_in_ai"));
+        }
+    }
     if !state.config.enable_translate || !translate::available() {
         return err(
             StatusCode::SERVICE_UNAVAILABLE,
             i18n::t(i18n::lang_from_headers(&headers), "translate.disabled"),
         );
+    }
+    if let (Caller::Guest(_), Some(ip)) = (&caller, ip.as_ref()) {
+        if !state.guest_translation_allowed(ip.0 .0) {
+            let lang = i18n::lang_from_headers(&headers);
+            return err_code(StatusCode::TOO_MANY_REQUESTS, "daily", i18n::t(lang, "translate.daily"));
+        }
     }
     if let Some(t) = &req.text {
         if t.len() > state.config.max_input_chars {
@@ -3431,8 +3474,8 @@ mod tests {
 
     #[tokio::test]
     async fn guests_are_told_why_they_cannot_translate() {
-        let (state, _dir) = guest_state(true);
-        let auth = basic("", "shared-secret");
+        let (state, _dir) = ai_guest_state(false, true);
+        let auth = basic("", GATE_PW);
         let (st, _, text) = send(&state, build("GET", "/api/status", &[("authorization", &auth)], None)).await;
         assert_eq!(st, StatusCode::OK);
         let body: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -3440,6 +3483,7 @@ mod tests {
         assert_eq!(body["signed_in"], false);
         assert_eq!(body["can_translate"], false);
         assert!(body["translate_block"].is_string(), "{body}");
+        assert!(body.get("gate").is_none(), "Basic, not the cookie: {body}");
     }
 
     #[test]
@@ -3472,5 +3516,522 @@ mod tests {
     fn a_goal_joining_two_relations_is_not_called_degenerate() {
         assert_eq!(degenerate_goal("A B C = triangle\nM = midpoint(A, B)\nprove coll(A, M, B) \u{2227} coll(A, B, M)"), None);
         assert_eq!(degenerate_goal("A B C = triangle\nprove cyclic(A, B, C, A)").as_deref(), Some("A"));
+    }
+
+    // ------------------------------------------------------------ gate page --
+
+    const GATE_PW: &str = "correct-horse-9";
+
+    fn gate_state(f: impl FnOnce(&mut Config)) -> (Shared, tempfile::TempDir) {
+        state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
+            c.guest_mode = true;
+            c.guest_ai = true;
+            c.gate = security::GateMode::Form;
+            f(c);
+        })
+    }
+
+    fn set_cookies(h: &HeaderMap) -> Vec<String> {
+        h.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_string()).collect()
+    }
+
+    fn gate_set_cookie(h: &HeaderMap) -> Option<String> {
+        set_cookies(h).into_iter().find(|c| c.starts_with("gate=") || c.starts_with("__Host-gate="))
+    }
+
+    fn form_body(pairs: &[(&str, &str)]) -> String {
+        pairs
+            .iter()
+            .map(|(k, v)| format!("{k}={}", gate::percent_encode(v)))
+            .collect::<Vec<_>>()
+            .join("&")
+    }
+
+    fn post_gate(pairs: &[(&str, &str)], extra: &[(&str, &str)]) -> Request<Body> {
+        let mut b = Request::builder()
+            .method("POST")
+            .uri("/gate")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+        for (k, v) in extra {
+            b = b.header(*k, *v);
+        }
+        b.body(Body::from(form_body(pairs))).unwrap()
+    }
+
+    async fn gate_cookie(state: &Shared) -> String {
+        let (st, h, _) = send(state, post_gate(&[("password", GATE_PW), ("next", "/")], &[])).await;
+        assert_eq!(st, StatusCode::SEE_OTHER);
+        cookie_of(&gate_set_cookie(&h).expect("the gate sets its cookie"))
+    }
+
+    const NAV: (&str, &str) = ("sec-fetch-mode", "navigate");
+
+    #[tokio::test]
+    async fn page_loads_without_the_password_go_to_the_gate() {
+        let (state, _dir) = gate_state(|_| {});
+        let (st, h, _) = send(&state, build("GET", "/", &[NAV], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER);
+        assert_eq!(h[header::LOCATION], "/gate?next=%2F");
+        assert_eq!(h[header::CACHE_CONTROL], "no-store");
+        assert!(!h.contains_key(header::WWW_AUTHENTICATE));
+        let (st, h, _) = send(&state, build("GET", "/app?x=1", &[("accept", "text/html,application/xhtml+xml")], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER, "Accept: text/html without Sec-Fetch is a navigation");
+        assert_eq!(h[header::LOCATION], "/gate?next=%2Fapp%3Fx%3D1");
+        let (st, _, body) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(body.contains("action=\"/gate\""));
+        assert!(body.contains("name=\"next\" value=\"/app\""));
+    }
+
+    #[tokio::test]
+    async fn api_calls_without_the_password_get_json_and_curl_keeps_its_challenge() {
+        let (state, _dir) = gate_state(|_| {});
+        let (st, h, _) = send(&state, build("GET", "/api/status", &[], None)).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        assert!(h[header::WWW_AUTHENTICATE].to_str().unwrap().starts_with("Basic realm=\"GeoSolver\""));
+        let (st, h, body) = send(&state, build("GET", "/api/status", &[("sec-fetch-mode", "cors")], None)).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        assert!(!h.contains_key(header::WWW_AUTHENTICATE), "a browser fetch must not pop the Basic sheet");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["code"], "gate");
+        assert_eq!(v["error"], i18n::t(i18n::Lang::En, "gate.required"));
+        let (_, _, body) = send(
+            &state,
+            build("POST", "/api/solve", &[("sec-fetch-mode", "cors"), ("accept-language", "ro-RO,ro;q=0.9")], Some("{}")),
+        )
+        .await;
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["error"], i18n::t(i18n::Lang::Ro, "gate.required"));
+        let (st, h, _) = send(&state, build("GET", "/assets/app.js", &[("sec-fetch-mode", "no-cors")], None)).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        assert!(!h.contains_key(header::WWW_AUTHENTICATE));
+    }
+
+    #[tokio::test]
+    async fn public_paths_are_open_and_their_siblings_are_not() {
+        let (state, _dir) = gate_state(|_| {});
+        for p in security::PUBLIC_PATHS {
+            let path = match *p {
+                "/icons/{file}" => "/icons/icon-192.png",
+                "/splash/{file}" => "/splash/750x1334-light.png",
+                "/assets/fonts/{file}" => "/assets/fonts/inter.woff2",
+                p => p,
+            };
+            let (st, _, _) = call_raw(&state, build("GET", path, &[], None)).await;
+            if path == "/gate/forget" {
+                assert_eq!(st, StatusCode::METHOD_NOT_ALLOWED, "{path}: POST only, but past the gate");
+            } else {
+                assert_eq!(st, StatusCode::OK, "{path}");
+            }
+            let (st, _, _) = call_raw(&state, build("HEAD", path, &[], None)).await;
+            assert_ne!(st, StatusCode::UNAUTHORIZED, "HEAD {path}");
+        }
+        let (st, _, _) = call_raw(&state, build("GET", "/icons/nope.png", &[], None)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+        let (st, _, _) = call_raw(&state, build("GET", "/splash/1x1-light.png", &[], None)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+        for gated in [
+            "/", "/app", "/auth", "/assets/app.js", "/assets/site.js", "/assets/i18n.js", "/assets/auth.js",
+            "/assets/landing.js", "/assets/showcase.json", "/api/status", "/api/history", "/icons/a/b.png",
+            "/assets/fonts/x/y.woff2",
+        ] {
+            let (st, _, _) = call_raw(&state, build("GET", gated, &[], None)).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED, "{gated}");
+            let (st, _, _) = call_raw(&state, build("GET", gated, &[NAV], None)).await;
+            assert_eq!(st, StatusCode::SEE_OTHER, "{gated}");
+        }
+        let (st, _, _) = call_raw(&state, build("POST", "/manifest.webmanifest", &[], Some("{}"))).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "only GET/HEAD are public");
+    }
+
+    #[tokio::test]
+    async fn the_right_password_sets_the_cookie_and_the_cookie_opens_the_app() {
+        let (state, _dir) = gate_state(|_| {});
+        let (st, h, _) = send(&state, post_gate(&[("password", GATE_PW), ("next", "/app?x=1"), ("username", "GeoSolver")], &[])).await;
+        assert_eq!(st, StatusCode::SEE_OTHER);
+        assert_eq!(h[header::LOCATION], "/app?x=1");
+        assert_eq!(h[header::CACHE_CONTROL], "no-store");
+        let set = gate_set_cookie(&h).unwrap();
+        assert!(set.starts_with("gate=v1."), "{set}");
+        for attr in ["HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=15552000"] {
+            assert!(set.contains(attr), "{attr} missing in {set}");
+        }
+        assert!(!set.contains("Secure"));
+        assert!(set_cookies(&h).iter().any(|c| c.starts_with("gid=")), "guests get their id at once");
+        let cookie = cookie_of(&set);
+        let (st, _, page) = send(&state, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(page.contains("id=\"solve\""));
+        let (st, _, body) = send(&state, build("GET", "/api/status", &[("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["gate"], "cookie");
+        let (st, h, _) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV, ("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER, "already past the gate");
+        assert_eq!(h[header::LOCATION], "/app");
+        let twice = format!("{cookie}; {cookie}");
+        let (st, _, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &twice)], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER, "a duplicated cookie is no cookie");
+
+        let (secure, _d2) = gate_state(|c| c.secure_cookies = true);
+        let (_, h, _) = send(&secure, post_gate(&[("password", GATE_PW)], &[])).await;
+        let set = gate_set_cookie(&h).unwrap();
+        assert!(set.starts_with("__Host-gate=v1."), "{set}");
+        for attr in ["HttpOnly", "Secure", "SameSite=Lax", "Path=/", "Max-Age=15552000"] {
+            assert!(set.contains(attr), "{attr} missing in {set}");
+        }
+        assert!(!set.contains("Domain"));
+        let (st, _, _) = send(&secure, build("GET", "/api/status", &[("cookie", &cookie_of(&set))], None)).await;
+        assert_eq!(st, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn wrong_passwords_are_rate_limited_together_with_basic_failures() {
+        let (state, _dir) = gate_state(|c| c.basic_auth_fails_per_min = 10);
+        let (st, h, body) = send(&state, post_gate(&[("password", "nope-nope-nope"), ("next", "/app")], &[])).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        assert!(!h.contains_key(header::WWW_AUTHENTICATE));
+        assert!(gate_set_cookie(&h).is_none());
+        assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.wrong"))));
+        assert!(body.contains("aria-invalid=\"true\""));
+        assert!(body.contains("name=\"next\" value=\"/app\""), "the return path survives a wrong try");
+        let (st, _, body) = send(&state, post_gate(&[("password", ""), ("next", "/")], &[])).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.empty"))));
+        for _ in 1..10 {
+            send(&state, post_gate(&[("password", "nope-nope-nope")], &[])).await;
+        }
+        let (st, h, body) = send(&state, post_gate(&[("password", GATE_PW)], &[])).await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "the right password is not even checked");
+        assert_eq!(h[header::RETRY_AFTER], "60");
+        assert!(gate_set_cookie(&h).is_none());
+        assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.rate"))));
+
+        let (state, _dir) = gate_state(|c| c.basic_auth_fails_per_min = 10);
+        let wrong = basic("x", "nope-nope-nope");
+        for _ in 0..5 {
+            let (st, _, _) = send(&state, build("GET", "/api/status", &[("authorization", &wrong)], None)).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED);
+        }
+        for _ in 0..5 {
+            let (st, _, _) = send(&state, post_gate(&[("password", "nope-nope-nope")], &[])).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED);
+        }
+        let (st, _, _) = send(&state, post_gate(&[("password", GATE_PW)], &[])).await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "Basic and form failures share one budget");
+        let right = basic("x", GATE_PW);
+        let (st, _, _) = send(&state, build("GET", "/api/status", &[("authorization", &right)], None)).await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn next_is_sanitized_before_the_redirect() {
+        let (state, _dir) = gate_state(|c| c.basic_auth_fails_per_min = 0);
+        for (next, want) in [
+            ("/app?x=1", "/app?x=1"),
+            ("//evil.com", "/"),
+            ("/\\evil.com", "/"),
+            ("https://evil.com", "/"),
+            ("/gate", "/"),
+            ("/app\r\nSet-Cookie: a=b", "/"),
+        ] {
+            let (st, h, _) = send(&state, post_gate(&[("password", GATE_PW), ("next", next)], &[])).await;
+            assert_eq!(st, StatusCode::SEE_OTHER, "{next:?}");
+            assert_eq!(h[header::LOCATION], want, "{next:?}");
+        }
+        let req = Request::builder()
+            .method("POST")
+            .uri("/gate")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!("password={GATE_PW}&next=%2F%2Fevil")))
+            .unwrap();
+        let (_, h, _) = send(&state, req).await;
+        assert_eq!(h[header::LOCATION], "/");
+        let cookie = gate_cookie(&state).await;
+        let (_, h, _) = send(&state, build("GET", "/gate?next=%2F%2Fevil.com", &[("cookie", &cookie)], None)).await;
+        assert_eq!(h[header::LOCATION], "/");
+        let (_, h, _) = send(&state, build("GET", "/gate?next=%2Fapp%3Fq%3D%C4%83", &[("cookie", &cookie)], None)).await;
+        assert_eq!(h[header::LOCATION], "/app?q=%C4%83", "non-ASCII is escaped, not dropped");
+    }
+
+    #[tokio::test]
+    async fn the_gate_form_refuses_a_foreign_origin() {
+        let (state, _dir) = gate_state(|_| {});
+        let (st, h, _) = send(
+            &state,
+            post_gate(&[("password", GATE_PW)], &[("host", "localhost:8787"), ("origin", "https://evil.example")]),
+        )
+        .await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        assert!(gate_set_cookie(&h).is_none());
+        let (st, _, _) = send(
+            &state,
+            post_gate(&[("password", GATE_PW)], &[("host", "localhost:8787"), ("origin", "http://localhost:8787")]),
+        )
+        .await;
+        assert_eq!(st, StatusCode::SEE_OTHER);
+    }
+
+    #[tokio::test]
+    async fn the_gate_speaks_the_visitors_language() {
+        let (state, _dir) = gate_state(|_| {});
+        let ro_title = gate::html_escape(i18n::t(i18n::Lang::Ro, "gate.title"));
+        let en_title = gate::html_escape(i18n::t(i18n::Lang::En, "gate.title"));
+        let (_, _, body) = send(&state, build("GET", "/gate", &[("accept-language", "ro-RO,ro;q=0.9,en;q=0.8")], None)).await;
+        assert!(body.contains(&ro_title));
+        assert!(body.contains("<html lang=\"ro\">"));
+        let (_, _, body) =
+            send(&state, build("GET", "/gate", &[("accept-language", "ro-RO"), ("cookie", "lang=en")], None)).await;
+        assert!(body.contains(&en_title), "a chosen language wins over the browser's");
+        let (_, h, body) = send(&state, build("GET", "/gate?lang=ro&next=%2Fapp", &[("cookie", "lang=en")], None)).await;
+        assert!(body.contains(&ro_title));
+        let lang = set_cookies(&h).into_iter().find(|c| c.starts_with("lang=")).unwrap();
+        assert!(lang.starts_with("lang=ro;"), "{lang}");
+        assert!(lang.contains("Max-Age=31536000") && lang.contains("SameSite=Lax") && lang.contains("Path=/"));
+        assert!(!lang.contains("HttpOnly"), "i18n.js reads it");
+        assert!(body.contains("href=\"/gate?lang=en&amp;next=%2Fapp\""));
+        assert!(body.contains("hreflang=\"ro\" lang=\"ro\" aria-current=\"true\""));
+        let (_, h, body) = send(&state, post_gate(&[("password", "x-wrong-x")], &[("accept-language", "ro")])).await;
+        assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::Ro, "gate.wrong"))));
+        assert!(gate_set_cookie(&h).is_none());
+    }
+
+    #[tokio::test]
+    async fn gate_basic_keeps_the_old_challenge_everywhere() {
+        let (state, _dir) = gate_state(|c| c.gate = security::GateMode::Basic);
+        for path in ["/", "/manifest.webmanifest", "/gate", "/apple-touch-icon.png"] {
+            let (st, h, _) = send(&state, build("GET", path, &[NAV], None)).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED, "{path}");
+            assert!(h.contains_key(header::WWW_AUTHENTICATE), "{path}");
+        }
+        let (st, _, _) = send(&state, build("GET", "/healthz", &[], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let auth = basic("x", GATE_PW);
+        let (st, h, _) = send(&state, build("GET", "/", &[NAV, ("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(gate_set_cookie(&h).is_none(), "no cookie under the Basic-only gate");
+        let (st, _, _) = send(&state, post_gate(&[("password", GATE_PW)], &[("authorization", &auth)])).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn basic_auth_still_works_and_moves_browsers_onto_the_cookie() {
+        let (state, _dir) = gate_state(|_| {});
+        let auth = basic("anyone", GATE_PW);
+        let (st, h, _) = send(&state, build("GET", "/api/status", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(gate_set_cookie(&h).is_none(), "API clients get no cookie");
+        let (st, h, _) = send(&state, build("GET", "/", &[NAV, ("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let cookie = cookie_of(&gate_set_cookie(&h).expect("a Basic page load is given the gate cookie"));
+        let (st, _, _) = send(&state, build("GET", "/api/status", &[("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn forgetting_the_device_clears_the_cookie() {
+        let (state, _dir) = gate_state(|_| {});
+        let cookie = gate_cookie(&state).await;
+        let (st, h, _) = send(&state, build("POST", "/gate/forget", &[("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER);
+        assert_eq!(h[header::LOCATION], "/gate");
+        let cleared = gate_set_cookie(&h).unwrap();
+        assert!(cleared.starts_with("gate=;") && cleared.contains("Max-Age=0") && cleared.contains("Path=/"), "{cleared}");
+    }
+
+    #[tokio::test]
+    async fn the_gate_key_persists_across_restarts_and_rotation_revokes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("gate.db");
+        let mk = |pw: &str, key: Option<[u8; 32]>| {
+            let mut c = Config::from_env(0).unwrap();
+            c.db_path = db.clone();
+            c.basic_auth = Some(security::BasicAuth::parse(pw).unwrap());
+            c.guest_mode = true;
+            c.gate = security::GateMode::Form;
+            c.gate_key = key;
+            AppState::new(c).unwrap()
+        };
+        let first = mk(&format!(":{GATE_PW}"), None);
+        let cookie = gate_cookie(&first).await;
+        let second = mk(&format!(":{GATE_PW}"), None);
+        assert_eq!(first.gate_key, second.gate_key, "the generated key is stored, not per process");
+        let (st, _, _) = send(&second, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::OK, "a restart keeps every device signed in");
+        let rotated_pw = mk(":a-new-password", None);
+        let (st, h, _) = send(&rotated_pw, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER, "a new password revokes old cookies");
+        assert!(h[header::LOCATION].to_str().unwrap().starts_with("/gate?next="));
+        let rotated_key = mk(&format!(":{GATE_PW}"), Some([9u8; 32]));
+        assert_eq!(rotated_key.gate_key, [9u8; 32]);
+        let (st, _, _) = send(&rotated_key, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER, "a new AGSTUDIO_GATE_KEY revokes old cookies");
+    }
+
+    #[tokio::test]
+    async fn old_cookies_are_renewed_on_page_loads() {
+        let (state, _dir) = gate_state(|_| {});
+        let cred = state.config.basic_auth.as_ref().unwrap().cred_digest();
+        let at = |days: u64| format!("gate={}", gate::mint(&state.gate_key, &cred, gate::now_secs() - days * 86_400));
+        let (st, h, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &at(8))], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let fresh = gate_set_cookie(&h).expect("an 8-day-old cookie is renewed");
+        let iat: u64 = fresh.split('.').nth(1).unwrap().parse().unwrap();
+        assert!(gate::now_secs() - iat < 60);
+        let (st, h, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &at(1))], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(gate_set_cookie(&h).is_none(), "a 1-day-old cookie is left alone");
+        let (_, h, _) = send(&state, build("GET", "/api/status", &[("cookie", &at(8))], None)).await;
+        assert!(gate_set_cookie(&h).is_none(), "only page loads renew");
+        let (st, _, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &at(181))], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER, "past AGSTUDIO_GATE_DAYS");
+    }
+
+    // ------------------------------------------------------ home screen ----
+
+    #[tokio::test]
+    async fn manifest_and_icons_are_served_with_their_types() {
+        let (state, _dir) = gate_state(|_| {});
+        let (st, h, body) = call_raw(&state, build("GET", "/manifest.webmanifest", &[], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(h[header::CONTENT_TYPE], "application/manifest+json");
+        assert_eq!(h[header::CACHE_CONTROL], "public, max-age=86400");
+        let m: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(m["display"], "standalone");
+        assert_eq!(m["start_url"], "/");
+        for icon in m["icons"].as_array().unwrap() {
+            let src = icon["src"].as_str().unwrap();
+            let (st, h, body) = call_raw(&state, build("GET", src, &[], None)).await;
+            assert_eq!(st, StatusCode::OK, "{src}");
+            assert_eq!(h[header::CONTENT_TYPE], icon["type"].as_str().unwrap(), "{src}");
+            assert_eq!(h[header::CACHE_CONTROL], "public, max-age=604800", "{src}");
+            if icon["type"] == "image/png" {
+                let (w, hgt) = (u32::from_be_bytes(body[16..20].try_into().unwrap()), u32::from_be_bytes(body[20..24].try_into().unwrap()));
+                assert_eq!(icon["sizes"], format!("{w}x{hgt}"), "{src}");
+            }
+        }
+        for touch in ["/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"] {
+            let (st, h, body) = call_raw(&state, build("GET", touch, &[], None)).await;
+            assert_eq!(st, StatusCode::OK);
+            assert_eq!(h[header::CONTENT_TYPE], "image/png");
+            assert_eq!(&body[16..24], &[0, 0, 0, 180, 0, 0, 0, 180]);
+            assert_eq!(body[25], 2, "RGB: iOS fills transparent pixels with black");
+        }
+        let (_, h, _) = call_raw(&state, build("GET", "/favicon.ico", &[], None)).await;
+        assert_eq!(h[header::CONTENT_TYPE], "image/x-icon");
+        let (_, h, body) = call_raw(&state, build("GET", "/robots.txt", &[], None)).await;
+        assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
+        assert_eq!(std::str::from_utf8(&body).unwrap(), "User-agent: *\nDisallow: /\n");
+    }
+
+    #[test]
+    fn every_page_carries_the_home_screen_head() {
+        let gate_page = {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let (state, _dir) = gate_state(|_| {});
+            rt.block_on(send(&state, build("GET", "/gate", &[], None))).2
+        };
+        for (name, html) in [
+            ("index", index_html()),
+            ("auth", auth_html()),
+            ("landing", landing_html()),
+            ("gate", gate_page.as_str()),
+        ] {
+            for needle in [
+                "<link rel=\"manifest\" href=\"/manifest.webmanifest\">",
+                "<link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\">",
+                "<link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\">",
+                "<meta name=\"apple-mobile-web-app-title\" content=\"GeoSolver\">",
+                "<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">",
+                "<meta name=\"mobile-web-app-capable\" content=\"yes\">",
+                "<meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\">",
+                "<meta name=\"theme-color\" media=\"(prefers-color-scheme: light)\" content=\"#f7f7f5\">",
+                "<meta name=\"theme-color\" media=\"(prefers-color-scheme: dark)\" content=\"#121417\">",
+            ] {
+                assert!(html.contains(needle), "{name} lacks {needle}");
+            }
+            assert_eq!(html.matches("rel=\"apple-touch-startup-image\"").count(), 16, "{name}");
+            assert!(!html.contains("<!--pwa-splash-->"), "{name}");
+            assert!(!html.contains("data:image/svg+xml"), "{name} still has the data: favicon");
+            assert_eq!(html.matches("name=\"theme-color\"").count(), 2, "{name}");
+        }
+    }
+
+    // ----------------------------------------------------------- guest AI ----
+
+    fn logged_in_probe() -> translate::Status {
+        translate::Status { installed: true, logged_in: true }
+    }
+
+    fn ai_guest_state(guest_ai: bool, enable_translate: bool) -> (Shared, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut c = Config::from_env(0).unwrap();
+        c.db_path = dir.path().join("test.db");
+        c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
+        c.guest_mode = true;
+        c.guest_ai = guest_ai;
+        c.enable_translate = enable_translate;
+        (AppState::with_translate_probe(c, logged_in_probe).unwrap(), dir)
+    }
+
+    async fn settled_status(state: &Shared, cookie: &str) -> serde_json::Value {
+        let mut body = serde_json::Value::Null;
+        for _ in 0..40 {
+            let (_, _, text) = send(state, build("GET", "/api/status", &[("cookie", cookie)], None)).await;
+            body = serde_json::from_str(&text).unwrap();
+            if body["translate_checking"] == false {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        body
+    }
+
+    #[tokio::test]
+    async fn guests_past_the_password_can_use_describe_and_photo() {
+        let (state, _dir) = ai_guest_state(true, true);
+        let cookie = gate_cookie(&state).await;
+        let body = settled_status(&state, &cookie).await;
+        assert_eq!(body["guest"], true, "{body}");
+        assert_eq!(body["translate_logged_in"], true, "{body}");
+        assert_eq!(body["can_translate"], true, "{body}");
+        assert!(body.get("translate_block").is_none(), "{body}");
+
+        let (state, _dir) = ai_guest_state(false, true);
+        let cookie = gate_cookie(&state).await;
+        let body = settled_status(&state, &cookie).await;
+        assert_eq!(body["can_translate"], false, "{body}");
+        assert_eq!(body["translate_block"], "sign_in", "AGSTUDIO_GUEST_AI=0 keeps it for accounts");
+    }
+
+    #[tokio::test]
+    async fn guest_translate_requests_get_past_the_account_check() {
+        let (state, _dir) = ai_guest_state(true, false);
+        let cookie = gate_cookie(&state).await;
+        let (st, _, body) = send(&state, build("POST", "/api/translate", &[("cookie", &cookie)], Some("{\"text\":\"x\"}"))).await;
+        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "reached the handler's availability check: {body}");
+        let (state, _dir) = ai_guest_state(false, false);
+        let cookie = gate_cookie(&state).await;
+        let (st, _, body) = send(&state, build("POST", "/api/translate", &[("cookie", &cookie), ("accept-language", "ro")], Some("{\"text\":\"x\"}"))).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["code"], "sign_in");
+        assert_eq!(v["error"], i18n::t(i18n::Lang::Ro, "auth.sign_in_ai"));
+    }
+
+    #[test]
+    fn the_guest_daily_translation_cap_counts_per_address() {
+        let (state, _dir) = ai_guest_state(true, false);
+        let a: std::net::IpAddr = "203.0.113.5".parse().unwrap();
+        for _ in 0..100 {
+            assert!(state.guest_translation_allowed(a), "0 = no daily cap");
+        }
+        let (state, _dir) = state_with(|c| c.guest_ai_per_day = 2);
+        let b: std::net::IpAddr = "203.0.113.6".parse().unwrap();
+        assert!(state.guest_translation_allowed(a));
+        assert!(state.guest_translation_allowed(a));
+        assert!(!state.guest_translation_allowed(a));
+        assert!(state.guest_translation_allowed(b));
     }
 }

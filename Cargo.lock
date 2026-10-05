@@ -21,6 +21,7 @@ dependencies = [
  "hyper-util",
  "libc",
  "pdf-writer",
+ "png 0.17.16",
  "rand_core 0.6.4",
  "rayon",
  "resvg",

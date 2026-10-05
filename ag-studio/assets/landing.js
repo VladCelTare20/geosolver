@@ -70,7 +70,7 @@
     more.scrollIntoView({ block: "nearest" });
   });
 
-  fetch("/assets/showcase.json").then(function (r) { return r.json(); }).then(function (d) {
+  fetch("/assets/showcase.json").then(function (r) { return r.status === 401 ? GS.toGate() : r.json(); }).then(function (d) {
     data = d;
     $("hero-fig").innerHTML = d.svg;
     var hs = $("hero-fig").querySelector("svg");

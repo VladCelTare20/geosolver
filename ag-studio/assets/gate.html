@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>{{doctitle}}</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="GeoSolver">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f7f5">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121417">
+<!--pwa-splash-->
+<link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  .gate-page { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: max(var(--s4), env(safe-area-inset-top)) max(var(--s4), env(safe-area-inset-right)) max(var(--s4), env(safe-area-inset-bottom)) max(var(--s4), env(safe-area-inset-left)); }
+  .gate-card { width: min(100%, 400px); padding: var(--s5); display: grid; gap: var(--s4); }
+  .gate-mark { width: 40px; height: 40px; color: var(--accent); }
+  .gate-card h1 { font-family: var(--font-math); font-size: var(--fs-25); font-weight: 600; letter-spacing: -0.005em; }
+  .gate-card .sub { color: var(--text-2); margin-top: 4px; }
+  .gate-form { display: grid; gap: var(--s4); }
+  .gate-form .input { min-height: 44px; font-size: 16px; }
+  .gate-err { color: var(--false); font-size: var(--fs-14); }
+  .gate-submit { width: 100%; min-height: 44px; font-size: var(--fs-16); }
+  .gate-note { color: var(--text-2); font-size: var(--fs-13); }
+  .gate-lang { display: flex; gap: var(--s1); justify-content: center; font-size: var(--fs-14); }
+  .gate-lang a { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-control); }
+  .gate-lang a[aria-current] { font-weight: 600; color: var(--text); text-decoration: none; }
+  @media (max-width: 480px) { .gate-card { padding: var(--s4); } }
+</style>
+</head>
+<body>
+<main class="gate-page">
+  <section class="gate-card card" aria-labelledby="gate-h">
+    <svg class="gate-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    <div>
+      <h1 id="gate-h">{{title}}</h1>
+      <p class="sub">{{sub}}</p>
+    </div>
+    <form class="gate-form" method="post" action="/gate">
+      <input type="hidden" name="next" value="{{next}}">
+      {{username}}
+      <div class="field">
+        <label for="pw">{{label}}</label>
+        <input class="input" id="pw" name="password" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" maxlength="1024" required{{pw_attrs}}>
+        {{error}}
+      </div>
+      <button type="submit" class="btn btn-primary gate-submit">{{submit}}</button>
+      <p class="gate-note">{{remember}}</p>
+    </form>
+    <nav class="gate-lang" aria-label="{{lang_label}}">
+      {{lang_links}}
+    </nav>
+  </section>
+</main>
+</body>
+</html>

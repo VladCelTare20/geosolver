@@ -33,6 +33,11 @@
       "ai.checking": "Checking AI…",
       "ai.off": "AI translation off",
       "ai.signin": "AI needs sign-in",
+      "ai.short.on": "AI on",
+      "ai.short.off": "AI off",
+      "ai.short.checking": "AI…",
+      "ai.short.signin": "AI: sign in",
+      "gate.forget": "Forget this device",
       "ai.tip.on": "Describe problems in words or photos; an AI model turns them into .geo.",
       "ai.reason.disabled": "AI translation is turned off on this server, so problems must be written as .geo programs.",
       "ai.reason.sign_in": "Sign in to describe problems in words or photos. As a guest you can solve .geo programs.",
@@ -483,6 +488,11 @@
       "ai.checking": "Se verifică traducerea AI…",
       "ai.off": "Traducere AI inactivă",
       "ai.signin": "AI necesită autentificare",
+      "ai.short.on": "AI activ",
+      "ai.short.off": "AI inactiv",
+      "ai.short.checking": "AI…",
+      "ai.short.signin": "AI: conectare",
+      "gate.forget": "Uită acest dispozitiv",
       "ai.tip.on": "Descrie problemele în cuvinte sau prin fotografii; un model AI le transformă în .geo.",
       "ai.reason.disabled": "Traducerea AI este dezactivată pe acest server, deci problemele trebuie scrise ca programe .geo.",
       "ai.reason.sign_in": "Autentifică-⁠te ca să descrii probleme în cuvinte sau prin fotografii. Ca invitat poți rezolva programe .geo.",
@@ -924,10 +934,21 @@
   };
 
   function stored() {
-    try { return localStorage.getItem("lang"); } catch (e) { return null; }
+    try { var v = localStorage.getItem("lang"); return v === "ro" || v === "en" ? v : null; } catch (e) { return null; }
+  }
+  function fromCookie() {
+    try { var m = document.cookie.match(/(?:^|;\s*)lang=(en|ro)\b/); return m ? m[1] : null; } catch (e) { return null; }
+  }
+  function fromBrowser() {
+    var all = navigator.languages || [navigator.language || ""];
+    for (var i = 0; i < all.length; i++) {
+      var p = String(all[i]).slice(0, 2).toLowerCase();
+      if (p === "ro" || p === "en") return p;
+    }
+    return null;
   }
   function current() {
-    return stored() === "ro" ? "ro" : "en";
+    return stored() || fromCookie() || fromBrowser() || "en";
   }
   function locale() { return current() === "ro" ? "ro-RO" : "en-GB"; }
   function setCookie(l) {
@@ -1005,6 +1026,6 @@
     if (b) { e.preventDefault(); if (b.getAttribute("data-lang-set") !== current()) set(b.getAttribute("data-lang-set")); }
   });
 
-  setCookie(current());
+  if (stored()) setCookie(stored());
   window.i18n = { t: t, tp: tp, current: current, locale: locale, set: set, apply: apply, fmtNum: fmtNum, has: function (k) { return lookup(k) != null; } };
 })();

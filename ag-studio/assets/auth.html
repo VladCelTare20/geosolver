@@ -3,12 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f7f7f5">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f7f5">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121417">
 <meta name="color-scheme" content="light dark">
 <meta name="i18n-title" content="auth.doctitle">
-<script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);if(localStorage.getItem('lang')==='ro'){d.lang='ro';d.setAttribute('data-lang','ro');d.classList.add('i18n-pending');setTimeout(function(){d.classList.remove('i18n-pending');},800);}}catch(e){}})();</script>
+<script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);var l=localStorage.getItem('lang');if(!l){var m=document.cookie.match(/(?:^|;\s*)lang=(en|ro)\b/);if(m)l=m[1];}if(!l){var a=navigator.languages||[navigator.language||''];for(var i=0;i<a.length&&!l;i++){var p=String(a[i]).slice(0,2).toLowerCase();if(p==='ro'||p==='en')l=p;}}if(l==='ro'){d.lang='ro';d.setAttribute('data-lang','ro');d.classList.add('i18n-pending');setTimeout(function(){d.classList.remove('i18n-pending');},800);}}catch(e){}})();</script>
 <title>Sign in · GeoSolver</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%231f4fa0' stroke-width='2.2'/%3E%3Cpath d='M16 4.6 26.2 22H5.8Z' fill='none' stroke='%231f4fa0' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="GeoSolver">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<!--pwa-splash-->
 <link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/app.css">
 <style>

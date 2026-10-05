@@ -64,11 +64,16 @@ pub fn verify_password_or_dummy(password: &str, hash: Option<&str>) -> bool {
     }
 }
 
-/// A fresh 256-bit session id, hex-encoded.
-pub fn new_session_id() -> String {
+/// 32 bytes from the OS CSPRNG.
+pub fn random_key() -> [u8; 32] {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    bytes
+}
+
+/// A fresh 256-bit session id, hex-encoded.
+pub fn new_session_id() -> String {
+    random_key().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Over HTTPS the cookie carries the `__Host-` prefix: browsers then refuse it
@@ -120,7 +125,8 @@ pub fn parse_guest(headers: &HeaderMap, secure: bool) -> Option<String> {
     parse_cookie_id(headers, guest_cookie_name(secure))
 }
 
-fn parse_cookie_id(headers: &HeaderMap, name: &str) -> Option<String> {
+/// The value of cookie `name` when the request carries it exactly once.
+pub fn single_cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     let prefix = format!("{name}=");
     let mut found = headers
         .get_all(header::COOKIE)
@@ -128,10 +134,15 @@ fn parse_cookie_id(headers: &HeaderMap, name: &str) -> Option<String> {
         .filter_map(|v| v.to_str().ok())
         .flat_map(|c| c.split(';'))
         .filter_map(|kv| kv.trim().strip_prefix(prefix.as_str()));
-    let sid = found.next()?;
+    let value = found.next()?;
     if found.next().is_some() {
         return None;
     }
+    Some(value)
+}
+
+fn parse_cookie_id(headers: &HeaderMap, name: &str) -> Option<String> {
+    let sid = single_cookie(headers, name)?;
     let well_formed = sid.len() == 64 && sid.bytes().all(|b| b.is_ascii_hexdigit());
     well_formed.then(|| sid.to_string())
 }

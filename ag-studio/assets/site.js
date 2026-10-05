@@ -813,14 +813,16 @@
   function themeNow() {
     try { var v = localStorage.getItem("theme"); return THEMES.indexOf(v) > 0 ? v : "system"; } catch (e) { return "system"; }
   }
+  var THEME_COLOR = { light: "#f7f7f5", dark: "#121417" };
   function applyTheme(mode) {
     var root = document.documentElement;
     if (mode === "system") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", mode);
     try { if (mode === "system") localStorage.removeItem("theme"); else localStorage.setItem("theme", mode); } catch (e) {}
     document.querySelectorAll("[data-theme-toggle]").forEach(paintThemeButton);
-    var dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-    var m = document.querySelector('meta[name="theme-color"]');
-    if (m) m.setAttribute("content", dark ? "#121417" : "#f7f7f5");
+    document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
+      var scheme = /dark/.test(m.getAttribute("media") || "") ? "dark" : "light";
+      m.setAttribute("content", THEME_COLOR[mode === "system" ? scheme : mode]);
+    });
   }
   function paintThemeButton(b) {
     var mode = themeNow();
@@ -904,5 +906,11 @@
     return { close: close, el: el, button: el.querySelector("button") };
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast };
+  function isGate(status, data) { return status === 401 && !!data && data.code === "gate"; }
+  function toGate() {
+    location.assign("/gate?next=" + encodeURIComponent(location.pathname + location.search));
+    return new Promise(function () {});
+  }
+
+  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
 })();
