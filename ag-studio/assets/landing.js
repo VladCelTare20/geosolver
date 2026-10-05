@@ -100,4 +100,5 @@
   document.addEventListener("langchange", function () { paintStats(); paintSteps(); });
   window.i18n.apply();
   GS.initTheme();
+  GS.booted = true;
 })();

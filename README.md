@@ -106,6 +106,18 @@ landscape, light and dark):
 - **Language.** Romanian or English follows the phone's language until you
   pick one with EN / RO.
 
+#### Supported browsers
+
+Safari / iOS / iPadOS 15.4+, Chrome / Edge / Opera 100+ (desktop, Android and
+Android WebView), Samsung Internet 17+, Firefox 100+ and Firefox ESR 115.
+Newer features (container queries, `:has()`, `color-mix()`, `dvh`, `inert`)
+all have fallbacks there. An older browser gets a short "update your browser"
+page in English or Romanian instead of a broken app; with JavaScript off the
+password page still works and the app says it needs JavaScript. Blocked
+cookies, private modes that refuse storage, going offline mid-solve and a
+connection that silently stops answering each end in a message that says what
+to do, never a spinner that runs forever.
+
 ### 2. Inside Claude Desktop / Claude Code (MCP)
 
 Add this to your Claude Desktop config

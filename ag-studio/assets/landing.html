@@ -9,6 +9,25 @@
 <meta name="description" content="GeoSolver draws the labeled figure of a geometry problem and searches for a proof in which every step is machine-checked.">
 <meta name="i18n-title" content="landing.doctitle">
 <script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);var l=localStorage.getItem('lang');if(!l){var m=document.cookie.match(/(?:^|;\s*)lang=(en|ro)\b/);if(m)l=m[1];}if(!l){var a=navigator.languages||[navigator.language||''];for(var i=0;i<a.length&&!l;i++){var p=String(a[i]).slice(0,2).toLowerCase();if(p==='ro'||p==='en')l=p;}}if(l==='ro'){d.lang='ro';d.setAttribute('data-lang','ro');d.classList.add('i18n-pending');setTimeout(function(){d.classList.remove('i18n-pending');},800);}}catch(e){}})();</script>
+<script>(function(){var w=window,r=document.documentElement,ok=false;try{var C=w.CSS;ok=!!(w.fetch&&w.Promise&&w.Map&&w.Set&&w.WeakMap&&w.AbortController&&w.ResizeObserver&&w.IntersectionObserver&&w.PointerEvent&&w.Intl&&Intl.PluralRules&&Intl.RelativeTimeFormat&&w.matchMedia&&Element.prototype.closest&&C&&C.supports&&C.supports("--gs","0")&&C.supports("display","grid")&&C.supports("aspect-ratio","1 / 1"));}catch(e){}if(!ok){r.className=r.className.replace("i18n-pending","")+" gs-old";return;}w.addEventListener("load",function(){if(!(w.GS&&w.GS.booted))r.className+=" gs-fail";});})();</script>
+<style>
+  .gs-note { display: none; box-sizing: border-box; max-width: 560px; margin: 24px auto; padding: 20px 24px; border: 1px solid #c9ced3; border-left: 4px solid #8a5a00; border-radius: 10px; background: #fff; color: #16191d; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; text-align: left; }
+  .gs-note h2 { margin: 0 0 6px; font-size: 18px; line-height: 1.3; font-weight: 600; }
+  .gs-note p { margin: 0; }
+  .gs-note a { display: inline-block; margin-top: 12px; padding: 10px 16px; border-radius: 6px; background: #1f4fa0; color: #fff; text-decoration: none; font-weight: 600; }
+  .gs-old #gs-old, .gs-fail #gs-fail, .gs-show { display: block; }
+  .gs-old body { background: #f7f7f5; }
+  .gs-old body > :not(#gs-old) { display: none !important; }
+  html[lang="ro"] .gs-note:not(.gs-both) [lang="en"], html:not([lang="ro"]) .gs-note:not(.gs-both) [lang="ro"] { display: none; }
+  .gs-both [lang="ro"] { margin-top: 12px; padding-top: 12px; border-top: 1px solid #dadcd8; }
+  @media (prefers-color-scheme: dark) {
+    .gs-note { background: #1a1d21; color: #e8eaed; border-color: #3d444b; border-left-color: #f2c063; }
+    .gs-note a { background: #8db2e8; color: #0e1218; }
+    .gs-old body { background: #121417; }
+    .gs-both [lang="ro"] { border-top-color: #3d444b; }
+  }
+  @media (max-width: 600px) { .gs-note { margin: 16px; } }
+</style>
 <title>GeoSolver — geometry proofs you can check</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -96,6 +115,9 @@
 <script src="/assets/i18n.js"></script>
 </head>
 <body>
+<div class="gs-note" id="gs-old" role="alert"><div lang="en"><h2>This browser is too old for GeoSolver</h2><p>Update it to Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 or newer, or open this page in another browser.</p></div><div lang="ro"><h2>Acest browser este prea vechi pentru GeoSolver</h2><p>Actualizează-⁠l la Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 sau mai nou, ori deschide pagina în alt browser.</p></div></div>
+<div class="gs-note" id="gs-fail" role="alert"><div lang="en"><h2>GeoSolver did not finish loading</h2><p>Reload the page. If this keeps happening, update your browser.</p><a href="">Reload</a></div><div lang="ro"><h2>GeoSolver nu s-⁠a încărcat complet</h2><p>Reîncarcă pagina. Dacă se repetă, actualizează browserul.</p><a href="">Reîncarcă</a></div></div>
+<noscript><div class="gs-note gs-show gs-both" role="alert"><div lang="en"><h2>GeoSolver needs JavaScript</h2><p>Turn JavaScript on in your browser settings, then reload this page.</p></div><div lang="ro"><h2>GeoSolver are nevoie de JavaScript</h2><p>Activează JavaScript în setările browserului, apoi reîncarcă pagina.</p></div></div></noscript>
 <a class="skip-link" href="#main" data-i18n="nav.skip">Skip to content</a>
 <header class="site-header">
   <div class="inner">
