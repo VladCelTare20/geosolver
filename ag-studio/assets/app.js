@@ -165,6 +165,12 @@
 
   function paintGates() {
     var block = aiBlock();
+    var emptyBody = document.querySelector("[data-i18n^='empty.body']");
+    if (emptyBody) {
+      var ek = block && block !== "checking" ? "empty.body.geo" : "empty.body";
+      emptyBody.setAttribute("data-i18n", ek);
+      emptyBody.textContent = t(ek);
+    }
     document.querySelectorAll("[data-gate]").forEach(function (g) {
       var body = g.parentNode.querySelector(".ai-body");
       if (!block) { g.hidden = true; body.hidden = false; return; }
@@ -719,7 +725,8 @@
     var n = window.i18n.fmtNum;
     var digits = c.kind === "values" || c.kind === "length" || c.kind === "ratios" ? 4 : 1;
     var L = c.labels || [];
-    return t("counter." + c.kind, { a: L[0] || "", b: L[1] || "", lhs: n(c.lhs, digits), rhs: n(c.rhs, digits) });
+    var exact = (c.kind === "angle" || c.kind === "values") && typeof c.rhs === "number" && c.rhs % 1 === 0;
+    return t("counter." + c.kind, { a: L[0] || "", b: L[1] || "", lhs: n(c.lhs, digits), rhs: n(c.rhs, exact ? 0 : digits) });
   }
 
   function renderVerdict(sol) {
@@ -818,14 +825,18 @@
     var aux = (v.aux || []).map(function (a) {
       return '<li class="math" tabindex="-1" data-points="' + esc(a.name) + '"><span class="aux-name">' + GS.math(a.name) + "</span>: " + GS.math(auxText(a)) + "</li>";
     }).join("");
+    var helpers = (v.helpers || []).map(function (a) {
+      return '<li class="math" tabindex="-1" data-points="' + esc(a.name) + '">' + GS.math(a.name) + ": " + GS.math(auxText(a)) + "</li>";
+    }).join("");
     var html = '<h2 class="sr-only" id="st-h">' + esc(t("st.statement")) + "</h2>";
     if (sol.title) html += '<h3 class="st-title" title="' + esc(sol.title) + '">' + esc(sol.title) + "</h3>";
     if (given) html += '<div class="st-block"><h3 class="label">' + esc(t("st.given")) + '</h3><ul class="facts" role="list">' + given + "</ul></div>";
     if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" tabindex="-1" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
+    if (helpers) html += '<div class="st-block st-helpers"><h3 class="label">' + esc(t("st.helpers")) + '</h3><ul class="facts" role="list">' + helpers + '</ul><p class="hint">' + esc(t("st.helpers.hint")) + "</p></div>";
     if (aux) html += '<div class="st-block st-aux"><h3 class="label">' + esc(t("st.aux")) + '</h3><ul class="facts" role="list">' + aux + '</ul><p class="hint">' + esc(t("st.aux.hint")) + "</p></div>";
     var box = $("statement");
     box.innerHTML = html;
-    box.hidden = !(sol.title || given || v.goal || aux);
+    box.hidden = !(sol.title || given || v.goal || aux || helpers);
     var items = Array.prototype.slice.call(box.querySelectorAll("[data-points]"));
     items.forEach(function (el, i) {
       var pts = el.getAttribute("data-points").split(" ");
@@ -868,6 +879,7 @@
       var on = inner.split(",").map(function (x) { return x.trim(); });
       if (on.some(function (p) { return a.args[0].indexOf(p) >= 0; })) key = "aux.intersect2";
     }
+    if (key === "aux.intersect2" && /^[a-z_]+\(/.test(String((a.args || [])[0] || "").trim())) key = "aux.intersect2_shape";
     var s = t(key);
     if (a.kind === "midpoint" || a.kind === "circumcenter" || a.kind === "orthocenter" || a.kind === "parallelogram") {
       var flat = args.join(",").split(",").map(function (x) { return x.trim(); });
@@ -875,7 +887,8 @@
     } else {
       args.forEach(function (p, i) { s = s.split("{" + i + "}").join(p); });
     }
-    return /\{\d\}/.test(s) ? a.text : s;
+    if (/\{\d\}/.test(s)) return a.text;
+    return a.same ? s + t("aux.same", { p: a.same }) : s;
   }
 
   var stepsApi = null;
@@ -1117,17 +1130,19 @@
       .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-+$/, "");
   }
   function exportName(sol, fmt) {
-    var kind = { proved: "proof", refuted: "counterexample", "holds-numerically": "numerical" }[sol.status] || "not-proved";
+    var known = { proved: 1, refuted: 1, "holds-numerically": 1 }[sol.status] ? sol.status : "not-proved";
+    return fileName(sol, slug(t("export.suffix." + known))) + "." + fmt;
+  }
+  function fileName(sol, suffix) {
     var title = slug(sol.title);
-    return "geosolver-" + (title ? title + "-" : "") + kind + "." + fmt;
+    return "geosolver-" + (title ? title + "-" : "") + suffix;
   }
   function exportAs(fmt) {
     var sol = S.sol;
     if (!sol) return;
     var label = fmt.toUpperCase();
     if (fmt === "svg") {
-      var t0 = slug(sol.title);
-      download(new Blob([sol.svg], { type: "image/svg+xml" }), "geosolver-" + (t0 ? t0 + "-" : "") + "figure.svg");
+      download(new Blob([sol.svg], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg");
       GS.toast(t("export.done", { fmt: "SVG" }));
       return;
     }

@@ -368,6 +368,17 @@ fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<
     out
 }
 
+pub(crate) fn name_markup(name: &str) -> String {
+    let mut cs = name.chars();
+    match (cs.next(), cs.next()) {
+        (Some(a), Some(b)) if (a.is_uppercase() || a == 'ω') && b.is_ascii_lowercase() => {
+            let rest: String = cs.collect();
+            format!(r#"{}<tspan font-size="75%" baseline-shift="sub">{b}</tspan>{}"#, esc(&a.to_string()), esc(&rest))
+        }
+        _ => esc(name),
+    }
+}
+
 fn label_width(name: &str) -> f64 {
     let em: f64 = name
         .chars()
@@ -386,6 +397,8 @@ fn label_width(name: &str) -> f64 {
 pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Extras) -> String {
     let aux_from = aux_from.unwrap_or(usize::MAX);
     let n = problem.points.len();
+    let twins = crate::present::twins(problem);
+    let twin: Vec<bool> = (0..n).map(|i| twins.contains_key(&(i as u32))).collect();
     let world: Vec<Pt> = problem.points.iter().map(|p| (p.value.x, p.value.y)).collect();
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for &p in &world {
@@ -897,8 +910,8 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     }
     els.extend(goal_els);
 
-    let dots: Vec<Pt> = (0..n).map(|i| scr[i]).filter(|p| finite(*p)).collect();
-    let mut order: Vec<usize> = (0..n).filter(|&i| finite(scr[i])).collect();
+    let dots: Vec<Pt> = (0..n).filter(|&i| !twin[i]).map(|i| scr[i]).filter(|p| finite(*p)).collect();
+    let mut order: Vec<usize> = (0..n).filter(|&i| finite(scr[i]) && !twin[i]).collect();
     let crowd = |p: Pt| dots.iter().filter(|d| len(sub(**d, p)) < 40.0).count();
     order.sort_by_key(|&i| (is_aux(i as u32), std::cmp::Reverse(crowd(scr[i])), i));
     let specs: Vec<(Pt, String)> = order.iter().map(|&i| (scr[i], dn(i as u32))).collect();
@@ -1059,10 +1072,10 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             p.1,
             off.0,
             off.1,
-            esc(name)
+            name_markup(name)
         );
     }
-    let mut dot_order: Vec<usize> = (0..n).collect();
+    let mut dot_order: Vec<usize> = (0..n).filter(|&i| !twin[i]).collect();
     dot_order.sort_by_key(|&i| is_aux(i as u32));
     for i in dot_order {
         let p = scr[i];
@@ -1135,7 +1148,7 @@ pub fn relabel(svg: &str, k: f64) -> String {
                 dots.push((x, y));
             }
         } else if l.starts_with("<text") && c.starts_with("f-lbl") {
-            let name = l.split_once('>').and_then(|(_, r)| r.split_once("</text>")).map(|(n, _)| n).unwrap_or("");
+            let name = attr_of(l, "data-p").unwrap_or("");
             let name = name.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
             if let (Some(x), Some(y)) = (num_attr(l, "data-x"), num_attr(l, "data-y")) {
                 specs.push(((x, y), name));

@@ -45,7 +45,7 @@ pub fn t(lang: Lang, key: &str) -> &'static str {
 fn en(key: &str) -> &'static str {
     match key {
         // auth
-        "auth.username_rule" => "username must be 3–32 characters: letters, digits, - or _",
+        "auth.username_rule" => "username must be 3–32 characters: letters, digits, hyphens (-) or underscores (_)",
         "auth.pw_len" => "password must be 8–128 characters",
         "auth.user_taken" => "that username is already taken",
         "auth.create_fail" => "could not create the account",
@@ -127,7 +127,7 @@ fn en(key: &str) -> &'static str {
         "report.verdict.time_limit" => "Not proved — time limit reached",
         "report.explain.proved" => "Every numbered step below is machine-checked.",
         "report.explain.immediate" => "It follows at once from the deduction rules; no intermediate steps are needed.",
-        "report.verdict.as_drawn" => "Proved for the configuration shown",
+        "report.verdict.as_drawn" => "Proved as drawn",
         "report.explain.as_drawn" => "Every numbered step below is machine-checked. One step uses the order of points as drawn, so the proof covers this configuration.",
         "report.explain.refuted" => "A sampled figure contradicts it, so no proof can exist.",
         "report.explain.holds-numerically.one" => "True in the sampled figure, but GeoSolver found no Euclidean proof. That is evidence, not a proof.",
@@ -147,12 +147,14 @@ fn en(key: &str) -> &'static str {
         "report.method.euclid" => "Euclidean theorems",
         "report.method.numeric" => "Numerical check",
         "report.method.counter" => "Numerical counterexample",
-        "report.as_drawn" => "uses the drawn order of points",
+        "report.as_drawn" => "uses the order of points as drawn",
         "fact.para_ratio" => "{par} and {ratio}",
         "report.given" => "Given",
         "report.prove" => "Prove",
         "report.proof" => "Proof — machine-checked steps",
         "report.aux" => "Auxiliary points (not in the statement)",
+        "report.helpers" => "Helper points (created by the constructions)",
+        "aux.same" => " (the same point as {p})",
         "report.counter" => "Counterexample",
         "report.footer" => "GeoSolver · machine-checked geometry proofs",
         "report.steps.one" => "{n} deduction step",
@@ -176,18 +178,35 @@ fn en(key: &str) -> &'static str {
         "aux.midpoint" => "midpoint of {0}{1}",
         "aux.circumcenter" => "circumcenter of △{0}{1}{2}",
         "aux.orthocenter" => "orthocenter of △{0}{1}{2}",
+        "aux.incenter" => "incenter of △{0}{1}{2}",
+        "aux.excenter" => "excenter of △{0}{1}{2} opposite {3}",
+        "aux.excenter_any" => "an excenter of △{0}{1}{2}",
         "aux.foot" => "foot of the perpendicular from {0} to {1}",
         "aux.reflect" => "reflection of {0} in {1}",
         "aux.intersect" => "intersection of {0} and {1}",
         "aux.intersect2" => "second intersection of line {0} with {1}",
+        "aux.intersect2_shape" => "second intersection of {0} with {1}",
+        "aux.intersect_near" => "intersection of line {0} with {1} nearer to {2}",
+        "aux.intersect_far" => "intersection of line {0} with {1} farther from {2}",
         "aux.parallelogram" => "completes the parallelogram {0}{1}{2}",
         "aux.spiral_center" => "center of the spiral similarity taking {0} to {1}",
         "aux.isogonal" => "isogonal conjugate of {0} in △{1}",
+        "aux.inverse" => "inverse of {0} in {1}",
+        "aux.pole" => "pole of line {0} with respect to {1}",
+        "aux.harmonic" => "harmonic conjugate of {0} with respect to {1} and {2}",
         "aux.antipode" => "antipode of {0}",
+        "aux.tangent" => "point of contact of a tangent from {0} to {1}",
         "aux.arc_midpoint" => "midpoint of arc {0}{1}",
         "aux.bisector_foot" => "foot of the bisector from {0} in △{1}",
-        "aux.circumcircle" => "circumcircle of △{0}{1}{2}",
-        "aux.circle" => "circle ({0}, {0}{1})",
+        "aux.on_bisector" => "a point on the bisector of ∠{0}{1}{2}",
+        "aux.on_perp" => "a point on the perpendicular to {1} through {0}",
+        "aux.on_para" => "a point on the parallel to {1} through {0}",
+        "aux.on_perp_bisector" => "a point on the perpendicular bisector of {0}{1}",
+        "aux.common_point" => "a common point of {0} and {1}",
+        "aux.free" => "an arbitrary point",
+        "aux.helper" => "a point a construction creates",
+        "aux.circumcircle" => "the circumcircle of △{0}{1}{2}",
+        "aux.circle" => "the circle ({0}, {0}{1})",
         "aux.line.para" => "the parallel to {1} through {0}",
         "aux.line.perp" => "the perpendicular to {1} through {0}",
         "aux.line.tangent_at" => "the tangent at {0} to the circle centered at {1}",
@@ -225,7 +244,7 @@ fn ro(key: &str) -> &'static str {
     match key {
         // auth
         "auth.username_rule" => {
-            "numele de utilizator trebuie să aibă 3–32 de caractere: litere, cifre, - sau _"
+            "numele de utilizator trebuie să aibă 3–32 de caractere: litere, cifre, cratime (-) sau caractere de subliniere (_)"
         }
         "auth.pw_len" => "parola trebuie să aibă între 8 și 128 de caractere",
         "auth.user_taken" => "acest nume de utilizator este deja folosit",
@@ -308,7 +327,7 @@ fn ro(key: &str) -> &'static str {
         "report.verdict.time_limit" => "Nedemonstrat — limita de timp a fost atinsă",
         "report.explain.proved" => "Fiecare pas numerotat de mai jos este verificat automat.",
         "report.explain.immediate" => "Rezultă imediat din regulile de deducție; nu sunt necesari pași intermediari.",
-        "report.verdict.as_drawn" => "Demonstrat pentru configurația din figură",
+        "report.verdict.as_drawn" => "Demonstrat ca în figură",
         "report.explain.as_drawn" => "Fiecare pas numerotat de mai jos este verificat automat. Un pas folosește ordinea punctelor din figură, deci demonstrația acoperă această configurație.",
         "report.explain.refuted" => "O figură eșantionată o contrazice, deci nu poate exista o demonstrație.",
         "report.explain.holds-numerically.one" => "Adevărat în figura eșantionată, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație.",
@@ -337,6 +356,8 @@ fn ro(key: &str) -> &'static str {
         "report.prove" => "De demonstrat",
         "report.proof" => "Demonstrație — pași verificați automat",
         "report.aux" => "Puncte auxiliare (nu apar în enunț)",
+        "report.helpers" => "Puncte ajutătoare (create de construcții)",
+        "aux.same" => " (același punct cu {p})",
         "report.counter" => "Contraexemplu",
         "report.footer" => "GeoSolver · demonstrații de geometrie verificate automat",
         "report.steps.one" => "{n} pas de deducție",
@@ -361,17 +382,34 @@ fn ro(key: &str) -> &'static str {
         "rule.aux" => "construcție auxiliară",
         "aux.midpoint" => "mijlocul segmentului {0}{1}",
         "aux.circumcenter" => "centrul cercului circumscris triunghiului {0}{1}{2}",
-        "aux.orthocenter" => "ortocentrul △{0}{1}{2}",
+        "aux.orthocenter" => "ortocentrul triunghiului {0}{1}{2}",
+        "aux.incenter" => "centrul cercului înscris în triunghiul {0}{1}{2}",
+        "aux.excenter" => "centrul cercului exînscris al triunghiului {0}{1}{2} corespunzător laturii {4}",
+        "aux.excenter_any" => "centrul unui cerc exînscris al triunghiului {0}{1}{2}",
         "aux.foot" => "piciorul perpendicularei din {0} pe {1}",
         "aux.reflect" => "simetricul lui {0} față de {1}",
         "aux.intersect" => "intersecția dintre {0} și {1}",
         "aux.intersect2" => "a doua intersecție a dreptei {0} cu {1}",
+        "aux.intersect2_shape" => "a doua intersecție dintre {0} și {1}",
+        "aux.intersect_near" => "intersecția dreptei {0} cu {1} aflată mai aproape de {2}",
+        "aux.intersect_far" => "intersecția dreptei {0} cu {1} aflată mai departe de {2}",
         "aux.parallelogram" => "completează paralelogramul {0}{1}{2}",
         "aux.spiral_center" => "centrul asemănării spirale care duce {0} în {1}",
-        "aux.isogonal" => "conjugatul izogonal al lui {0} în △{1}",
+        "aux.isogonal" => "conjugatul izogonal al lui {0} în triunghiul {1}",
+        "aux.inverse" => "inversul lui {0} față de {1}",
+        "aux.pole" => "polul dreptei {0} față de {1}",
+        "aux.harmonic" => "conjugatul armonic al lui {0} față de {1} și {2}",
         "aux.antipode" => "punctul diametral opus lui {0}",
+        "aux.tangent" => "punctul de contact al unei tangente din {0} la {1}",
         "aux.arc_midpoint" => "mijlocul arcului {0}{1}",
-        "aux.bisector_foot" => "piciorul bisectoarei din {0} în △{1}",
+        "aux.bisector_foot" => "piciorul bisectoarei din {0} în triunghiul {1}",
+        "aux.on_bisector" => "un punct de pe bisectoarea unghiului {0}{1}{2}",
+        "aux.on_perp" => "un punct de pe perpendiculara prin {0} pe {1}",
+        "aux.on_para" => "un punct de pe paralela prin {0} la {1}",
+        "aux.on_perp_bisector" => "un punct de pe mediatoarea segmentului {0}{1}",
+        "aux.common_point" => "un punct comun pentru {0} și {1}",
+        "aux.free" => "un punct arbitrar",
+        "aux.helper" => "un punct creat de o construcție",
         "aux.circumcircle" => "cercul circumscris triunghiului {0}{1}{2}",
         "aux.circle" => "cercul ({0}, {0}{1})",
         "aux.line.para" => "paralela prin {0} la {1}",
@@ -583,13 +621,29 @@ const PROSE_RO: &[(&str, &str)] = &[
     ("Hence ", "Deci "),
     ("So ", "Deci "),
     ("Let ", "Fie "),
+    (", and ", " și "),
     (" and ", " și "),
 ];
 
 /// The euclidean prover's English sentences, US spelling throughout.
 pub fn prose_en(s: &str) -> String {
-    s.replace("centre", "center")
+    let mut out = s.replace("centre", "center");
+    for (from, to) in THEOREM_SPELLING {
+        out = out.replace(from, to);
+    }
+    if out == "Monge\u{2013}d'Alembert" {
+        out.push_str(" theorem");
+    }
+    out
 }
+
+const THEOREM_SPELLING: &[(&str, &str)] = &[
+    ("angle-bisector theorem", "angle bisector theorem"),
+    ("Menelaus' theorem", "Menelaus's theorem"),
+    ("Menelaus\u{2019} theorem", "Menelaus's theorem"),
+    ("Thales' theorem", "Thales's theorem"),
+    ("Thales\u{2019} theorem", "Thales's theorem"),
+];
 
 /// The euclidean prover's English sentences in Romanian (its templates are a
 /// closed set; anything unrecognized stays as written).
@@ -633,11 +687,11 @@ pub fn theorem_ro(name: &str) -> Option<&'static str> {
         "geometric-mean (altitude) relation" => "teorema înălțimii",
         "geometric-mean (leg) relation" => "teorema catetei",
         "ptolemy's theorem" => "teorema lui Ptolemeu",
-        "thales' theorem" => "teorema lui Thales",
+        "thales' theorem" | "thales's theorem" => "teorema lui Thales",
         "angle bisector theorem" => "teorema bisectoarei",
         "angle bisector theorem (converse)" => "reciproca teoremei bisectoarei",
         "radical axis" => "axa radicală",
-        "monge–d'alembert" => "teorema Monge–d'Alembert",
+        "monge–d'alembert" | "monge–d'alembert theorem" => "teorema Monge–d'Alembert",
         "homothety at a center of similitude" | "homothety at a centre of similitude" => "omotetie cu centrul într-un centru de asemănare",
         "intercept theorem (parallel rungs)" => "teorema lui Thales (paralele)",
         "law of sines" => "teorema sinusurilor",
@@ -692,6 +746,10 @@ mod tests {
         let ro = prose_ro("Combining the equations above gives AD² = 14.");
         assert!(ro.starts_with("Combinând"), "{ro}");
         assert_eq!(theorem_ro("Stewart's theorem"), Some("teorema lui Stewart"));
+        assert_eq!(
+            prose_ro("D lies on BC between B and C (as drawn), and BD = 2, BC = 6 (given)."),
+            "D se află pe BC între B și C (ca în figură) și BD = 2, BC = 6 (ipoteză)."
+        );
     }
 
     #[test]

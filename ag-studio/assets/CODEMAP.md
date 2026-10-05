@@ -47,7 +47,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `app.css` verdict actions — a wrapping flex row (buttons grow, never truncate); meta items may wrap. Toasts sit bottom-right from 1200 px so they never cover the verdict actions; `.toast :focus-visible` uses `--bg` for its ring.
 - `app.js:sessionEnded` — any 401 (solve, history list/delete/open, export, shorter-proof search) refreshes `/api/status`, swaps the header to Sign in and puts the session-ended message in the rail.
 - `app.js:refineShorter` — “none found” only for a 2xx answer that is not shorter; a 503/429 says the server was busy, other failures say the search could not run.
-- `app.js:exportName` — downloads are named by title and verdict (`-proof`, `-counterexample`, `-numerical`, `-not-proved`).
+- `app.js:exportName` — downloads are named by title and verdict; the suffix is the UI language's `export.suffix.<status>` (`-proof`, `-counterexample`, `-numerical`, `-not-proved`, `-figure`; RO `-demonstratie`, …) passed through `slug`, so it stays ASCII.
 - `app.js:histStatus` — `proved-drawn` (stored `as_drawn`) shows “Proved (as drawn)” under the Proved filter.
 - `app.js:verdictModel` — a proof with no steps says it follows at once and offers no Copy proof.
 - `site.js:fitLabels` — labels are at least 15 px on screen (`labelPx`); marks with `data-a` are scaled about their anchor by the label scale (1–2.2) so right angles and ticks stay visible in small panels.
@@ -60,3 +60,5 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `landing.js` — `#more` carries `aria-expanded`; expanding focuses the first newly shown step, collapsing keeps the button where it was on screen.
 - `app.css` forced colors — `.editor:focus-within`, `.input:focus`, `.textarea:focus` get a `Highlight` outline (their normal ring is a box-shadow, which forced colors removes).
 - `i18n.js` RO — hyphenated clitics (`fotografiaz-o`, `s-a`) carry a word joiner (U+2060) after the hyphen so lines never break there.
+- `app.js:auxText` — mirrors `render.rs:aux_text`; `same` adds "(the same point as …)", and a second meet whose first object is a circle or a worded line uses `aux.intersect2_shape`.
+- `app.js:paintGates` — while translation is unavailable, the empty state's body is `empty.body.geo` (no "describe a problem").
