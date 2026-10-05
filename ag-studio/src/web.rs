@@ -20,6 +20,7 @@ use axum::{
     Json, Router,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 use tower_http::compression::CompressionLayer;
 use tower_http::timeout::TimeoutLayer;
 
@@ -35,20 +36,23 @@ const LANDING_HTML: &str = include_str!("../assets/landing.html");
 
 fn index_html() -> &'static str {
     static P: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    P.get_or_init(|| pwa::with_splash(INDEX_HTML))
+    P.get_or_init(|| versioned(&pwa::with_splash(INDEX_HTML)))
 }
 
 fn auth_html() -> &'static str {
     static P: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    P.get_or_init(|| pwa::with_splash(AUTH_HTML))
+    P.get_or_init(|| versioned(&pwa::with_splash(AUTH_HTML)))
 }
 
 fn landing_html() -> &'static str {
     static P: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    P.get_or_init(|| pwa::with_splash(LANDING_HTML))
+    P.get_or_init(|| versioned(&pwa::with_splash(LANDING_HTML)))
 }
 
 /// Static files under `/assets/`: (name, content type, cache policy, bytes).
+/// Pages reference them as `/assets/<name>?v=<tag>` ([`versioned`]); a request
+/// carrying the current tag is cached for a year, any other gets the listed
+/// policy, and every answer carries an `ETag` so a revalidation is a 304.
 const ASSETS: &[(&str, &str, &str, &[u8])] = &[
     ("i18n.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/i18n.js")),
     ("app.css", "text/css; charset=utf-8", "no-cache", include_bytes!("../assets/app.css")),
@@ -339,7 +343,11 @@ fn app_router(state: Shared) -> Router {
             state.clone(),
             security::security_headers,
         ))
-        .layer(CompressionLayer::new())
+        .layer(CompressionLayer::new().compress_when(
+            DefaultPredicate::new()
+                .and(NotForContentType::const_new("font/"))
+                .and(NotForContentType::const_new("application/pdf")),
+        ))
         // Covers a translate (90 s CLI cap) or an Opus proof rewrite (~10–30 s, 90 s cap);
         // ordinary requests still return in well under a second.
         .layer(TimeoutLayer::with_status_code(
@@ -393,26 +401,91 @@ async fn app_page(State(state): State<Shared>, headers: HeaderMap) -> Response {
     }
 }
 
-fn serve_asset(name: &str) -> Response {
-    match ASSETS.iter().find(|(n, ..)| *n == name) {
-        Some((_, ctype, cache, bytes)) => (
-            [
-                (header::CONTENT_TYPE, HeaderValue::from_static(ctype)),
-                (header::CACHE_CONTROL, HeaderValue::from_static(cache)),
-            ],
-            *bytes,
-        )
-            .into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+pub(crate) const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+
+pub(crate) struct Asset {
+    pub name: &'static str,
+    ctype: &'static str,
+    cache: &'static str,
+    pub bytes: std::borrow::Cow<'static, [u8]>,
+    pub tag: String,
+}
+
+fn content_tag(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)[..8].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn with_tags(text: &str, done: &[Asset]) -> String {
+    done.iter().fold(text.to_string(), |acc, a| {
+        acc.replace(&format!("\"/assets/{}\"", a.name), &format!("\"/assets/{}?v={}\"", a.name, a.tag))
+    })
+}
+
+pub(crate) fn assets() -> &'static [Asset] {
+    static A: std::sync::OnceLock<Vec<Asset>> = std::sync::OnceLock::new();
+    A.get_or_init(|| {
+        let (fonts, rest): (Vec<_>, Vec<_>) = ASSETS.iter().partition(|(n, ..)| n.starts_with("fonts/"));
+        let mut done: Vec<Asset> = Vec::with_capacity(ASSETS.len());
+        for (name, ctype, cache, bytes) in fonts.into_iter().chain(rest) {
+            let bytes: std::borrow::Cow<'static, [u8]> = if ctype.starts_with("text/css") {
+                std::borrow::Cow::Owned(with_tags(&String::from_utf8_lossy(bytes), &done).into_bytes())
+            } else {
+                std::borrow::Cow::Borrowed(bytes)
+            };
+            let tag = content_tag(&bytes);
+            done.push(Asset { name, ctype, cache, bytes, tag });
+        }
+        done
+    })
+}
+
+pub(crate) fn versioned(html: &str) -> String {
+    with_tags(html, assets())
+}
+
+fn serve_asset(name: &str, uri: &axum::http::Uri, headers: &HeaderMap) -> Response {
+    let Some(a) = assets().iter().find(|a| a.name == name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let current = uri
+        .query()
+        .is_some_and(|q| q.split('&').any(|kv| kv.strip_prefix("v=") == Some(a.tag.as_str())));
+    let cache = if current { IMMUTABLE } else { a.cache };
+    let etag = format!("W/\"{}\"", a.tag);
+    let fresh = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == "*" || t.trim().trim_start_matches("W/") == &etag[2..]));
+    let mut resp = if fresh {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        let mut r = Body::from(a.bytes.clone()).into_response();
+        r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(a.ctype));
+        r
+    };
+    let h = resp.headers_mut();
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+    if let Ok(v) = HeaderValue::from_str(&etag) {
+        h.insert(header::ETAG, v);
     }
+    resp
 }
 
-async fn asset(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
-    serve_asset(&file)
+async fn asset(
+    axum::extract::Path(file): axum::extract::Path<String>,
+    uri: axum::http::Uri,
+    headers: HeaderMap,
+) -> Response {
+    serve_asset(&file, &uri, &headers)
 }
 
-async fn font_asset(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
-    serve_asset(&format!("fonts/{file}"))
+async fn font_asset(
+    axum::extract::Path(file): axum::extract::Path<String>,
+    uri: axum::http::Uri,
+    headers: HeaderMap,
+) -> Response {
+    serve_asset(&format!("fonts/{file}"), &uri, &headers)
 }
 
 /// The login/register page (public — its own JS calls the `/api/auth/*` routes).
@@ -4031,6 +4104,69 @@ mod tests {
         assert!(gate_set_cookie(&h).is_none(), "only page loads renew");
         let (st, _, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &at(181))], None)).await;
         assert_eq!(st, StatusCode::SEE_OTHER, "past AGSTUDIO_GATE_DAYS");
+    }
+
+    #[tokio::test]
+    async fn a_lost_gate_cookie_is_explained_on_the_gate_page() {
+        let (state, _dir) = gate_state(|_| {});
+        let from_gate = ("referer", "http://127.0.0.1:8787/gate?next=%2Fapp");
+        let (st, h, _) = send(&state, build("GET", "/app", &[NAV, from_gate, ("sec-fetch-site", "same-origin")], None)).await;
+        assert_eq!(st, StatusCode::SEE_OTHER);
+        assert_eq!(h[header::LOCATION], "/gate?cookies=0&next=%2Fapp");
+        let (st, _, body) = send(&state, build("GET", "/gate?cookies=0&next=%2Fapp", &[NAV], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.cookies"))), "{body}");
+        let (_, h, _) = send(&state, build("GET", "/app", &[NAV, ("referer", "http://127.0.0.1:8787/")], None)).await;
+        assert_eq!(h[header::LOCATION], "/gate?next=%2Fapp", "only a page load straight from the gate means the cookie was dropped");
+        let (_, h, _) = send(&state, build("GET", "/app", &[NAV, ("referer", "https://elsewhere.example/gate"), ("host", "127.0.0.1:8787")], None)).await;
+        assert_eq!(h[header::LOCATION], "/gate?next=%2Fapp", "another site's /gate is not ours");
+        let (_, _, body) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV], None)).await;
+        assert!(!body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.cookies"))));
+    }
+
+    #[tokio::test]
+    async fn pages_reference_assets_by_content_tag_and_tagged_assets_are_immutable() {
+        let (state, _dir) = gate_state(|_| {});
+        let cookie = format!("gate={}", gate::mint(&state.gate_key, &state.config.basic_auth.as_ref().unwrap().cred_digest(), gate::now_secs()));
+        let (_, _, page) = send(&state, build("GET", "/", &[NAV, ("cookie", &cookie)], None)).await;
+        let (_, _, gate_page) = send(&state, build("GET", "/gate", &[NAV], None)).await;
+        for a in assets() {
+            let tagged = format!("/assets/{}?v={}", a.name, a.tag);
+            if page.contains(&format!("\"/assets/{}", a.name)) {
+                assert!(page.contains(&format!("\"{tagged}\"")), "{} is referenced untagged", a.name);
+            }
+            let (st, h, body) = call_raw(&state, build("GET", &tagged, &[("cookie", &cookie)], None)).await;
+            assert_eq!(st, StatusCode::OK, "{tagged}");
+            assert_eq!(h[header::CACHE_CONTROL], IMMUTABLE, "{tagged}");
+            assert_eq!(body, a.bytes.as_ref(), "{tagged}");
+            let etag = h[header::ETAG].to_str().unwrap().to_string();
+            let (st, h, body) = call_raw(&state, build("GET", &format!("/assets/{}", a.name), &[("cookie", &cookie), ("if-none-match", &etag)], None)).await;
+            assert_eq!(st, StatusCode::NOT_MODIFIED, "{}", a.name);
+            assert!(body.is_empty());
+            assert_ne!(h[header::CACHE_CONTROL], IMMUTABLE, "an untagged URL is never immutable");
+            let (st, h, _) = call_raw(&state, build("GET", &format!("/assets/{}?v=0000", a.name), &[("cookie", &cookie)], None)).await;
+            assert_eq!(st, StatusCode::OK);
+            assert_ne!(h[header::CACHE_CONTROL], IMMUTABLE, "a stale tag is never immutable");
+        }
+        assert!(gate_page.contains("/assets/app.css?v="), "the gate page tags its stylesheet too");
+        let css = assets().iter().find(|a| a.name == "app.css").unwrap();
+        let css = String::from_utf8_lossy(&css.bytes);
+        for f in assets().iter().filter(|a| a.name.starts_with("fonts/")) {
+            assert!(css.contains(&format!("url(\"/assets/{}?v={}\")", f.name, f.tag)), "app.css must point at the tagged {}", f.name);
+            if page.contains(&format!("/assets/{}", f.name)) {
+                assert!(page.contains(&format!("href=\"/assets/{}?v={}\"", f.name, f.tag)), "a preload must use the URL app.css asks for");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn fonts_are_not_gzipped_but_scripts_are() {
+        let (state, _dir) = gate_state(|_| {});
+        let cookie = format!("gate={}", gate::mint(&state.gate_key, &state.config.basic_auth.as_ref().unwrap().cred_digest(), gate::now_secs()));
+        let (_, h, _) = call_raw(&state, build("GET", "/assets/fonts/inter.woff2", &[("accept-encoding", "gzip")], None)).await;
+        assert!(h.get(header::CONTENT_ENCODING).is_none(), "woff2 is already compressed");
+        let (_, h, _) = call_raw(&state, build("GET", "/assets/app.js", &[("accept-encoding", "gzip"), ("cookie", &cookie)], None)).await;
+        assert_eq!(h[header::CONTENT_ENCODING], "gzip");
     }
 
     // ------------------------------------------------------ home screen ----

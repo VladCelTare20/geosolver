@@ -1001,6 +1001,9 @@ fn gate_reject(req: &Request<Body>, nav: bool) -> Response {
             .uri()
             .path_and_query()
             .map_or("/", |pq| pq.as_str());
+        if crate::gate::came_from_gate(req.headers()) {
+            return crate::gate::redirect_to_gate_cookie_lost(target);
+        }
         return crate::gate::redirect_to_gate(target);
     }
     let lang = crate::i18n::lang_from_headers(req.headers());
