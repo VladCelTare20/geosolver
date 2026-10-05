@@ -280,7 +280,8 @@
     this.vb = null;
     this.onPoint = null;
     var me = this, vp = els.viewport;
-    var pointers = new Map(), pinch = null, drag = null, lastTap = 0;
+    var pointers = new Map(), pinch = null, drag = null, lastTap = null, press = null, lastType = "", touchToggleAt = 0;
+    var TAP_MOVE = 10, TAP_MS = 250, DOUBLE_MS = 300, DOUBLE_DIST = 30;
 
     function scale() {
       var r = vp.getBoundingClientRect();
@@ -321,13 +322,10 @@
     paintPad();
     document.addEventListener("langchange", paintPad);
     vp.addEventListener("pointerdown", function (e) {
+      lastType = e.pointerType;
       if (!me.svg || e.button > 0) return;
       if (e.target.closest && e.target.closest(".pan-pad")) return;
-      if (e.pointerType === "touch" && pointers.size === 0) {
-        var now = Date.now();
-        if (now - lastTap < 300) { me.zoomed() ? me.reset() : me.zoomAt(e.clientX, e.clientY, 2.5); lastTap = 0; return; }
-        lastTap = now;
-      }
+      if (e.pointerType === "touch") press = pointers.size === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() } : null;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) {
         var p = Array.from(pointers.values());
@@ -340,6 +338,7 @@
     });
     vp.addEventListener("pointermove", function (e) {
       if (!pointers.has(e.pointerId)) return;
+      if (press && press.id === e.pointerId && Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_MOVE) { press = null; lastTap = null; }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pinch && pointers.size === 2) {
         var p = Array.from(pointers.values());
@@ -350,19 +349,40 @@
         pinch = { d: d, mx: mx, my: my };
       } else if (drag) {
         if (!me.zoomed()) return;
-        me.panBy(e.clientX - drag.x, e.clientY - drag.y);
+        var dy = e.clientY - drag.y;
+        var got = me.panBy(e.clientX - drag.x, dy);
         drag = { x: e.clientX, y: e.clientY };
         vp.classList.add("is-panning");
+        if (e.pointerType === "touch" && !me.isFull() && Math.abs(dy - got[1]) > 0.5) window.scrollBy(0, -(dy - got[1]));
       }
     });
+    function tapEnd(e) {
+      var p = press;
+      press = null;
+      if (!p || p.id !== e.pointerId || pointers.size > 0) return;
+      var now = Date.now();
+      if (now - p.t > TAP_MS) { lastTap = null; return; }
+      if (lastTap && now - lastTap.t < DOUBLE_MS && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) <= DOUBLE_DIST) {
+        lastTap = null;
+        touchToggleAt = now;
+        me.zoomed() ? me.reset() : me.zoomAt(p.x, p.y, 2.5);
+        return;
+      }
+      lastTap = { t: now, x: p.x, y: p.y };
+    }
     function lift(e) {
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
       if (pointers.size === 0) { drag = null; vp.classList.remove("is-panning"); }
     }
-    vp.addEventListener("pointerup", lift);
-    vp.addEventListener("pointercancel", lift);
-    vp.addEventListener("dblclick", function (e) { if (!me.svg || (e.target.closest && e.target.closest(".pan-pad"))) return; e.preventDefault(); me.zoomed() ? me.reset() : me.zoomAt(e.clientX, e.clientY, 2.5); });
+    vp.addEventListener("pointerup", function (e) { lift(e); tapEnd(e); });
+    vp.addEventListener("pointercancel", function (e) { lift(e); press = null; lastTap = null; });
+    vp.addEventListener("dblclick", function (e) {
+      if (!me.svg || (e.target.closest && e.target.closest(".pan-pad"))) return;
+      e.preventDefault();
+      if (lastType === "touch" || Date.now() - touchToggleAt < 500) return;
+      me.zoomed() ? me.reset() : me.zoomAt(e.clientX, e.clientY, 2.5);
+    });
     vp.addEventListener("keydown", function (e) {
       if (!me.svg || e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.target !== vp && e.target.closest && e.target.closest(".pan-pad") && (e.key === "Enter" || e.key === " ")) return;
@@ -624,12 +644,13 @@
     this.apply();
   };
   Viewer.prototype.panBy = function (dx, dy) {
-    if (!this.svg || !this.zoomed()) return;
-    var s = this.scale();
+    if (!this.svg || !this.zoomed()) return [0, 0];
+    var s = this.scale(), x0 = this.vb.x, y0 = this.vb.y;
     this.vb.x -= dx / s;
     this.vb.y -= dy / s;
     this.clamp();
     this.apply();
+    return [(x0 - this.vb.x) * s, (y0 - this.vb.y) * s];
   };
   Viewer.prototype.stepPoint = function (dir) {
     var names = [];
@@ -655,7 +676,7 @@
     if (on === this.isFull()) return;
     f.classList.toggle("is-full", on);
     if (f.parentElement) f.parentElement.classList.toggle("has-full", on);
-    document.documentElement.classList.toggle("no-scroll", on);
+    lockScroll(on);
     modal(f, on, t("fig.title"));
     if (!on) this.els.full.focus({ preventScroll: true });
     if (this.els.full) {
@@ -666,6 +687,22 @@
     requestAnimationFrame(function () { me.reset(); });
     if (on) this.els.viewport.focus({ preventScroll: true, focusVisible: !byPointer });
   };
+
+  var locks = 0, lockY = 0;
+  function lockScroll(on) {
+    var root = document.documentElement, body = document.body;
+    if (on) {
+      if (locks++ > 0) return;
+      lockY = window.scrollY || 0;
+      root.classList.add("no-scroll");
+      body.style.top = -lockY + "px";
+    } else {
+      if (locks === 0 || --locks > 0) return;
+      root.classList.remove("no-scroll");
+      body.style.top = "";
+      window.scrollTo(0, lockY);
+    }
+  }
 
   /** Make `el` modal (everything outside it inert, `el` a labelled dialog);
    * `on` false restores exactly what was made inert. */
@@ -807,6 +844,7 @@
       }
       el.classList.toggle("hl", !!on);
     });
+    if (this.onHighlight) this.onHighlight(!!S);
   };
 
   var THEMES = ["system", "light", "dark"];
@@ -868,6 +906,23 @@
   }
   document.addEventListener("focusin", function (e) { if (document.documentElement.classList.contains("has-toast")) unobscure(e.target); });
   window.addEventListener("resize", function () { if (document.documentElement.classList.contains("has-toast")) toastSpace(); });
+  function keyboardSpace() {
+    var vv = window.visualViewport, root = document.documentElement;
+    if (!vv) return;
+    var ae = document.activeElement;
+    var typing = !!ae && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && !/^(button|checkbox|radio|file|submit|reset|range|color)$/.test(ae.type)));
+    var off = typing ? Math.max(0, Math.round(root.clientHeight - vv.height - vv.offsetTop)) : 0;
+    var was = root.style.getPropertyValue("--kb");
+    if (off > 0) root.style.setProperty("--kb", off + "px"); else root.style.removeProperty("--kb");
+    if (was !== root.style.getPropertyValue("--kb") && root.classList.contains("has-toast")) toastSpace();
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", keyboardSpace);
+    window.visualViewport.addEventListener("scroll", keyboardSpace);
+  }
+  document.addEventListener("focusin", keyboardSpace);
+  document.addEventListener("focusout", function () { setTimeout(keyboardSpace, 0); });
+  document.addEventListener("touchstart", function () {}, { passive: true });
   function toast(msg, opts) {
     opts = opts || {};
     var region = document.getElementById("toasts");
@@ -912,5 +967,5 @@
     return new Promise(function () {});
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
+  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, lockScroll: lockScroll, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
 })();

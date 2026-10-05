@@ -20,8 +20,8 @@
 <link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/app.css">
 <style>
-  .auth-page { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
-  .auth-main { display: grid; justify-items: center; align-content: start; padding: clamp(24px, 9vh, 96px) var(--s4) var(--s6); gap: var(--s5); }
+  .auth-page { min-height: var(--vh-dyn); display: grid; grid-template-rows: auto 1fr auto; }
+  .auth-main { display: grid; justify-items: center; align-content: start; padding: clamp(24px, 9vh, 96px) max(var(--s4), var(--sai-r)) max(var(--s6), var(--sai-b)) max(var(--s4), var(--sai-l)); gap: var(--s5); }
   .auth-card { width: min(100%, 420px); padding: var(--s5); display: grid; gap: var(--s4); }
   .auth-card .tabs { width: 100%; }
   .auth-card .tabs > button { flex: 1; min-height: 36px; font-size: var(--fs-14); }
@@ -43,8 +43,10 @@
   .auth-submit { width: 100%; min-height: 44px; font-size: var(--fs-16); }
   .auth-submit .spinner { width: 16px; height: 16px; }
   .back { font-size: var(--fs-14); display: inline-flex; gap: 6px; align-items: center; text-decoration: none; min-height: 32px; }
-  .back:hover { text-decoration: underline; }
+  @media (hover: hover) { .back:hover { text-decoration: underline; } }
+  .back:active { text-decoration: underline; }
   @media (max-width: 480px) { .auth-card { padding: var(--s4); } }
+  @media (pointer: coarse) { .auth-card .tabs > button { min-height: 38px; } .back { min-height: 44px; } .pw-toggle { width: 44px; } .pw-toggle::after { content: ""; position: absolute; inset: -2px 0; } .pw-wrap .input { padding-right: 50px; } }
 </style>
 <script src="/assets/i18n.js"></script>
 </head>
@@ -79,13 +81,13 @@
       <form class="auth-form" id="form" role="tabpanel" aria-labelledby="heading" novalidate>
         <div class="field">
           <label for="username" data-i18n="auth.username">Username</label>
-          <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="32" required aria-describedby="user-msg">
+          <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next" maxlength="32" required aria-describedby="user-msg">
           <p class="field-msg" id="user-msg"></p>
         </div>
         <div class="field">
           <label for="password" data-i18n="auth.password">Password</label>
           <div class="pw-wrap">
-            <input class="input" id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required aria-describedby="pass-msg">
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" maxlength="128" required aria-describedby="pass-msg">
             <button type="button" class="icon-btn pw-toggle" id="pw-toggle" aria-pressed="false" data-i18n-attr="aria-label:auth.show;title:auth.show" aria-label="Show password" aria-controls="password"></button>
           </div>
           <p class="field-msg" id="pass-msg"></p>
