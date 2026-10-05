@@ -82,6 +82,9 @@ Modes:
 
 Options:
   --proof                 print a numbered proof after solving
+  --human                 print the human-style proof (EN) after solving
+  --human-json            print the human-style proof as JSON after solving
+  --human-stats <file>    (--corpus) write the human-proof writer's metrics per proof
   --svg <file>            write an SVG figure
   --theme dark|light      figure color scheme (default dark)
   --title <text>          title atop the figure's construction panel
@@ -134,6 +137,9 @@ fn classify_arg(arg: &str) -> ArgKind {
 
 struct Opts {
     proof: bool,
+    human: bool,
+    human_json: bool,
+    human_stats: Option<String>,
     svg_path: Option<String>,
     theme: Theme,
     title: Option<String>,
@@ -166,6 +172,9 @@ fn main() {
     // Split flags/options from positional arguments.
     let mut opts = Opts {
         proof: false,
+        human: false,
+        human_json: false,
+        human_stats: None,
         svg_path: None,
         theme: Theme::Dark,
         title: None,
@@ -189,6 +198,11 @@ fn main() {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--proof" => opts.proof = true,
+            "--human" => opts.human = true,
+            "--human-json" => opts.human_json = true,
+            "--human-stats" => {
+                opts.human_stats = Some(it.next().unwrap_or_else(|| fail("--human-stats needs a file (or - in a child)")))
+            }
             "--trig" => {
                 let m = it.next().unwrap_or_else(|| fail("--trig needs off|fallback|lazy|always"));
                 if !matches!(m.as_str(), "off" | "fallback" | "lazy" | "always") {
@@ -480,11 +494,17 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
     write_svg_if_requested(&compiled.problem, opts);
 
     let start = Instant::now();
-    if opts.proof {
+    let want_human = opts.human || opts.human_json;
+    if opts.proof || want_human {
         match solve_problem_with_proof(&compiled.problem) {
             Ok(Some(report)) => {
                 println!("Proven :-)  ({:.3}s)\n", start.elapsed().as_secs_f64());
-                println!("{report}");
+                if opts.proof {
+                    println!("{report}");
+                }
+                if want_human {
+                    human_report("geo", 0, &compiled.problem, &[], compiled.problem.points.len(), opts);
+                }
                 return;
             }
             Ok(None) => {}
@@ -512,6 +532,11 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
             }
             if opts.proof {
                 print_aux_proof(&compiled.problem, &proof);
+            }
+            if want_human {
+                let aug = apply_constructions(&compiled.problem, &proof.constructions);
+                let aux: Vec<String> = proof.constructions.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+                human_report("geo", 0, &aug, &aux, compiled.problem.points.len(), opts);
             }
         }
         None => {
@@ -961,6 +986,7 @@ fn corpus_bench(file: Option<&String>, opts: &Opts) {
         grace: std::time::Duration::from_secs_f64((c.budget * 0.1).max(5.0)),
         proofs_dir: c.proofs.as_ref().map(Into::into),
         child_flag: "--corpus-one",
+        human_stats: opts.human_stats.is_some(),
     };
     eprintln!(
         "corpus {file}: {} problems, budget {}s, {} jobs x {} threads",
@@ -991,6 +1017,17 @@ fn corpus_bench(file: Option<&String>, opts: &Opts) {
         std::fs::write(out, &tsv).unwrap_or_else(|e| fail(&format!("writing {out}: {e}")));
     } else {
         print!("{tsv}");
+    }
+    if let Some(hs) = &opts.human_stats {
+        let mut body = String::from(HUMAN_HEADER);
+        body.push('\n');
+        for o in &results {
+            for l in &o.human {
+                body.push_str(l.strip_prefix("HUMAN\t").unwrap_or(l));
+                body.push('\n');
+            }
+        }
+        std::fs::write(hs, body).unwrap_or_else(|e| fail(&format!("writing {hs}: {e}")));
     }
     let count = |f: &dyn Fn(&bench::Outcome) -> bool| results.iter().filter(|o| f(o)).count();
     let n = results.len();
@@ -1067,6 +1104,11 @@ fn corpus_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
         opts.corpus.proofs.as_deref().map(std::path::Path::new),
     );
     println!("RESULT\t{}", o.to_tsv());
+    if opts.human || opts.human_json || opts.human_stats.is_some() {
+        for (k, (p, aux, first)) in o.proved_problems.iter().enumerate() {
+            human_report(&o.name, k, p, aux, *first, opts);
+        }
+    }
     if opts.proof {
         for a in &o.aux {
             println!("aux: {a}");
@@ -1074,6 +1116,64 @@ fn corpus_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
         if let Some(p) = &o.proof {
             println!("\n{p}");
         }
+    }
+}
+
+const HUMAN_HEADER: &str = "name\tconj\tavailable\traw_steps\tderived\tblocks\tclaims\tsentences\tchain_links\tchains\tpure_chains\tpooled\tfallback_blocks\tfallback_facts\treproved\tsilent\tpruned\ttheorem\twords_en\tlines_en\tcitations\thuman_cost\tcheck_violations\ttimed_out\tmicros\tpanicked";
+
+fn human_report(name: &str, k: usize, p: &Problem, aux: &[String], first: usize, opts: &Opts) {
+    let infos = ddar::human::aux_infos(p, first, aux);
+    let hopts = ddar::human::Opts::default();
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ddar::quiet_panic::quiet(|| ddar::human::for_problem(p, &infos, &hopts))
+    }));
+    let (hp, trace, deps) = match res {
+        Ok(Some((hp, trace, deps, _))) => (Some(hp), Some(trace), deps),
+        Ok(None) => (None, None, Vec::new()),
+        Err(_) => {
+            if opts.human_stats.is_some() {
+                println!("HUMAN\t{name}\t{k}\tno\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\tno\t0\tyes");
+            }
+            return;
+        }
+    };
+    let (Some(hp), Some(trace)) = (hp, trace) else { return };
+    if opts.human_stats.is_some() {
+        let m = &hp.metrics;
+        println!(
+            "HUMAN\t{name}\t{k}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tno",
+            if hp.available { "yes" } else { "no" },
+            m.raw_steps,
+            m.derived,
+            m.blocks,
+            m.claims,
+            m.sentences,
+            m.chain_links,
+            m.chains,
+            m.pure_chains,
+            m.pooled,
+            m.fallback_blocks,
+            m.fallback_facts,
+            m.reproved,
+            m.silent,
+            m.pruned,
+            m.theorem,
+            m.words_en,
+            m.lines_en,
+            m.citations,
+            m.human_cost,
+            m.check_violations,
+            if m.timed_out { "yes" } else { "no" },
+            m.micros
+        );
+    }
+    if opts.human {
+        println!("\n== human proof ({name}, conjunct {k}) ==");
+        print!("{}", ddar::human::render_en(&trace, &hp, &infos));
+    }
+    if opts.human_json {
+        let closure = trace.closure(&deps);
+        println!("{}", ddar::human::view::engine_json(&trace, &hp, &closure));
     }
 }
 
@@ -1133,6 +1233,7 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
         grace: std::time::Duration::from_secs_f64((budget * 0.1).max(5.0)),
         proofs_dir: Some(proofs_dir.clone()),
         child_flag: "--fuzz-one",
+        human_stats: false,
     };
     eprintln!(
         "running {} cases, budget {budget}s, {} jobs x {} threads; cases in {cases_path}",
@@ -1218,6 +1319,11 @@ fn fuzz_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
         opts.corpus.proofs.as_deref().map(std::path::Path::new),
     );
     println!("RESULT\t{}", o.to_tsv());
+    if opts.human || opts.human_json || opts.human_stats.is_some() {
+        for (k, (p, aux, first)) in o.proved_problems.iter().enumerate() {
+            human_report(&o.name, k, p, aux, *first, opts);
+        }
+    }
     if opts.proof {
         if let Some(p) = &o.proof {
             println!("\n{p}");

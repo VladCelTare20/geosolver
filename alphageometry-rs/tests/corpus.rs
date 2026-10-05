@@ -108,6 +108,7 @@ fn an_overrunning_child_is_killed_at_the_deadline() {
         grace: Duration::from_millis(300),
         proofs_dir: None,
         child_flag: "--corpus-one",
+        human_stats: false,
     };
     let start = std::time::Instant::now();
     let out = run_corpus(&cfg, &[("p".into(), "unused".into())], &|_, _, _| {});

@@ -845,7 +845,7 @@ fn ddar_only(problem: &crate::Problem) -> Attempt {
             status: "engine-panic",
             detail: e,
         },
-        Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux: vec![] },
+        Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux: vec![], problem: problem.clone() },
         Ok(Ok(None)) => Attempt::NotProved {
             status: "unproved",
             detail: "DDAR closure does not reach the goal".into(),
@@ -904,7 +904,7 @@ pub fn solve_case(name: &str, text: &str, budget: Duration, aux: bool) -> Outcom
         p.goal = Some(g.clone());
         let attempt = if aux { prove_goal(&p, deadline) } else { ddar_only(&p) };
         match attempt {
-            Attempt::Proved { proof, aux: a } => {
+            Attempt::Proved { proof, aux: a, .. } => {
                 proofs.push(proof);
                 aux_used.extend(a);
                 if truth[i] != Some(true) {

@@ -57,6 +57,7 @@ pub struct ElimCore {
     /// Rows refused because the figure contradicts them (a rule applied
     /// outside its hypotheses); never added.
     pub rejected: usize,
+    pub fact_rows: Vec<(FactId, LinComb)>,
 }
 
 impl ElimCore {
@@ -133,6 +134,11 @@ impl ElimCore {
     /// Returns `true` if this added new information (a fresh pivot), `false` if
     /// the constraint was already implied or trivial.
     pub fn add_constraint(&mut self, mut added_eq: LinComb, fact: Option<FactId>) -> bool {
+        if self.track {
+            if let Some(f) = fact {
+                self.fact_rows.push((f, added_eq.clone()));
+            }
+        }
         let mut new_deps: Vec<FactId> = match fact {
             Some(f) if self.track => vec![f],
             _ => Vec::new(),

@@ -62,6 +62,8 @@ dependencies = [
  "proptest",
  "rayon",
  "rustc-hash",
+ "serde",
+ "serde_json",
  "smallvec",
 ]
 

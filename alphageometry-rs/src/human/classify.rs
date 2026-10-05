@@ -1,0 +1,613 @@
+use super::ctx::{Ctx, FactClass};
+use super::model::{Expr, Stmt, TheoremKey};
+use super::trace::Table;
+use crate::elimination::ANGLE_UNIT;
+use crate::lincomb::LinComb;
+use crate::predicate::{PointId, Predicate};
+use crate::proof::{FactId, Reason};
+use crate::rational::Rat;
+
+#[derive(Clone, Debug)]
+pub struct Split {
+    pub l: Expr,
+    pub r: Expr,
+    pub lraw: LinComb,
+    pub rraw: LinComb,
+}
+
+#[derive(Clone, Debug)]
+pub struct Target {
+    pub table: Table,
+    pub row: LinComb,
+    pub splits: Vec<Split>,
+    pub stmt: Stmt,
+}
+
+#[derive(Clone, Debug)]
+pub struct Obl {
+    pub label: &'static str,
+    pub targets: Vec<Target>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Cyclic,
+    Coll,
+    Sim,
+    Congruent,
+    Cong,
+    Angle,
+    Theorem(TheoremKey),
+    Formula(TheoremKey),
+    Merge,
+    Other,
+}
+
+pub fn fact_points(cx: &Ctx, f: FactId) -> Vec<PointId> {
+    let mut v: Vec<PointId> = match &cx.t.facts[f as usize].reason {
+        Reason::Concyclic(p) | Reason::Collinear(p) | Reason::Theorem(_, p) | Reason::Formula(_, _, p) => p.clone(),
+        Reason::SimilarTriangles(a, b) => vec![a.0, a.1, a.2, b.0, b.1, b.2],
+        Reason::EqualRadius(o, p) => {
+            let mut x = vec![*o];
+            x.extend(p.iter().copied());
+            x
+        }
+        Reason::PointMerge(a, b) | Reason::TangentMerge(a, b) => vec![*a, *b],
+        Reason::TransferAddMul(a, b) | Reason::TransferArcChord(a, b) => vec![a.0, a.1, b.0, b.1],
+        Reason::Assumption(_) | Reason::Construction(_) => cx.hyp_pred.get(&f).map(|p| p.points.clone()).unwrap_or_default(),
+    };
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+pub fn ratio_one(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, PointId, PointId)) -> bool {
+    let t = cx.t;
+    let a = t.dist(t1.0, t1.1);
+    let b = t.dist(t2.0, t2.1);
+    a > 0.0 && ((a - b) / a).abs() < 1e-9
+}
+
+pub fn theorem_key(name: &str) -> TheoremKey {
+    match name {
+        "radical axis" => TheoremKey::RadicalAxis,
+        "angle bisector theorem" => TheoremKey::AngleBisectorThm,
+        "angle bisector theorem (converse)" => TheoremKey::AngleBisectorThmConverse,
+        "Monge–d'Alembert" => TheoremKey::Monge,
+        "homothety at a centre of similitude" => TheoremKey::Homothety,
+        "Menelaus' theorem" => TheoremKey::Menelaus,
+        "Menelaus' theorem (converse)" => TheoremKey::MenelausConverse,
+        "Ceva's theorem (converse)" => TheoremKey::CevaConverse,
+        "angle bisectors concur (incentre/excentre)" => TheoremKey::BisectorConcurrency,
+        "equality case of the triangle inequality" => TheoremKey::TriangleEquality,
+        "perpendicular ⇒ squared lengths (Pythagoras)" => TheoremKey::Pythagoras,
+        "perpendicular from squared lengths" => TheoremKey::PerpFromSquares,
+        "squares of proportional lengths" => TheoremKey::SquaresOfRatio,
+        "Stewart's theorem" => TheoremKey::Stewart,
+        "lengths from squared lengths" => TheoremKey::LengthsFromSquares,
+        "law of sines" => TheoremKey::LawOfSines,
+        "equal or supplementary angles have equal sines" => TheoremKey::EqualSines,
+        "double-angle formula" => TheoremKey::DoubleAngle,
+        "triple-angle formula" => TheoremKey::TripleAngle,
+        "law of sines, converse" => TheoremKey::SinesConverse,
+        n if n.starts_with("sine of") => TheoremKey::SineConst,
+        n if n.starts_with("intercept theorem") => TheoremKey::Intercept,
+        _ => TheoremKey::Other,
+    }
+}
+
+pub fn kind(cx: &Ctx, f: FactId) -> Kind {
+    match &cx.t.facts[f as usize].reason {
+        Reason::Concyclic(_) => Kind::Cyclic,
+        Reason::Collinear(_) => Kind::Coll,
+        Reason::SimilarTriangles(a, b) => {
+            if ratio_one(cx, *a, *b) {
+                Kind::Congruent
+            } else {
+                Kind::Sim
+            }
+        }
+        Reason::TransferArcChord(..) => Kind::Cong,
+        Reason::Theorem(name, _) => Kind::Theorem(theorem_key(name)),
+        Reason::Formula(name, _, _) => Kind::Formula(theorem_key(name)),
+        Reason::PointMerge(..) | Reason::TangentMerge(..) => Kind::Merge,
+        _ => Kind::Other,
+    }
+}
+
+pub fn opposite(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, PointId, PointId)) -> bool {
+    cx.t.orient(t1.0, t1.1, t1.2) != cx.t.orient(t2.0, t2.1, t2.2)
+}
+
+pub fn fact_stmt(cx: &Ctx, f: FactId) -> Stmt {
+    let t = cx.t;
+    match &t.facts[f as usize].reason {
+        Reason::Concyclic(p) => Stmt::Cyclic { pts: p.clone() },
+        Reason::Collinear(p) => Stmt::Coll { pts: p.clone() },
+        Reason::SimilarTriangles(a, b) => {
+            let opp = opposite(cx, *a, *b);
+            if ratio_one(cx, *a, *b) {
+                Stmt::Congruent { t1: *a, t2: *b, opposite: opp }
+            } else {
+                Stmt::Sim { t1: *a, t2: *b, opposite: opp }
+            }
+        }
+        Reason::EqualRadius(o, p) => Stmt::Cong { s1: (*o, p[0]), s2: (*o, *p.last().unwrap_or(&p[0])) },
+        Reason::PointMerge(a, b) | Reason::TangentMerge(a, b) => Stmt::Coincide { a: *a, b: *b },
+        Reason::TransferAddMul(a, b) => {
+            let r = t.dist(b.0, b.1) / t.dist(a.0, a.1).max(1e-300);
+            match small_rational(r) {
+                Some(q) if q.is_one() => Stmt::Cong { s1: *a, s2: *b },
+                Some(q) => Stmt::RatioConst { s1: *b, s2: *a, value: q },
+                None => Stmt::Cong { s1: *a, s2: *b },
+            }
+        }
+        Reason::TransferArcChord(a, b) => {
+            if t.rows_of(Table::Ratio, f).next().is_some() {
+                Stmt::Cong { s1: *a, s2: *b }
+            } else {
+                Stmt::Formula { text: "arcs".into(), pts: vec![a.0, a.1, b.0, b.1] }
+            }
+        }
+        Reason::Theorem(name, p) => match *name {
+            "radical axis" | "Monge–d'Alembert" | "Menelaus' theorem (converse)" | "equality case of the triangle inequality" => {
+                Stmt::Coll { pts: p.clone() }
+            }
+            "angle bisector theorem (converse)" if p.len() == 4 => Stmt::EqAngle {
+                lhs: Expr::Angle { a: p[2], b: p[0], c: p[1], directed: false },
+                rhs: Expr::Angle { a: p[1], b: p[0], c: p[3], directed: false },
+            },
+            "perpendicular from squared lengths" if p.len() == 4 => Stmt::Perp { l1: (p[0], p[1]), l2: (p[2], p[3]) },
+            _ => Stmt::Formula { text: name.to_string(), pts: p.clone() },
+        },
+        Reason::Formula(name, text, p) => Stmt::Formula { text: format!("{name}: {text}"), pts: p.clone() },
+        Reason::Assumption(_) | Reason::Construction(_) => cx.hyp_pred.get(&f).map(|p| pred_stmt(p)).unwrap_or(Stmt::Formula { text: String::new(), pts: vec![] }),
+    }
+}
+
+pub fn small_rational(r: f64) -> Option<Rat> {
+    if !r.is_finite() || r <= 0.0 {
+        return None;
+    }
+    for q in 1..=12i64 {
+        let p = (r * q as f64).round();
+        if p >= 1.0 && (p / q as f64 - r).abs() < 1e-6 * r.max(1.0) {
+            return Some(Rat::new(p as i64, q));
+        }
+    }
+    None
+}
+
+pub fn pred_stmt(p: &Predicate) -> Stmt {
+    let q = &p.points;
+    let pair = |i: usize| (q[i], q[i + 1]);
+    match p.name.as_str() {
+        "coll" => Stmt::Coll { pts: q.clone() },
+        "cyclic" => Stmt::Cyclic { pts: q.clone() },
+        "perp" if q.len() == 4 => Stmt::Perp { l1: pair(0), l2: pair(2) },
+        "para" if q.len() == 4 => Stmt::Para { l1: pair(0), l2: pair(2) },
+        "cong" if q.len() == 4 => Stmt::Cong { s1: pair(0), s2: pair(2) },
+        "eqangle" if q.len() == 8 => Stmt::EqAngle { lhs: line_angle_expr(pair(0), pair(2)), rhs: line_angle_expr(pair(4), pair(6)) },
+        "eqratio" if q.len() == 8 => Stmt::EqRatio { segs: vec![pair(0), pair(2), pair(4), pair(6)] },
+        "rconst" if q.len() == 4 => Stmt::RatioConst { s1: pair(0), s2: pair(2), value: p.constants.first().cloned().unwrap_or_else(Rat::one) },
+        "aconst" | "s_angle" if q.len() == 4 => Stmt::AngleConst {
+            angle: line_angle_expr(pair(2), pair(0)),
+            degrees: p.constants.first().cloned().unwrap_or_else(Rat::zero),
+        },
+        _ => Stmt::Formula { text: p.name.clone(), pts: q.clone() },
+    }
+}
+
+pub fn line_angle_expr(l1: (PointId, PointId), l2: (PointId, PointId)) -> Expr {
+    let common = [l1.0, l1.1].into_iter().find(|p| *p == l2.0 || *p == l2.1);
+    match common {
+        Some(v) => {
+            let x = if l1.0 == v { l1.1 } else { l1.0 };
+            let z = if l2.0 == v { l2.1 } else { l2.0 };
+            if x == z {
+                Expr::LineAngle { l1, l2, directed: true }
+            } else {
+                Expr::Angle { a: x, b: v, c: z, directed: true }
+            }
+        }
+        None => Expr::LineAngle { l1, l2, directed: true },
+    }
+}
+
+pub fn ang_expr(a: PointId, b: PointId, c: PointId) -> Expr {
+    Expr::Angle { a, b, c, directed: true }
+}
+
+pub fn angle_target(cx: &Ctx, l: Expr, r: Expr, stmt: Stmt) -> Option<Target> {
+    let (_, lraw) = super::expr::eval(cx.t, &l)?;
+    let (_, rraw) = super::expr::eval(cx.t, &r)?;
+    let raw = &lraw - &rraw;
+    if !cx.t.holds(Table::Angle, &raw) {
+        return None;
+    }
+    Some(Target { table: Table::Angle, row: cx.t.exact(Table::Angle, &raw), splits: vec![Split { l, r, lraw, rraw }], stmt })
+}
+
+pub fn ratio_target(cx: &Ctx, l: Expr, r: Expr, stmt: Stmt) -> Option<Target> {
+    let (_, lraw) = super::expr::eval(cx.t, &l)?;
+    let (_, rraw) = super::expr::eval(cx.t, &r)?;
+    let raw = &lraw - &rraw;
+    if !cx.t.holds(Table::Ratio, &raw) {
+        return None;
+    }
+    Some(Target { table: Table::Ratio, row: raw, splits: vec![Split { l, r, lraw, rraw }], stmt })
+}
+
+fn seg(a: PointId, b: PointId) -> Expr {
+    Expr::Seg { a, b }
+}
+
+fn quot(num: Vec<Expr>, den: Vec<Expr>) -> Expr {
+    let mut f: Vec<(Expr, i32)> = num.into_iter().map(|e| (e, 1)).collect();
+    f.extend(den.into_iter().map(|e| (e, -1)));
+    Expr::Prod { factors: f }
+}
+
+pub fn cyclic_targets(cx: &Ctx, p: &[PointId]) -> Option<Vec<Target>> {
+    if p.len() < 4 {
+        return Some(Vec::new());
+    }
+    let mut out = Vec::new();
+    for j in 3..p.len() {
+        let q = [p[0], p[1], p[2], p[j]];
+        let stmt = Stmt::Cyclic { pts: q.to_vec() };
+        let mut t: Option<Target> = None;
+        for (a, b, c, d) in [(q[0], q[1], q[2], q[3]), (q[0], q[2], q[1], q[3]), (q[0], q[3], q[1], q[2]), (q[1], q[2], q[0], q[3]), (q[1], q[3], q[0], q[2]), (q[2], q[3], q[0], q[1])] {
+            if let Some(x) = angle_target(cx, ang_expr(a, c, b), ang_expr(a, d, b), stmt.clone()) {
+                match &mut t {
+                    None => t = Some(x),
+                    Some(t0) => {
+                        if t0.row == x.row || t0.row == x.row.negated() {
+                            t0.splits.extend(x.splits);
+                        }
+                    }
+                }
+            }
+        }
+        out.push(t?);
+    }
+    Some(out)
+}
+
+pub fn coll_targets(cx: &Ctx, p: &[PointId], pivot: usize) -> Option<Vec<Target>> {
+    if p.len() < 3 {
+        return Some(Vec::new());
+    }
+    let mut out = Vec::new();
+    let v = p[pivot.min(p.len() - 1)];
+    let rest: Vec<PointId> = p.iter().copied().filter(|&x| x != v).collect();
+    let a = rest[0];
+    for &c in &rest[1..] {
+        if cx.collinear_hyp(&[v, a, c]) {
+            continue;
+        }
+        let stmt = Stmt::Coll { pts: vec![a, v, c] };
+        out.push(angle_target(cx, ang_expr(a, v, c), Expr::Const { degrees: Rat::zero() }, stmt)?);
+    }
+    Some(out)
+}
+
+pub fn sim_obligations(cx: &Ctx, t1: (PointId, PointId, PointId), t2: (PointId, PointId, PointId)) -> Vec<Obl> {
+    let (a, b, c) = t1;
+    let (x, y, z) = t2;
+    let opp = opposite(cx, t1, t2);
+    let st = Stmt::Sim { t1, t2, opposite: opp };
+    let angle_at = |p: PointId, q: PointId, r: PointId, pp: PointId, qq: PointId, rr: PointId| -> Option<Target> {
+        let l = ang_expr(q, p, r);
+        let rexp = if opp { ang_expr(rr, pp, qq) } else { ang_expr(qq, pp, rr) };
+        angle_target(cx, l, rexp, Stmt::EqAngle { lhs: ang_expr(q, p, r), rhs: if opp { ang_expr(rr, pp, qq) } else { ang_expr(qq, pp, rr) } })
+    };
+    let ratio_at = |p: PointId, q: PointId, r: PointId, pp: PointId, qq: PointId, rr: PointId| -> Option<Target> {
+        ratio_target(
+            cx,
+            quot(vec![seg(p, q)], vec![seg(p, r)]),
+            quot(vec![seg(pp, qq)], vec![seg(pp, rr)]),
+            Stmt::EqRatio { segs: vec![(p, q), (p, r), (pp, qq), (pp, rr)] },
+        )
+    };
+    let _ = st;
+    let mut out = Vec::new();
+    let a1 = angle_at(a, b, c, x, y, z);
+    let a2 = angle_at(b, a, c, y, x, z);
+    let a3 = angle_at(c, a, b, z, x, y);
+    let r1 = ratio_at(a, b, c, x, y, z);
+    let r2 = ratio_at(b, a, c, y, x, z);
+    let r3 = ratio_at(c, a, b, z, x, y);
+    if let (Some(p), Some(q)) = (&a1, &a2) {
+        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()] });
+    }
+    if let (Some(p), Some(q)) = (&a1, &a3) {
+        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()] });
+    }
+    if let (Some(p), Some(q)) = (&a2, &a3) {
+        out.push(Obl { label: "AA", targets: vec![p.clone(), q.clone()] });
+    }
+    for (aa, rr) in [(&a1, &r1), (&a2, &r2), (&a3, &r3)] {
+        if let (Some(p), Some(q)) = (aa, rr) {
+            out.push(Obl { label: "SAS", targets: vec![p.clone(), q.clone()] });
+        }
+    }
+    if let (Some(p), Some(q)) = (&r1, &r2) {
+        out.push(Obl { label: "SSS", targets: vec![p.clone(), q.clone()] });
+    }
+    out
+}
+
+pub fn parse_angles(text: &str, pts: &[PointId]) -> Vec<(Rat, (PointId, PointId, PointId, PointId))> {
+    let mut out = Vec::new();
+    let b = text.as_bytes();
+    let mut i = 0;
+    let num = |s: &str, k: &mut usize| -> Option<usize> {
+        let bs = s.as_bytes();
+        if bs.get(*k) != Some(&b'{') {
+            return None;
+        }
+        let start = *k + 1;
+        let mut e = start;
+        while e < bs.len() && bs[e].is_ascii_digit() {
+            e += 1;
+        }
+        if bs.get(e) != Some(&b'}') {
+            return None;
+        }
+        let n = s[start..e].parse().ok()?;
+        *k = e + 1;
+        Some(n)
+    };
+    let marker = "∠(";
+    while let Some(off) = text[i..].find(marker) {
+        let mut k = i + off + marker.len();
+        let parsed = (|| -> Option<(usize, usize, usize, usize, usize)> {
+            let p0 = num(text, &mut k)?;
+            let p1 = num(text, &mut k)?;
+            if b.get(k) != Some(&b',') {
+                return None;
+            }
+            k += 1;
+            let p2 = num(text, &mut k)?;
+            let p3 = num(text, &mut k)?;
+            if b.get(k) != Some(&b')') {
+                return None;
+            }
+            k += 1;
+            Some((p0, p1, p2, p3, k))
+        })();
+        match parsed {
+            Some((p0, p1, p2, p3, end)) => {
+                let mut shift = Rat::zero();
+                let rest = &text[end..];
+                if let Some(r) = rest.strip_prefix(" + ") {
+                    if let Some(deg_end) = r.find('°') {
+                        if let Ok(d) = r[..deg_end].trim().parse::<i64>() {
+                            shift = Rat::new(d, 180);
+                        }
+                    }
+                }
+                let g = |i: usize| pts.get(i).copied();
+                if let (Some(a), Some(bb), Some(c), Some(d)) = (g(p0), g(p1), g(p2), g(p3)) {
+                    out.push((shift, (a, bb, c, d)));
+                }
+                i = end;
+            }
+            None => i = i + off + marker.len(),
+        }
+    }
+    out
+}
+
+pub fn formula_obligation(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
+    let Reason::Formula(name, text, pts) = &cx.t.facts[f as usize].reason else { return None };
+    let key = theorem_key(name);
+    let angs = parse_angles(text, pts);
+    let t = cx.t;
+    let raw = |(a, b, c, d): (PointId, PointId, PointId, PointId)| -> Option<LinComb> { Some(&t.dir(c, d)? - &t.dir(a, b)?) };
+    let line = |(a, b, c, d): (PointId, PointId, PointId, PointId)| line_angle_expr((a, b), (c, d));
+    let with_shift = |e: Expr, s: &Rat| -> Expr {
+        if s.is_zero() {
+            e
+        } else {
+            Expr::Lin { terms: vec![(Rat::one(), e), (Rat::one(), Expr::Const { degrees: s * &Rat::from_int(180) })] }
+        }
+    };
+    let pick = |l: Expr, r1: Expr, r2: Expr| -> Option<Target> {
+        let stmt1 = Stmt::EqAngle { lhs: l.clone(), rhs: r1.clone() };
+        angle_target(cx, l.clone(), r1, stmt1).or_else(|| {
+            let stmt2 = Stmt::EqAngle { lhs: l.clone(), rhs: r2.clone() };
+            angle_target(cx, l, r2, stmt2)
+        })
+    };
+    let neg = |e: Expr| Expr::Lin { terms: vec![(Rat::from_int(-1), e)] };
+    let target = match key {
+        TheoremKey::EqualSines if angs.len() >= 2 => {
+            let (s, x) = angs[0].clone();
+            let (_, y) = angs[1].clone();
+            raw(x)?;
+            raw(y)?;
+            pick(with_shift(line(x), &s), line(y), neg(line(y)))
+        }
+        TheoremKey::DoubleAngle | TheoremKey::TripleAngle if angs.len() >= 2 => {
+            let n = if key == TheoremKey::DoubleAngle { 2 } else { 3 };
+            let (s, x) = angs[0].clone();
+            let (_, y) = angs[1].clone();
+            let lx = Expr::Lin { terms: vec![(Rat::from_int(n), with_shift(line(x), &s))] };
+            pick(lx, line(y), neg(line(y)))
+        }
+        TheoremKey::SineConst if !angs.is_empty() => {
+            let (s, x) = angs[0].clone();
+            let deg: i64 = name.trim_start_matches("sine of ").trim_end_matches('°').parse().ok()?;
+            let c = Expr::Const { degrees: Rat::from_int(deg) };
+            let c2 = Expr::Const { degrees: Rat::from_int(180 - deg) };
+            pick(with_shift(line(x), &s), c, c2)
+        }
+        TheoremKey::LawOfSines => return Some(Vec::new()),
+        _ => return None,
+    }?;
+    Some(vec![Obl { label: "angles", targets: vec![target] }])
+}
+
+pub fn goal_obligations(cx: &Ctx, g: &Predicate) -> Vec<Obl> {
+    let p = &g.points;
+    let pair = |i: usize| (p[i], p[i + 1]);
+    let stmt = pred_stmt(g);
+    let la = line_angle_expr;
+    let mut out = Vec::new();
+    match g.name.as_str() {
+        "coll" => {
+            for pivot in 0..p.len().min(3) {
+                if let Some(t) = coll_targets(cx, p, pivot) {
+                    out.push(Obl { label: "coll", targets: t });
+                }
+            }
+        }
+        "cyclic" => {
+            if let Some(t) = cyclic_targets(cx, p) {
+                out.push(Obl { label: "cyclic", targets: t });
+            }
+        }
+        "eqangle" if p.len() == 8 => {
+            let l = line_angle_expr(pair(0), pair(2));
+            let r = line_angle_expr(pair(4), pair(6));
+            if let Some(t) = angle_target(cx, l, r, stmt.clone()) {
+                out.push(Obl { label: "eqangle", targets: vec![t] });
+            }
+        }
+        "para" if p.len() == 4 => {
+            if let Some(t) = angle_target(cx, la(pair(2), pair(0)), Expr::Const { degrees: Rat::zero() }, stmt.clone()) {
+                out.push(Obl { label: "para", targets: vec![t] });
+            }
+        }
+        "perp" if p.len() == 4 => {
+            if let Some(t) = angle_target(cx, la(pair(2), pair(0)), Expr::Const { degrees: Rat::from_int(90) }, stmt.clone()) {
+                out.push(Obl { label: "perp", targets: vec![t] });
+            }
+        }
+        "aconst" | "s_angle" if p.len() == 4 => {
+            let d = g.constants.first().cloned().unwrap_or_else(Rat::zero);
+            if let Some(t) = angle_target(cx, la(pair(2), pair(0)), Expr::Const { degrees: d }, stmt.clone()) {
+                out.push(Obl { label: "aconst", targets: vec![t] });
+            }
+        }
+        "cong" if p.len() == 4 => {
+            if let Some(t) = ratio_target(cx, seg(p[0], p[1]), seg(p[2], p[3]), stmt.clone()) {
+                out.push(Obl { label: "cong", targets: vec![t] });
+            }
+        }
+        "eqratio" if p.len() == 8 => {
+            if let Some(t) = ratio_target(cx, quot(vec![seg(p[0], p[1])], vec![seg(p[2], p[3])]), quot(vec![seg(p[4], p[5])], vec![seg(p[6], p[7])]), stmt.clone()) {
+                out.push(Obl { label: "eqratio", targets: vec![t] });
+            }
+        }
+        "rconst" if p.len() == 4 => {
+            let k = g.constants.first().cloned().unwrap_or_else(Rat::one);
+            let mut den = vec![(seg(p[2], p[3]), 1)];
+            if !k.is_one() {
+                den.insert(0, (Expr::Num { value: k.clone() }, 1));
+            }
+            let mut f = vec![(seg(p[0], p[1]), 1)];
+            f.extend(den.into_iter().map(|(e, _)| (e, -1)));
+            if let Some(t) = ratio_target(cx, Expr::Prod { factors: f }, Expr::Num { value: Rat::one() }, stmt.clone()) {
+                out.push(Obl { label: "rconst", targets: vec![t] });
+            }
+        }
+        _ => {}
+    }
+    let _ = ANGLE_UNIT;
+    out
+}
+
+pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
+    let t = cx.t;
+    match &t.facts[f as usize].reason {
+        Reason::Concyclic(p) => {
+            let mut out = Vec::new();
+            if let Some(ts) = cyclic_targets(cx, p) {
+                out.push(Obl { label: "inscribed", targets: ts });
+            }
+            Some(out)
+        }
+        Reason::Collinear(p) => {
+            let mut out = Vec::new();
+            for pivot in 0..p.len().min(3) {
+                if let Some(ts) = coll_targets(cx, p, pivot) {
+                    out.push(Obl { label: "coll", targets: ts });
+                }
+            }
+            Some(out)
+        }
+        Reason::SimilarTriangles(a, b) => Some(sim_obligations(cx, *a, *b)),
+        Reason::TransferArcChord(ab, cd) => {
+            let (a, b, c, d) = (ab.0, ab.1, cd.0, cd.1);
+            if t.rows_of(Table::Ratio, f).next().is_some() {
+                let mut out = Vec::new();
+                for circle in &cx.circles {
+                    if circle.fact >= f || ![a, b, c, d].iter().all(|x| circle.pts.contains(x)) {
+                        continue;
+                    }
+                    for &z in &circle.pts {
+                        if z == a || z == b {
+                            continue;
+                        }
+                        for &w in &circle.pts {
+                            if w == c || w == d {
+                                continue;
+                            }
+                            for (l, r) in [(ang_expr(a, z, b), ang_expr(c, w, d)), (ang_expr(a, z, b), ang_expr(d, w, c))] {
+                                let st = Stmt::EqAngle { lhs: l.clone(), rhs: r.clone() };
+                                if let Some(tg) = angle_target(cx, l, r, st) {
+                                    out.push(Obl { label: "arcs", targets: vec![tg] });
+                                }
+                            }
+                        }
+                    }
+                }
+                Some(out)
+            } else {
+                ratio_target(cx, seg(a, b), seg(c, d), Stmt::Cong { s1: (a, b), s2: (c, d) }).map(|tg| vec![Obl { label: "chords", targets: vec![tg] }])
+            }
+        }
+        Reason::Theorem("radical axis", p) if p.len() == 3 => {
+            let x = p[0];
+            let mut out = Vec::new();
+            let cs: Vec<&super::ctx::CircleObj> = cx.circles.iter().filter(|c| c.fact < f && c.pts.contains(&p[1]) && c.pts.contains(&p[2]) && !c.pts.contains(&x)).collect();
+            let chords = |c: &super::ctx::CircleObj| -> Vec<(PointId, PointId)> {
+                let mut v = Vec::new();
+                for (i, &u) in c.pts.iter().enumerate() {
+                    for &w in &c.pts[i + 1..] {
+                        if cx.line_through(&[x, u, w], f).is_some() {
+                            v.push((u, w));
+                        }
+                    }
+                }
+                v
+            };
+            for (i, c1) in cs.iter().enumerate() {
+                for c2 in &cs[i + 1..] {
+                    for (d1, d2) in chords(c1) {
+                        for (e1, e2) in chords(c2) {
+                            if (d1, d2) == (e1, e2) {
+                                continue;
+                            }
+                            let l = Expr::Prod { factors: vec![(seg(x, d1), 1), (seg(x, d2), 1)] };
+                            let r = Expr::Prod { factors: vec![(seg(x, e1), 1), (seg(x, e2), 1)] };
+                            let st = Stmt::Eq { lhs: l.clone(), rhs: r.clone() };
+                            if let Some(tg) = ratio_target(cx, l, r, st) {
+                                out.push(Obl { label: "powers", targets: vec![tg] });
+                            }
+                        }
+                    }
+                }
+            }
+            Some(out)
+        }
+        Reason::Formula(..) => formula_obligation(cx, f),
+        _ => {
+            let _ = FactClass::Derived;
+            None
+        }
+    }
+}

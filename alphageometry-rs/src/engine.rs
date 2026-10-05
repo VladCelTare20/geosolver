@@ -27,6 +27,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::Entry;
 
 mod classics;
+mod export;
 mod sqlen;
 
 /// A maximal set of collinear points (immutable snapshot).

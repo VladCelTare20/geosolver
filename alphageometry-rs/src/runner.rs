@@ -59,6 +59,27 @@ pub fn solve_problem_with_proof(problem: &Problem) -> Result<Option<String>, Str
     }))
 }
 
+pub fn solve_problem_with_trace(
+    problem: &Problem,
+) -> Result<Option<(String, crate::human::EngineTrace, Vec<crate::proof::FactId>)>, String> {
+    let mut ddar = Ddar::new_tracked(&problem.points);
+    for pred in &problem.preds {
+        ddar.force_pred(pred);
+    }
+    ddar.deduction_closure();
+    let goal = problem
+        .goal
+        .as_ref()
+        .ok_or_else(|| "problem has no goal".to_string())?;
+    if ddar.check_pred_deps(goal).is_none() {
+        trig_fallback(&mut ddar, goal);
+    }
+    Ok(ddar.check_pred_deps(goal).map(|deps| {
+        let text = ddar.render_pred(goal);
+        (ddar.proof_report(&deps, &text), ddar.trace(), deps)
+    }))
+}
+
 /// A parsed entry from the bundled `problems.tsv` dataset.
 pub struct Entry<'a> {
     pub group: &'a str,

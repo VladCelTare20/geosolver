@@ -40,14 +40,14 @@ pub fn eligible_goal(name: &str) -> bool {
 pub(crate) struct TrigState {
     enabled: bool,
     disabled: bool,
-    svar: FxHashMap<(VarId, VarId), DistMul>,
+    pub(super) svar: FxHashMap<(VarId, VarId), DistMul>,
     los_done: FxHashSet<((VarId, VarId), (VarId, VarId))>,
     eq_done: FxHashSet<((VarId, VarId), (VarId, VarId))>,
     known_done: FxHashSet<(VarId, VarId)>,
     /// `|sin|` of an angle class (a reduced angle up to sign), whether or not
     /// a corner of the figure has it.
-    vsvar: FxHashMap<Class, DistMul>,
-    vref: FxHashMap<Class, ClassRef>,
+    pub(super) vsvar: FxHashMap<Class, DistMul>,
+    pub(super) vref: FxHashMap<Class, ClassRef>,
     vlink_done: FxHashSet<(Class, (VarId, VarId))>,
     mult_done: FxHashSet<(Class, u8)>,
     conv_done: FxHashSet<((VarId, VarId), (VarId, VarId), Class)>,
@@ -66,10 +66,10 @@ const MAX_CONVERSE: usize = 200;
 
 /// One corner of a candidate triangle: vertex and the two other points.
 #[derive(Clone, Copy)]
-struct Corner {
-    v: PointId,
-    p: PointId,
-    q: PointId,
+pub(super) struct Corner {
+    pub(super) v: PointId,
+    pub(super) p: PointId,
+    pub(super) q: PointId,
     key: (VarId, VarId),
 }
 
@@ -79,10 +79,10 @@ fn dir_var(a: &Angle) -> Option<VarId> {
 
 /// `(−1)^neg · ((−1)^flip · ∠corner + shift·π)`, the angle a class stands for.
 #[derive(Clone)]
-struct ClassRef {
-    c: Corner,
-    flip: bool,
-    shift: Rat,
+pub(super) struct ClassRef {
+    pub(super) c: Corner,
+    pub(super) flip: bool,
+    pub(super) shift: Rat,
     neg: bool,
 }
 

@@ -47,6 +47,8 @@ pub struct Outcome {
     pub status: String,
     pub detail: String,
     pub proof: Option<String>,
+    pub proved_problems: Vec<(Problem, Vec<String>, usize)>,
+    pub human: Vec<String>,
 }
 
 /// Column header of the results TSV.
@@ -113,6 +115,8 @@ impl Outcome {
             status: f[9].to_string(),
             detail: dash(f[10]),
             proof: None,
+            proved_problems: Vec::new(),
+            human: Vec::new(),
         })
     }
 }
@@ -138,6 +142,7 @@ pub(crate) enum Attempt {
     Proved {
         proof: String,
         aux: Vec<String>,
+        problem: Problem,
     },
     NotProved {
         status: &'static str,
@@ -156,7 +161,7 @@ pub(crate) fn prove_goal(problem: &Problem, deadline: Instant) -> Attempt {
                 detail: e,
             }
         }
-        Ok(Ok(Some(proof))) => return Attempt::Proved { proof, aux: vec![] },
+        Ok(Ok(Some(proof))) => return Attempt::Proved { proof, aux: vec![], problem: problem.clone() },
         Ok(Ok(None)) => {}
     }
     if Instant::now() >= deadline {
@@ -183,7 +188,7 @@ pub(crate) fn prove_goal(problem: &Problem, deadline: Instant) -> Attempt {
         .map(|c| format!("{} = {}", c.name, c.desc))
         .collect();
     match catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(&aug)))) {
-        Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux },
+        Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux, problem: aug },
         _ => Attempt::NotProved {
             status: "proof-missing",
             detail: format!(
@@ -230,6 +235,7 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
         out.goal_numeric = Some(tr.goal_holds);
         let mut proofs: Vec<String> = Vec::new();
         let mut aux: Vec<String> = Vec::new();
+        let mut proved_problems: Vec<(Problem, Vec<String>, usize)> = Vec::new();
         let mut panicked = false;
         let mut failure: Option<(&'static str, String)> = None;
         for g in &tr.goals {
@@ -239,7 +245,7 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
                 prove_goal(&p, deadline)
             } else {
                 match catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(&p)))) {
-                    Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux: vec![] },
+                    Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux: vec![], problem: p.clone() },
                     Err(_) => Attempt::Panicked,
                     _ => Attempt::NotProved {
                         status: "goal-false",
@@ -248,8 +254,9 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
                 }
             };
             match attempt {
-                Attempt::Proved { proof, aux: a } => {
+                Attempt::Proved { proof, aux: a, problem } => {
                     proofs.push(proof);
+                    proved_problems.push((problem, a.clone(), tr.problem.points.len()));
                     aux.extend(a);
                 }
                 Attempt::NotProved { status, detail } => {
@@ -279,6 +286,7 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
         out.method = if aux.is_empty() { "ddar" } else { "aux" }.into();
         out.aux = aux;
         out.proof = Some(proofs.join("\n"));
+        out.proved_problems = proved_problems;
         if !tr.goal_holds {
             out.status = "UNSOUND".into();
             out.detail = "proved a goal that is numerically false".into();
@@ -316,6 +324,7 @@ pub struct RunConfig {
     pub proofs_dir: Option<PathBuf>,
     /// The child mode flag: `--corpus-one` (benchmark) or `--fuzz-one`.
     pub child_flag: &'static str,
+    pub human_stats: bool,
 }
 
 fn rss_mb(pid: u32) -> Option<u64> {
@@ -338,6 +347,9 @@ fn run_child(cfg: &RunConfig, name: &str) -> Outcome {
         .stderr(Stdio::piped());
     if let Some(d) = &cfg.proofs_dir {
         cmd.arg("--proofs").arg(d);
+    }
+    if cfg.human_stats {
+        cmd.arg("--human-stats").arg("-");
     }
     let failed = |status: &str, detail: String| Outcome {
         name: name.to_string(),
@@ -399,6 +411,7 @@ fn run_child(cfg: &RunConfig, name: &str) -> Outcome {
     match result {
         Some(mut o) => {
             o.secs = o.secs.max(0.0);
+            o.human = stdout.lines().filter(|l| l.starts_with("HUMAN\t")).map(str::to_string).collect();
             o
         }
         None => {

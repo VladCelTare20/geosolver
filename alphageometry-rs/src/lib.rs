@@ -30,6 +30,7 @@ pub mod engine;
 pub mod fuzz;
 pub(crate) mod fingerprint;
 pub mod geo;
+pub mod human;
 pub mod lincomb;
 pub mod metric;
 pub mod numerics;
