@@ -328,6 +328,7 @@ impl Fact {
             "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", a(0), a(1)),
             "contri" => format!("\u{25b3}{} \u{2245} \u{25b3}{}", a(0), a(1)),
             "circle" => format!("{} is the circumcenter of \u{25b3}{}", a(0), a(1)),
+            "bisector" => format!("{} lies on the bisector of {}", a(0), a(1)),
             "length" => format!("{} = {}", a(0), a(1)),
             "eqdist" => self.args.join(" = "),
             "coincide" => format!("{} = {}", a(0), a(1)),
@@ -2541,6 +2542,79 @@ pub struct View {
     pub as_drawn: bool,
 }
 
+/// An anonymous point the compiler adds to stand for `bisector(…)`: `x` with
+/// `eqangle V A V X V X V C` (`pred` indexes that hypothesis), and `on`, a
+/// named point of the program on the line V–X.
+struct BisectorHelper {
+    x: u32,
+    pred: usize,
+    on: Option<u32>,
+}
+
+fn bisector_helpers(p: &Problem) -> Vec<BisectorHelper> {
+    let anonymous = |i: u32| p.points.get(i as usize).is_some_and(|q| q.name.starts_with('_'));
+    let mut out = Vec::new();
+    for (i, q) in p.preds.iter().enumerate() {
+        let s = &q.points;
+        if q.name != "eqangle" || s.len() != 8 || !(s[0] == s[2] && s[2] == s[4] && s[4] == s[6] && s[3] == s[5]) {
+            continue;
+        }
+        let (v, x) = (s[0], s[3]);
+        if !anonymous(x) || [s[1], s[7]].contains(&x) || p.goal.as_ref().is_some_and(|g| g.points.contains(&x)) {
+            continue;
+        }
+        if p.preds.iter().enumerate().any(|(j, o)| j != i && o.points.contains(&x) && !(o.name == "coll" && o.points.contains(&v))) {
+            continue;
+        }
+        let on = p
+            .preds
+            .iter()
+            .filter(|o| o.name == "coll" && o.points.contains(&x) && o.points.contains(&v))
+            .flat_map(|o| o.points.iter().copied())
+            .find(|&r| r != x && r != v && !anonymous(r));
+        out.push(BisectorHelper { x, pred: i, on });
+    }
+    out
+}
+
+/// `p` with every helper in `hide` replaced by its named point on the same
+/// line, and the collinearities that only placed it dropped; the helper itself
+/// keeps its slot (ids stay valid) with no coordinates, so it is not drawn.
+fn without_helpers(p: &Problem, hide: &[(u32, u32)], keep_lines: bool) -> Problem {
+    let mut out = p.clone();
+    for &(x, _) in hide {
+        if let Some(pt) = out.points.get_mut(x as usize) {
+            pt.value.x = f64::NAN;
+            pt.value.y = f64::NAN;
+        }
+    }
+    let mut preds: Vec<Predicate> = Vec::new();
+    for q in &p.preds {
+        let mut q = q.clone();
+        for v in q.points.iter_mut() {
+            if let Some(&(_, r)) = hide.iter().find(|(x, _)| x == v) {
+                *v = r;
+            }
+        }
+        if q.name == "coll" {
+            let mut d: Vec<u32> = Vec::new();
+            for &v in &q.points {
+                if !d.contains(&v) {
+                    d.push(v);
+                }
+            }
+            if d.len() < if keep_lines { 2 } else { 3 } {
+                continue;
+            }
+        }
+        if !preds.iter().any(|o| o.name == q.name && o.points == q.points) {
+            preds.push(q);
+        }
+    }
+    out.preds = preds;
+    out
+}
+
 pub fn build(sol: &Solution) -> View {
     let original = Problem::parse(&sol.low_level).ok();
     let (fig_problem, aux_from) = match (&sol.figure, &original) {
@@ -2559,22 +2633,72 @@ pub fn build(sol: &Solution) -> View {
     let names = Names::build(&fig);
     let orig = original.unwrap_or_else(|| fig.clone());
 
-    let points: Vec<PointView> = fig
+    let mut points: Vec<PointView> = fig
         .points
         .iter()
         .enumerate()
         .map(|(i, p)| PointView { name: names.get(&p.name), aux: aux_from.is_some_and(|a| i >= a) })
         .collect();
 
+    let proof = match (&sol.proof, sol.method) {
+        (Some(p), Method::Euclidean) => parse_euclid_proof(p, &fig, &names),
+        (Some(p), _) => {
+            let aux_names: HashSet<String> = points.iter().filter(|p| p.aux).map(|p| p.name.clone()).collect();
+            parse_ddar_proof(p, &fig, &names, &aux_names)
+        }
+        (None, _) => ProofView { steps: vec![], conclusion: None, style: "none" },
+    };
+    let mut aux: Vec<AuxView> = sol.aux_constructions.iter().map(|a| aux_view(a, &names)).collect();
+    for i in &introduced {
+        aux.push(AuxView { name: names.get(&i.raw), kind: i.kind.to_string(), args: i.args.clone(), text: i.text.clone() });
+    }
+
+    let mut cited: HashSet<String> = HashSet::new();
+    for st in &proof.steps {
+        cited.extend(st.fact.points.iter().cloned());
+        for s in &st.subs {
+            cited.extend(s.fact.points.iter().cloned());
+        }
+    }
+    if let Some(c) = &proof.conclusion {
+        cited.extend(c.points.iter().cloned());
+    }
+    let helpers = bisector_helpers(&orig);
+    let helper_name = |x: u32| names.get(orig.point_name(x));
+    let needed = |d: &str| cited.contains(d) || aux.iter().any(|a| a.text.contains(d) || a.args.iter().any(|s| s.contains(d)));
+    let hidden: Vec<(String, String)> = helpers
+        .iter()
+        .filter(|h| !needed(&helper_name(h.x)))
+        .filter_map(|h| h.on.map(|r| (orig.point_name(h.x).to_string(), orig.point_name(r).to_string())))
+        .collect();
+    let ids_in = |p: &Problem| -> Vec<(u32, u32)> {
+        let id = |raw: &str| p.points.iter().position(|q| q.name == raw).map(|i| i as u32);
+        hidden.iter().filter_map(|(x, r)| Some((id(x)?, id(r)?))).collect()
+    };
+    let given_src = without_helpers(&orig, &ids_in(&orig), false);
+    let defined: Vec<&Predicate> = helpers
+        .iter()
+        .filter(|h| !hidden.iter().any(|(x, _)| x == orig.point_name(h.x)))
+        .map(|h| &orig.preds[h.pred])
+        .collect();
+    let hidden_names: Vec<String> = hidden.iter().map(|(x, _)| names.get(x)).collect();
+    points.retain(|p| !hidden_names.contains(&p.name));
+
     // Given: the original hypotheses (never the search's aux facts), minus the
     // placeholder `XY = XY` the compiler emits for fixed lengths — those are
     // restated from the program as `XY = 6`.
     let mut given: Vec<Fact> = Vec::new();
-    for pred in &orig.preds {
+    for pred in &given_src.preds {
         if is_tautology(pred) {
             continue;
         }
-        let f = fact_of_pred(&orig, &names, pred);
+        let f = if defined.iter().any(|d| d.name == pred.name && d.points == pred.points) {
+            let n = |i: u32| names.get(given_src.point_name(i));
+            let s = &pred.points;
+            Fact::new("bisector", vec![n(s[3]), pretty_angle(&n, s[0], s[1], s[6], s[7])], vec![n(s[3]), n(s[1]), n(s[0]), n(s[7])])
+        } else {
+            fact_of_pred(&given_src, &names, pred)
+        };
         if !given.contains(&f) {
             given.push(f);
         }
@@ -2639,14 +2763,6 @@ pub fn build(sol: &Solution) -> View {
             }),
     };
 
-    let proof = match (&sol.proof, sol.method) {
-        (Some(p), Method::Euclidean) => parse_euclid_proof(p, &fig, &names),
-        (Some(p), _) => {
-            let aux_names: HashSet<String> = points.iter().filter(|p| p.aux).map(|p| p.name.clone()).collect();
-            parse_ddar_proof(p, &fig, &names, &aux_names)
-        }
-        (None, _) => ProofView { steps: vec![], conclusion: None, style: "none" },
-    };
     let mut proof = proof;
     for st in proof.steps.iter_mut() {
         if let Some((_, user)) = as_written.iter().find(|(e, _)| e.kind == st.fact.kind && e.args == st.fact.args) {
@@ -2657,10 +2773,6 @@ pub fn build(sol: &Solution) -> View {
         if c.kind == "raw" || (c.kind == "formula" && g.kind == "formula" && c.points.iter().all(|p| g.points.contains(p))) {
             *c = g.clone();
         }
-    }
-    let mut aux: Vec<AuxView> = sol.aux_constructions.iter().map(|a| aux_view(a, &names)).collect();
-    for i in &introduced {
-        aux.push(AuxView { name: names.get(&i.raw), kind: i.kind.to_string(), args: i.args.clone(), text: i.text.clone() });
     }
 
     let extras = figure::Extras {
@@ -2678,6 +2790,8 @@ pub fn build(sol: &Solution) -> View {
         None
     };
     let drawn = redrawn.as_ref().unwrap_or(&fig);
+    let trimmed = (!hidden.is_empty()).then(|| without_helpers(drawn, &ids_in(drawn), true));
+    let drawn = trimmed.as_ref().unwrap_or(drawn);
     let svg = if drawn.points.is_empty() {
         String::new()
     } else {
@@ -3212,6 +3326,31 @@ mod tests {
         assert!(v.svg.contains(">H\u{2032}<"), "label missing from figure");
         assert!(v.proof.steps.iter().all(|s| s.n > 0));
         assert!(v.proof.steps.iter().any(|s| !s.deps.is_empty()));
+    }
+
+    #[test]
+    fn a_bisector_helper_the_proof_never_uses_is_neither_given_nor_drawn() {
+        let (_, v) = view("A B C = triangle\nD = meet(bisector(B, A, C), line(B, C))\nprove coll(B, D, C)");
+        let plain: Vec<String> = v.given.iter().map(Fact::plain).collect();
+        assert!(plain.contains(&"\u{2220}BAD = \u{2220}DAC".to_string()), "{plain:?}");
+        assert!(!plain.iter().any(|f| f.contains('P')), "{plain:?}");
+        assert!(!v.points.iter().any(|p| p.name.starts_with('P')), "{:?}", v.points.iter().map(|p| &p.name).collect::<Vec<_>>());
+        assert!(!v.svg.contains(">P\u{2081}<"), "helper labelled in the figure");
+        assert!(v.svg.contains(">D<"));
+    }
+
+    #[test]
+    fn a_bisector_helper_the_proof_cites_is_defined_in_given() {
+        let src = "A B C = triangle\nO = midpoint(B, C)\nM = meet(line(A, B), circle(O, B))\n\
+                   N = meet(line(A, C), circle(O, B))\nR = meet(bisector(B, A, C), bisector(M, O, N))\n\
+                   P = meet(circumcircle(B, M, R), circumcircle(C, N, R))\nprove coll(P, B, C)";
+        let (sol, v) = view(src);
+        assert!(sol.proved);
+        let plain: Vec<String> = v.given.iter().map(Fact::plain).collect();
+        assert!(v.proof.steps.iter().any(|s| s.fact.points.iter().any(|p| p == "P\u{2081}")), "the proof works on line AP\u{2081}");
+        assert!(plain.contains(&"P\u{2081} lies on the bisector of \u{2220}BAC".to_string()), "{plain:?}");
+        assert!(!plain.contains(&"\u{2220}BAP\u{2081} = \u{2220}P\u{2081}AC".to_string()), "{plain:?}");
+        assert!(v.svg.contains(">P\u{2081}<"), "a point the proof cites stays labelled");
     }
 
     #[test]
