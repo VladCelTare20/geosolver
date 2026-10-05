@@ -2672,8 +2672,10 @@ pub fn build(sol: &Solution) -> View {
             .steps
             .iter()
             .any(|st| st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)")));
-    let redrawn = if !as_drawn && introduced.is_empty() && sol.status != Status::Refuted {
-        crate::spread::respread(&fig, aux_from, &sol.input)
+    let refuted = sol.status == Status::Refuted;
+    let goal_in_figure = if refuted { crate::spread::Goal::Fails } else { crate::spread::Goal::Holds };
+    let redrawn = if !as_drawn && introduced.is_empty() && (!refuted || aux_from.is_none()) {
+        crate::spread::respread(&fig, aux_from, &sol.input, goal_in_figure)
     } else {
         None
     };
@@ -2691,7 +2693,7 @@ pub fn build(sol: &Solution) -> View {
         proof,
         aux,
         note: classify_note(sol),
-        counterexample: counterexample(&orig, &names, sol),
+        counterexample: counterexample(redrawn.as_ref().unwrap_or(&orig), &names, sol),
         evidence: numeric_support(sol),
         source_title: source_title(&sol.input),
         svg,
@@ -3198,6 +3200,53 @@ mod tests {
         (sol, v)
     }
 
+    fn dot(svg: &str, n: &str) -> (f64, f64) {
+        let l = svg.lines().find(|l| l.contains("f-dot") && l.contains(&format!("data-p=\"{n}\""))).expect(n);
+        let num = |k: &str| -> f64 {
+            let i = l.find(&format!("{k}=\"")).unwrap() + k.len() + 2;
+            l[i..].split('"').next().unwrap().parse().unwrap()
+        };
+        (num("cx"), num("cy"))
+    }
+
+    fn drawn_triangle(svg: &str) -> [f64; 3] {
+        let (a, b, c) = (dot(svg, "A"), dot(svg, "B"), dot(svg, "C"));
+        let ang = |o: (f64, f64), p: (f64, f64), q: (f64, f64)| {
+            let (ux, uy, vx, vy) = (p.0 - o.0, p.1 - o.1, q.0 - o.0, q.1 - o.1);
+            (ux * vy - uy * vx).abs().atan2(ux * vx + uy * vy).to_degrees()
+        };
+        [ang(a, b, c), ang(b, c, a), ang(c, a, b)]
+    }
+
+    #[test]
+    fn every_triangle_example_is_drawn_acute_whatever_the_verdict() {
+        for (src, status) in [
+            ("A B C = triangle\nO = circumcenter(A, B, C)\nG = centroid(A, B, C)\nH = orthocenter(A, B, C)\nprove coll(O, G, H)", Status::Proved),
+            ("A B C = triangle\nM = midpoint(A, B)\nprove perp(C, M, A, B)", Status::Refuted),
+            ("A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)", Status::HoldsNumerically),
+        ] {
+            let (sol, v) = view(src);
+            assert_eq!(sol.status, status, "{src}");
+            let a = drawn_triangle(&v.svg);
+            assert!(a.iter().all(|x| (30.0..=81.0).contains(x)), "{src}: drawn angles {a:?}");
+        }
+    }
+
+    #[test]
+    fn a_redrawn_counterexample_is_measured_in_the_drawn_figure() {
+        let (_, v) = view("A B C = triangle\nM = midpoint(A, B)\nprove perp(C, M, A, B)");
+        let c = v.counterexample.expect("counterexample");
+        let at = |n: &str| dot(&v.svg, n);
+        let (a, b, cc, m) = (at("A"), at("B"), at("C"), at("M"));
+        let d1 = (cc.1 - m.1).atan2(cc.0 - m.0);
+        let d2 = (b.1 - a.1).atan2(b.0 - a.0);
+        let mut deg = (d1 - d2).to_degrees().rem_euclid(180.0);
+        if deg > 90.0 {
+            deg = 180.0 - deg;
+        }
+        assert!((deg - c.lhs).abs() < 0.5, "drawn {deg}, reported {}", c.lhs);
+    }
+
     #[test]
     fn anonymous_reflection_gets_a_primed_name_everywhere() {
         let (sol, v) = view("A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))");
@@ -3526,15 +3575,9 @@ mod tests {
         );
     }
 
-    fn interior(v: &View, sol: &Solution, a: &str, b: &str, c: &str) -> f64 {
-        let fig = &sol.figure.as_ref().unwrap().problem;
-        let at = |n: &str| {
-            let p = fig.points.iter().find(|p| p.name == n).unwrap().value;
-            (p.x, p.y)
-        };
-        let (p, q, r) = (at(a), at(b), at(c));
+    fn interior(v: &View, a: &str, b: &str, c: &str) -> f64 {
+        let (p, q, r) = (dot(&v.svg, a), dot(&v.svg, b), dot(&v.svg, c));
         let (u, w) = ((p.0 - q.0, p.1 - q.1), (r.0 - q.0, r.1 - q.1));
-        let _ = v;
         ((u.0 * w.0 + u.1 * w.1) / (u.0.hypot(u.1) * w.0.hypot(w.1))).acos().to_degrees()
     }
 
@@ -3546,8 +3589,8 @@ mod tests {
         let c = v.counterexample.as_ref().expect("a counterexample");
         assert_eq!(c.kind, "angles");
         assert_eq!(c.labels, vec!["\u{2220}ABC".to_string(), "\u{2220}BCA".to_string()]);
-        assert!((c.lhs - interior(&v, &sol, "A", "B", "C")).abs() < 1e-6, "{c:?}");
-        assert!((c.rhs - interior(&v, &sol, "B", "C", "A")).abs() < 1e-6, "{c:?}");
+        assert!((c.lhs - interior(&v, "A", "B", "C")).abs() < 0.3, "{c:?}");
+        assert!((c.rhs - interior(&v, "B", "C", "A")).abs() < 0.3, "{c:?}");
         assert!(c.lhs + c.rhs < 180.0, "two angles of one triangle: {c:?}");
     }
 
