@@ -95,6 +95,8 @@ pub struct Request {
     /// Language of the rendered report.
     #[serde(default)]
     pub lang: Lang,
+    #[serde(default)]
+    pub derivation: bool,
 }
 
 impl Request {
@@ -112,6 +114,7 @@ impl Request {
             figure_png_scale: None,
             present: false,
             lang: Lang::En,
+            derivation: false,
         }
     }
 
@@ -533,8 +536,8 @@ fn execute(req: &Request) -> Reply {
     let report = match (&view, req.report) {
         (Some(v), Some(format)) => {
             let bytes = match format {
-                Format::Pdf => render::report_pdf_from_json(v, req.lang),
-                Format::Png => render::report_png_from_json(v, req.lang),
+                Format::Pdf => render::report_pdf_from_json(v, req.lang, req.derivation),
+                Format::Png => render::report_png_from_json(v, req.lang, req.derivation),
             };
             Some(bytes.map(encode).map_err(|e| format!("{e:#}")))
         }

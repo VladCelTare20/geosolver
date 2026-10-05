@@ -193,6 +193,26 @@ fn touch_controls_reach_48px() {
 }
 
 #[test]
+fn human_proof_controls_reach_48px_and_chains_fold_on_phones() {
+    let all = rules(APP_CSS);
+    let coarse: Vec<&Rule> = all.iter().filter(|r| r.media.iter().any(|m| m.contains("pointer: coarse"))).collect();
+    let has = |sel: &str, prop: &str, val: &str| coarse.iter().any(|r| r.selector.split(',').any(|s| s.trim() == sel) && decl(r, prop) == Some(val));
+    assert!(has(".hp-cites .cites", "gap", "12px"), "derivation chips keep their 48px hit areas apart");
+    assert!(has(".hp-why-toggle::after", "inset", "-14px -8px"));
+    assert!(has(".hp-compute-toggle::after", "inset", "-14px -8px"));
+    assert!(has(".menu [role=\"menuitemcheckbox\"]", "min-height", "48px"));
+    let narrow: Vec<&Rule> = all.iter().filter(|r| r.media.iter().any(|m| m.contains("max-width: 599px"))).collect();
+    let at = |sel: &str, prop: &str, val: &str| narrow.iter().any(|r| r.selector.split(',').any(|s| s.trim() == sel) && decl(r, prop) == Some(val));
+    assert!(at(".hp-chain td", "display", "inline"), "a chain becomes stacked lines, never a wide table");
+    assert!(at(".hp-chain .hp-why", "display", "none"), "reasons fold behind \"Show reasons\" on phones");
+    assert!(at(".hp-why-toggle", "display", "inline-block"));
+    for r in all.iter().filter(|r| r.selector.contains(".hp-") && r.selector.contains(":hover")) {
+        assert!(r.media.iter().any(|m| m.contains("hover: hover")), "{} must sit inside @media (hover: hover)", r.selector);
+    }
+    assert!(INDEX_HTML.contains("id=\"ptab-human\"") && INDEX_HTML.contains("id=\"proof-human-panel\"") && INDEX_HTML.contains("id=\"hp-kbd\""));
+}
+
+#[test]
 fn narrow_screens_wrap_instead_of_scrolling_sideways() {
     let all = rules(APP_CSS);
     let plain = |sel: &str, prop: &str, val: &str| all.iter().any(|r| r.media.is_empty() && r.selector.split(',').any(|s| s.trim() == sel) && decl(r, prop).is_some_and(|v| v.contains(val)));

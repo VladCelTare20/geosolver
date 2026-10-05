@@ -58,6 +58,7 @@
     sol: null, geo: "", title: null, steps: null,
     aiCache: {}, aiSeq: 0, history: [], filter: "all", query: "", pendingDeletes: new Map(),
     refining: null, activeHistory: null, stage: null, lastError: null, skew: 0, stalled: false,
+    derivation: store.get("gs.derivation") === "1",
   };
   var STALL_GRACE = 35;
 
@@ -1031,6 +1032,7 @@
       case "proved":
         if (!hasSteps(sol)) return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.immediate") };
         if (v.as_drawn) return { tone: "proved", icon: "check", head: t("v.proved.drawn"), text: t("v.proved.drawn.x") };
+        if (humanOf(sol)) return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.hp") };
         return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
       case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
       case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: tp("v.numeric.x", sol.numeric_samples || (v.evidence && v.evidence.samples) || 0) };
@@ -1086,6 +1088,7 @@
       '<div class="menu" id="export-menu" role="menu" aria-labelledby="export-btn" hidden>' +
       '<button type="button" role="menuitem" data-export="pdf">' + icons.file + "<span>" + esc(t("export.pdf")) + "</span></button>" +
       '<button type="button" role="menuitem" data-export="png">' + icons.image + "<span>" + esc(t("export.png")) + "</span></button>" +
+      (humanOf(sol) ? '<button type="button" role="menuitemcheckbox" class="mi-check" data-derivation aria-checked="' + (S.derivation ? "true" : "false") + '"><span class="mi-box" aria-hidden="true"></span><span>' + esc(t("export.derivation")) + "</span></button>" : "") +
       '<button type="button" role="menuitem" data-export="svg">' + icons.download + "<span>" + esc(t("export.svg")) + "</span></button>" +
       "</div></div></div>";
     var box = $("verdict");
@@ -1115,7 +1118,7 @@
       if (open) menu.querySelector("[role=menuitem]").focus();
     });
     menu.addEventListener("keydown", function (e) {
-      var items = Array.prototype.slice.call(menu.querySelectorAll("[role=menuitem]"));
+      var items = Array.prototype.slice.call(menu.querySelectorAll("[role^=menuitem]"));
       var i = items.indexOf(document.activeElement);
       if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
       else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
@@ -1125,6 +1128,13 @@
       else if (e.key === "Tab") close();
     });
     menu.addEventListener("click", function (e) {
+      var dv = e.target.closest("[data-derivation]");
+      if (dv) {
+        S.derivation = !S.derivation;
+        store.set("gs.derivation", S.derivation ? "1" : "0");
+        dv.setAttribute("aria-checked", S.derivation ? "true" : "false");
+        return;
+      }
       var b = e.target.closest("[data-export]");
       if (!b) return;
       close(true);
@@ -1211,14 +1221,15 @@
     });
   }
 
-  function auxText(a) {
+  function auxText(a, T) {
+    T = T || t;
     var key = "aux." + a.kind;
     var args = (a.args || []).map(function (x) {
       var mm = /^(circumcircle|circle|para|perp|tangent_at|isogonal)\((.*)\)$/.exec(String(x).trim());
       if (mm) {
         var parts = mm[2].split(mm[1] === "isogonal" ? " in " : ",").map(function (s) { return s.trim().replace(/^cent(re|er) /, ""); });
         var k2 = /circ/.test(mm[1]) ? "aux." + mm[1] : "aux.line." + mm[1];
-        var s2 = t(k2);
+        var s2 = T(k2);
         parts.forEach(function (p, i) { s2 = s2.split("{" + i + "}").join(p); });
         if (!/\{\d\}/.test(s2)) return s2;
       }
@@ -1231,7 +1242,7 @@
       if (on.some(function (p) { return a.args[0].indexOf(p) >= 0; })) key = "aux.intersect2";
     }
     if (key === "aux.intersect2" && /^[a-z_]+\(/.test(String((a.args || [])[0] || "").trim())) key = "aux.intersect2_shape";
-    var s = t(key);
+    var s = T(key);
     if (a.kind === "midpoint" || a.kind === "circumcenter" || a.kind === "orthocenter" || a.kind === "parallelogram") {
       var flat = args.join(",").split(",").map(function (x) { return x.trim(); });
       flat.forEach(function (p, i) { s = s.split("{" + i + "}").join(p); });
@@ -1239,10 +1250,21 @@
       args.forEach(function (p, i) { s = s.split("{" + i + "}").join(p); });
     }
     if (/\{\d\}/.test(s)) return a.text;
-    return a.same ? s + t("aux.same", { p: a.same }) : s;
+    return a.same ? s + T("aux.same", { p: a.same }) : s;
   }
 
-  var stepsApi = null;
+  var stepsApi = null, humanApi = null;
+  function humanOf(sol) {
+    var v = (sol && sol.view) || {};
+    return sol && sol.status === "proved" && v.human && v.human.blocks && v.human.blocks.length ? v.human : null;
+  }
+  function jumpToStep(n) {
+    selectProofTab("steps");
+    if (stepsApi) stepsApi.jump(n);
+  }
+  function enAux(a) {
+    return auxText(a, function (k, vv) { return window.i18n.tl("en", k, vv); });
+  }
   function renderProof(sol) {
     var v = sol.view || {};
     var proved = sol.status === "proved" && v.proof && v.proof.steps && v.proof.steps.length;
@@ -1253,23 +1275,40 @@
     proofCard.hidden = !proved;
     if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts, facts) { viewer.highlight(pts, facts); }, describedBy: "proof-kbd" });
     else { $("steps").innerHTML = ""; stepsApi = null; }
+    var human = proved ? humanOf(sol) : null;
+    if (human) humanApi = GS.renderHuman($("human"), human, v, { focus: function (pts, facts) { viewer.highlight(pts, facts); }, jump: jumpToStep, auxText: auxText, describedBy: "hp-kbd" });
+    else { $("human").innerHTML = ""; humanApi = null; }
     var aiOK = !!(proved && S.status && S.status.translate_logged_in && S.status.translate_installed);
-    $("proof-tabs").hidden = !aiOK;
+    var tabs = !!(proved && (human || aiOK));
+    $("ptab-human").hidden = !human;
+    $("ptab-ai").hidden = !aiOK;
+    var st = $("ptab-steps"), stKey = human ? "hp.tab.full" : "proof.tab.steps";
+    st.setAttribute("data-i18n", stKey);
+    st.textContent = t(stKey);
+    $("proof-tabs").hidden = !tabs;
     var panel = $("proof-steps-panel");
-    if (aiOK) { panel.setAttribute("role", "tabpanel"); panel.setAttribute("aria-labelledby", "ptab-steps"); }
+    if (tabs) { panel.setAttribute("role", "tabpanel"); panel.setAttribute("aria-labelledby", "ptab-steps"); }
     else { panel.removeAttribute("role"); panel.removeAttribute("aria-labelledby"); }
-    selectProofTab("steps");
+    selectProofTab(human ? "human" : "steps");
   }
 
+  var PROOF_TABS = ["human", "steps", "ai"];
+  function proofTabs() { return PROOF_TABS.filter(function (k) { return !$("ptab-" + k).hidden; }); }
   function selectProofTab(which) {
-    var steps = which === "steps";
-    $("ptab-steps").setAttribute("aria-selected", steps ? "true" : "false");
-    $("ptab-ai").setAttribute("aria-selected", steps ? "false" : "true");
-    $("ptab-steps").tabIndex = steps ? 0 : -1;
-    $("ptab-ai").tabIndex = steps ? -1 : 0;
-    $("proof-steps-panel").hidden = !steps;
-    $("proof-ai-panel").hidden = steps;
-    if (!steps) loadAi(false);
+    if ($("ptab-" + which).hidden) which = "steps";
+    PROOF_TABS.forEach(function (k) {
+      var on = k === which;
+      $("ptab-" + k).setAttribute("aria-selected", on ? "true" : "false");
+      $("ptab-" + k).tabIndex = on ? 0 : -1;
+      $("proof-" + k + "-panel").hidden = !on;
+    });
+    $("hp-kbd").hidden = which !== "human";
+    $("proof-kbd").hidden = which === "human";
+    if (which === "ai") loadAi(false);
+  }
+  function currentProofTab() {
+    var on = PROOF_TABS.filter(function (k) { return $("ptab-" + k).getAttribute("aria-selected") === "true"; })[0];
+    return on || "steps";
   }
 
   function proofText() {
@@ -1281,6 +1320,11 @@
     if (v.goal) out.push(t("st.prove") + ": " + GS.factText(v.goal), "");
     if (v.aux && v.aux.length) { out.push(t("st.aux") + ":"); v.aux.forEach(function (a) { out.push("- " + a.name + ": " + auxText(a)); }); out.push(""); }
     out.push(t("proof.title") + ":");
+    var human = humanOf(sol);
+    if (human) {
+      out.push(GS.humanText(human, v, { auxText: auxText }), "", tp("hp.copy.trailer", stepCount(sol)));
+      return out.join("\n");
+    }
     (v.proof.steps || []).forEach(function (s) {
       out.push(s.n + ". " + GS.factText(s.fact) + " — " + GS.ruleLabel(s) + (s.deps && s.deps.length ? " [" + s.deps.join(", ") + "]" : ""));
       (s.subs || []).forEach(function (u) { out.push("   • " + GS.factText(u.fact) + " — " + GS.ruleLabel(u)); });
@@ -1311,7 +1355,9 @@
     var v = sol.view;
     var problem = ["Given: " + (v.given || []).map(GS.factText).join("; "), v.goal ? "Prove: " + GS.factText(v.goal) : ""].join("\n");
     var aux = (v.aux || []).map(function (a) { return a.name + " = " + a.text; });
-    api("/api/humanize", { method: "POST", body: { problem: problem, proof: englishProof(), aux: aux, lang: lang } }).then(function (r) {
+    var human = humanOf(sol);
+    var humanEn = human ? GS.humanText(human, v, { lang: "en", auxText: enAux }) : "";
+    api("/api/humanize", { method: "POST", body: { problem: problem, proof: englishProof(), human: humanEn, aux: aux, lang: lang } }).then(function (r) {
       if (seq !== S.aiSeq) return;
       if (!r.ok || !r.data.proof) throw new Error("ai");
       var html = markdown(r.data.proof);
@@ -1540,6 +1586,7 @@
     var sol = S.sol;
     if (!sol) return;
     var label = fmt.toUpperCase();
+    var derivation = !!(S.derivation && humanOf(sol));
     if (fmt === "svg") {
       deliver(new Blob([sol.svg], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg", "SVG", true);
       return;
@@ -1557,7 +1604,7 @@
     };
     var signed = function () {
       if (!sol.signed) return Promise.resolve(null);
-      return post({ signed: sol.signed.body, sig: sol.signed.sig, format: fmt }).then(function (res) { return res.status === 410 ? null : res; });
+      return post({ signed: sol.signed.body, sig: sol.signed.sig, format: fmt, derivation: derivation }).then(function (res) { return res.status === 410 ? null : res; });
     };
     var recache = function () {
       if (!sol.history_id || !(S.status && S.status.signed_in)) return Promise.resolve(null);
@@ -1571,20 +1618,20 @@
       var text = function () { return t("export.resolving", { fmt: label, t: Math.floor((Date.now() - started) / 1000) + "\u00a0s", max: max + "\u00a0s" }); };
       tst = GS.toast(text(), { ms: (max + 60) * 1000, action: t("cancel"), onAction: function () { ctl.abort(); } });
       ticker = setInterval(function () { if (tst && tst.el) tst.el.firstChild.textContent = text(); }, 1000);
-      return post({ input: sol.input, title: sol.title || null, format: fmt });
+      return post({ input: sol.input, title: sol.title || null, format: fmt, derivation: derivation });
     };
     var fail = function (msg) {
       closeToast();
       GS.toast(t("export.failed", { msg: msg }), { ms: 7000 });
     };
-    post({ id: sol.id, format: fmt }).then(function (res) {
+    post({ id: sol.id, format: fmt, derivation: derivation }).then(function (res) {
       if (res.status !== 410) return res;
       return signed().then(function (r2) {
         if (r2) return r2;
         return recache().then(function (id) {
           if (!id) return resolve();
           if (S.sol === sol) sol.id = id;
-          return post({ id: id, format: fmt });
+          return post({ id: id, format: fmt, derivation: derivation });
         });
       });
     }).then(function (res) {
@@ -1924,7 +1971,10 @@
     fit: $("z-fit"), full: $("z-full"), label: $("zoom-label"),
   });
   if (window.ResizeObserver) new ResizeObserver(function () { requestAnimationFrame(paintFigHint); }).observe($("fig-viewport"));
-  viewer.onPoint = function (name) { return stepsApi ? stepsApi.markPoint(name) : []; };
+  viewer.onPoint = function (name) {
+    if (humanApi) humanApi.markPoint(name);
+    return stepsApi ? stepsApi.markPoint(name) : [];
+  };
   viewer.onPointAnnounce = function (name, used) {
     announce(used.length ? t("fig.point", { p: name, steps: used.join(", ") }) : t("fig.point.none", { p: name }));
   };
@@ -2042,11 +2092,16 @@
       if (input) input.focus();
     });
     $("z-svg").addEventListener("click", function () { if (S.sol) exportAs("svg"); });
-    $("ptab-steps").addEventListener("click", function () { selectProofTab("steps"); });
-    $("ptab-ai").addEventListener("click", function () { selectProofTab("ai"); });
-    [$("ptab-steps"), $("ptab-ai")].forEach(function (b) {
+    PROOF_TABS.forEach(function (k) {
+      var b = $("ptab-" + k);
+      b.addEventListener("click", function () { selectProofTab(k); });
       b.addEventListener("keydown", function (e) {
-        if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); var to = b.id === "ptab-steps" ? "ai" : "steps"; selectProofTab(to); $("ptab-" + to).focus(); }
+        var vis = proofTabs(), i = vis.indexOf(k), to = null;
+        if (e.key === "ArrowRight") to = vis[(i + 1) % vis.length];
+        else if (e.key === "ArrowLeft") to = vis[(i - 1 + vis.length) % vis.length];
+        else if (e.key === "Home") to = vis[0];
+        else if (e.key === "End") to = vis[vis.length - 1];
+        if (to) { e.preventDefault(); selectProofTab(to); $("ptab-" + to).focus(); }
       });
     });
     $("ai-regen").addEventListener("click", function () { loadAi(true); });
@@ -2109,10 +2164,10 @@
     paintDocTitle();
     if (S.history.length) renderHistory();
     if (S.sol) {
-      var tab = $("ptab-ai").getAttribute("aria-selected") === "true" ? "ai" : "steps";
+      var tab = currentProofTab();
       renderVerdict(S.sol); renderStatement(S.sol); renderProof(S.sol); renderDetails(S.sol);
       viewer.svg && viewer.svg.setAttribute("aria-label", figureAria(S.sol));
-      if (tab === "ai" && !$("proof-tabs").hidden) selectProofTab("ai");
+      if (!$("proof-tabs").hidden) selectProofTab(tab);
     }
   });
 

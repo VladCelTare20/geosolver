@@ -1,0 +1,114 @@
+{
+  "name": "imo-2004-p1",
+  "golden": "docs/human-proofs/imo-2004-p1.md",
+  "programs": [
+    {"geo": "# IMO 2004 Problem 1\nA B C = triangle\nO = midpoint(B, C)\nM = meet(line(A, B), circle(O, B))\nN = meet(line(A, C), circle(O, B))\nR = meet(bisector(B, A, C), bisector(M, O, N))\nO1 = circumcenter(B, M, R)\nO2 = circumcenter(C, N, R)\nP = meet(circle(B, M, R), circle(C, N, R))\nprove coll(P, B, C)"}
+  ],
+  "human": {
+    "version": 1,
+    "as_drawn": true,
+    "setup": [
+      {"kind": "directed_angles"},
+      {"kind": "circle", "name": "ω", "through": ["B", "C", "M", "N"], "centre": "O", "diameter": ["B", "C"]},
+      {"kind": "circle", "name": "(BMR)", "through": ["B", "M", "R", "P"], "centre": "O₁"},
+      {"kind": "circle", "name": "(CNR)", "through": ["C", "N", "R", "P"], "centre": "O₂"},
+      {"kind": "aux", "point": "F", "aux_index": 0}
+    ],
+    "blocks": [
+      {"id": 1, "kind": "claim", "n": 1,
+       "stmt": {"kind": "cyclic", "args": ["A", "B", "F", "N"], "points": ["A", "B", "F", "N"]},
+       "body": [
+         {"kind": "chain", "directed": true,
+          "terms": ["∡BFA", "90°", "∡BNA"],
+          "links": [
+            {"reasons": [{"kind": "hyp", "stmt": {"kind": "perp", "args": ["BF", "AR"], "points": ["B", "F", "A", "R"]}}]},
+            {"reasons": [{"kind": "atom", "key": "thales", "args": ["B", "C", "ω"],
+                          "stmt": {"kind": "perp", "args": ["BN", "NC"], "points": ["B", "N", "C"]}}]}
+          ]}
+       ],
+       "engine_steps": [31], "points": ["A", "B", "F", "N"], "objects": [{"circle": ["A", "B", "F", "N"]}]},
+      {"id": 2, "kind": "claim", "n": 2,
+       "stmt": {"kind": "cong", "args": ["FB", "FN"], "points": ["F", "B", "N"]},
+       "body": [
+         {"kind": "because",
+          "stmt": {"kind": "eqangle", "args": ["∠BAF", "∠FAN"], "points": ["B", "A", "F", "N"]},
+          "reasons": [{"kind": "hyp", "stmt": {"kind": "bisects", "args": ["AR", "∠BAC"], "points": ["A", "R", "B", "C"]}}]},
+         {"kind": "because",
+          "stmt": {"kind": "cong", "args": ["FB", "FN"], "points": ["F", "B", "N"]},
+          "reasons": [{"kind": "atom", "key": "equal_arcs", "args": ["(ABFN)"]}]}
+       ],
+       "engine_steps": [34], "points": ["F", "B", "N", "A"], "objects": [{"circle": ["A", "B", "F", "N"]}]},
+      {"id": 3, "kind": "claim", "n": 3,
+       "stmt": {"kind": "coll", "args": ["A", "F", "R", "P"], "points": ["A", "F", "R", "P"]},
+       "body": [
+         {"kind": "because",
+          "stmt": {"kind": "formula", "args": ["AM·AB = AN·AC"], "points": ["A", "M", "B", "N", "C"]},
+          "reasons": [{"kind": "atom", "key": "power_of_point", "args": ["A", "ω"]}]},
+         {"kind": "theorem", "key": "radical_axis",
+          "stmt": {"kind": "lies_on", "args": ["A", "RP"], "points": ["A", "R", "P"]}},
+         {"kind": "because",
+          "stmt": {"kind": "lies_on", "args": ["F", "AR"], "points": ["F", "A", "R"]},
+          "reasons": []}
+       ],
+       "engine_steps": [35, 38, 39], "points": ["A", "F", "R", "P", "M", "N", "B", "C"], "objects": [{"line": ["A", "F", "R", "P"]}]},
+      {"id": 4, "kind": "claim", "n": 4,
+       "stmt": {"kind": "contri", "args": ["OBF", "ONF"], "points": ["O", "B", "F", "N"]},
+       "body": [
+         {"kind": "theorem", "key": "cong_sss",
+          "stmt": {"kind": "contri", "args": ["OBF", "ONF"], "points": ["O", "B", "F", "N"]},
+          "reasons": [{"kind": "atom", "key": "radii", "args": ["ω"], "stmt": {"kind": "cong", "args": ["OB", "ON"], "points": ["O", "B", "N"]}},
+                      {"kind": "claim", "n": 2}]},
+         {"kind": "because",
+          "stmt": {"kind": "bisects", "args": ["FO", "∠BFN"], "points": ["F", "O", "B", "N"]},
+          "reasons": [{"kind": "fact", "stmt": {"kind": "contri", "args": ["OBF", "ONF"], "points": ["O", "B", "F", "N"]}}]}
+       ],
+       "engine_steps": [36], "points": ["O", "B", "F", "N"], "objects": []},
+      {"id": 5, "kind": "claim", "n": 5,
+       "stmt": {"kind": "cyclic", "args": ["R", "N", "F", "O"], "points": ["R", "N", "F", "O"]},
+       "body": [
+         {"kind": "chain", "directed": true,
+          "terms": ["∡RFN", "∡BFN + 90°", "2∡FBN + 90°", "2∡RAC + 90°", "∡BAC + 90°", "∡MCN"],
+          "links": [
+            {"reasons": [{"kind": "hyp", "stmt": {"kind": "perp", "args": ["BF", "AR"], "points": ["B", "F", "A", "R"]}}]},
+            {"reasons": [{"kind": "claim", "n": 2}]},
+            {"reasons": [{"kind": "claim", "n": 1}]},
+            {"reasons": [{"kind": "hyp", "stmt": {"kind": "bisects", "args": ["AR", "∠BAC"], "points": ["A", "R", "B", "C"]}}]},
+            {"reasons": [{"kind": "atom", "key": "thales", "args": ["B", "C", "ω"],
+                          "stmt": {"kind": "perp", "args": ["BM", "MC"], "points": ["B", "M", "C"]}}]}
+          ]},
+         {"kind": "chain", "directed": false, "as_drawn": true,
+          "terms": ["∠MCN", "½∠MON", "∠RON"],
+          "links": [
+            {"reasons": [{"kind": "atom", "key": "central_angle", "args": ["ω"]}]},
+            {"reasons": [{"kind": "hyp", "stmt": {"kind": "bisects", "args": ["OR", "∠MON"], "points": ["O", "R", "M", "N"]}}]}
+          ],
+          "then": {"kind": "cyclic", "args": ["R", "N", "F", "O"], "points": ["R", "N", "F", "O"]}}
+       ],
+       "engine_steps": [37], "points": ["R", "N", "F", "O", "B", "A", "C", "M"], "objects": [{"circle": ["R", "N", "F", "O"]}]},
+      {"id": 6, "kind": "conclusion",
+       "stmt": {"kind": "coll", "args": ["P", "B", "C"], "points": ["P", "B", "C"]},
+       "body": [
+         {"kind": "pooled", "table": "angle",
+          "stmt": {"kind": "eqangle", "args": ["∡(PB, AR)", "∡(BC, AR)"], "points": ["P", "B", "C", "A", "R"]},
+          "reasons": [
+            {"kind": "atom", "key": "inscribed", "args": ["(BMRP)"]},
+            {"kind": "claim", "n": 5},
+            {"kind": "atom", "key": "congruent", "args": ["OMR", "ONR"]},
+            {"kind": "claim", "n": 4},
+            {"kind": "claim", "n": 2},
+            {"kind": "hyp", "stmt": {"kind": "perp", "args": ["BF", "AR"], "points": ["B", "F", "A", "R"]}},
+            {"kind": "hyp", "stmt": {"kind": "bisects", "args": ["OR", "∠MON"], "points": ["O", "R", "M", "N"]}},
+            {"kind": "atom", "key": "central_angle", "args": ["ω"]}
+          ]},
+         {"kind": "because",
+          "stmt": {"kind": "para", "args": ["PB", "BC"], "points": ["P", "B", "C"]},
+          "reasons": [{"kind": "claim", "n": 3}]},
+         {"kind": "because",
+          "stmt": {"kind": "lies_on", "args": ["P", "BC"], "points": ["P", "B", "C"]},
+          "reasons": []}
+       ],
+       "engine_steps": [40], "points": ["P", "B", "C", "O"], "objects": [{"line": ["B", "P", "O", "C"]}]}
+    ],
+    "metrics": {"raw_steps": 47, "blocks": 6, "claims": 5, "links": 9, "sentences": 13, "fallbacks": 0, "words_en": 250}
+  }
+}

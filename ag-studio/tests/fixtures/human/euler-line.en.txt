@@ -1,0 +1,13 @@
+∡ denotes directed angles modulo 180°. Let M be the midpoint of BC. Let N be the midpoint of AC.
+
+OM ⟂ BC (OM is the perpendicular bisector of BC). ON ⟂ AC (ON is the perpendicular bisector of AC). MN ∥ AB (MN is a midline of △ABC).
+
+Claim 1. △AHB ∼ △MON.
+
+Proof. △AHB ∼ △MON (AH ∥ MO, both ⟂ BC; HB ∥ ON, both ⟂ AC; AB ∥ MN).
+
+Claim 2. △ABG ∼ △MNG.
+
+Proof. △ABG ∼ △MNG (AB ∥ MN; G = AM ∩ BN).
+
+AH : MO = AB : MN = AG : MG (Claim 1; Claim 2). ∡HAG = ∡OMG (AH ∥ MO). By the SAS similarity criterion, △AHG ∼ △MOG. ∡AGH = ∡MGO (△AHG ∼ △MOG). H, G, O are collinear (A, G, M collinear). ∎

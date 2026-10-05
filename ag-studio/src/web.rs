@@ -1621,6 +1621,8 @@ struct HumanizeReq {
     /// The machine (DDAR) proof to rewrite.
     #[serde(default)]
     proof: String,
+    #[serde(default)]
+    human: String,
     /// Auxiliary constructions the search introduced, if any.
     #[serde(default)]
     aux: Vec<String>,
@@ -1648,6 +1650,7 @@ async fn api_humanize(
     let aux_bytes: usize = req.aux.iter().map(String::len).sum();
     let over_limit = req.problem.len() > max
         || req.proof.len() > 4 * max
+        || req.human.len() > 4 * max
         || req.aux.len() > MAX_AUX_ITEMS
         || aux_bytes > max;
     if over_limit {
@@ -1667,12 +1670,13 @@ async fn api_humanize(
     let HumanizeReq {
         problem,
         proof,
+        human,
         aux,
         ..
     } = req;
     let res = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        translate::humanize_proof(&problem, &proof, &aux, tlang)
+        translate::humanize_proof(&problem, &proof, &human, &aux, tlang)
     })
     .await;
     match res {
@@ -1834,6 +1838,8 @@ struct ExportReq {
     title: Option<String>,
     #[serde(default)]
     format: String,
+    #[serde(default)]
+    derivation: bool,
 }
 
 fn export_response(bytes: Vec<u8>, want_pdf: bool) -> Response {
@@ -1858,6 +1864,7 @@ async fn api_export(
 ) -> Response {
     let lang = i18n::lang_from_headers(&headers);
     let want_pdf = req.format.eq_ignore_ascii_case("pdf");
+    let derivation = req.derivation;
     let id = req.id.as_deref().filter(|s| !s.is_empty());
     let signed = req.signed.as_deref().filter(|s| !s.is_empty());
     if id.is_some() || signed.is_some() {
@@ -1877,9 +1884,9 @@ async fn api_export(
         let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
             let _permit = permit;
             if want_pdf {
-                render::report_pdf_from_json(&value, lang)
+                render::report_pdf_from_json(&value, lang, derivation)
             } else {
-                render::report_png_from_json(&value, lang)
+                render::report_png_from_json(&value, lang, derivation)
             }
         })
         .await;
@@ -1915,6 +1922,7 @@ async fn api_export(
         worker::Request::new(&req.input, &opts, worker::Mode::Solve, state.config.solve_deadline);
     job.report = Some(if want_pdf { worker::Format::Pdf } else { worker::Format::Png });
     job.lang = lang;
+    job.derivation = derivation;
     let failed = || err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "export.failed"));
 
     let outcome = worker::run(&job, Some(permit)).await;

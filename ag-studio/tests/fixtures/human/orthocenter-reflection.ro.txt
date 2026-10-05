@@ -1,0 +1,10 @@
+∡ notează unghiuri orientate modulo 180°.
+
+HK ⟂ BC (BC este mediatoarea segmentului HK). K se află pe AH (AH ⟂ BC; HK ⟂ BC).
+
+∡KBC = ∡BKH + 90°    [AH ⟂ BC]
+     = ∡AHB + 90°    [BK = BH]
+     = ∡HAC    [BH ⟂ AC]
+     = ∡KAC    [K pe AH]
+
+deci punctele A, B, K, C sunt conciclice. ∎

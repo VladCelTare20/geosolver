@@ -423,30 +423,30 @@ fn counter_text(c: &Value, lang: Lang) -> Option<String> {
 
 /// The export report for a solution as the web app returns it (engine fields
 /// plus `view` and `title`), as one tall page (the PNG report).
-pub fn report_from_json(v: &Value, lang: Lang) -> String {
-    report_pages(v, lang, false).into_iter().next().unwrap_or_default()
+pub fn report_from_json(v: &Value, lang: Lang, derivation: bool) -> String {
+    report_pages(v, lang, false, derivation).into_iter().next().unwrap_or_default()
 }
 
 /// The report as A4 pages: the figure on page 1, breaks only between blocks
 /// (never inside a step), a running header and page numbers.
-pub fn report_pdf_from_json(v: &Value, lang: Lang) -> Result<Vec<u8>> {
-    pdf_from_pages(&report_pages(v, lang, true))
+pub fn report_pdf_from_json(v: &Value, lang: Lang, derivation: bool) -> Result<Vec<u8>> {
+    pdf_from_pages(&report_pages(v, lang, true, derivation))
 }
 
 /// The PNG report: the tall single page at print resolution.
-pub fn report_png_from_json(v: &Value, lang: Lang) -> Result<Vec<u8>> {
-    svg_to_png(&report_from_json(v, lang), 2.75)
+pub fn report_png_from_json(v: &Value, lang: Lang, derivation: bool) -> Result<Vec<u8>> {
+    svg_to_png(&report_from_json(v, lang, derivation), 2.75)
 }
 
 /// The report for a [`Solution`] (CLI and MCP exports), in English, as one
 /// tall page.
 pub fn report_svg(sol: &Solution, title: Option<&str>, _light: bool) -> String {
-    report_from_json(&present::solution_json(sol, title), Lang::En)
+    report_from_json(&present::solution_json(sol, title), Lang::En, false)
 }
 
 /// [`report_svg`] as paginated A4 PDF.
 pub fn report_pdf(sol: &Solution, title: Option<&str>) -> Result<Vec<u8>> {
-    report_pdf_from_json(&present::solution_json(sol, title), Lang::En)
+    report_pdf_from_json(&present::solution_json(sol, title), Lang::En, false)
 }
 
 /// Assemble one PDF from page SVGs (each converted with svg2pdf and placed as
@@ -573,6 +573,7 @@ fn verdict_copy(v: &Value, lang: Lang) -> (String, String) {
     match status {
         "proved" if view["as_drawn"].as_bool() == Some(true) => (t("report.verdict.as_drawn"), t("report.explain.as_drawn")),
         "proved" if view["proof"]["steps"].as_array().is_none_or(|a| a.is_empty()) => (t("report.verdict.proved"), t("report.explain.immediate")),
+        "proved" if view["human"].is_object() => (t("report.verdict.proved"), t("report.explain.human")),
         "proved" => (t("report.verdict.proved"), t("report.explain.proved")),
         "refuted" => (t("report.verdict.refuted"), t("report.explain.refuted")),
         "holds-numerically" => (t("report.verdict.holds-numerically"), tpn(lang, "report.explain.holds-numerically", samples)),
@@ -594,6 +595,9 @@ struct Typeset<'a> {
 
 impl Typeset<'_> {
     fn name_run<'t>(&self, tok: &'t str) -> Option<Vec<&'t str>> {
+        if matches!(tok, "AA" | "SAS" | "SSS" | "ASA" | "UU" | "LUL" | "LLL" | "ULU") {
+            return None;
+        }
         let mut rest = tok;
         if rest.is_empty() || !rest.starts_with(|c: char| c.is_uppercase()) {
             return None;
@@ -616,7 +620,7 @@ impl Typeset<'_> {
                 return;
             }
             let fn_len = ["sin", "cos", "tan"].iter().find(|f| tok.starts_with(**f) && tok[f.len()..].starts_with(['∠', '△'])).map_or(0, |f| f.len());
-            let lead: String = tok[..fn_len].to_string() + &tok[fn_len..].chars().take_while(|c| matches!(c, '△' | '∠' | '|' | '(' | '[')).collect::<String>();
+            let lead: String = tok[..fn_len].to_string() + &tok[fn_len..].chars().take_while(|c| matches!(c, '△' | '∠' | '∡' | '½' | '|' | '(' | '[') || c.is_ascii_digit()).collect::<String>();
             let core = &tok[lead.len()..];
             let trail_len = core.chars().rev().take_while(|c| matches!(c, '|' | ')' | ']' | '²' | '³')).map(char::len_utf8).sum::<usize>();
             let (name, trail) = core.split_at(core.len() - trail_len);
@@ -661,11 +665,11 @@ fn wordmark(x: f32, y: f32) -> String {
     )
 }
 
-fn report_pages(v: &Value, lang: Lang, paginate: bool) -> Vec<String> {
-    report_pages_fit(v, lang, paginate, FIG_MAX_H)
+fn report_pages(v: &Value, lang: Lang, paginate: bool, derivation: bool) -> Vec<String> {
+    report_pages_fit(v, lang, paginate, FIG_MAX_H, derivation)
 }
 
-fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Vec<String> {
+fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32, derivation: bool) -> Vec<String> {
     let status = v["status"].as_str().unwrap_or("not-proved");
     let view = &v["view"];
     let time_limited = view["note"]["key"].as_str() == Some("time_limit");
@@ -826,8 +830,62 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
         }
     }
     let steps = view["proof"]["steps"].as_array().cloned().unwrap_or_default();
-    if status == "proved" && !steps.is_empty() {
-        section(&mut blocks, i18n::t(lang, "report.proof"), steps.len());
+    let human = if status == "proved" { crate::human_view::of_view(view) } else { None };
+    if let Some(h) = &human {
+        let d = crate::human_view::doc(h, view, lang);
+        section(&mut blocks, i18n::t(lang, "report.hp.proof"), d.blocks.len().min(3));
+        let mut setup = d.setup.clone();
+        setup.extend(d.notes.iter().cloned());
+        if !setup.is_empty() {
+            let lines = wrap(&setup.join(" "), cols);
+            lines_block(&mut blocks, &lines, INK, 400, false, &ts, 0);
+            blocks.push(Block { h: 6.0, body: String::new(), keep_next: 1 });
+        }
+        for (bi, b) in d.blocks.iter().enumerate() {
+            let mut first_text = true;
+            let n_parts = b.parts.len();
+            if let (Some(head), Some(stmt)) = (&b.head, &b.stmt) {
+                let (svg, h) = hp_paragraph(&format!("{head} {stmt}"), Some((head.as_str(), "font-weight=\"700\"")), cols, &ts);
+                blocks.push(Block { h, body: svg, keep_next: 1 });
+            }
+            for (pi, part) in b.parts.iter().enumerate() {
+                let last = pi + 1 == n_parts;
+                let end = if b.end && last { " \u{220e}" } else { "" };
+                match part {
+                    crate::human_view::Part::Text(t) => {
+                        let lead = b.proof_label.as_deref().filter(|_| first_text);
+                        let text = match lead {
+                            Some(l) => format!("{l} {t}{end}"),
+                            None => format!("{t}{end}"),
+                        };
+                        let (svg, h) = hp_paragraph(&text, lead.map(|l| (l, "font-style=\"italic\"")), cols, &ts);
+                        blocks.push(Block { h, body: svg, keep_next: usize::from(!last) });
+                    }
+                    crate::human_view::Part::Rows(rows) => {
+                        let lead = b.proof_label.as_deref().filter(|_| first_text);
+                        let (mut svg, mut h) = hp_rows(rows, content_w, &ts, lead);
+                        if !end.is_empty() {
+                            svg.push_str(&txt(MARGIN + content_w, h + 4.0, BODY_FS, 600, "#17703a", MATH, "\u{220e}").replace("<text ", "<text text-anchor=\"end\" "));
+                            h += LEADING;
+                        }
+                        blocks.push(Block { h, body: svg, keep_next: usize::from(!last) });
+                    }
+                }
+                first_text = false;
+            }
+            if derivation && !b.steps.is_empty() {
+                let list: Vec<u64> = b.steps.iter().map(|&n| n as u64).collect();
+                let s = i18n::tf(lang, "report.hp.see", &[("list", ranges(&list))]);
+                blocks.push(Block { h: 13.0, body: plain(MARGIN, 9.0, 8.0, 400, MUTED, UI, &s), keep_next: 0 });
+            }
+            if bi + 1 < d.blocks.len() {
+                blocks.push(Block { h: 7.0, body: String::new(), keep_next: 1 });
+            }
+        }
+    }
+    if status == "proved" && !steps.is_empty() && (human.is_none() || derivation) {
+        let heading = if human.is_some() { "report.hp.derivation" } else { "report.proof" };
+        section(&mut blocks, i18n::t(lang, heading), steps.len());
         let gutter = 28.0;
         let step_cols = ((content_w - gutter) / (BODY_FS * 0.5)) as usize;
         let restated: Vec<u64> = steps.iter().filter(|s| s["kind"] == "given").filter_map(|s| s["n"].as_u64()).collect();
@@ -945,7 +1003,7 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
         if overflow <= fig_h - FIG_ONE_PAGE_MIN_H + BESIDE_GAIN {
             let mut h = fig_h - 10.0;
             while h >= FIG_ONE_PAGE_MIN_H {
-                let pages = report_pages_fit(v, lang, paginate, h);
+                let pages = report_pages_fit(v, lang, paginate, h, derivation);
                 if pages.len() == 1 {
                     return pages;
                 }
@@ -954,7 +1012,7 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
         }
         let smaller = fig_h - overflow - 8.0;
         if smaller >= FIG_MIN_H {
-            return report_pages_fit(v, lang, paginate, smaller);
+            return report_pages_fit(v, lang, paginate, smaller, derivation);
         }
     }
     let running = |title: &str| {
@@ -1030,6 +1088,79 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32) -> Ve
 
 /// Point labels on the page: this size in points, whatever the figure's scale.
 const LABEL_PT: f32 = 10.5;
+
+fn hp_paragraph(text: &str, lead: Option<(&str, &str)>, cols: usize, ts: &Typeset) -> (String, f32) {
+    let lines = wrap(text, cols);
+    let mut b = String::new();
+    for (i, l) in lines.iter().enumerate() {
+        let styled = lead.filter(|_| i == 0).and_then(|(h, style)| l.strip_prefix(h).map(|rest| (h, style, rest)));
+        let inner = match styled {
+            Some((h, style, rest)) => format!("<tspan {style}>{}</tspan>{}", escape_xml(&normalize_glyphs(h)), ts.spans(rest)),
+            None => ts.spans(l),
+        };
+        b.push_str(&txt(MARGIN, 12.0 + i as f32 * LEADING, BODY_FS, 400, INK, MATH, &inner));
+    }
+    (b, lines.len() as f32 * LEADING + 2.0)
+}
+
+fn hp_rows(rows: &[crate::human_view::Row], content_w: f32, ts: &Typeset, lead: Option<&str>) -> (String, f32) {
+    let width = |s: &str, size: f32| s.chars().count() as f32 * size * 0.5;
+    const NOTE_FS: f32 = 9.0;
+    let indent = 14.0;
+    let lhs_w = rows.iter().map(|r| width(&r.lhs, BODY_FS)).fold(0.0, f32::max);
+    let own_line = lhs_w > content_w * 0.4;
+    let x_eq = if own_line { MARGIN + indent + 12.0 } else { MARGIN + indent + lhs_w + 6.0 };
+    let x_rhs = x_eq + 13.0;
+    let right = MARGIN + content_w;
+    let rhs_cols = ((right - x_rhs) / (BODY_FS * 0.5)) as usize;
+    let note_cols = ((right - x_rhs) / (NOTE_FS * 0.5)) as usize;
+    let mut b = String::new();
+    let mut y = 12.0;
+    if let Some(l) = lead {
+        b.push_str(&txt(MARGIN, y, BODY_FS, 400, INK, MATH, &format!("<tspan font-style=\"italic\">{}</tspan>", escape_xml(l))));
+        y += LEADING;
+    }
+    let one_line = |r: &crate::human_view::Row| wrap(&r.rhs, rhs_cols).len() == 1;
+    let rhs_max = rows.iter().filter(|r| one_line(r)).map(|r| width(&r.rhs, BODY_FS)).fold(0.0, f32::max);
+    let note_max = rows.iter().map(|r| width(&r.reason, NOTE_FS)).fold(0.0, f32::max);
+    let column = x_rhs + rhs_max + 22.0;
+    let in_column = column + note_max <= right;
+    for (i, r) in rows.iter().enumerate() {
+        if i == 0 && !r.lhs.is_empty() {
+            if own_line {
+                b.push_str(&txt(MARGIN + indent, y, BODY_FS, 400, INK, MATH, &ts.spans(&r.lhs)));
+                y += LEADING;
+            } else {
+                b.push_str(&txt(x_eq - 5.0, y, BODY_FS, 400, INK, MATH, &ts.spans(&r.lhs)).replace("<text ", "<text text-anchor=\"end\" "));
+            }
+        }
+        b.push_str(&plain(x_eq, y, BODY_FS, 400, INK, MATH, "="));
+        let rhs = wrap(&r.rhs, rhs_cols);
+        for (k, l) in rhs.iter().enumerate() {
+            b.push_str(&txt(x_rhs, y + k as f32 * LEADING, BODY_FS, 400, INK, MATH, &ts.spans(l)));
+        }
+        let last_w = rhs.last().map_or(0.0, |l| width(l, BODY_FS));
+        y += (rhs.len() - 1) as f32 * LEADING;
+        if r.reason.is_empty() {
+            y += LEADING;
+            continue;
+        }
+        if in_column && rhs.len() == 1 {
+            b.push_str(&txt(column, y, NOTE_FS, 400, MUTED, MATH, &ts.spans(&r.reason)));
+            y += LEADING;
+        } else if x_rhs + last_w + 16.0 + width(&r.reason, NOTE_FS) <= right {
+            b.push_str(&txt(right, y, NOTE_FS, 400, MUTED, MATH, &ts.spans(&r.reason)).replace("<text ", "<text text-anchor=\"end\" "));
+            y += LEADING;
+        } else {
+            for l in wrap(&r.reason, note_cols) {
+                y += 12.0;
+                b.push_str(&txt(x_rhs, y, NOTE_FS, 400, MUTED, MATH, &ts.spans(&l)));
+            }
+            y += LEADING;
+        }
+    }
+    (b, y - 12.0 + 4.0)
+}
 
 fn fit_figure(svg: &str, max_w: f32, max_h: f32) -> String {
     let scale_of = |s: &str| svg_dimensions(s).or_else(|| viewbox_size(s)).map(|(w, h)| (max_w / w).min(max_h / h));
@@ -1185,7 +1316,7 @@ mod tests {
         assert!(text.contains("/Count 1") || text.contains("/Count 2"), "a short proof fits on a page or two");
         let proof: Vec<String> = (1..=150usize).map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1))).collect();
         sol.proof = Some(proof.join("\n"));
-        let pages = report_pages(&present::solution_json(&sol, Some("long")), Lang::En, true);
+        let pages = report_pages(&present::solution_json(&sol, Some("long")), Lang::En, true, false);
         assert!(pages.len() >= 3, "{} pages", pages.len());
         assert!(pages.iter().all(|p| p.contains("height=\"842\"")));
         assert!(pages[1].contains(" / "), "page numbers");
@@ -1234,7 +1365,7 @@ mod tests {
     }
 
     fn label_sizes_on_page(v: &Value) -> Vec<f32> {
-        let page = &report_pages(v, Lang::En, true)[0];
+        let page = &report_pages(v, Lang::En, true, false)[0];
         let svg_scale: Vec<(f32, f32)> = page
             .lines()
             .filter(|l| l.starts_with("<svg x="))
@@ -1281,7 +1412,7 @@ mod tests {
         for n in 20..90usize {
             let proof: Vec<String> = (1..=n).map(|i| format!("{i:03}. cong A B C D [{:03}]", i.saturating_sub(1))).collect();
             sol.proof = Some(proof.join("\n"));
-            let pages = report_pages(&present::solution_json(&sol, Some("t")), Lang::En, true);
+            let pages = report_pages(&present::solution_json(&sol, Some("t")), Lang::En, true, false);
             let last = pages.last().unwrap();
             let blocks = last.matches("<g transform=").count();
             assert!(pages.len() == 1 || blocks > 2, "{n} steps: the last page holds only {blocks} blocks");
@@ -1307,7 +1438,19 @@ mod tests {
         let src = "# The reflection of the orthocenter in a side lies on the circumcircle.\nA B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))";
         let v = present::solution_json(&solve(src, &SolveOptions::default()).unwrap(), None);
         for lang in [Lang::En, Lang::Ro] {
-            assert_eq!(report_pages(&v, lang, true).len(), 1);
+            assert_eq!(report_pages(&v, lang, true, false).len(), 1);
+        }
+    }
+
+    #[test]
+    fn the_orthocenter_human_proof_fits_one_page_and_the_derivation_adds_one() {
+        let (v, h) = crate::human_view::tests::rendered("orthocenter-reflection");
+        let v = crate::human_view::tests::with_human(v, &h);
+        for lang in [Lang::En, Lang::Ro] {
+            let pages = report_pages(&v, lang, true, false);
+            assert_eq!(pages.len(), 1, "{lang:?}");
+            assert!(pages[0].contains('\u{220e}'));
+            assert!(report_pages(&v, lang, true, true).len() <= 2, "{lang:?}");
         }
     }
 }

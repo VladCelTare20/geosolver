@@ -15,7 +15,8 @@ The OFL text: https://openfontlicense.org
 `inter-regular.ttf`, `inter-semibold.ttf` (family "GeoSolver Sans") and
 `stix-two-text-{regular,semibold,italic}.ttf` (family "GeoSolver Math") are
 static instances of the woff2 files above made with fontTools
-(`varLib.instancer`), with the math symbols they lack (∠ ⊥ △ ∼ ∎ ∥ ≅ ⇒ ⇔ ↔ ←
-≠ √) copied in from DejaVu Sans. They are renamed because they are modified
+(`varLib.instancer`), with the math symbols they lack (∠ ∡ ⊥ △ ∼ ∎ ∥ ≅ ∩ ⇒ ⇔
+↔ ← ≠ √) copied in from DejaVu Sans (∡ and ∩, for the human-style proofs, scaled
+like ∠ with fontTools pens). They are renamed because they are modified
 versions (OFL §3, Bitstream Vera terms) and are used only by the server-side
 renderer.

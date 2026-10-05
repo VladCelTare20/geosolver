@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { humanAbsent, humanProofFlow, humanRomanian } from './human-checks.mjs';
 
 const pw = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const PHOTO = process.env.PHOTO || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../docs/example-report.png');
@@ -86,6 +87,9 @@ async function guestRun(browser, eng, prof) {
     check(f.sw <= f.vw, `${tag}: result fits ${f.sw}/${f.vw}`);
     await page.evaluate(() => window.scrollTo(0, 0));
     await shot('result');
+    const pshot = (p, name) => shot(name);
+    if (await page.evaluate(() => document.documentElement.lang === 'ro')) await humanRomanian(page, tag, check, pshot);
+    await humanProofFlow(page, tag, check, pshot, { touch: !!prof.touch && eng !== 'firefox', keyboard: !prof.touch });
 
     await page.focus('#steps li.step[tabindex="0"]');
     await page.keyboard.press('ArrowDown');
@@ -213,6 +217,7 @@ async function guestRun(browser, eng, prof) {
     await page.click('#solve');
     await settle(page);
     check(/Proved|Demonstrat/.test(await visibleText(page, '#verdict')), `${tag}: Describe -> AI -> proof`);
+    await humanAbsent(page, tag, check);
 
     await page.click('#tab-geo');
     const buf = fs.readFileSync(PHOTO);

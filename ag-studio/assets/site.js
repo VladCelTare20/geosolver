@@ -75,9 +75,9 @@
     return esc(tok);
   }
 
-  var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "∠": "sr.angle" };
+  var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "∠": "sr.angle", "∡": "sr.dangle" };
   function spoken(html) {
-    return html.replace(/[⟂∥△∼≅∠]/g, function (c) {
+    return html.replace(/[⟂∥△∼≅∠∡]/g, function (c) {
       return '<span aria-hidden="true">' + c + '</span><span class="sr-only">' + esc(t(SPOKEN[c])) + "</span>";
     });
   }
@@ -87,18 +87,19 @@
     if (!f) return "";
     return spoken(factHtml(f));
   }
-  function factHtml(f) {
+  function factHtml(f, T) {
+    T = T || t;
     var a = (f.args || []).map(function (x) { return math(x); });
     var g = function (i) { return a[i] || ""; };
     switch (f.kind) {
-      case "coll": return esc(t("fact.coll", { pts: "\u0001" })).replace("\u0001", a.join(", "));
-      case "cyclic": return esc(t("fact.cyclic", { pts: "\u0001" })).replace("\u0001", a.join(", "));
-      case "midp": return esc(t("fact.midp", { m: "\u0001", seg: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
-      case "circle": return esc(t("fact.circle", { o: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
-      case "oncircle": return esc(t("fact.oncircle", { o: "\u0001", pts: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", a.slice(1).join(", "));
-      case "concur": return esc(t("fact.concur", { lines: "\u0001", p: "\u0002" })).replace("\u0001", a.slice(0, -1).join(", ")).replace("\u0002", a[a.length - 1] || "");
-      case "bisector": return esc(t("fact.bisector", { p: "\u0001", angle: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
-      case "incenter": case "excenter": case "in_or_excenter": return esc(t("fact." + f.kind, { i: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
+      case "coll": return esc(T("fact.coll", { pts: "\u0001" })).replace("\u0001", a.join(", "));
+      case "cyclic": return esc(T("fact.cyclic", { pts: "\u0001" })).replace("\u0001", a.join(", "));
+      case "midp": return esc(T("fact.midp", { m: "\u0001", seg: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
+      case "circle": return esc(T("fact.circle", { o: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
+      case "oncircle": return esc(T("fact.oncircle", { o: "\u0001", pts: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", a.slice(1).join(", "));
+      case "concur": return esc(T("fact.concur", { lines: "\u0001", p: "\u0002" })).replace("\u0001", a.slice(0, -1).join(", ")).replace("\u0002", a[a.length - 1] || "");
+      case "bisector": return esc(T("fact.bisector", { p: "\u0001", angle: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
+      case "incenter": case "excenter": case "in_or_excenter": return esc(T("fact." + f.kind, { i: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "cong": case "length": case "eqangle": case "coincide": return g(0) + " = " + g(1);
       case "perp": return g(0) + " ⟂ " + g(1);
       case "para": return g(0) + " ∥ " + g(1);
@@ -107,7 +108,7 @@
         for (var k = 0; k + 1 < a.length; k += 2) parts.push(a[k] + " : " + a[k + 1]);
         return parts.join(" = ");
       }
-      case "para_ratio": return esc(t("fact.para_ratio", { par: "\u0001", ratio: "\u0002" })).replace("\u0001", g(0) + " ∥ " + g(1)).replace("\u0002", g(2) + " : " + g(3) + " = " + g(4) + " : " + g(5));
+      case "para_ratio": return esc(T("fact.para_ratio", { par: "\u0001", ratio: "\u0002" })).replace("\u0001", g(0) + " ∥ " + g(1)).replace("\u0002", g(2) + " : " + g(3) + " = " + g(4) + " : " + g(5));
       case "aconst": return g(0) + " = " + g(1) + "°";
       case "rconst": return g(0) + " : " + g(1) + " = " + g(2);
       case "simtri": return "△" + g(0) + " ∼ △" + g(1);
@@ -245,21 +246,26 @@
     };
     ol.addEventListener("focusout", ol._gsFocusOut);
     if (ol._gsClick) ol.removeEventListener("click", ol._gsClick);
-    ol._gsClick = function (e) {
-      var a = e.target.closest(".cite");
-      if (!a) return;
-      e.preventDefault();
-      var target = ol.querySelector("#step-" + a.getAttribute("data-step"));
-      if (!target) return;
+    function jump(n) {
+      var target = ol.querySelector("#step-" + n);
+      if (!target) return false;
       if (target.hidden && target.hasAttribute("data-restated")) setGroup(true);
       target.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       target.classList.remove("flash");
       void target.offsetWidth;
       target.classList.add("flash");
       target.focus({ preventScroll: true });
+      return true;
+    }
+    ol._gsClick = function (e) {
+      var a = e.target.closest(".cite");
+      if (!a) return;
+      e.preventDefault();
+      jump(a.getAttribute("data-step"));
     };
     ol.addEventListener("click", ol._gsClick);
     return {
+      jump: jump,
       markPoint: function (name) {
         var used = [];
         items.forEach(function (li) {
@@ -268,6 +274,469 @@
           if (on && li.getAttribute("data-n")) used.push(li.getAttribute("data-n"));
         });
         return used;
+      },
+    };
+  }
+
+  var HP_KINDS = ["coll", "cyclic", "lies_on", "bisects", "tangent", "radical_axis"];
+  var HP_QUALIFY = { parallel: 1, orthocentre: 1 };
+  var HP_ARITY1 = { inscribed: 1, radii: 1, central_angle: 1, equal_arcs: 1, law_of_sines: 1 };
+  var HP_KEEP = /^[a-zăâîșțşţ]/;
+
+  function hpDoc(h, view, opts) {
+    opts = opts || {};
+    var L = opts.lang || lang();
+    var plain = !!opts.plain;
+    var T = function (k, v) { return window.i18n && window.i18n.tl ? window.i18n.tl(L, k, v) : t(k, v); };
+    var HAS = function (k) { return window.i18n && window.i18n.hasIn ? window.i18n.hasIn(L, k) : !!(window.i18n && window.i18n.has(k)); };
+    var SP = plain ? function (x) { return x; } : spoken;
+    var links = [];
+    var claims = {};
+    var steps = (view && view.proof && view.proof.steps) || [];
+    var names = ((view && view.points) || []).map(function (p) { return p.name; });
+    (h.blocks || []).forEach(function (b) { if (b.kind === "claim" && b.n != null) claims[b.n] = b; });
+
+    function fillKey(key, vars) {
+      var s = esc(T(key));
+      for (var k in vars) s = s.split("{" + k + "}").join(vars[k]);
+      return s;
+    }
+    function firstKey(keys) {
+      for (var i = 0; i < keys.length; i++) if (HAS(keys[i])) return keys[i];
+      return null;
+    }
+    function ctxKeys(base, ctx) {
+      return ctx === "s" ? [base] : ctx === "n" ? [base + ".r", base] : [base + ".np", base + ".r", base];
+    }
+    function cap(html) { return HP_KEEP.test(html) ? html.charAt(0).toUpperCase() + html.slice(1) : html; }
+    function lowerFirst(html) { return /^[A-ZĂÂÎȘȚ][a-zăâîșțşţ]/.test(html) ? html.charAt(0).toLowerCase() + html.slice(1) : html; }
+    function joinList(items) {
+      if (items.length < 2) return items.join("");
+      return items.slice(0, -1).join(", ") + esc(T("hp.and")) + items[items.length - 1];
+    }
+    function stmtHtml(s, ctx) {
+      if (HP_KINDS.indexOf(s.kind) >= 0) {
+        var base = "hp.fact." + s.kind;
+        if (s.kind === "lies_on" && ctx === "s") base += /,/.test((s.args || [])[0] || "") ? ".other" : ".one";
+        var key = firstKey(ctxKeys(base, ctx));
+        if (key) {
+          var a = (s.args || []).map(function (x) { return math(x); });
+          var g = function (i) { return a[i] || ""; };
+          var vars = s.kind === "coll" || s.kind === "cyclic" ? { pts: a.join(", ") }
+            : s.kind === "lies_on" ? { p: g(0), obj: g(1) }
+            : s.kind === "bisects" ? { line: g(0), angle: g(1) }
+            : s.kind === "tangent" ? { line: g(0), circle: g(1), p: g(2) }
+            : { line: g(0), c1: g(1), c2: g(2) };
+          return SP(fillKey(key, vars));
+        }
+      }
+      var out = SP(factHtml(s, T));
+      var short = ["perp", "para", "cong", "eqangle", "aconst", "simtri", "contri", "formula"].indexOf(s.kind) >= 0 && (s.args || []).join(" ").length <= 20;
+      return short && !plain ? '<span class="hp-nb">' + out + "</span>" : out;
+    }
+    function atomHtml(key, args, ctx) {
+      var k = firstKey(ctxKeys("hp.atom." + key, ctx));
+      if (!k) return esc(key);
+      var s = esc(T(k));
+      (args || []).forEach(function (a, i) { s = s.split("{" + i + "}").join(math(a)); });
+      return key === "congruent" || key === "similar" || key === "isosceles" ? '<span class="hp-nb">' + SP(s) + "</span>" : SP(s);
+    }
+    function claimLink(n, text) {
+      if (plain) return text;
+      return '<a class="hp-ref" href="#hp-claim-' + n + '" data-claim="' + n + '" tabindex="-1" aria-label="' + esc(T("hp.claim_go", { n: n })) + '">' + text + "</a>";
+    }
+    function stepLink(n, text) {
+      text = text == null ? esc(T("hp.step_ref", { n: n })) : text;
+      if (plain) return text;
+      return '<a class="hp-step" href="#step-' + n + '" data-step="' + n + '" tabindex="-1" aria-label="' + esc(T("hp.chip", { n: n })) + '">' + text + "</a>";
+    }
+    function factFor(s) {
+      if (!s) return null;
+      if (s.kind === "lies_on" || s.kind === "coll") return { kind: "coll", args: s.points || [], points: s.points || [] };
+      if (s.kind === "cyclic") return { kind: "cyclic", args: s.points || [], points: s.points || [] };
+      return s;
+    }
+    function lightOf(rs) {
+      var pts = [], facts = [];
+      function add(p) { if (names.indexOf(p) >= 0 && pts.indexOf(p) < 0) pts.push(p); }
+      (rs || []).forEach(function (r) {
+        var s = null;
+        if (r.kind === "hyp" || r.kind === "fact") s = r.stmt;
+        else if (r.kind === "atom") s = r.stmt || null;
+        else if (r.kind === "claim" && claims[r.n]) s = claims[r.n].stmt;
+        else if (r.kind === "engine") steps.forEach(function (st) { if (st.n === r.step) s = st.fact; });
+        if (s) {
+          (s.points || []).forEach(add);
+          var f = factFor(s);
+          if (f && figShape([f])) facts.push(f);
+        } else if (r.kind === "atom") (r.args || []).forEach(function (a) { String(a).replace(/[A-Z][a-z]?[₀-₉]*[′″]*/g, function (m) { add(m); return m; }); });
+      });
+      return { points: pts, facts: facts };
+    }
+    function reasonHtml(r, ctx) {
+      if (r.kind === "hyp" || r.kind === "fact") return stmtHtml(r.stmt, ctx);
+      if (r.kind === "claim") return claimLink(r.n, esc(T("hp.claim_ref", { n: r.n })));
+      if (r.kind === "engine") return stepLink(r.step);
+      if (r.kind === "atom") {
+        if (r.stmt && HP_QUALIFY[r.key] && ctx === "n") return stmtHtml(r.stmt, ctx) + ", " + atomHtml(r.key, r.args, ctx);
+        return atomHtml(r.key, r.args, ctx);
+      }
+      return "";
+    }
+    function merged(rs, ctx) {
+      var out = [], groups = {};
+      (rs || []).forEach(function (r) {
+        if (r.kind === "atom" && !r.stmt && HP_ARITY1[r.key] && (r.args || []).length === 1) {
+          var g = groups[r.key];
+          if (g) { g.args.push(r.args[0]); out[g.at] = atomHtml(r.key, [joinList(g.args.map(function (x) { return x; }))], ctx); return; }
+          groups[r.key] = { at: out.length, args: [r.args[0]] };
+        }
+        out.push(reasonHtml(r, ctx));
+      });
+      return out;
+    }
+    function reasonsList(rs) {
+      var ns = [];
+      (rs || []).forEach(function (r) { if (r.kind === "claim" && ns.indexOf(r.n) < 0) ns.push(r.n); });
+      ns.sort(function (a, b) { return a - b; });
+      var out = merged((rs || []).filter(function (r) { return r.kind !== "claim"; }), "l");
+      if (ns.length === 1) out.unshift(claimLink(ns[0], esc(T("hp.claim_ref", { n: ns[0] }))));
+      else if (ns.length > 1) out.unshift(fillKey("hp.claims_ref", { list: joinList(ns.map(function (n) { return claimLink(n, String(n)); })) }));
+      return joinList(out);
+    }
+    function linkNote(l) { return merged(l.reasons, "n").join(", "); }
+    function register(rs) {
+      links.push(lightOf(rs));
+      return links.length - 1;
+    }
+    function inline(terms, ls) {
+      if (ls.length > 2) return false;
+      var n = 0;
+      terms.forEach(function (x) { n += String(x).length + 3; });
+      return n <= 44;
+    }
+    function rows(terms, ls) {
+      return ls.map(function (l, k) {
+        return { lhs: k === 0 ? SP(math(terms[0])) : "", lhsLen: k === 0 ? String(terms[0] || "").length : 0, rhs: SP(math(terms[k + 1])), why: linkNote(l), id: register(l.reasons) };
+      });
+    }
+    function part(s, lead) {
+      var withLead = function (html) { return lead ? esc(lead) + lowerFirst(html) : html; };
+      var parts = [];
+      if (s.kind === "chain") {
+        var so = s.then ? stmtHtml(s.then, "s") : null;
+        if (inline(s.terms || [], s.links || [])) {
+          var ids = (s.links || []).map(function (l) { return register(l.reasons); });
+          var html = SP(math(s.terms[0]));
+          (s.links || []).forEach(function (l, k) {
+            var seg = " = " + SP(math(s.terms[k + 1]));
+            html += plain ? seg : '<span class="hp-link" data-l="' + ids[k] + '" tabindex="-1">' + seg + "</span>";
+          });
+          if (s.as_drawn) html = esc(T("hp.as_drawn_lead")) + html;
+          var notes = [];
+          (s.links || []).forEach(function (l, k) {
+            var note = linkNote(l);
+            if (note) notes.push(plain ? note : '<span class="hp-note" data-l="' + ids[k] + '">' + note + "</span>");
+          });
+          if (notes.length) html += " (" + notes.join("; ") + ")";
+          html += so ? fillKey("hp.so_inline", { stmt: so }) : ".";
+          parts.push({ text: withLead(html) });
+        } else {
+          parts.push({ rows: rows(s.terms || [], s.links || []), drawn: !!s.as_drawn });
+          if (so) parts.push({ text: fillKey("hp.so", { stmt: so }) });
+        }
+      } else if (s.kind === "because") {
+        var st = stmtHtml(s.stmt, "s");
+        var rs = merged(s.reasons, "n");
+        parts.push({ text: withLead(cap(rs.length ? fillKey("hp.because", { stmt: st, reasons: rs.join("; ") }) : st + ".")), light: register(s.reasons) });
+      } else if (s.kind === "pooled") {
+        var key = s.table === "ratio" ? "hp.pooled.ratio" : s.table === "length" ? "hp.pooled.length" : "hp.pooled.angle";
+        var p = { text: withLead(cap(fillKey(key, { reasons: reasonsList(s.reasons), stmt: stmtHtml(s.stmt, "s") }))), light: register(s.reasons) };
+        if ((s.combination || []).length) {
+          p.compute = s.combination.map(function (c) {
+            return { coef: esc(c.coef), eq: SP(math(c.eq)), why: c.reason ? reasonHtml(c.reason, "n") : "", id: register(c.reason ? [c.reason] : []) };
+          });
+          p.sum = fillKey("hp.compute.sum", { stmt: stmtHtml(s.stmt, "s") });
+        }
+        parts.push(p);
+      } else if (s.kind === "theorem") {
+        var thm = esc(T("hp.thm." + s.key));
+        var st2 = stmtHtml(s.stmt, "s");
+        var notes2 = merged(s.reasons, "n");
+        parts.push({ text: withLead(cap(notes2.length ? fillKey("hp.theorem_with", { thm: thm, reasons: notes2.join("; "), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 }))), light: register(s.reasons) });
+      } else if (s.kind === "computation") {
+        parts.push({ rows: rows(s.terms || [], s.links || []) });
+      } else if (s.kind === "raw") {
+        var step = null;
+        steps.forEach(function (x) { if (x.n === s.step) step = x; });
+        var text = step ? fillKey("hp.raw", { fact: SP(factHtml(step.fact, T)), rule: esc(ruleLabel(step)), n: stepLink(s.step, String(s.step)) }) : stepLink(s.step);
+        parts.push({ text: withLead(cap(text)), light: register([{ kind: "engine", step: s.step }]) });
+      }
+      return parts;
+    }
+    function article(def) {
+      if (L !== "en" || /^(a|an|the) /.test(def)) return def;
+      return "the " + def;
+    }
+    function letLine(point, def) {
+      return fillKey("hp.setup.let", { p: math(point), def: SP(math(article(def), true)) });
+    }
+    function circleLine(c) {
+      var name = c.name || "", through = c.through || [];
+      var inName = name.replace(/[()]/g, "").split("");
+      var byPoints = name.charAt(0) === "(";
+      var used = [], s;
+      if (c.diameter) {
+        used = c.diameter.slice();
+        s = fillKey("hp.setup.circle_d", { name: math(name), d: math(c.diameter.join("")) });
+      } else if (byPoints && c.centre) {
+        used = inName.slice();
+        s = fillKey("hp.setup.centre_of", { name: math(name), c: math(c.centre) });
+      } else {
+        used = through.slice(0, 3);
+        s = fillKey("hp.setup.circle", { name: math(name), pts: math(used.join("")) });
+      }
+      if (c.centre && !(byPoints && !c.diameter)) s += fillKey("hp.setup.centre", { c: math(c.centre) });
+      var others = through.filter(function (p) { return used.indexOf(p) < 0 && inName.indexOf(p) < 0; });
+      if (others.length) s += fillKey(others.length === 1 ? "hp.setup.on.one" : "hp.setup.on.other", { pts: others.map(function (p) { return math(p); }).join(", "), name: math(name) });
+      return s + ".";
+    }
+    var setup = [];
+    (h.setup || []).forEach(function (line) {
+      var text = null, cls = "";
+      if (line.kind === "directed_angles") { text = SP(esc(T("hp.setup.directed"))); cls = "hp-conv"; }
+      else if (line.kind === "positive_sines") { text = esc(T("hp.setup.sines")); cls = "hp-conv"; }
+      else if (line.kind === "circle") text = circleLine(line);
+      else if (line.kind === "aux" || line.kind === "helper") {
+        var list = line.kind === "aux" ? (view && view.aux) || [] : (view && view.helpers) || [];
+        var a = line.kind === "aux" ? list[line.aux_index] : list.filter(function (x) { return x.name === line.point; })[0];
+        if (a && opts.auxText) text = letLine(line.point, opts.auxText(a, T));
+      } else if (line.kind === "fact") text = cap(stmtHtml(line.stmt, "s")) + ".";
+      if (text) setup.push({ html: text, cls: cls });
+    });
+    if (h.as_drawn) setup.push({ html: esc(T("hp.as_drawn")), cls: "hp-conv" });
+    var nClaims = (h.blocks || []).filter(function (b) { return b.kind === "claim"; }).length;
+    var blocks = (h.blocks || []).map(function (b) {
+      var parts = [];
+      (b.body || []).forEach(function (s, i) {
+        var lead = i === 0 && b.kind === "conclusion" && nClaims > 0 && s.kind === "pooled" ? T("hp.finally") : null;
+        part(s, lead).forEach(function (p) {
+          var last = parts[parts.length - 1];
+          if (p.text != null && !p.compute && last && last.text != null && !last.compute) {
+            last.text += " " + p.text;
+            last.lights = (last.lights || []).concat(p.light != null ? [p.light] : []);
+          } else {
+            if (p.light != null) p.lights = [p.light];
+            parts.push(p);
+          }
+        });
+      });
+      return {
+        b: b,
+        head: b.kind === "claim" ? esc(T("hp.claim", { n: b.n })) : null,
+        stmt: b.kind === "claim" ? cap(stmtHtml(b.stmt, "s")) + "." : null,
+        proof: b.kind === "claim" ? esc(T("hp.proof")) : null,
+        parts: parts,
+        end: b.kind === "conclusion",
+      };
+    });
+    return { setup: setup, blocks: blocks, links: links, T: T };
+  }
+
+  function humanText(h, view, opts) {
+    var o = {};
+    for (var k in (opts || {})) o[k] = opts[k];
+    o.plain = true;
+    var d = hpDoc(h, view, o);
+    var div = document.createElement("div");
+    var tx = function (html) { div.innerHTML = html; return div.textContent; };
+    var out = [];
+    if (d.setup.length) out.push(d.setup.map(function (s) { return tx(s.html); }).join(" "));
+    d.blocks.forEach(function (b) {
+      if (b.head) out.push(tx(b.head) + " " + tx(b.stmt));
+      var para = [], first = true;
+      b.parts.forEach(function (p) {
+        if (p.rows) {
+          if (b.proof && first) para.push(tx(b.proof));
+          if (para.length) { out.push(para.join(" ")); para = []; }
+          var w = 0;
+          p.rows.forEach(function (r) { w = Math.max(w, tx(r.lhs).length); });
+          out.push(p.rows.map(function (r) {
+            var l = tx(r.lhs);
+            return l + new Array(w - l.length + 1).join(" ") + " = " + tx(r.rhs) + (r.why ? "    [" + tx(r.why) + "]" : "");
+          }).join("\n"));
+        } else para.push((b.proof && first ? tx(b.proof) + " " : "") + tx(p.text));
+        first = false;
+      });
+      if (b.end) para.push("∎");
+      if (para.length) out.push(para.join(" "));
+    });
+    return out.join("\n\n");
+  }
+
+  function renderHuman(root, h, view, hooks) {
+    hooks = hooks || {};
+    var d = hpDoc(h, view, { auxText: hooks.auxText });
+    var T = d.T;
+    function rowsHtml(rows, drawn) {
+      var lhsLong = rows.length > 0 && rows[0].lhsLen > 12;
+      var html = (drawn ? '<p class="hp-text hp-drawn">' + esc(T("hp.as_drawn_display")) + "</p>" : "") + '<table class="hp-chain' + (lhsLong ? " lhs-own" : "") + '" role="list"><tbody>';
+      rows.forEach(function (r, i) {
+        if (i === 0 && lhsLong) html += '<tr class="hp-lhs-row" role="presentation"><td class="hp-lhs math" colspan="4" role="presentation">' + r.lhs + "</td></tr>";
+        html += '<tr class="hp-row" role="listitem" data-l="' + r.id + '" tabindex="-1">' +
+          '<td class="hp-lhs math" role="presentation">' + (lhsLong ? "" : r.lhs) + "</td>" +
+          '<td class="hp-eq" role="presentation">=</td>' +
+          '<td class="hp-rhs math" role="presentation">' + r.rhs + "</td>" +
+          '<td class="hp-why math" role="presentation">' + (r.why ? '<span class="sr-only">' + esc(T("hp.link_sr", { r: "" })) + "</span>" + r.why : "") + "</td></tr>";
+      });
+      html += "</tbody></table>";
+      if (rows.some(function (r) { return r.why; })) html += '<button type="button" class="link-btn hp-why-toggle" aria-expanded="false" tabindex="-1">' + esc(T("hp.why.show")) + "</button>";
+      return html;
+    }
+    var qed = '<span class="hp-qed" aria-hidden="true">∎</span><span class="sr-only"> ' + esc(T("hp.end")) + "</span>";
+    var html = "";
+    if (d.setup.length) html += '<p class="hp-setup">' + d.setup.map(function (s) { return '<span class="' + (s.cls || "hp-let") + '">' + s.html + "</span>"; }).join(" ") + "</p>";
+    html += '<ol class="hp-blocks" role="list">';
+    d.blocks.forEach(function (db, bi) {
+      var b = db.b;
+      var id = b.kind === "claim" ? "hp-claim-" + b.n : "hp-block-" + b.id;
+      html += '<li class="hp-block is-' + b.kind + '" id="' + id + '" data-b="' + bi + '" tabindex="-1">';
+      if (db.head) html += '<p class="hp-head"><span class="hp-label">' + db.head + "</span> " + '<span class="hp-stmt">' + db.stmt + "</span></p>";
+      else html += '<span class="sr-only">' + esc(T(b.kind === "conclusion" ? "hp.block.conclusion" : "hp.block.step")) + ". </span>";
+      var first = true;
+      db.parts.forEach(function (p, pi) {
+        var last = pi === db.parts.length - 1;
+        var lead = db.proof && first ? '<em class="hp-proof">' + db.proof + "</em> " : "";
+        if (p.rows) {
+          if (lead) html += '<p class="hp-text">' + lead + "</p>";
+          html += rowsHtml(p.rows, p.drawn);
+          if (last && db.end) html += '<p class="hp-text hp-qed-line">' + qed + "</p>";
+        } else {
+          html += '<p class="hp-text">' + lead + p.text + (last && db.end ? " " + qed : "") + "</p>";
+          if (p.compute) {
+            html += '<button type="button" class="link-btn hp-compute-toggle" aria-expanded="false" tabindex="-1">' + esc(T("hp.compute.show")) + "</button>" +
+              '<div class="hp-compute" hidden><table class="hp-chain hp-sum" role="list"><tbody>' +
+              p.compute.map(function (c) {
+                return '<tr class="hp-row" role="listitem" data-l="' + c.id + '" tabindex="-1"><td class="hp-coef" role="presentation">' + c.coef + ' ·</td><td class="hp-rhs math" role="presentation">(' + c.eq + ')</td><td class="hp-why math" role="presentation">' + c.why + "</td></tr>";
+              }).join("") + "</tbody></table><p class=\"hp-text\">" + p.sum + "</p></div>";
+          }
+        }
+        first = false;
+      });
+      if ((b.engine_steps || []).length) {
+        html += '<p class="hp-cites"><span class="cite-arrow" aria-hidden="true">→</span><span class="sr-only">' + esc(T("hp.chips_sr")) + " </span><span class=\"cites\">" +
+          b.engine_steps.map(function (n) { return '<a class="cite" href="#step-' + n + '" data-step="' + n + '" tabindex="-1" aria-label="' + esc(T("hp.chip", { n: n })) + '">' + n + "</a>"; }).join(" ") + "</span></p>";
+      }
+      html += "</li>";
+    });
+    html += "</ol>";
+    root.innerHTML = html.replace(/(<a class="hp-(?:ref|step)"[^>]*>[^<]*<\/a>)([,.;:)]+)/g, '<span class="hp-nb">$1$2</span>');
+    var ol = root.querySelector(".hp-blocks");
+    var items = Array.prototype.slice.call(root.querySelectorAll(".hp-block"));
+    if (items[0]) items[0].tabIndex = 0;
+    if (hooks.describedBy) items.forEach(function (li) { li.setAttribute("aria-describedby", hooks.describedBy); });
+    var active = null;
+    function inner(li) { return li.querySelectorAll(".cite, .hp-ref, .hp-step, .hp-link, .hp-row, .hp-why-toggle, .hp-compute-toggle"); }
+    function blockLight(li) {
+      var b = d.blocks[+li.getAttribute("data-b")].b;
+      var facts = [factOf(b.stmt)].concat((b.objects || []).map(function (o) {
+        if (o.circle) return { kind: "cyclic", args: o.circle, points: o.circle };
+        if (o.line) return { kind: "coll", args: o.line, points: o.line };
+        return null;
+      })).filter(function (f) { return f && figShape([f]); });
+      var pts = (b.points || []).slice();
+      (b.stmt.points || []).forEach(function (p) { if (pts.indexOf(p) < 0) pts.push(p); });
+      return { points: pts, facts: facts };
+    }
+    function factOf(s) {
+      if (!s) return null;
+      if (s.kind === "lies_on" || s.kind === "coll") return { kind: "coll", args: s.points || [], points: s.points || [] };
+      if (s.kind === "cyclic") return { kind: "cyclic", args: s.points || [], points: s.points || [] };
+      return s;
+    }
+    function light(l) {
+      if (!hooks.focus) return;
+      if (!l || !l.points.length) hooks.focus(null, null);
+      else hooks.focus(l.points, l.facts.length ? l.facts : null);
+    }
+    function activate(li) {
+      active = li;
+      items.forEach(function (x) {
+        x.classList.toggle("is-active", x === li);
+        Array.prototype.forEach.call(inner(x), function (c) { c.tabIndex = x === li ? 0 : -1; });
+      });
+      light(li ? blockLight(li) : null);
+    }
+    function linkOf(el) {
+      var n = el.getAttribute("data-l");
+      return n != null ? d.links[+n] : null;
+    }
+    items.forEach(function (li) {
+      li.addEventListener("mouseenter", function () { activate(li); });
+      li.addEventListener("mouseleave", function () { if (!li.contains(document.activeElement)) activate(null); });
+      li.addEventListener("focus", function () {
+        items.forEach(function (x) { x.tabIndex = -1; });
+        li.tabIndex = 0;
+        activate(li);
+      });
+      li.addEventListener("keydown", function (e) {
+        if (e.target !== li) return;
+        var i = items.indexOf(li), j = null;
+        if (e.key === "ArrowDown") j = Math.min(items.length - 1, i + 1);
+        else if (e.key === "ArrowUp") j = Math.max(0, i - 1);
+        else if (e.key === "Home") j = 0;
+        else if (e.key === "End") j = items.length - 1;
+        if (j != null) { e.preventDefault(); items[j].focus(); }
+      });
+      Array.prototype.forEach.call(li.querySelectorAll("[data-l]"), function (el) {
+        var on = function () { if (active !== li) activate(li); var l = linkOf(el); if (l && l.points.length) light(l); };
+        var off = function () { if (active === li) light(blockLight(li)); };
+        el.addEventListener("mouseenter", on);
+        el.addEventListener("mouseleave", off);
+        el.addEventListener("focus", on);
+        el.addEventListener("blur", off);
+      });
+    });
+    if (root._hpFocusOut) root.removeEventListener("focusout", root._hpFocusOut);
+    root._hpFocusOut = function (e) { if (!e.relatedTarget || !root.contains(e.relatedTarget)) activate(null); };
+    root.addEventListener("focusout", root._hpFocusOut);
+    function flash(el) {
+      el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      el.classList.remove("flash");
+      void el.offsetWidth;
+      el.classList.add("flash");
+      el.focus({ preventScroll: true });
+    }
+    if (root._hpClick) root.removeEventListener("click", root._hpClick);
+    root._hpClick = function (e) {
+      var a = e.target.closest(".cite, .hp-step");
+      if (a) { e.preventDefault(); if (hooks.jump) hooks.jump(+a.getAttribute("data-step")); return; }
+      var r = e.target.closest(".hp-ref");
+      if (r) { e.preventDefault(); var c = root.querySelector("#hp-claim-" + r.getAttribute("data-claim")); if (c) flash(c); return; }
+      var w = e.target.closest(".hp-why-toggle");
+      if (w) {
+        var tb = w.previousElementSibling, open = w.getAttribute("aria-expanded") !== "true";
+        if (tb) tb.classList.toggle("show-why", open);
+        w.setAttribute("aria-expanded", open ? "true" : "false");
+        w.textContent = T(open ? "hp.why.hide" : "hp.why.show");
+        return;
+      }
+      var cbtn = e.target.closest(".hp-compute-toggle");
+      if (cbtn) {
+        var box = cbtn.nextElementSibling, show = cbtn.getAttribute("aria-expanded") !== "true";
+        if (box) box.hidden = !show;
+        cbtn.setAttribute("aria-expanded", show ? "true" : "false");
+        cbtn.textContent = T(show ? "hp.compute.hide" : "hp.compute.show");
+        if (box && active) Array.prototype.forEach.call(box.querySelectorAll(".hp-row"), function (x) { x.tabIndex = cbtn.closest(".hp-block") === active ? 0 : -1; });
+      }
+    };
+    root.addEventListener("click", root._hpClick);
+    return {
+      markPoint: function (name) {
+        items.forEach(function (li) {
+          var l = blockLight(li);
+          li.classList.toggle("uses-point", !!name && l.points.indexOf(name) >= 0);
+        });
       },
     };
   }
@@ -832,7 +1301,7 @@
     var names = f.points.slice().sort(function (x, y) { return y.length - x.length; });
     var o = { pts: f.points.slice(), segs: [], circs: [], angles: [] };
     function split(str) {
-      var x = String(str == null ? "" : str).replace(/[\u2220\u25b3()\s,]/g, ""), out = [], i = 0;
+      var x = String(str == null ? "" : str).replace(/[\u2220\u2221\u25b3()\s,]/g, ""), out = [], i = 0;
       while (i < x.length) {
         var m = null;
         for (var k = 0; k < names.length; k++) if (x.substr(i, names[k].length) === names[k]) { m = names[k]; break; }
@@ -846,7 +1315,7 @@
     function tri(str) { var q = split(str); if (!q || q.length !== 3) return false; o.segs.push([q[0], q[1]], [q[1], q[2]], [q[2], q[0]]); return true; }
     function angle(str) {
       str = String(str || "");
-      if (str.indexOf("(") >= 0) { var two = str.replace(/[\u2220()]/g, "").split(","); return two.length === 2 && seg(two[0]) && seg(two[1]); }
+      if (str.indexOf("(") >= 0) { var two = str.replace(/[\u2220\u2221()]/g, "").split(","); return two.length === 2 && seg(two[0]) && seg(two[1]); }
       var q = split(str);
       if (!q || q.length !== 3) return false;
       o.segs.push([q[1], q[0]], [q[1], q[2]]);
@@ -1055,5 +1524,5 @@
     return new Promise(function () {});
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, Viewer: Viewer, fitLabels: fitLabels, modal: modal, lockScroll: lockScroll, backLayer: backLayer, dropLayer: dropLayer, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
+  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, renderHuman: renderHuman, humanText: humanText, Viewer: Viewer, fitLabels: fitLabels, modal: modal, lockScroll: lockScroll, backLayer: backLayer, dropLayer: dropLayer, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
 })();

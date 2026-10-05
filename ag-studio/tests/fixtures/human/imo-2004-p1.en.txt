@@ -1,0 +1,31 @@
+∡ denotes directed angles modulo 180°. Let ω be the circle with diameter BC, with centre O; M, N lie on ω. Let O₁ be the centre of (BMR); P lies on (BMR). Let O₂ be the centre of (CNR); P lies on (CNR). Let F be the foot of the perpendicular from B to AP₁. Angles written ∠ are undirected and read as drawn.
+
+Claim 1. A, B, F, N are concyclic.
+
+Proof. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC is a diameter of ω).
+
+Claim 2. FB = FN.
+
+Proof. ∠BAF = ∠FAN (AR bisects ∠BAC). FB = FN (equal arcs in (ABFN)).
+
+Claim 3. A, F, R, P are collinear.
+
+Proof. AM·AB = AN·AC (power of A with respect to ω). By the radical axis theorem, A lies on RP. F lies on AR.
+
+Claim 4. △OBF ≅ △ONF.
+
+Proof. By the SSS congruence criterion (radii of ω; Claim 2), △OBF ≅ △ONF. FO bisects ∠BFN (△OBF ≅ △ONF).
+
+Claim 5. R, N, F, O are concyclic.
+
+Proof.
+
+∡RFN = ∡BFN + 90°    [BF ⟂ AR]
+     = 2∡FBN + 90°    [Claim 2]
+     = 2∡RAC + 90°    [Claim 1]
+     = ∡BAC + 90°    [AR bisects ∠BAC]
+     = ∡MCN    [BC is a diameter of ω]
+
+As drawn, ∠MCN = ½∠MON = ∠RON (central angle in ω; OR bisects ∠MON), so R, N, F, O are concyclic.
+
+Finally, angle chasing with Claims 2, 4 and 5, the inscribed angles in (BMRP), △OMR ≅ △ONR, BF ⟂ AR, OR bisecting ∠MON and the central angles in ω shows that ∡(PB, AR) = ∡(BC, AR). PB ∥ BC (Claim 3). P lies on BC. ∎

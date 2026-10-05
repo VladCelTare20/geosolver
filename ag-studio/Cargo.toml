@@ -10,6 +10,9 @@ license = "Apache-2.0"
 name = "agstudio"
 path = "src/main.rs"
 
+[features]
+human-fixtures = []
+
 [dependencies]
 # The DDAR engine, used in-process (its lib target is named `ddar`).
 ddar = { package = "alphageometry-rs", path = "../alphageometry-rs" }
