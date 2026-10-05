@@ -172,10 +172,6 @@ impl Ddar {
     fn get_dist_ratio(&self, a: PointId, b: PointId, c: PointId, d: PointId) -> DistMul {
         self.cached_dist_mul(c, d).div(self.cached_dist_mul(a, b))
     }
-    /// `dir(cd) - dir(ab)` from the cache.
-    fn get_point_angle(&self, a: PointId, b: PointId, c: PointId, d: PointId) -> Angle {
-        self.cached_dir(c, d).sub(self.cached_dir(a, b))
-    }
 
     fn pair_ids(&self) -> PairIds {
         let n = self.n;
@@ -446,6 +442,15 @@ impl Ddar {
         &self.names[p as usize]
     }
 
+    /// Whether two circles are numerically distinct by a margin relative to
+    /// their size: centres or radii apart by more than `1e-6·r`. Two circle
+    /// objects through the same two points that fail this may be one circle
+    /// the closure has not identified, so no rule may treat them as two.
+    fn circles_distinct(a: &NumCircle, b: &NumCircle) -> bool {
+        let r = a.r.max(b.r);
+        r.is_finite() && ((a.center - b.center).norm() > 1e-6 * r || (a.r - b.r).abs() > 1e-6 * r)
+    }
+
     /// Whether the centre of `circle` lies left of chord `a → b`, by a margin
     /// relative to the chord and radius. A chord through the centre (a
     /// diameter, up to rounding) has no reliable side.
@@ -453,7 +458,17 @@ impl Ddar {
         let (pa, pb, o) = (self.coord(a), self.coord(b), circle.center);
         let det = (pb.x - pa.x) * (o.y - pa.y) - (pb.y - pa.y) * (o.x - pa.x);
         let scale = distance(pa, pb) * circle.r;
-        scale > 0.0 && det > 1e-9 * scale
+        !self.num_identical(a, b) && scale > 0.0 && det > 1e-9 * scale
+    }
+
+    /// Whether `a` is off line `bc` by more than `1e-7` of the triangle's
+    /// longest side: the non-degeneracy check of a rule that needs a triangle.
+    fn clearly_off_line(&self, a: PointId, b: PointId, c: PointId) -> bool {
+        let (pa, pb, pc) = (self.coord(a), self.coord(b), self.coord(c));
+        let det = (pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x);
+        let bc = distance(pb, pc);
+        let max_side = distance(pa, pb).max(bc).max(distance(pa, pc));
+        bc > 0.0 && det.abs() / bc > 1e-7 * max_side
     }
 
     /// Whether `a, b, c` are numerically flat by `force_collinear`'s criterion:
@@ -653,6 +668,9 @@ impl Ddar {
     }
 
     fn force_pred_because(&mut self, pred: &Predicate, reason: Reason) {
+        if pred.name != "cyclic_with_centers" && self.pred_degenerate(pred) {
+            return;
+        }
         let fact = self.log.add(reason, vec![]);
         let pts = self.subst_points(pred);
         let name = pred.name.as_str();
@@ -663,7 +681,7 @@ impl Ddar {
             let a = self.pred_to_angle(name, &pts, consts);
             self.angle.force_zero(&a, Some(fact));
         } else if DIST_MUL_PREDS.contains(&name) {
-            let d = self.pred_to_dist_mul(name, &pts, consts);
+            let d = self.pred_to_dist_mul_raw(name, &pts, consts);
             self.dmul.force_one(&d, Some(fact));
         } else if name == "distseq" {
             let d = self.pred_to_dist_add(name, &pts, consts);
@@ -687,10 +705,10 @@ impl Ddar {
                 self.force_concyclic(&points, &centers, vec![fact]);
             } else {
                 let (a0, c0) = (points[0], centers[0]);
-                let d0 = self.get_dist_mul(a0, c0);
+                let d0 = self.raw_dist_mul(a0, c0);
                 for &a in &points {
                     for &c in &centers {
-                        let d = self.get_dist_mul(a, c);
+                        let d = self.raw_dist_mul(a, c);
                         let ratio = d0.div(&d);
                         self.dmul.force_one(&ratio, Some(fact));
                     }
@@ -705,11 +723,43 @@ impl Ddar {
         }
     }
 
+    /// Whether a predicate names a direction or length of two numerically
+    /// identical points, or a line or circle through too few distinct points:
+    /// such a predicate has no variables to state it with.
+    pub fn pred_degenerate(&self, pred: &Predicate) -> bool {
+        let pts = self.subst_points(pred);
+        let distinct = |ps: &[PointId]| {
+            let mut d: Vec<PointId> = Vec::new();
+            for &p in ps {
+                if !d.iter().any(|&x| self.num_identical(p, x)) {
+                    d.push(p);
+                }
+            }
+            d.len()
+        };
+        let name = pred.name.as_str();
+        if ANGLE_PREDS.contains(&name) || DIST_MUL_PREDS.contains(&name) || matches!(name, "distseq" | "acompute" | "rcompute") {
+            pts.chunks(2).any(|c| c.len() < 2 || self.num_identical(c[0], c[1]))
+        } else if name == "coll" {
+            distinct(&pts) < 2
+        } else if name == "cyclic" {
+            distinct(&pts) < 3
+        } else if name == "cyclic_with_centers" {
+            let nc = pred.constants.first().and_then(|c| c.numer_i64()).unwrap_or(0).clamp(0, pts.len() as i64) as usize;
+            distinct(&pts[nc..]) < 3
+        } else {
+            false
+        }
+    }
+
     /// Whether a predicate holds in the current closure.
     ///
     /// For `acompute` this matches the reference's truthiness: the goal counts
     /// as proved iff the angle is determined and nonzero.
     pub fn check_pred(&mut self, pred: &Predicate) -> bool {
+        if self.pred_degenerate(pred) {
+            return false;
+        }
         if pred.name == "acompute" {
             return self.acompute(pred).is_some_and(|v| !v.is_zero());
         }
@@ -751,6 +801,9 @@ impl Ddar {
     /// A goal point merged into another is read through `subst`, so the
     /// merges that retired it are cited too.
     pub fn check_pred_deps(&mut self, pred: &Predicate) -> Option<Vec<FactId>> {
+        if self.pred_degenerate(pred) {
+            return None;
+        }
         let mut deps = self.check_pred_deps_subst(pred)?;
         if pred.name == "overlap" {
             return Some(deps);
@@ -1283,13 +1336,17 @@ impl Ddar {
     /// inside/outside branch. The branch is read from the figure's
     /// configuration — X between both chord ends (inside both circles) or
     /// neither — and X, U, V being numerically collinear is a further guard.
+    /// The two circle objects must be numerically distinct circles
+    /// ([`Self::circles_distinct`], a non-degeneracy check): two objects
+    /// through U and V can be one circle whose identity the closure has not
+    /// proved, and then equal powers say nothing about X.
     fn search_radical_axis(&mut self) -> bool {
         let mut changed = false;
         let dbg = std::env::var_os("RADAX_DEBUG").is_some_and(|v| !v.is_empty());
-        let circs: Vec<(Vec<PointId>, Option<FactId>)> = self
+        let circs: Vec<(Vec<PointId>, Option<FactId>, NumCircle)> = self
             .live_circles
             .iter()
-            .map(|&ci| (self.circles[ci].points.clone(), self.circles[ci].fact))
+            .map(|&ci| (self.circles[ci].points.clone(), self.circles[ci].fact, self.circles[ci].value))
             .collect();
         if dbg {
             eprintln!(
@@ -1316,7 +1373,9 @@ impl Ddar {
                 if uv.len() < 2 {
                     continue;
                 }
-                if circs[i].0.iter().filter(|p| circs[j].0.contains(p)).count() >= 3 {
+                if circs[i].0.iter().filter(|p| circs[j].0.contains(p)).count() >= 3
+                    || !Self::circles_distinct(&circs[i].2, &circs[j].2)
+                {
                     continue;
                 }
                 let (u, v) = (uv[0], uv[1]);
@@ -1440,6 +1499,7 @@ impl Ddar {
                                 || self.num_identical(a, b)
                                 || self.num_identical(a, c)
                                 || self.num_identical(a, x)
+                                || !self.clearly_off_line(a, b, c)
                             {
                                 continue;
                             }
@@ -1645,14 +1705,16 @@ impl Ddar {
         }
         let fact = self.log.add(Reason::SimilarTriangles(t1, t2), prem);
 
-        let t1_rat1 = self.get_dist_ratio(a, b, a, c);
-        let t1_ang1 = self.get_point_angle(a, b, a, c);
-        let t1_rat2 = self.get_dist_ratio(a, b, b, c);
-        let t1_ang2 = self.get_point_angle(a, b, b, c);
-        let t2_rat1 = self.get_dist_ratio(x, y, x, z);
-        let mut t2_ang1 = self.get_point_angle(x, y, x, z);
-        let t2_rat2 = self.get_dist_ratio(x, y, y, z);
-        let mut t2_ang2 = self.get_point_angle(x, y, y, z);
+        let ratio = |s: &Self, p: PointId, q: PointId, r: PointId, t: PointId| s.raw_dist_mul(r, t).div(&s.raw_dist_mul(p, q));
+        let angle = |s: &Self, p: PointId, q: PointId, r: PointId, t: PointId| s.raw_dir(r, t).sub(&s.raw_dir(p, q));
+        let t1_rat1 = ratio(self, a, b, a, c);
+        let t1_ang1 = angle(self, a, b, a, c);
+        let t1_rat2 = ratio(self, a, b, b, c);
+        let t1_ang2 = angle(self, a, b, b, c);
+        let t2_rat1 = ratio(self, x, y, x, z);
+        let mut t2_ang1 = angle(self, x, y, x, z);
+        let t2_rat2 = ratio(self, x, y, y, z);
+        let mut t2_ang2 = angle(self, x, y, y, z);
 
         if orientation(self.coord(a), self.coord(b), self.coord(c))
             != orientation(self.coord(x), self.coord(y), self.coord(z))
@@ -2565,9 +2627,9 @@ impl Ddar {
         // Equal distances from the (first) center.
         if !centers.is_empty() {
             let center = centers[0];
-            let radius = self.get_dist_mul(points[0], center);
+            let radius = self.raw_dist_mul(points[0], center);
             for &x in &points[1..] {
-                let dist = self.get_dist_mul(x, center);
+                let dist = self.raw_dist_mul(x, center);
                 self.dmul.force_one(&radius.div(&dist), Some(fact));
             }
         }

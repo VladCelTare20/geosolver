@@ -54,6 +54,9 @@ pub struct ElimCore {
     row_deps: FxHashMap<VarId, Vec<FactId>>,
     /// Whether to maintain `row_deps` (small cost; off for bulk solving).
     pub track: bool,
+    /// Rows refused because the figure contradicts them (a rule applied
+    /// outside its hypotheses); never added.
+    pub rejected: usize,
 }
 
 impl ElimCore {

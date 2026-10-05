@@ -25,7 +25,7 @@ EUCLIDEAN PROOF
        ↳ 013. segment arithmetic: |AC| ↔ |A_5| (add/mul transfer) [005 & 006 & 012]
        ↳ 014. segment arithmetic: |BC| ↔ |B_4| (add/mul transfer) [002 & 003 & 011]
        ↳ 015. similar triangles: △CBA ∼ △C_4_5 [002 & 005 & 013 & 014]
-       ↳ 016. similar triangles: △ABG ∼ △_4_5G [008 & 010 & 015]
+       ↳ 016. similar triangles: △ABG ∼ △_4_5G [002 & 008 & 010 & 014 & 015]
   10. G lies on A_4 between A and _4, and |AG| : |G_4| = 2 : 1 (derived from the hypotheses).  [from 9]
   11. AG:G_4 = 2:1. By Stewart's theorem for the cevian BG in triangle BA_4: BG² = 1/3·BA² + 2/3·B_4² − 2/9·A_4².  [from 10]
   12. AG:G_4 = 2:1. By Stewart's theorem for the cevian _5G in triangle _5A_4: _5G² = 1/3·_5A² + 2/3·_5_4² − 2/9·A_4².  [from 10]

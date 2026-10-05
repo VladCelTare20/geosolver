@@ -52,6 +52,9 @@ pub enum Reason {
     TransferArcChord(Pair, Pair),
     /// A named classical theorem applied to the listed points.
     Theorem(&'static str, Vec<PointId>),
+    /// A named rule with its statement spelled out: `{i}` in the text is the
+    /// name of the `i`-th listed point.
+    Formula(&'static str, String, Vec<PointId>),
 }
 
 /// One recorded fact: its justification and the facts it relied upon.
@@ -207,6 +210,13 @@ fn render_reason(r: &Reason, names: &[String]) -> String {
             nm(names, *d)
         ),
         Reason::Theorem(name, ps) => format!("{name}: {}", nms(names, ps)),
+        Reason::Formula(name, text, ps) => {
+            let mut out = text.clone();
+            for (i, &p) in ps.iter().enumerate().rev() {
+                out = out.replace(&format!("{{{i}}}"), &nm(names, p));
+            }
+            format!("{name}: {out}")
+        }
     }
 }
 
@@ -252,6 +262,13 @@ mod tests {
         let mut a = vec![1, 3, 5];
         merge_deps(&mut a, &[2, 3, 6]);
         assert_eq!(a, vec![1, 2, 3, 5, 6]);
+    }
+
+    #[test]
+    fn formula_names_its_points() {
+        let names: Vec<String> = (0..12).map(|i| format!("p{i}")).collect();
+        let r = Reason::Formula("rule", "∠({1}{0},{1}{11}) = 30°".into(), (0..12).collect());
+        assert_eq!(render_reason(&r, &names), "rule: ∠(p1p0,p1p11) = 30°");
     }
 
     #[test]

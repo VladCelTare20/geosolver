@@ -1088,3 +1088,140 @@ fn double_points_and_coinciding_circles_prove_nothing_false() {
     assert_eq!(o.goal_numeric, Some(true), "the goal holds on the pinned figure");
     assert!(!o.proved, "the aux search proved a false statement:\n{case}\n{}", o.proof.unwrap_or_default());
 }
+
+/// Verification finding on wf/final-hard-r1: two circle objects through the same two points
+/// U, V can be one circle whose identity the closure has not proved. Here the circles (a1 a2 b1)
+/// and (a1 a2 b2) of IMO 2008 P1 are one circle by that theorem, so the eqratio is automatic
+/// power of a point and x is free off line a1a2 (generic figures put it 0.25-1.09 away); the
+/// pinned figure has x on the line. The radical-axis rule proved `coll x a1 a2`, its only
+/// support being the numeric guard that x lies on UV. The rule now needs numerically distinct
+/// circles. Control: two genuinely distinct circles through a1, a2 still give the radical axis.
+#[test]
+fn radical_axis_needs_two_distinct_circles() {
+    let control = "a1@-1.0_0.0 a2@1.0_0.0 = ; b1@-0.5885205001836284_2.285940753247836 \
+        b2@1.7102391228277416_-3.4405145409711757 = ; p1@1.4141768296295327_1.0101928670629128 = \
+        cyclic a1 a2 b1 p1; q1@2.2357325516682938_-2.0387292836337005 = cyclic a1 a2 b2 q1; \
+        x@3.0_0.0 = coll x b1 p1, coll x b2 q1, eqratio x b1 x b2 x q1 x p1 ? coll x a1 a2";
+    assert!(solve_problem(&Problem::parse(control).unwrap()).unwrap(), "radical axis no longer fires");
+    let decoy = "a@-0.4192717273280908_0.24372487354225303 b@-0.8479310819447494_0.047647597687965115 \
+        c@-0.06030967450309488_-0.1487507397252532 h@-0.355965288429601_0.49760434707588064 \
+        d@-0.45412037822392215_-0.05055157101864405 e@-0.23979070091559285_0.04748706690849991 \
+        f@-0.6336014046364201_0.14568623561510907 a1@0.08620909112185093_-0.1852861128076666 \
+        a2@-0.9944498475696952_0.0841829707703785 b1@0.07394834727633426_-0.2955434132663001 \
+        b2@-0.55352974910752_0.39051754708329994 c1@-0.22597205855549413_0.3321439691907351 \
+        c2@-1.0412307507173462_-0.040771497960516934 = perp h a b c, perp h b c a, perp h c a b, \
+        coll d b c, cong d b d c, coll e a c, cong e a e c, coll f a b, cong f a f b, cong d a1 d h, \
+        coll a1 b c, cong d a2 d h, coll a2 b c, cong e b1 e h, coll b1 c a, cong e b2 e h, \
+        coll b2 c a, cong f c1 f h, coll c1 a b, cong f c2 f h, coll c2 a b; \
+        p1@-0.7238244857928878_0.3426593722409412 = cyclic a1 a2 b1 p1; \
+        q1@0.05549540973243461_-0.3625664732957618 = cyclic a1 a2 b2 q1; \
+        x@-0.13184458450827166_-0.13091306129335806 = coll x b1 p1, coll x b2 q1, \
+        eqratio x b1 x b2 x q1 x p1 ? coll x a1 a2";
+    let p = Problem::parse(decoy).unwrap();
+    assert!(!solve_problem(&p).unwrap(), "radical axis of two circle objects that are one circle");
+    let found = bounded(120, move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(4);
+        ddar::aux_search::solve_max_until(&p, false, Some(deadline)).0
+    });
+    if let Some(found) = found {
+        let used: Vec<String> = found.constructions.iter().map(|c| c.desc.clone()).collect();
+        panic!("the aux search proved the decoy with {used:?}");
+    }
+}
+
+/// The angle bisector theorem needs a triangle. With `a` on line bc (only the bisector relation
+/// asserted, which a point of the line satisfies as 0 = 0) the rule forced |xb|/|xc| = |ab|/|ac|,
+/// 1/2 = 5/2 on this figure, and release builds proved the false ratio. Now the rule needs `a`
+/// clearly off the line, and every table refuses a row the figure contradicts. The generic
+/// figure is still proved.
+#[test]
+fn bisector_theorem_needs_a_triangle() {
+    let close = |src: &str| {
+        let p = Problem::parse(src).unwrap();
+        let mut d = ddar::Ddar::new(&p.points);
+        for pred in &p.preds {
+            d.force_pred(pred);
+        }
+        d.deduction_closure();
+        let proved = d.check_pred(p.goal.as_ref().unwrap());
+        (proved, d.rejected_rows())
+    };
+    let degenerate = "b@0.0_0.0 c@3.0_0.0 = ; x@1.0_0.0 = coll x b c; a@5.0_0.0 = eqangle a b a x a x a c \
+                      ? eqratio x b x c a b a c";
+    assert_eq!(close(degenerate), (false, 0), "proved a ratio false on its own figure");
+    let generic = "b@0.0_0.0 c@3.0_0.0 = ; a@0.6_2.0 = ; x@1.2018400234482116_0.0 = coll x b c, \
+                   eqangle a b a x a x a c ? eqratio x b x c a b a c";
+    assert_eq!(close(generic), (true, 0), "the bisector theorem no longer fires");
+}
+
+/// A goal or hypothesis naming a direction or length of two numerically identical points has
+/// no variable to state it with. It used to panic the engine (fuzz case
+/// translated_imo_2002_p2a~d0, f pinned on e, goal `eqangle e c e j e j e f`; TM3, goal
+/// `cong x k x k` with x on k); now it is simply not proved.
+#[test]
+fn degenerate_goals_are_unproved_not_panics() {
+    let tm3 = "o@0.0_0.0 a@0.0_2.0 p@3.0_0.0 b@3.0_1.0 = ; k@2.0_0.0 = cong o k o a, cong p k p b; \
+               x@2.0_0.0 = cong o x o a, cong p x p b ? cong x k x k";
+    let p = Problem::parse(tm3).unwrap();
+    let r = catch_unwind(AssertUnwindSafe(|| ddar::runner::solve_problem_with_proof(&p)));
+    assert!(matches!(r, Ok(Ok(None))), "a degenerate goal panicked or was proved");
+    let case = "b@0.14236045802074582_-0.47028866105807154 c@-1.4194196564654133_-1.3243862501986787 = \
+        segment b c; o@-0.6385295992223338_-0.8973374556283751 = midpoint o b c; \
+        a@-1.5275828092207768_-0.9391028029454259 = on_circle a o b; \
+        d@-0.39796465619885596_-1.7542437881018609 = on_circle d o b, on_bline d a b; \
+        e@-1.1192260559960014_-0.1482774641121476 = on_bline e o a, on_circle e o b; \
+        f@-1.1192260559960014_-0.1482774641121476 = on_bline f o a, on_circle f o b; \
+        j = on_pline j o a d, on_line j a c ? eqangle e c e j e j e f";
+    let o = bounded(60, move || ddar::fuzz::solve_case("d0", case, Duration::from_secs(3), true));
+    assert!(o.parsed, "{}", o.detail);
+    assert_ne!(o.status, "engine-panic", "{}", o.detail);
+    assert!(!o.proved);
+}
+
+/// A point 9e-16 from another (not bit-identical) is one point to the pair tables but not to the
+/// arc-chord transfer's side test, which then asked for the missing pair variable and panicked.
+/// IMO 2011 P6 with x1 = circle(pc, pb, a1) ∩ ω placed that close to x proves like the exact
+/// double point; the same figure with a false goal does not.
+#[test]
+fn near_identical_points_do_not_panic_the_closure() {
+    let base = "a@-0.8048578064433936_-0.6219504215719476 b@0.8684669896894479_-0.025585732571094866 \
+        c@-0.22291632195609368_0.9274971408947663 o@-0.07994750791986127_-0.010205650197596394 \
+        p@0.3037711317812146_-0.877665511952185 q@-0.6196887172454079_-1.286155602053097 \
+        pa@1.6367329495163112_0.6487204125441275 pb@-1.807721808949386_-0.08463103555013651 \
+        pc@-0.10784770243060504_0.277285501321081 qa@1.9171335048067668_1.618781119442272 \
+        qb@-1.381491138113092_-1.0000378640768677 qc@-1.0815079204750302_0.009651373690455323 \
+        a1@-1.7642407934507416_-0.17801431653421007 b1@1.670678408503232_0.7661565421078668 \
+        c1@0.1866529922372926_-4.367908698478167 o1@0.4945758181370108_-1.6754003804699222 \
+        x@-0.38931560147564687_0.8864648516585711 = cong o a o b, cong o b o c, cong o p o a, \
+        perp q p o p, cong b p b pa, cong c p c pa, perp b c p pa, cong c p c pb, cong a p a pb, \
+        perp c a p pb, cong a p a pc, cong b p b pc, perp a b p pc, cong b q b qa, cong c q c qa, \
+        perp b c q qa, cong c q c qb, cong a q a qb, perp c a q qb, cong a q a qc, cong b q b qc, \
+        perp a b q qc, coll a1 pb qb, coll a1 pc qc, coll b1 pa qa, coll b1 pc qc, coll c1 pa qa, \
+        coll c1 pb qb, cong o1 a1 o1 b1, cong o1 b1 o1 c1, cong o x o a, cong o1 x o1 a1; \
+        x1@-0.38931560147564775_0.8864648516585714 = cyclic pc pb a1 x1, cong o x1 o a";
+    for (goal, truth) in [("coll x o o1", true), ("coll x o a", false)] {
+        let p = Problem::parse(&format!("{base} ? {goal}")).unwrap();
+        let r = catch_unwind(AssertUnwindSafe(|| solve_problem(&p)));
+        assert_eq!(r.ok().and_then(|r| r.ok()), Some(truth), "{goal}");
+    }
+}
+
+/// Every row is forced from raw pair quantities, so the elimination records the facts that
+/// normalised it: `cong o x o a` reduced through `cong o t o a` used to be stored citing itself
+/// alone, and the proof of `cong o t o x` (and of the tangent merge at t) printed one premise.
+/// A different radius is still not proved.
+#[test]
+fn proof_steps_cite_the_rows_that_normalised_them() {
+    let proof = |src: &str| ddar::runner::solve_problem_with_proof(&Problem::parse(src).unwrap()).unwrap();
+    let radii = proof("o@0.0_0.0 a@1.0_0.0 = ; t@0.6_0.8 = cong o t o a; x@-0.6_0.8 = cong o x o a ? cong o t o x")
+        .expect("equal radii");
+    assert!(radii.contains("cong o t o a") && radii.contains("cong o x o a"), "{radii}");
+    let tangent = proof(
+        "o@0.0_0.0 a@1.0_0.0 = ; t@0.6_0.8 = cong o t o a; q@0.2_1.1 = perp o t t q; \
+         x@0.6_0.8 = cong o x o a, coll x t q ? perp o x x q",
+    )
+    .expect("tangent merge");
+    assert!(tangent.contains("cong o t o a"), "{tangent}");
+    assert!(proof("o@0.0_0.0 a@1.0_0.0 b@2.0_0.0 = ; t@0.6_0.8 = cong o t o a; x@-1.2_1.6 = cong o x o b ? cong o t o x")
+        .is_none());
+}

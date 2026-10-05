@@ -47,6 +47,7 @@ pub(crate) struct TrigState {
     /// `|sin|` of an angle class (a reduced angle up to sign), whether or not
     /// a corner of the figure has it.
     vsvar: FxHashMap<Class, DistMul>,
+    vref: FxHashMap<Class, ClassRef>,
     vlink_done: FxHashSet<(Class, (VarId, VarId))>,
     mult_done: FxHashSet<(Class, u8)>,
     conv_done: FxHashSet<((VarId, VarId), (VarId, VarId), Class)>,
@@ -76,7 +77,66 @@ fn dir_var(a: &Angle) -> Option<VarId> {
     (a.0.terms.len() == 1).then(|| a.0.terms[0].0)
 }
 
+/// `(−1)^neg · ((−1)^flip · ∠corner + shift·π)`, the angle a class stands for.
+#[derive(Clone)]
+struct ClassRef {
+    c: Corner,
+    flip: bool,
+    shift: Rat,
+    neg: bool,
+}
+
+impl ClassRef {
+    fn negated(mut self, by: bool) -> ClassRef {
+        if by {
+            self.flip = !self.flip;
+            self.shift = (-&self.shift).mod_one();
+        }
+        self
+    }
+}
+
+#[derive(Default)]
+struct Spell {
+    pts: Vec<PointId>,
+}
+
+impl Spell {
+    fn p(&mut self, x: PointId) -> String {
+        self.pts.push(x);
+        format!("{{{}}}", self.pts.len() - 1)
+    }
+
+    fn corner(&mut self, c: &Corner, flip: bool) -> String {
+        let (a, b) = if flip { (c.p, c.q) } else { (c.q, c.p) };
+        format!("∠({}{},{}{})", self.p(c.v), self.p(a), self.p(c.v), self.p(b))
+    }
+
+    fn class(&mut self, r: &ClassRef) -> String {
+        let a = self.corner(&r.c, r.flip);
+        let deg = &r.shift.mod_one() * &Rat::from_int(180);
+        if deg.is_zero() {
+            a
+        } else {
+            format!("{a} + {deg}°")
+        }
+    }
+
+    fn side(&mut self, a: PointId, b: PointId) -> String {
+        format!("{}{}", self.p(a), self.p(b))
+    }
+
+    fn reason(self, name: &'static str, text: String) -> Reason {
+        Reason::Formula(name, text, self.pts)
+    }
+}
+
 impl Ddar {
+    /// Rows every table refused because the figure contradicts them.
+    pub fn rejected_rows(&self) -> usize {
+        self.angle.core.rejected + self.dmul.core.rejected + self.dadd.core.rejected + self.dsq.core.rejected + self.trig.rejected
+    }
+
     pub fn trig_stats(&self) -> (usize, usize, usize, usize) {
         let t = &self.trig;
         (t.candidates, t.admitted, t.rows, t.rejected)
@@ -147,7 +207,7 @@ impl Ddar {
     }
 
     /// `|sin|` of a known angle `k·π` as an exact prime combination.
-    fn known_sine(&mut self, k: &Rat) -> Option<(DistMul, &'static str)> {
+    fn known_sine(&mut self, k: &Rat) -> Option<(DistMul, &'static str, &'static str)> {
         let two = self.dmul.frac_value(&Rat::from_int(2));
         let three = self.dmul.frac_value(&Rat::from_int(3));
         let scaled = |d: &DistMul, f: Rat| {
@@ -158,10 +218,10 @@ impl Ddar {
         let k6 = k * &Rat::from_int(12);
         Some(match k6.numer_i64()? {
             _ if !k6.is_integer() => return None,
-            2 | 10 => (scaled(&two, Rat::from_int(-1)), "sine of 30°: 1/2"),
-            3 | 9 => (scaled(&two, Rat::new(-1, 2)), "sine of 45°: √2/2"),
-            4 | 8 => (scaled(&three, Rat::new(1, 2)).mul(&scaled(&two, Rat::from_int(-1))), "sine of 60°: √3/2"),
-            6 => (DistMul(LinComb::zero()), "sine of 90°: 1"),
+            2 | 10 => (scaled(&two, Rat::from_int(-1)), "sine of 30°", "1/2"),
+            3 | 9 => (scaled(&two, Rat::new(-1, 2)), "sine of 45°", "√2/2"),
+            4 | 8 => (scaled(&three, Rat::new(1, 2)).mul(&scaled(&two, Rat::from_int(-1))), "sine of 60°", "√3/2"),
+            6 => (DistMul(LinComb::zero()), "sine of 90°", "1"),
             _ => return None,
         })
     }
@@ -275,11 +335,23 @@ impl Ddar {
                     continue;
                 }
                 let (sx, sy) = (self.sin_var(&cx), self.sin_var(&cy));
-                let opp_x = self.raw_dist_mul(cy.v, if cy.p == cx.v { cy.q } else { cy.p });
-                let opp_y = self.raw_dist_mul(cx.v, if cx.p == cy.v { cx.q } else { cx.p });
+                let (ox, oy) = (if cy.p == cx.v { cy.q } else { cy.p }, if cx.p == cy.v { cx.q } else { cx.p });
+                let opp_x = self.raw_dist_mul(cy.v, ox);
+                let opp_y = self.raw_dist_mul(cx.v, oy);
                 let row = opp_x.mul(&sy).div(&opp_y.mul(&sx));
                 self.trig.rows += 1;
-                changed |= self.trig_force(&row, Reason::Theorem("law of sines", vec![t[0].v, t[1].v, t[2].v]), vec![]);
+                let mut sp = Spell::default();
+                let text = format!(
+                    "in △{}{}{}, {} / |sin {}| = {} / |sin {}|",
+                    sp.p(t[0].v),
+                    sp.p(t[1].v),
+                    sp.p(t[2].v),
+                    sp.side(cy.v, ox),
+                    sp.corner(&cx, false),
+                    sp.side(cx.v, oy),
+                    sp.corner(&cy, false)
+                );
+                changed |= self.trig_force(&row, sp.reason("law of sines", text), vec![]);
             }
         }
         self.trig.admitted = admitted;
@@ -291,23 +363,22 @@ impl Ddar {
                 if self.trig.vlink_done.insert((k.clone(), c.key)) {
                     let s = self.sin_var(&c);
                     let deps = angles[&c.key].1.clone();
-                    changed |= self.trig_force(
-                        &vs.div(&s),
-                        Reason::Theorem("equal or supplementary angles have equal sines", vec![c.p, c.v, c.q]),
-                        deps,
-                    );
+                    let reason = self.link_reason(&k, &c);
+                    changed |= self.trig_force(&vs.div(&s), reason, deps);
                 }
             }
             if k.iter().all(|(v, _)| *v == ANGLE_UNIT) {
                 let frac = k.first().map(|(_, r)| r.mod_one()).unwrap_or_else(Rat::zero);
-                if let Some((value, name)) = self.known_sine(&frac) {
+                if let Some((value, name, text)) = self.known_sine(&frac) {
                     for c in &corners {
                         if !self.trig.known_done.insert(c.key) {
                             continue;
                         }
                         let s = self.sin_var(c);
                         let deps = angles[&c.key].1.clone();
-                        changed |= self.trig_force(&s.div(&value), Reason::Theorem(name, vec![c.p, c.v, c.q]), deps);
+                        let mut sp = Spell::default();
+                        let stmt = format!("|sin {}| = {text}", sp.corner(c, false));
+                        changed |= self.trig_force(&s.div(&value), sp.reason(name, stmt), deps);
                     }
                 }
             }
@@ -324,17 +395,21 @@ impl Ddar {
                 let (s1, s2) = (self.sin_var(&c1), self.sin_var(&c2));
                 let mut deps = angles[&c1.key].1.clone();
                 deps.extend(angles[&c2.key].1.iter().copied());
-                changed |= self.trig_force(
-                    &s1.div(&s2),
-                    Reason::Theorem("equal or supplementary angles have equal sines", vec![c1.p, c1.v, c1.q, c2.p, c2.v, c2.q]),
-                    deps,
-                );
+                let mut sp = Spell::default();
+                let stmt = format!("|sin {}| = |sin {}|", sp.corner(&c1, false), sp.corner(&c2, false));
+                changed |= self.trig_force(&s1.div(&s2), sp.reason(EQUAL_SINES, stmt), deps);
             }
         }
         changed |= self.trig_converse(&tris, &classes, &angles);
         changed
     }
 }
+
+const EQUAL_SINES: &str = "equal or supplementary angles have equal sines";
+
+/// Smallest angle (in half-turns) the converse accepts at `R` and at `Q`, so
+/// the two roots of its sine equation are far apart compared with rounding.
+const CONVERSE_MARGIN: f64 = 1e-4;
 
 impl Ddar {
     fn class_angle(class: &[(VarId, Rat)]) -> Angle {
@@ -355,10 +430,37 @@ impl Ddar {
         Self::corner_class(&self.angle.simplify(&Angle::new(c)))
     }
 
+    fn corner_ref(&self, class: &[(VarId, Rat)], c: &Corner) -> ClassRef {
+        let (a, _) = self.corner_angle(c);
+        ClassRef {
+            c: *c,
+            flip: a.0.terms[..] != *class,
+            shift: Rat::zero(),
+            neg: false,
+        }
+    }
+
+    fn class_ref(&self, class: &Class, corners: &FxHashMap<Class, Corner>) -> Option<ClassRef> {
+        match corners.get(class) {
+            Some(c) => Some(self.corner_ref(class, c)),
+            None => self.trig.vref.get(class).cloned(),
+        }
+    }
+
+    fn link_reason(&self, class: &Class, c: &Corner) -> Reason {
+        let mut sp = Spell::default();
+        let left = match self.trig.vref.get(class) {
+            Some(r) => sp.class(r),
+            None => sp.corner(c, false),
+        };
+        let stmt = format!("|sin({left})| = |sin {}|", sp.corner(c, false));
+        sp.reason(EQUAL_SINES, stmt)
+    }
+
     /// `|sin|` of a class as a sine variable (LHS, rank 0, like the corner
     /// ones), linked to the first corner of `corners` in that class by an
     /// equal-sines row. `None` for a class whose sine is (numerically) zero.
-    fn class_sine(&mut self, class: &Class, corners: &FxHashMap<Class, Corner>) -> Option<DistMul> {
+    fn class_sine(&mut self, class: &Class, corners: &FxHashMap<Class, Corner>, origin: Option<ClassRef>) -> Option<DistMul> {
         let value = (std::f64::consts::PI * self.angle.value_of(&Self::class_angle(class))).sin().abs();
         if value < 1e-9 {
             return None;
@@ -366,9 +468,11 @@ impl Ddar {
         let s = match self.trig.vsvar.get(class) {
             Some(s) => s.clone(),
             None => {
+                let r = origin.or_else(|| self.class_ref(class, corners))?;
                 let v = self.dmul.core.new_var_ranked(value, true, 0);
                 let s = DistMul(LinComb::singleton(v, Rat::one()));
                 self.trig.vsvar.insert(class.clone(), s.clone());
+                self.trig.vref.insert(class.clone(), r);
                 s
             }
         };
@@ -376,11 +480,8 @@ impl Ddar {
             if self.trig.vlink_done.insert((class.clone(), c.key)) {
                 let corner = self.sin_var(&c);
                 let (_, deps) = self.corner_angle(&c);
-                self.trig_force(
-                    &s.div(&corner),
-                    Reason::Theorem("equal or supplementary angles have equal sines", vec![c.p, c.v, c.q]),
-                    deps,
-                );
+                let reason = self.link_reason(class, &c);
+                self.trig_force(&s.div(&corner), reason, deps);
             }
         }
         Some(s)
@@ -398,11 +499,7 @@ impl Ddar {
     }
 
     /// **Multiple-angle product rows**: for a class `x` whose `n·x` (n = 2, 3)
-    /// is the class of a corner, `∏_{j<n} |sin(x + jπ/n)| = |sin(n·x)| / 2^(n−1)`
-    /// — for n = 2, `sin 2x = 2 sin x cos x`; for n = 3,
-    /// `sin 3x = 4 sin x sin(60° + x) sin(60° − x)`. An identity for every real
-    /// `x`, unchanged by `x → x + π/n` and `x → −x`, so it holds for the class
-    /// whatever representative the figure has.
+    /// is the class of a corner, `∏_{j<n} |sin(x + jπ/n)| = |sin(n·x)| / 2^(n−1)`.
     fn trig_multiple_angles(&mut self, tris: &[[Corner; 3]], classes: &[[Class; 3]]) -> bool {
         let corners = Self::corners_by_class(tris, classes);
         let mut keys: Vec<Class> = corners.keys().cloned().collect();
@@ -420,14 +517,22 @@ impl Ddar {
                 if !self.trig.mult_done.insert((x.clone(), n as u8)) {
                     continue;
                 }
-                let Some(sn) = self.class_sine(&nx, &corners) else {
+                let Some(sn) = self.class_sine(&nx, &corners, None) else {
                     continue;
                 };
+                let xr = self.corner_ref(x, &corners[x]);
                 let mut row = self.dmul.frac_value(&Rat::from_int(1 << (n - 1))).div(&sn);
                 let mut ok = true;
                 for j in 0..n {
-                    let c = self.class_shift(x, Rat::new(j, n));
-                    match self.class_sine(&c, &corners) {
+                    let k = Rat::new(j, n);
+                    let c = self.class_shift(x, k.clone());
+                    let shifted = self.angle.simplify(&Self::class_angle(x).add(&self.angle.const_frac(k.clone())));
+                    let origin = ClassRef {
+                        shift: k,
+                        neg: shifted.0.terms[..] != c[..],
+                        ..xr.clone()
+                    };
+                    match self.class_sine(&c, &corners, Some(origin)) {
                         Some(sj) => row = row.mul(&sj),
                         None => ok = false,
                     }
@@ -435,26 +540,32 @@ impl Ddar {
                 if !ok {
                     continue;
                 }
-                let name = if n == 2 {
-                    "double-angle formula: sin x·sin(x + 90°) = sin 2x / 2"
+                let mut sp = Spell::default();
+                let xt = sp.class(&xr);
+                let nt = sp.corner(&corners[&nx], false);
+                let (name, stmt) = if n == 2 {
+                    ("double-angle formula", format!("x = {xt}, 2x ≡ ±{nt}: |sin x|·|sin(x + 90°)| = |sin 2x| / 2"))
                 } else {
-                    "triple-angle formula: sin x·sin(x + 60°)·sin(x + 120°) = sin 3x / 4"
+                    (
+                        "triple-angle formula",
+                        format!("x = {xt}, 3x ≡ ±{nt}: |sin x|·|sin(x + 60°)|·|sin(x + 120°)| = |sin 3x| / 4"),
+                    )
                 };
-                changed |= self.trig_force(&row, Reason::Theorem(name, Vec::new()), Vec::new());
+                changed |= self.trig_force(&row, sp.reason(name, stmt), Vec::new());
             }
         }
         changed
     }
 
-    /// **Converse of the law of sines.** In a triangle `PQR` whose angle at
-    /// `P` is known as a class, a class `w` with `|PQ|·|sin v| = |PR|·|sin w|`
-    /// in the ratio table, `v = −∠P − w` (so `∠P + v + w ≡ 0`), fixes the angle
-    /// at `R`: `t ↦ sin t / sin(π − p − t)` is strictly increasing on
-    /// `(0, π − p)`, and the law of sines gives the interior angle `r` the same
-    /// value as the representative `r'` of `w`, hence `r = r'` and
-    /// `∠(RP, RQ) ≡ w`. The figure proposes `w` (equal `|sin|`) and reads the
-    /// configuration: the orientation `σ` (`∠P ≡ σ·p`) and `0 < r' < π − p`,
-    /// both with margins; the triangle is not flat.
+    /// **Converse of the law of sines.** In a triangle `PQR`, a class `w` with
+    /// `|PQ|·|sin(∠P + w)| = |PR|·|sin w|` in the ratio table fixes the angle
+    /// at `R`: with `p, q, r` the interior angles, `h(t) = |sin t| / |sin(p + t)|`
+    /// takes each positive value exactly twice mod π, once in `(0, π − p)` (at
+    /// `t = r`, by the law of sines) and once in `(π − p, π)`. The figure picks
+    /// the root (`σ·w ≡ r`, `σ` the orientation); both `r` and `q` are at least
+    /// [`CONVERSE_MARGIN`], so the roots are apart by more than the figure's
+    /// error and the choice holds on a neighbourhood of the figure. The printed
+    /// step states that configuration.
     fn trig_converse(
         &mut self,
         tris: &[[Corner; 3]],
@@ -516,15 +627,15 @@ impl Ddar {
                             return changed;
                         }
                         let w_pos = Self::class_angle(w);
-                        let w_s = if near(self.angle.value_of(&w_pos), a_r) {
-                            w_pos
+                        let (w_s, w_neg) = if near(self.angle.value_of(&w_pos), a_r) {
+                            (w_pos, false)
                         } else if near(self.angle.value_of(&w_pos.neg()), a_r) {
-                            w_pos.neg()
+                            (w_pos.neg(), true)
                         } else {
                             continue;
                         };
                         let r_rep = wrap(sigma * self.angle.value_of(&w_s));
-                        if !near(r_rep, r_int) || r_rep < 1e-6 || 1.0 - p_int - r_rep < 1e-6 {
+                        if !near(r_rep, r_int) || r_rep < CONVERSE_MARGIN || 1.0 - p_int - r_rep < CONVERSE_MARGIN {
                             continue;
                         }
                         if self.trig.conv_done.contains(&(r.key, p.key, w.clone())) {
@@ -536,7 +647,7 @@ impl Ddar {
                         if !known(self, &v) || !known(self, w) {
                             continue;
                         }
-                        let (Some(sv), Some(sw)) = (self.class_sine(&v, &corners), self.class_sine(w, &corners)) else {
+                        let (Some(sv), Some(sw)) = (self.class_sine(&v, &corners, None), self.class_sine(w, &corners, None)) else {
                             continue;
                         };
                         let row = self
@@ -551,20 +662,30 @@ impl Ddar {
                         if self.angle.simplify(&rel).is_zero() {
                             continue;
                         }
-                        let val = self.angle.value_of(&rel);
-                        if !near(val, 0.0) {
+                        if !near(self.angle.value_of(&rel), 0.0) {
+                            self.trig.rejected += 1;
                             debug_assert!(false, "converse law of sines disagrees with the figure");
                             continue;
                         }
+                        let Some(wr) = self.class_ref(w, &corners) else {
+                            continue;
+                        };
                         self.trig.conv_done.insert((r.key, p.key, w.clone()));
                         prem.extend(angles[&p.key].1.iter().copied());
-                        let fact = self.log.add(
-                            Reason::Theorem(
-                                "law of sines, converse (sin t / sin(S − t) is increasing, so the side ratio fixes the angle)",
-                                vec![p.v, q.v, r.v],
-                            ),
-                            prem,
+                        let mut sp = Spell::default();
+                        let wt = sp.class(&wr.clone().negated(w_neg != wr.neg));
+                        let tri = format!("{}{}{}", sp.p(p.v), sp.p(q.v), sp.p(r.v));
+                        let pq = sp.side(p.v, q.v);
+                        let pr = sp.side(p.v, r.v);
+                        let at_p = sp.corner(&p, false);
+                        let at_r = sp.corner(&r, false);
+                        let stmt = format!(
+                            "in △{tri} with w = {wt}, {pq}·|sin({at_p} + w)| = {pr}·|sin w|; \
+                             by the law of sines the interior angle t = R solves |sin t| / |sin(P + t)| = {pq} / {pr}, \
+                             which has one root with 0 < t < 180° − P, and in this configuration ±w is that root \
+                             ⇒ {at_r} = w"
                         );
+                        let fact = self.log.add(sp.reason("law of sines, converse", stmt), prem);
                         fired += 1;
                         changed |= self.angle.force_zero(&rel, Some(fact));
                     }

@@ -19,12 +19,12 @@ EUCLIDEAN PROOF (sum of products)
        ↳ 014. collinear: A B K [013]
        ↳ 015. construction: cong B A B K
        ↳ 016. similar triangles: △ABO ∼ △BAO [001 & 003 & 012 & 015]
-       ↳ 017. similar triangles: △ACO ∼ △CAO [001 & 002 & 004 & 012 & 016]
+       ↳ 017. similar triangles: △ACO ∼ △CAO [001 & 002 & 003 & 004 & 012 & 016]
        ↳ 018. similar triangles: △BCO ∼ △CBO [002 & 003 & 004]
        ↳ 019. similar triangles: △BTO ∼ △CTO [002 & 003 & 004 & 006 & 008]
-       ↳ 020. similar triangles: △ATB ∼ △BTD [006 & 010 & 012 & 015 & 016 & 017 & 018 & 019]
-       ↳ 021. similar triangles: △ATC ∼ △CTD [008 & 010 & 012 & 016 & 017 & 018 & 020]
-       ↳ 022. similar triangles: △BKD ∼ △CAD [012 & 014 & 016 & 017 & 018 & 020 & 021]
+       ↳ 020. similar triangles: △ATB ∼ △BTD [002 & 003 & 004 & 006 & 010 & 012 & 015 & 016 & 017 & 018 & 019]
+       ↳ 021. similar triangles: △ATC ∼ △CTD [002 & 003 & 004 & 008 & 010 & 012 & 015 & 016 & 017 & 018 & 019 & 020]
+       ↳ 022. similar triangles: △BKD ∼ △CAD [002 & 003 & 004 & 012 & 014 & 015 & 016 & 017 & 018 & 019 & 020 & 021]
   3. ∠DAC = ∠DKB and ∠ACD = ∠KBD (derived from the hypotheses), so △ACD ~ △KBD (AA): AC·BD = KB·CD, CD·DK = BD·DA, AC·DK = KB·DA.  [from 2]
   4. |AB| = |BK|, so |AB|·CD = |BK|·CD.
 

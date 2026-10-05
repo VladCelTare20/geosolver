@@ -114,11 +114,11 @@ impl Ddar {
             let a0 = common.unwrap_or(p1[0]);
             let c0 = common.unwrap_or(p2[0]);
             for &b in &p1 {
-                if b == a0 {
+                if b == a0 || self.num_identical(a0, b) {
                     continue;
                 }
                 for &d in &p2 {
-                    if d == c0 {
+                    if d == c0 || self.num_identical(c0, d) {
                         continue;
                     }
                     let key = [a0, b, c0, d];

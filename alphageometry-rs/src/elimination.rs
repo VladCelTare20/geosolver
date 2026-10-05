@@ -192,10 +192,11 @@ impl ElimAngle {
 
     pub fn force_zero(&mut self, angle: &Angle, fact: Option<crate::proof::FactId>) -> bool {
         let val = self.value_of(angle);
-        debug_assert!(
-            ((val + 0.5).rem_euclid(1.0) - 0.5).powi(2) < crate::numerics::ATOM,
-            "force_zero on non-integer angle: {val}"
-        );
+        if ((val + 0.5).rem_euclid(1.0) - 0.5).powi(2) >= crate::numerics::ATOM {
+            self.core.rejected += 1;
+            debug_assert!(false, "force_zero on non-integer angle: {val}");
+            return false;
+        }
         let mut comb = angle.0.clone();
         let k = (val + 0.5).floor() as i64;
         comb.add_term(ANGLE_UNIT, Rat::from_int(-k));
@@ -346,11 +347,11 @@ impl ElimDistMul {
     }
 
     pub fn force_one(&mut self, dm: &DistMul, fact: Option<crate::proof::FactId>) -> bool {
-        debug_assert!(
-            (self.value_of(dm) - 1.0).powi(2) < crate::numerics::ATOM,
-            "force_one on non-unit ratio: {}",
-            self.value_of(dm)
-        );
+        if (self.value_of(dm) - 1.0).powi(2) >= crate::numerics::ATOM {
+            self.core.rejected += 1;
+            debug_assert!(false, "force_one on non-unit ratio: {}", self.value_of(dm));
+            return false;
+        }
         self.core.add_constraint(dm.0.clone(), fact)
     }
 
@@ -419,11 +420,11 @@ impl ElimDistAdd {
     }
 
     pub fn force_zero(&mut self, da: &DistAdd, fact: Option<crate::proof::FactId>) -> bool {
-        debug_assert!(
-            self.value_of(da).powi(2) < crate::numerics::ATOM,
-            "force_zero on nonzero additive distance: {}",
-            self.value_of(da)
-        );
+        if self.value_of(da).powi(2) >= crate::numerics::ATOM {
+            self.core.rejected += 1;
+            debug_assert!(false, "force_zero on nonzero additive distance: {}", self.value_of(da));
+            return false;
+        }
         self.core.add_constraint(da.0.clone(), fact)
     }
 
@@ -497,6 +498,7 @@ impl ElimDistSq {
     /// degenerate figure, and dropping it costs completeness, not soundness.
     pub fn force_zero(&mut self, ds: &DistSq, fact: Option<crate::proof::FactId>) -> bool {
         if !self.holds_numerically(ds) {
+            self.core.rejected += 1;
             debug_assert!(false, "squared-length equation fails numerically: {}", self.value_of(ds));
             return false;
         }

@@ -78,3 +78,33 @@ fn imo_proof_is_a_small_fraction_of_the_closure() {
         "proof should be much smaller than the closure ({steps} vs {total})"
     );
 }
+
+/// Trigonometric steps spell out what they use: the multiple-angle rows name x and the corner
+/// 3x is, the converse of the law of sines names the triangle, the class w, the side ratio and the
+/// configuration it reads, and concludes an angle equation; the link rows name both angles.
+#[test]
+fn trig_steps_are_spelled_out() {
+    let fig = "a@0.1343253817924288_0.719445251994107 b@-0.5210702983270747_-0.8349066943186165 \
+               c@0.13033572228610057_-0.8094323774776992 d@-0.28816543221817836_-0.825798561809395 \
+               e@-0.07403070417618249_-0.8174244667961947 f@0.13102232498787159_-0.5463193199830535 \
+               g@0.13200375239858442_-0.1702264702525801 h@-0.24396157915667044_-0.17770908065078395 \
+               i@-0.39075010291486945_-0.525836226619042 j@-0.13598988595056216_-0.6644871233213832 \
+               k@-0.03509469205440549_-0.5302258581151602 l@-0.20181595541531305_-0.5099786896844436 = \
+               coll d b c, coll e b c, eqangle a b a d a d a e, eqangle a d a e a e a c, coll f c a, \
+               coll g c a, eqangle b c b f b f b g, eqangle b f b g b g b a, coll h a b, coll i a b, \
+               eqangle c a c h c h c i, eqangle c h c i c i c b, coll j b f, coll j c i, coll k a e, \
+               coll k c h, coll l a d, coll l b g ? cong j l j k";
+    let proof = solve_problem_with_proof(&Problem::parse(fig).unwrap()).unwrap().expect("Morley");
+    let lines: Vec<&str> = proof.lines().collect();
+    let triple: Vec<&&str> = lines.iter().filter(|l| l.contains("triple-angle formula: x = ∠(")).collect();
+    assert_eq!(triple.len(), 3, "{proof}");
+    assert!(triple.iter().all(|l| l.contains(", 3x ≡ ±∠(")), "{proof}");
+    let converse: Vec<&&str> = lines.iter().filter(|l| l.contains("law of sines, converse: in △")).collect();
+    assert_eq!(converse.len(), 3, "{proof}");
+    assert!(
+        converse.iter().all(|l| l.contains(" with w = ∠(") && l.contains("in this configuration") && l.contains(") = w [")),
+        "{proof}"
+    );
+    assert!(lines.iter().any(|l| l.contains("law of sines: in △") && l.contains(" / |sin ∠(")), "{proof}");
+    assert!(!proof.contains("formula: sin x"), "an unspelled row:\n{proof}");
+}

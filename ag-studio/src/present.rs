@@ -794,6 +794,7 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
                     let s = stmt.replace(" and ", ", ");
                     ("step", "arcchord", None, formula(&s))
                 }
+                other if stmt.contains('=') => ("step", "theorem", Some(crate::i18n::prose_en(other)), formula(stmt)),
                 other => {
                     let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
                     let fact = theorem_fact(other, &v).unwrap_or_else(|| Fact::new("points", v.clone(), v));
