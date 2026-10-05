@@ -27,7 +27,6 @@
               !(builtins.elem base [
                 "target"
                 "docs"
-                "corpus"
                 "deploy"
               ]);
           };
