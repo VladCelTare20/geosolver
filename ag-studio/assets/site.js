@@ -147,9 +147,8 @@
     return out.join(", ");
   }
   function stepHtml(s, hidden) {
-    var cites = (s.deps || []).map(function (d, k) {
-      var a = '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
-      return k === 0 ? '<span class="nw"><span class="cite-arrow" aria-hidden="true">←</span><span class="sr-only">' + esc(t("proof.from")) + " </span>" + a + "</span>" : a;
+    var cites = (s.deps || []).map(function (d) {
+      return '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
     }).join(" ");
     var subs = (s.subs || []).map(function (u) {
       return '<li><span class="math">' + fact(u.fact) + '</span> <span class="rule">' + esc(ruleLabel(u)) + "</span></li>";
@@ -159,7 +158,9 @@
       '<span class="step-n" aria-hidden="true">' + s.n + "</span>" +
       '<div class="step-body"><div class="step-stmt math"><span class="sr-only">' + esc(t("proof.step_sr", { n: s.n })) + " </span>" + fact(s.fact) + "</div>" +
       (subs ? '<ul class="step-subs" role="list">' + subs + "</ul>" : "") +
-      '<p class="step-meta"><span class="rule">' + esc(ruleLabel(s)) + "</span>" + (cites ? " " + cites : "") + "</p></div></li>";
+      '<p class="step-meta">' + (cites
+        ? '<span class="nw"><span class="rule">' + esc(ruleLabel(s)) + '</span><span class="cite-arrow" aria-hidden="true">←</span><span class="sr-only"> ' + esc(t("proof.from")) + ' </span></span><span class="cites">' + cites + "</span>"
+        : '<span class="rule">' + esc(ruleLabel(s)) + "</span>") + "</p></div></li>";
   }
   /** One row standing for every step that only restates a hypothesis or a
    * construction (they stay in the list, hidden, so citations still land). */
@@ -489,10 +490,33 @@
     var leadOf = {};
     svg.querySelectorAll(".f-lead").forEach(function (el) { leadOf[el.getAttribute("data-p")] = true; });
     var dots = Array.prototype.map.call(svg.querySelectorAll(".f-dot"), function (el) { return [+el.getAttribute("cx"), +el.getAttribute("cy")]; });
-    var segs = [];
+    var segs = [], circs = [], marks = [];
     svg.querySelectorAll("line.f-line, line.f-seg, line.f-ext, line.f-goal, line.f-aux").forEach(function (el) {
       segs.push([+el.getAttribute("x1"), +el.getAttribute("y1"), +el.getAttribute("x2"), +el.getAttribute("y2"), el.classList.contains("f-goal") ? 12 : 8]);
     });
+    svg.querySelectorAll("circle.f-circ, circle.f-goal").forEach(function (el) {
+      circs.push([+el.getAttribute("cx"), +el.getAttribute("cy"), +el.getAttribute("r"), el.classList.contains("f-goal") ? 12 : 8]);
+    });
+    var mk = Math.max(1, Math.min(2.2, k));
+    svg.querySelectorAll("path.f-mark, path.f-goal").forEach(function (el) {
+      var nums = (el.getAttribute("d") || "").match(/-?\d+(\.\d+)?/g) || [], pts = [];
+      for (var i = 0; i + 1 < nums.length; i += 2) pts.push([+nums[i], +nums[i + 1]]);
+      var a = el.getAttribute("data-a");
+      if (a) {
+        a = a.split(",").map(Number);
+        pts = pts.map(function (q) { return [a[0] + (q[0] - a[0]) * mk, a[1] + (q[1] - a[1]) * mk]; });
+      }
+      if (pts.length > 1) marks.push({ pts: pts, a: a, w: el.classList.contains("f-goal") ? 12 : 8 });
+    });
+    function circleHitsBox(c, b) {
+      var nx = Math.min(Math.max(c[0], b[0]), b[2]), ny = Math.min(Math.max(c[1], b[1]), b[3]);
+      var far = Math.max(Math.hypot(b[0] - c[0], b[1] - c[1]), Math.hypot(b[2] - c[0], b[1] - c[1]), Math.hypot(b[0] - c[0], b[3] - c[1]), Math.hypot(b[2] - c[0], b[3] - c[1]));
+      return Math.hypot(nx - c[0], ny - c[1]) <= c[2] && far >= c[2];
+    }
+    function ownMark(m, x, y) {
+      if (m.a) return Math.hypot(m.a[0] - x, m.a[1] - y) < 1;
+      return m.pts.every(function (q) { return Math.hypot(q[0] - x, q[1] - y) < 26 * Math.max(1, k); });
+    }
     var gap = 3 / s, placed = [], leads = [], out = [];
     labels.forEach(function (el) {
       var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx0 = +el.getAttribute("data-dx"), dy0 = +el.getAttribute("data-dy");
@@ -520,6 +544,11 @@
           placed.forEach(function (q) { if (segHitsBox(x, y, lx, ly, q)) c += 14; });
         }
         segs.forEach(function (g) { if (g[4] > 2 && segHitsBox(g[0], g[1], g[2], g[3], b)) c += g[4]; });
+        circs.forEach(function (g) { if (circleHitsBox(g, b)) c += g[3]; });
+        marks.forEach(function (m) {
+          if (ownMark(m, x, y)) return;
+          for (var i = 1; i < m.pts.length; i++) if (segHitsBox(m.pts[i - 1][0], m.pts[i - 1][1], m.pts[i][0], m.pts[i][1], b)) { c += m.w; return; }
+        });
         var hard = c - ring * 0.35;
         segs.forEach(function (g) { if (g[4] <= 2 && segHitsBox(g[0], g[1], g[2], g[3], b)) c += g[4]; });
         return { c: c, hard: hard, b: b, ext: ext, lead: L - ext > dotR + 3 / s ? [x, y, x + ux * (L - ext), y + uy * (L - ext)] : null };

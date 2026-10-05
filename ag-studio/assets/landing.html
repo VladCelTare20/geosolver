@@ -51,7 +51,7 @@
   .feature .f-ic { width: 36px; height: 36px; border-radius: var(--r-control); display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); margin-bottom: var(--s2); }
   .feature .f-ic svg { width: 20px; height: 20px; }
   .feature h3 { font-size: var(--fs-16); font-weight: 650; }
-  @media (min-width: 1001px) { .feature h3 { min-height: 2.5em; } }
+  @media (min-width: 1001px) { .feature { grid-row: span 3; grid-template-rows: subgrid; row-gap: var(--s2); } .feature h3 { align-self: end; } }
   .feature p { color: var(--text-2); font-size: var(--fs-14); }
   .how { list-style: none; margin: var(--s5) 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); counter-reset: how; }
   .how li { padding: var(--s5); display: grid; gap: var(--s2); align-content: start; counter-increment: how; }
