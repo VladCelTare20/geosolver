@@ -729,9 +729,9 @@ HP_VERBOSE=1 HP_CHAINS=1 …                        # engine-premise certificate
 | derived steps: re-proved / fallback / silent / pruned / theorem | 293 / 10 / 455 / 86 / 74 (of 918) | 564 / 18 / 1647 / 347 / 91 (of 2667) |
 | fallback blocks (problems) | 10 of 339 (5) | 18 of 721 (14) |
 | claims / sentences / chains / pooled / links | 144 / 661 / 191 / 100 / 452 | 225 / 1286 / 427 / 166 / 1019 |
-| raw steps → EN lines / words | 1447 → 530 / 12603 | 4685 → 1167 / 26267 |
+| raw steps → EN lines / words | 1447 → 530 / 12573 | 4685 → 1167 / 26246 |
 | median lines per raw step / words per raw step | 0.34 / 7.9 | 0.22 / 4.0 |
-| writer time median / p95 / max | 10.9 / 68.7 / 162.7 ms | 0.6 / 4.6 / 124.9 ms |
+| writer time median / p95 / max | 10.9 / 68.4 / 162.0 ms | 0.6 / 4.5 / 124.2 ms |
 
 The §9.6 compactness gates are only partly met on IMO:
 - Median blocks is 7.5, against the target of ≤ 6.
