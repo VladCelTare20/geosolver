@@ -469,6 +469,16 @@
     clearInterval(S.retryTimer);
     S.retryTimer = null;
     ["state-empty", "state-solving", "state-error", "verdict"].forEach(function (id) { $(id).hidden = id !== which; });
+    paintDocTitle();
+  }
+  function paintDocTitle() {
+    var parts = [];
+    if (!$("verdict").hidden && S.sol) {
+      if (S.sol.title) parts.push(S.sol.title);
+      parts.push(verdictModel(S.sol).head);
+    } else if (!$("state-error").hidden && S.lastError) parts.push(S.lastError.titleKey ? t(S.lastError.titleKey) : S.lastError.title);
+    else if (!$("state-solving").hidden) parts.push($("solving-title").textContent || t("solving.solving"));
+    document.title = parts.length ? parts.join(" — ") + " · GeoSolver" : "GeoSolver";
   }
 
   function stagesFor(mode) {
@@ -665,6 +675,7 @@
     if (!S.stage) return;
     paintStepper(S.stage.stages, S.stage.i);
     $("solving-title").textContent = S.queued ? t("solving.queued") : S.stage.stages[S.stage.i] === "translate" ? t("solving.translating") : t("solving.solving");
+    paintDocTitle();
   }
 
   function sessionEnded() {
@@ -862,9 +873,10 @@
     $("copy-geo").addEventListener("click", function () { copyText(S.sol ? S.sol.input : editor.get()); });
     var btn = $("export-btn"), menu = $("export-menu");
     function close(focus) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (focus) btn.focus(); }
+    paintExportItems();
     btn.addEventListener("click", function () {
       var open = menu.hidden;
-      if (open) placeMenu(menu, false); else menu.hidden = true;
+      if (open) { paintExportItems(); placeMenu(menu, false); } else menu.hidden = true;
       btn.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) menu.querySelector("[role=menuitem]").focus();
     });
@@ -882,6 +894,7 @@
       var b = e.target.closest("[data-export]");
       if (!b) return;
       close(true);
+      if (b.getAttribute("aria-disabled") === "true") { GS.toast(t("export.busy", { fmt: String(S.exporting).toUpperCase() }), { ms: 5000 }); return; }
       exportAs(b.getAttribute("data-export"));
     });
     document.addEventListener("click", function (e) { if (!menu.hidden && !e.target.closest(".verdict .menu-wrap")) close(); });
@@ -927,6 +940,8 @@
     if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" tabindex="-1" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
     if (helpers) html += '<div class="st-block st-helpers"><h3 class="label">' + esc(t("st.helpers")) + '</h3><ul class="facts" role="list">' + helpers + '</ul><p class="hint">' + esc(t("st.helpers.hint")) + "</p></div>";
     if (aux) html += '<div class="st-block st-aux"><h3 class="label">' + esc(t("st.aux")) + '</h3><ul class="facts" role="list">' + aux + '</ul><p class="hint">' + esc(t("st.aux.hint")) + "</p></div>";
+    var nItems = (v.given || []).length + (v.helpers || []).length + (v.aux || []).length + (v.goal ? 1 : 0);
+    if (nItems > 1) html += '<p class="hint kbd-hint" id="st-kbd">' + esc(t("st.kbd")) + "</p>";
     var box = $("statement");
     box.innerHTML = html;
     box.hidden = !(sol.title || given || v.goal || aux || helpers);
@@ -934,6 +949,7 @@
     items.forEach(function (el, i) {
       var pts = el.getAttribute("data-points").split(" ");
       el.tabIndex = i === 0 ? 0 : -1;
+      if (items.length > 1) el.setAttribute("aria-describedby", "st-kbd");
       el.addEventListener("mouseenter", function () { viewer.highlight(pts); });
       el.addEventListener("mouseleave", function () { if (document.activeElement !== el) viewer.highlight(null); });
       el.addEventListener("focus", function () {
@@ -993,10 +1009,13 @@
     $("steps-none").textContent = t("proof.none");
     var proofCard = $("steps").closest(".proof");
     proofCard.hidden = !proved;
-    if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts) { viewer.highlight(pts); } });
+    if (proved) stepsApi = GS.renderSteps($("steps"), v.proof, { focus: function (pts) { viewer.highlight(pts); }, describedBy: "proof-kbd" });
     else { $("steps").innerHTML = ""; stepsApi = null; }
-    var aiOK = proved && S.status && S.status.translate_logged_in && S.status.translate_installed;
+    var aiOK = !!(proved && S.status && S.status.translate_logged_in && S.status.translate_installed);
     $("proof-tabs").hidden = !aiOK;
+    var panel = $("proof-steps-panel");
+    if (aiOK) { panel.setAttribute("role", "tabpanel"); panel.setAttribute("aria-labelledby", "ptab-steps"); }
+    else { panel.removeAttribute("role"); panel.removeAttribute("aria-labelledby"); }
     selectProofTab("steps");
   }
 
@@ -1241,9 +1260,9 @@
     }
     if (S.exporting) return;
     var ctl = new AbortController();
-    S.exporting = ctl;
-    var btn = $("export-btn");
-    btn.setAttribute("aria-disabled", "true");
+    S.exporting = fmt;
+    S.exportCtl = ctl;
+    paintExportItems();
     var tst = GS.toast(t("export.preparing", { fmt: label }), { ms: 60000 });
     var ticker = null;
     var closeToast = function () { clearInterval(ticker); if (tst) tst.close(); tst = null; };
@@ -1306,9 +1325,15 @@
       fail(t("err.body.network"));
     }).then(function () {
       clearInterval(ticker);
-      if (S.exporting === ctl) S.exporting = null;
-      var b = $("export-btn");
-      if (b) b.removeAttribute("aria-disabled");
+      if (S.exportCtl === ctl) { S.exporting = null; S.exportCtl = null; }
+      paintExportItems();
+    });
+  }
+  function paintExportItems() {
+    var menu = $("export-menu");
+    if (!menu) return;
+    menu.querySelectorAll('[data-export="pdf"], [data-export="png"]').forEach(function (b) {
+      if (S.exporting) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
     });
   }
   function copyText(text) {
@@ -1469,12 +1494,19 @@
     var timer = setTimeout(function () { commitDelete(id); }, 6000);
     S.pendingDeletes.set(id, timer);
     renderHistory();
+    var tst = null;
     var undo = function () {
+      var ae = document.activeElement;
+      var refocus = !ae || ae === document.body || $("rail").contains(ae) || !!(tst && tst.el.contains(ae));
       clearTimeout(S.pendingDeletes.get(id)); S.pendingDeletes.delete(id); renderHistory();
       var back = $("hist-list").querySelector('[data-open="' + id + '"]');
-      if (back && $("rail").contains(document.activeElement)) back.focus();
+      if (refocus) {
+        if (back) back.focus();
+        else if ($("hist-search").offsetParent !== null) $("hist-search").focus();
+      }
+      announceStatus(t("hist.restored", { title: untitledEnd(histTitle(row)) }));
     };
-    var tst = GS.toast(t(coarse() ? "hist.deleted.touch" : "hist.deleted", { title: untitledEnd(histTitle(row)), keys: undoKeys() }), { ms: 6000, action: t("undo"), onAction: undo });
+    tst = GS.toast(t(coarse() ? "hist.deleted.touch" : "hist.deleted", { title: untitledEnd(histTitle(row)), keys: undoKeys() }), { ms: 6000, action: t("undo"), onAction: undo });
     var input = null;
     if (hadFocus) {
       var rows = $("hist-list").querySelectorAll(".hist-open");
@@ -1681,6 +1713,7 @@
     if (S.lastFieldErr) fieldError(S.lastFieldErr, t(S.lastFieldErr === "describe-err" ? "err.empty_describe" : "err.empty_photo"));
     paintFigHint();
     $("solve").setAttribute("title", t("solve.shortcut", { keys: isMac ? "⌘ Enter" : "Ctrl Enter" }));
+    paintDocTitle();
     if (S.history.length) renderHistory();
     if (S.sol) {
       var tab = $("ptab-ai").getAttribute("aria-selected") === "true" ? "ai" : "steps";

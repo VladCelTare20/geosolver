@@ -232,6 +232,11 @@ kbd { font-family: var(--font-ui); font-size: var(--fs-12); font-weight: 500; pa
 .toast .btn { min-height: 32px; background: transparent; color: var(--bg); border-color: color-mix(in srgb, var(--bg) 40%, transparent); }
 .toast .btn:hover { background: color-mix(in srgb, var(--bg) 14%, transparent); color: var(--bg); }
 .toast :focus-visible { outline-color: var(--bg); }
+html.has-toast { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16px); }
+html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16px); }
+@media (max-width: 1199px) {
+  html.has-toast body { padding-bottom: var(--toast-h, 0px); }
+}
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (min-width: 1200px) {
   .toast-region { left: auto; right: max(var(--s5), calc((100vw - var(--maxw)) / 2 + var(--s5))); transform: none; width: min(420px, 30vw); }
@@ -243,6 +248,8 @@ kbd { font-family: var(--font-ui); font-size: var(--fs-12); font-weight: 500; pa
 .menu [role="menuitem"]:focus-visible, .menu [role="menuitemradio"]:focus-visible { background: var(--surface-2); outline: 2px solid var(--focus); outline-offset: -2px; }
 .menu [role="menuitem"] svg, .menu [role="menuitemradio"] svg { width: 16px; height: 16px; color: var(--text-2); flex: none; }
 .menu .menu-sub { font-size: var(--fs-12); color: var(--text-2); }
+.menu [role="menuitem"][aria-disabled="true"] { color: var(--text-2); cursor: not-allowed; }
+.menu [role="menuitem"][aria-disabled="true"]:hover { background: transparent; }
 .menu hr { border: 0; border-top: 1px solid var(--border); margin: var(--s1) 0; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -441,6 +448,10 @@ kbd { font-family: var(--font-ui); font-size: var(--fs-12); font-weight: 500; pa
 
 .proof { padding: var(--s4) var(--s5) var(--s5); }
 .proof-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3); }
+.proof-head .kbd-hint { margin-right: auto; }
+.kbd-hint { font-size: var(--fs-12); }
+.statement .kbd-hint { margin-top: var(--s3); }
+@media (pointer: coarse) { .kbd-hint { display: none; } }
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; counter-reset: none; }
 .step { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr); gap: var(--s2); padding: 7px var(--s2); margin: 0 calc(-1 * var(--s2)); border-radius: var(--r-control); transition: background-color 150ms ease-out; scroll-margin: 96px; }
 .step:hover, .step.is-active { background: var(--surface-2); }
@@ -584,6 +595,11 @@ pre.code { margin: 0; padding: var(--s3); background: var(--surface-2); border: 
 @media (min-width: 1200px) {
   .rail-toggle { display: none !important; }
 }
+@media (max-width: 1199px) and (max-height: 480px) {
+  .rail { overflow-y: auto; }
+  .rail > * { flex: none; }
+  .hist-list { overflow: visible; margin-right: 0; padding-right: 0; }
+}
 @media (min-width: 768px) and (max-width: 1199px) {
   .fig-frame { max-height: 720px; }
   .fig-head { padding-left: var(--s3); }
@@ -625,6 +641,8 @@ pre.code { margin: 0; padding: var(--s3); background: var(--surface-2); border: 
   .fig-head { padding-left: var(--s3); }
 }
 @media (max-width: 380px) {
+  .tabs .tab-ic { display: none; }
+  .tabs > button { padding: 0 6px; }
   .geo-tools .btn-txt { display: none; }
   .geo-tools .btn { padding: 0 var(--s2); }
   .site-header .inner { gap: 4px; }

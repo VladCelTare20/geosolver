@@ -19,6 +19,7 @@
     var steps = expanded ? proof.steps : proof.steps.slice(0, cut);
     GS.renderSteps($("steps"), { steps: steps, conclusion: expanded ? proof.conclusion : null }, {
       focus: function (pts) { viewer.highlight(pts); },
+      describedBy: "steps-kbd",
     });
     var more = $("more");
     more.hidden = proof.steps.length <= cut;
