@@ -60,7 +60,9 @@ regular users create accounts (accounts are not limited per address).
 
 ```sh
 cp deploy/.env.example deploy/.env
-#   edit deploy/.env — set AGSTUDIO_BASIC_AUTH to "user:strong-password"
+#   edit deploy/.env — uncomment AGSTUDIO_BASIC_AUTH and set your own password,
+#   e.g. ":$(openssl rand -hex 16)". Left commented, the app refuses to start;
+#   left as CHANGE-ME, it refuses too.
 
 mkdir -p deploy/certs
 #   put your certificate at deploy/certs/fullchain.pem and key at deploy/certs/privkey.pem
@@ -71,7 +73,14 @@ docker compose -f deploy/docker-compose.yml up -d --build
 
 Open `https://your.domain`. Only nginx is exposed (ports 80/443); the app runs
 on the private container network. nginx terminates TLS and forwards the client
-IP so rate limiting works.
+IP so rate limiting works, and it alone sends `Strict-Transport-Security` (the
+app's copy is hidden, so the header appears once).
+
+The build context is an allowlist (`.dockerignore`): only `Cargo.toml`,
+`Cargo.lock`, `ag-studio/`, `alphageometry-rs/`, `corpus/` and
+`imo2023p2.geo`, minus `target/`, `node_modules/`, `.env`, `*.db*` and logs.
+`deploy/.env`, `deploy/certs/` and a local `agstudio.db` never reach the
+builder, and editing them does not invalidate the cargo build layer.
 
 No domain/cert yet? Generate a self-signed pair to test:
 
@@ -118,14 +127,14 @@ ProtectSystem=strict, no capabilities); its only writable path is
 | Env var | Default | Effect |
 |---|---|---|
 | `AGSTUDIO_BIND` | `127.0.0.1:<port>` | interface/port to bind |
-| `AGSTUDIO_BASIC_AUTH` | (none) | the shared site password. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
+| `AGSTUDIO_BASIC_AUTH` | (none) | the shared site password. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, a password under 8 chars, or one still containing the template's `CHANGE-ME`) refuses to start. `AGSTUDIO_BASIC_AUTH_FILE` reads it from a file instead |
 | `AGSTUDIO_GATE` | `form` | how browsers enter the shared password: `form` = the `/gate` password page, which sets a signed `gate` cookie (HTTP Basic is still accepted, for API clients and curl); `basic` = only the HTTP Basic dialog (the behaviour before the gate page) |
-| `AGSTUDIO_GATE_KEY` | (generated, stored in the DB) | 64 hex chars: the HMAC key of the gate cookie. Malformed refuses to start. Rotating it (or the password) signs every device out |
+| `AGSTUDIO_GATE_KEY` | (generated, stored in the DB) | 64 hex chars: the HMAC key of the gate cookie. Malformed refuses to start. Rotating it (or the password) signs every device out. `AGSTUDIO_GATE_KEY_FILE` reads it from a file instead |
 | `AGSTUDIO_GATE_DAYS` | 180 | how long the gate cookie lasts (1–400 days; renewed on visits after 7 days) |
 | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
 | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
 | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
-| `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` calls per 24 h, counted once the request is valid (0 = no daily cap; the per-minute limit always applies; accounts and `/api/humanize` are never counted) |
+| `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid (0 = no daily cap; the per-minute limit always applies; accounts are never counted) |
 | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
 | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
@@ -141,6 +150,33 @@ ProtectSystem=strict, no capabilities); its only writable path is
 | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard) |
 | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
 | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
+| `CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN_FILE` | (none) | the `claude setup-token` subscription token for AI features, or a file holding it (set one, not both) |
+
+Flags take `1`/`0`, `true`/`false`, `yes`/`no` or `on`/`off` in any case;
+any other value, or a number that does not parse, refuses to start (an empty
+value means unset). The startup banner shows the effective settings, including
+`secure cookies: on/off` and the version.
+
+### Secrets in files
+
+`AGSTUDIO_BASIC_AUTH_FILE`, `AGSTUDIO_GATE_KEY_FILE` and
+`CLAUDE_CODE_OAUTH_TOKEN_FILE` read the value from a file (trailing newlines
+are ignored), so it never appears in `docker inspect` or a unit file.
+Setting both a variable and its `_FILE` refuses to start. With compose:
+
+```yaml
+services:
+  app:
+    environment:
+      AGSTUDIO_BASIC_AUTH_FILE: /run/secrets/agstudio_basic_auth
+    secrets: [agstudio_basic_auth]
+secrets:
+  agstudio_basic_auth:
+    file: ./basic_auth.txt   # keep it out of git, mode 600
+```
+
+With systemd: `LoadCredential=basic_auth:/etc/agstudio/basic_auth` and
+`Environment=AGSTUDIO_BASIC_AUTH_FILE=%d/basic_auth`.
 | `AGSTUDIO_EXPORT_DIR` | `$XDG_DATA_HOME/geosolver/exports` (default `~/.local/share/geosolver/exports`) | MCP `export_report` writes only here (bare filenames, no overwrite unless asked) |
 | `AUX_MAX_RUNS`, `AUX_MAX_DEPTH`, `RAYON_NUM_THREADS` | server-safe | solver effort caps (set automatically; override to tune). The run/depth caps bound only the legacy fallback search; the default search runs until each solve's 60 s wall-clock limit, on `RAYON_NUM_THREADS` threads per solve |
 
@@ -189,7 +225,7 @@ The UI is responsive and touch-friendly. To use it from a phone on your LAN
 without a full deployment:
 
 ```sh
-AGSTUDIO_BIND=0.0.0.0:8787 AGSTUDIO_BASIC_AUTH="me:secret" ./target/release/agstudio serve
+AGSTUDIO_BIND=0.0.0.0:8787 AGSTUDIO_BASIC_AUTH="me:$(openssl rand -hex 8)" ./target/release/agstudio serve
 # then browse to  http://<your-computer-LAN-IP>:8787  from the phone
 ```
 

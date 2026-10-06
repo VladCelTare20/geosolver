@@ -7,11 +7,13 @@
 # ---- build ----
 FROM rust:1-slim-bookworm AS build
 WORKDIR /src
+# The context is an allowlist (.dockerignore): sources, Cargo files and the
+# corpus only, never deploy/.env, TLS keys, databases or local worktrees.
 COPY . .
 # Portable build: drop the host-CPU tuning so the binary runs on any CPU of the
 # target architecture (the `.cargo/config.toml` files pin target-cpu=native).
 RUN rm -f .cargo/config.toml alphageometry-rs/.cargo/config.toml \
- && cargo build --release -p ag-studio
+ && cargo build --release --locked -p ag-studio
 # (the release profile strips symbols, so no separate `strip` step is needed)
 
 # ---- runtime ----

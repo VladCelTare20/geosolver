@@ -228,7 +228,10 @@ const HUMAN_MAX: Duration = Duration::from_secs(2);
 const HUMAN_MIN: Duration = Duration::from_millis(300);
 
 pub fn human_enabled() -> bool {
-    std::env::var_os(HUMAN_ENV).is_none_or(|v| v != "0")
+    std::env::var(HUMAN_ENV)
+        .ok()
+        .and_then(|v| crate::security::parse_flag(&v))
+        .unwrap_or(true)
 }
 
 type Traced = (String, EngineTrace, Vec<FactId>);

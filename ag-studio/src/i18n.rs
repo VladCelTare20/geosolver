@@ -139,6 +139,7 @@ fn en(key: &str) -> &'static str {
         "humanize.need_proof" => "There is no proof to explain.",
         "humanize.unavailable" => "AI explanations are not enabled on this server.",
         "humanize.failed" => "The explanation could not be written. Try again.",
+        "humanize.daily" => "You have used today's AI explanations on this network. The proof above is complete; try again tomorrow for an AI explanation.",
         // export
         "export.failed" => "The export failed. Try again.",
         // shared / security
@@ -562,6 +563,7 @@ fn ro(key: &str) -> &'static str {
         "humanize.need_proof" => "Nu există o demonstrație de explicat.",
         "humanize.unavailable" => "Explicațiile AI nu sunt activate pe acest server.",
         "humanize.failed" => "Explicația nu a putut fi scrisă. Încearcă din nou.",
+        "humanize.daily" => "Ai folosit explicațiile AI de azi din această rețea. Demonstrația de mai sus este completă; încearcă din nou mâine pentru o explicație AI.",
         // export
         "export.failed" => "Exportul a eșuat. Încearcă din nou.",
         // shared / security
@@ -1238,7 +1240,7 @@ mod tests {
         for k in [
             "gate.doctitle", "gate.title", "gate.sub", "gate.label", "gate.username", "gate.submit",
             "gate.remember", "gate.wrong", "gate.empty", "gate.rate", "gate.cookies", "gate.required", "gate.forget",
-            "gate.lang", "translate.daily", "auth.sign_in_ai", "auth.sign_in_required",
+            "gate.lang", "translate.daily", "humanize.daily", "auth.sign_in_ai", "auth.sign_in_required",
         ] {
             for l in [Lang::En, Lang::Ro] {
                 assert_ne!(t(l, k), t(l, "no.such.key"), "{k} {l:?}");

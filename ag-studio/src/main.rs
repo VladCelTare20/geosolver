@@ -199,6 +199,7 @@ fn cmd_serve(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    config.export_claude_token();
     // Apply server-safe resource limits before any solving / rayon initialisation.
     security::apply_process_limits();
     let rt = match tokio::runtime::Runtime::new() {
