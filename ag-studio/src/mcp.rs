@@ -445,7 +445,7 @@ fn initialize(params: &Value) -> Value {
     json!({
         "protocolVersion": protocol,
         "capabilities": { "tools": {} },
-        "serverInfo": { "name": "geosolver", "version": env!("CARGO_PKG_VERSION") }
+        "serverInfo": { "name": "geosolver", "version": format!("{} ({})", crate::VERSION, crate::REVISION) }
     })
 }
 

@@ -248,6 +248,16 @@ pub async fn robots() -> Response {
     bytes("text/plain; charset=utf-8", "public, max-age=86400", ROBOTS.as_bytes())
 }
 
+pub const LICENSES: &str = concat!(
+    include_str!("../../NOTICE"),
+    "\n\n",
+    include_str!("../assets/fonts/FONT-LICENSES.txt"),
+);
+
+pub async fn licenses() -> Response {
+    bytes("text/plain; charset=utf-8", "public, max-age=86400", LICENSES.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

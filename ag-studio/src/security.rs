@@ -901,7 +901,7 @@ fn json_error(code: StatusCode, msg: &str) -> Response {
 /// all (not a browser) passes.
 pub async fn host_guard(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
     let cfg = &state.config;
-    if !cfg.bind.ip().is_loopback() && cfg.public_hosts.is_empty() {
+    if (!cfg.bind.ip().is_loopback() && cfg.public_hosts.is_empty()) || req.uri().path() == "/healthz" {
         return next.run(req).await;
     }
     let host = req
@@ -940,6 +940,7 @@ pub const PUBLIC_PATHS: &[&str] = &[
     "/assets/app.css",
     "/assets/fonts/{file}",
     "/robots.txt",
+    "/licenses",
 ];
 
 fn is_public(method: &axum::http::Method, path: &str) -> bool {
