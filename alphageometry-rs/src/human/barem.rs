@@ -29,6 +29,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     promote_atoms(cx, &mut ch, hp);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| split_sentence(cx, blocks, bi, s));
     lemma_steps(cx, &mut ch, hp);
+    per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
     if !check::violations_with(&mut ch, hp).is_empty() {
         if std::env::var_os("HP_DEBUG").is_some() {
             eprintln!("barem polish produced violations; keeping the unpolished proof");
@@ -330,7 +331,7 @@ fn link_sum(cx: &Ctx, blocks: &[Block], l: &Link, exact: bool) -> Option<LinComb
 }
 
 fn is_coll_reason(r: &Reason) -> bool {
-    matches!(r, Reason::Hyp { stmt: Stmt::Coll { .. }, .. } | Reason::Fact { stmt: Stmt::Coll { .. }, .. } | Reason::Lemma { stmt: Stmt::Coll { .. }, .. })
+    matches!(r, Reason::Hyp { stmt: Stmt::Coll { .. }, .. } | Reason::Fact { stmt: Stmt::Coll { .. }, .. } | Reason::Lemma { stmt: Stmt::Coll { .. }, .. } | Reason::Atom { key: AtomKey::Radii, .. })
 }
 
 pub fn link_facts(l: &Link) -> usize {
@@ -560,6 +561,10 @@ fn split_links(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], direc
                     match display(cx, tb, &node, directed, &[&after, &near], focus) {
                         Some(e) => {
                             score += badness(&e);
+                            let prev = mids.last().unwrap_or(&terms[k]);
+                            if *prev == e || (pi + 2 == parts.len() && e == terms[k + 1]) {
+                                score += 1000;
+                            }
                             mids.push(e);
                         }
                         None => {
@@ -606,7 +611,60 @@ fn split_links(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], direc
         out_terms.push(terms[k + 1].clone());
         changed = true;
     }
+    let (out_terms, out_links) = merge_repeats(out_terms, out_links);
     changed.then_some((out_terms, out_links))
+}
+
+fn merge_links(a: &Link, b: &Link) -> Link {
+    let mut reasons = a.reasons.clone();
+    let mut combination = a.combination.clone();
+    for t in &b.combination {
+        let r = &b.reasons[t.reason as usize];
+        let pos = match reasons.iter().position(|x| x == r) {
+            Some(p) => p,
+            None => {
+                reasons.push(r.clone());
+                reasons.len() - 1
+            }
+        };
+        combination.push(Term { reason: pos as u16, row: t.row, coef: t.coef.clone() });
+    }
+    for r in &b.reasons {
+        if !reasons.contains(r) {
+            reasons.push(r.clone());
+        }
+    }
+    Link { reasons, combination }
+}
+
+fn merge_repeats(mut terms: Vec<Expr>, mut links: Vec<Link>) -> (Vec<Expr>, Vec<Link>) {
+    while links.len() > 1 {
+        let Some(k) = (0..links.len()).find(|&k| terms[k] == terms[k + 1]) else { break };
+        if k + 1 < links.len() {
+            let m = merge_links(&links[k], &links[k + 1]);
+            links.splice(k..k + 2, [m]);
+            terms.remove(k + 1);
+        } else {
+            let m = merge_links(&links[k - 1], &links[k]);
+            links.splice(k - 1..k + 1, [m]);
+            terms.remove(k);
+        }
+    }
+    (terms, links)
+}
+
+fn merge_sentence(s: &Sentence) -> Option<Sentence> {
+    match s {
+        Sentence::Chain { terms, links, then, directed } if links.len() > 1 && terms.windows(2).any(|w| w[0] == w[1]) => {
+            let (terms, links) = merge_repeats(terms.clone(), links.clone());
+            Some(Sentence::Chain { terms, links, then: then.clone(), directed: *directed })
+        }
+        Sentence::Computation { comp, terms, links } if links.len() > 1 && terms.windows(2).any(|w| w[0] == w[1]) => {
+            let (terms, links) = merge_repeats(terms.clone(), links.clone());
+            Some(Sentence::Computation { comp: *comp, terms, links })
+        }
+        _ => None,
+    }
 }
 
 const PROMOTE: [AtomKey; 10] = [
@@ -939,10 +997,14 @@ pub fn cited_blocks(b: &Block) -> BTreeSet<u16> {
 
 fn has_angle_chain(hp: &HumanProof, cx: &Ctx, directed: bool) -> bool {
     hp.blocks.iter().flat_map(|b| b.body.iter()).any(|s| match s {
-        Sentence::Chain { terms, directed: d, .. } => *d == directed && terms.iter().any(|e| angle_table(cx, e) && super::expr::has_angle(e)),
+        Sentence::Chain { terms, directed: d, .. } => *d == directed && !hides_terms(s) && terms.iter().any(|e| angle_table(cx, e) && super::expr::has_angle(e)),
         Sentence::Pooled { stmt, .. } => directed && matches!(stmt, Stmt::Coll { .. } | Stmt::Cyclic { .. } | Stmt::EqAngle { .. } | Stmt::AngleConst { .. } | Stmt::Para { .. } | Stmt::Perp { .. }),
         _ => false,
     })
+}
+
+pub fn hides_terms(s: &Sentence) -> bool {
+    matches!(s, Sentence::Chain { terms, links, then: Some(Stmt::Coll { .. }), .. } if links.len() == 1 && matches!(terms.last(), Some(Expr::Const { degrees }) if degrees.is_zero()))
 }
 
 fn plan_worthy(b: &Block) -> bool {
@@ -1028,7 +1090,7 @@ pub fn chain_count(hp: &HumanProof, cx: &Ctx) -> (usize, usize, usize) {
             match s {
                 Sentence::Chain { links, directed, terms, .. } => {
                     multi += links.iter().filter(|l| link_facts(l) > 1).count();
-                    if terms.iter().any(|e| angle_table(cx, e) && super::expr::has_angle(e)) {
+                    if !hides_terms(s) && terms.iter().any(|e| angle_table(cx, e) && super::expr::has_angle(e)) {
                         if *directed {
                             dir += 1;
                         } else {
