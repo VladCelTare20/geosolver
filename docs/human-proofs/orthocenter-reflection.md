@@ -105,3 +105,16 @@ Deviations from the target (all equivalent; none changes what is proved):
 - The conclusion chain runs from ∡ACB to ∡AKB instead of ∡KBC … ∡KAC. Both are inscribed-angle forms of the same concyclicity; the writer takes the cheapest form whose certificate is a pure single-angle chain. Same four links with the same reasons (BH ⟂ AC; BC the perpendicular bisector of HK; BH = BK; K on AH).
 - The point order in "A, B, C, K are concyclic" follows the engine goal.
 - The RO text is rendered by ag-studio from the structured blocks, not by the engine.
+
+## Second quality round (branch wf/human-proofs-q2)
+
+Pinned verbatim in `alphageometry-rs/tests/golden/human/orthocenter_reflection.en.txt`. Every block passes the independent checker in strict mode.
+
+```
+∡ denotes directed angles modulo 180°.
+
+∡AHK = 0° (AH ∥ HK, both ⟂ BC), so H, A, K are collinear.
+∡ACB = ∡HBC + 90° = ∡BHK = ∡HKB = ∡AKB (BH ⟂ AC; BC is the perpendicular bisector of HK; BH = BK; K on HA), so A, B, C, K are concyclic. ∎
+```
+
+Deviations from the target: none new in this round. The text is two sentences: the collinearity H, A, K and one chain that ends in the concyclicity.

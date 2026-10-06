@@ -535,7 +535,7 @@ pub fn aux_text(n: &dyn PointNames, t: &EngineTrace, point: PointId, desc: &str)
         }
         _ => {}
     }
-    format!("Let {me} = {desc}.")
+    format!("Let {me} be the point constructed as {desc}.")
 }
 
 fn split_top(s: &str) -> Vec<&str> {
