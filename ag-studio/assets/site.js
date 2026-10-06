@@ -479,7 +479,7 @@
       var s = SP(atomTemplate(sh.base, sh.args, ctx));
       return r.key === "isosceles" && !plain ? '<span class="hp-nb">' + s + "</span>" : s;
     }
-    var SAY = { perp_bisector: 1, orthocentre: 1, centroid: 1, midline: 1, parallel: 1, power_of_point: 1 };
+    var SAY = { perp_bisector: 1, orthocentre: 1, centroid: 1, midline: 1, parallel: 1, power_of_point: 1, median_hypotenuse: 1 };
     function atomSentence(r, st) {
       if (!SAY[r.key] || !HAS("hp.say." + r.key)) return null;
       var a = r.args || [];

@@ -317,8 +317,7 @@ pub fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx
             cost = 1;
         }
     }
-    let pts = atom_points(cx, atom);
-    let foreign = pts.iter().filter(|p| !focus.contains(p)).count() as u32;
+    let foreign = if atom.pts.is_empty() { atom_points(cx, atom).iter().filter(|p| !focus.contains(p)).count() } else { atom.pts.iter().filter(|p| !focus.contains(p)).count() } as u32;
     cost * 4 + foreign.min(4) + atom.sources.len() as u32
 }
 
@@ -1624,7 +1623,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let base = self.w.atoms.len();
         let mut atoms: Vec<Atom> = self.w.atoms.clone();
         for e in ext {
-            atoms.push(Atom { src: AtomSrc::Glue(0), args: Vec::new(), table: Table::Ratio, row: (*e).clone(), q: (*e).clone(), cost: 1, sources: BTreeSet::new(), tmpl: 0, avail: 0, row_idx: 0, via: Vec::new() });
+            atoms.push(Atom { src: AtomSrc::Glue(0), args: Vec::new(), table: Table::Ratio, row: (*e).clone(), q: (*e).clone(), cost: 1, sources: BTreeSet::new(), tmpl: 0, avail: 0, row_idx: 0, via: Vec::new(), pts: Vec::new() });
         }
         let weights: Vec<i64> = atoms
             .iter()

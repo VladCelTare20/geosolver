@@ -98,6 +98,7 @@ pub fn doubled_directed(hp: &HumanProof) -> usize {
         .flat_map(|b| b.body.iter())
         .map(|s| match s {
             Sentence::Chain { terms, directed: true, .. } => terms.iter().map(count).sum(),
+            Sentence::Because { stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }, .. } => count(lhs) + count(rhs),
             _ => 0,
         })
         .sum()

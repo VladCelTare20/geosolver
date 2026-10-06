@@ -984,7 +984,7 @@ impl Cx<'_> {
     fn atom_sentence(&self, key: AtomKey, args: &[String], stmt: &Stmt) -> Option<String> {
         let g = |i: usize| args.get(i).cloned().unwrap_or_default();
         let shown: Vec<String> = match key {
-            AtomKey::PerpBisector | AtomKey::Orthocentre | AtomKey::Centroid | AtomKey::Midline | AtomKey::Parallel => args.to_vec(),
+            AtomKey::PerpBisector | AtomKey::Orthocentre | AtomKey::Centroid | AtomKey::Midline | AtomKey::Parallel | AtomKey::MedianHypotenuse => args.to_vec(),
             AtomKey::PowerOfPoint => vec![g(0), self.circle_ref(args.get(1..5).unwrap_or_default(), None)],
             _ => return None,
         };

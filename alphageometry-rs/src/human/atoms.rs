@@ -32,6 +32,7 @@ pub struct Atom {
     pub avail: FactId,
     pub row_idx: u16,
     pub via: Vec<usize>,
+    pub pts: Vec<PointId>,
 }
 
 impl Atom {
@@ -152,7 +153,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                 continue;
             }
             let q = if table == Table::Angle { self.cx.quot.q(&row) } else { row.clone() };
-            self.atoms.push(Atom { src, args: args.clone(), table, row, q, cost, sources: sources.clone(), tmpl, avail, row_idx: k as u16, via: Vec::new() });
+            self.atoms.push(Atom { src, args: args.clone(), table, row, q, cost, sources: sources.clone(), tmpl, avail, row_idx: k as u16, via: Vec::new(), pts: Vec::new() });
         }
     }
 
@@ -173,7 +174,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                         let q = if tb == Table::Angle { cx.quot.q(&r) } else { r.clone() };
                         let glue = is_line && tb == Table::Angle;
                         let (src, cost) = if glue { (AtomSrc::Glue(g), 0) } else { (AtomSrc::Engine(g), 2) };
-                        self.atoms.push(Atom { src, args: vec![], table: tb, row: r, q, cost, sources: BTreeSet::new(), tmpl: g + 1, avail: g + 1, row_idx: k as u16, via: Vec::new() });
+                        self.atoms.push(Atom { src, args: vec![], table: tb, row: r, q, cost, sources: BTreeSet::new(), tmpl: g + 1, avail: g + 1, row_idx: k as u16, via: Vec::new(), pts: Vec::new() });
                     }
                 }
                 _ => {
@@ -702,6 +703,9 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
         a.via = via.unwrap_or_default();
     }
     prefer_isosceles(cx, &mut b.atoms);
+    for a in b.atoms.iter_mut() {
+        a.pts = super::chain::atom_points(cx, a);
+    }
     b.atoms
 }
 

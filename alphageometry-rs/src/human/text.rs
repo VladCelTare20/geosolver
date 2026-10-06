@@ -555,6 +555,7 @@ pub fn atom_sentence(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) 
         ),
         AtomKey::Orthocentre => format!("the altitudes of △{} meet at {}, so {}", p(&[a[1], a[2], a[3]]), n.get(a[0]), stmt(n, s)),
         AtomKey::Centroid => format!("{} is the centroid of △{}, so {}", n.get(a[0]), p(&[a[1], a[2], a[3]]), stmt(n, s)),
+        AtomKey::MedianHypotenuse => format!("{} is the midpoint of the hypotenuse {} of right △{}, so {}", n.get(a[0]), p(&[a[1], a[2]]), p(&[a[1], a[3], a[2]]), stmt(n, s)),
         AtomKey::Parallel => format!("{} ⟂ {} and {} ⟂ {}, so {}", p(&[a[0], a[1]]), p(&[a[4], a[5]]), p(&[a[2], a[3]]), p(&[a[4], a[5]]), stmt(n, s)),
         AtomKey::PowerOfPoint => format!("{} (power of the point {} with respect to the circle ({}))", stmt(n, s), n.get(a[0]), p(&a[1..])),
         _ => return None,

@@ -566,11 +566,12 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
                 continue;
             }
             let nx_vars: Vec<VarId> = nx.terms.iter().map(|(v, _)| *v).filter(|v| *v != ANGLE_UNIT).collect();
+            let prune = table == Table::Angle && (!halves || classes(&nx).len() >= 3);
             for k2 in 0..n {
                 if m2 & (1 << k2) != 0 {
                     continue;
                 }
-                if table == Table::Angle && !halves && !items[k2].2.terms.iter().any(|(v, _)| nx_vars.binary_search(v).is_ok()) {
+                if prune && !items[k2].2.terms.iter().any(|(v, _)| nx_vars.binary_search(v).is_ok()) {
                     continue;
                 }
                 let m3 = m2 | (1 << k2);

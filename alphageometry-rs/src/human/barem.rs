@@ -24,6 +24,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
         return;
     }
     let original = hp.clone();
+    median_hypotenuse(cx, &mut ch, hp);
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _bi, s| undirected(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| split_sentence(cx, blocks, bi, s));
     promote_atoms(cx, &mut ch, hp);
@@ -458,6 +459,72 @@ fn drop_setup_radii(named: &[(PointId, Vec<PointId>)], s: &Sentence) -> Option<S
         out.push(Link { reasons: keep.iter().map(|&i| l.reasons[i].clone()).collect(), combination: l.combination.iter().map(|t| Term { reason: map[&t.reason], ..t.clone() }).collect() });
     }
     changed.then(|| Sentence::Chain { terms: terms.clone(), links: out, then: then.clone(), directed: *directed })
+}
+
+fn doubled_expr(e: &Expr) -> bool {
+    matches!(e, Expr::Lin { terms } if terms.iter().any(|(k, x)| matches!(x, Expr::Angle { directed: true, .. } | Expr::LineAngle { directed: true, .. }) && !k.abs().is_one()))
+}
+
+fn doubled_directed(s: &Sentence) -> bool {
+    match s {
+        Sentence::Chain { terms, directed: true, .. } => terms.iter().any(doubled_expr),
+        Sentence::Because { stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }, .. } => doubled_expr(lhs) || doubled_expr(rhs),
+        _ => false,
+    }
+}
+
+fn median_hypotenuse_body(cx: &Ctx, b: &Block) -> Option<Vec<Sentence>> {
+    let t = cx.t;
+    let Stmt::Cong { s1, s2 } = &b.stmt else { return None };
+    if !b.body.iter().any(doubled_directed) {
+        return None;
+    }
+    let o = [s1.0, s1.1].into_iter().find(|p| *p == s2.0 || *p == s2.1)?;
+    let x = if s1.0 == o { s1.1 } else { s1.0 };
+    let y = if s2.0 == o { s2.1 } else { s2.0 };
+    let near = |a: f64, b: f64| (a - b).abs() < 1e-9 * a.abs().max(b.abs()).max(1.0);
+    let right = |v: PointId, p: PointId, q: PointId| {
+        let ((vx, vy), (px, py), (qx, qy)) = (t.coord(v), t.coord(p), t.coord(q));
+        let dot = (px - vx) * (qx - vx) + (py - vy) * (qy - vy);
+        dot.abs() < 1e-9 * (t.dist(v, p) * t.dist(v, q)).max(1e-12)
+    };
+    for (xx, other) in [(x, y), (y, x)] {
+        for q in 0..t.n as PointId {
+            if [o, xx, other].contains(&q) || t.name(q).starts_with('_') {
+                continue;
+            }
+            let ((ox, oy), (px, py), (qx, qy)) = (t.coord(o), t.coord(other), t.coord(q));
+            if !near(ox * 2.0, px + qx) || !near(oy * 2.0, py + qy) || !right(xx, other, q) {
+                continue;
+            }
+            let args = vec![o, other, q, xx];
+            let stmt = super::claims::atom_stmt(AtomKey::MedianHypotenuse, &args);
+            let coef = if s1.0 == xx || s1.1 == xx { Rat::one() } else { Rat::from_int(-1) };
+            let reason = Reason::Atom { key: AtomKey::MedianHypotenuse, stmt, args, from: Vec::new() };
+            return Some(vec![Sentence::Because { stmt: b.stmt.clone(), reasons: vec![reason], combination: vec![Term { reason: 0, row: 0, coef }] }]);
+        }
+    }
+    None
+}
+
+fn median_hypotenuse(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
+    for bi in 0..hp.blocks.len() {
+        if cx.timed_out() {
+            return;
+        }
+        if hp.blocks[bi].kind == BlockKind::Raw {
+            continue;
+        }
+        let Some(body) = median_hypotenuse_body(cx, &hp.blocks[bi]) else { continue };
+        let mut cand = hp.clone();
+        cand.blocks[bi].body = body;
+        let v = check::violations_with(ch, &cand);
+        if v.is_empty() {
+            *hp = cand;
+        } else if debug() {
+            eprintln!("barem median to the hypotenuse in block {bi} rejected: {:?}", v.first().map(|x| &x.detail));
+        }
+    }
 }
 
 fn vertical_angles(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
@@ -1107,6 +1174,15 @@ fn atom_key_args(r: &Reason) -> Option<(AtomKey, Vec<PointId>)> {
 
 fn promote_atoms(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
     let mut tried: BTreeSet<(AtomKey, Vec<PointId>)> = BTreeSet::new();
+    for b in hp.blocks.iter().filter(|b| b.kind != BlockKind::Raw) {
+        if let [Sentence::Because { stmt, reasons, .. }] = b.body.as_slice() {
+            if let ([r], true) = (reasons.as_slice(), *stmt == b.stmt) {
+                if let Some(k) = atom_key_args(r) {
+                    tried.insert(k);
+                }
+            }
+        }
+    }
     loop {
         if cx.timed_out() {
             return;
