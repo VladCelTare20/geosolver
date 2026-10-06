@@ -2258,6 +2258,7 @@ mod tests {
 
     #[tokio::test]
     async fn corpus_problems_solve_through_the_api() {
+        let _heavy = crate::engine::heavy_search_lock();
         let dir = tempfile::tempdir().unwrap();
         let mut config = Config::from_env(0).unwrap();
         config.db_path = dir.path().join("test.db");

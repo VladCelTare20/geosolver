@@ -1561,6 +1561,12 @@ pub fn parse_theme(s: &str) -> Theme {
 }
 
 #[cfg(test)]
+pub(crate) fn heavy_search_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1758,6 +1764,7 @@ mod tests {
 
     #[test]
     fn the_butterfly_theorem_needs_and_gets_an_auxiliary_point() {
+        let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(BUTTERFLY, &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
         assert!(sol.proved, "{}", sol.note);
         assert_eq!(sol.method, Method::AuxSearch);
@@ -1766,6 +1773,7 @@ mod tests {
 
     #[test]
     fn the_default_and_best_solves_run_the_corpus_search() {
+        let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
         assert!(sol.proved, "{}", sol.note);
         assert_eq!(sol.method, Method::AuxSearch);
@@ -1987,6 +1995,7 @@ mod corpus_tests {
 
     #[test]
     fn imo_2008_p6_corpus_text_is_proved_through_the_app() {
+        let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(IMO_2008_P6, &corpus_opts(), Some(Duration::from_secs(150))).unwrap();
         assert!(sol.proved, "{}", sol.note);
         assert_eq!(sol.status, Status::Proved);
@@ -1997,6 +2006,7 @@ mod corpus_tests {
 
     #[test]
     fn a_conjunctive_corpus_goal_is_proved_only_as_a_whole() {
+        let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(TRAPEZOID, &corpus_opts(), Some(Duration::from_secs(60))).unwrap();
         assert!(sol.proved, "{}", sol.note);
         assert!(sol.note.contains("all 2 conjuncts of `midp f b c`"), "{}", sol.note);
@@ -2010,6 +2020,7 @@ mod corpus_tests {
 
     #[test]
     fn false_corpus_statements_stay_unproved() {
+        let _heavy = crate::engine::heavy_search_lock();
         let generic = [
             "a b c d = trapezoid a b c d; e = midpoint e d a; f = on_line f b c ? midp f b c",
             "a b c = triangle a b c; d = midpoint d a b; e = on_line e a c ? midp e a c",
