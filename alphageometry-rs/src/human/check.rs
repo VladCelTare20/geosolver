@@ -411,9 +411,16 @@ impl<'c, 'a> Checker<'c, 'a> {
                     return Err("lemma reason cites a sentence that does not establish it".into());
                 }
             }
-            Reason::Hyp { fact, .. } => {
+            Reason::Hyp { fact, stmt } => {
                 if !matches!(cx.class.get(*fact as usize), Some(FactClass::Hyp)) || !cx.in_cl[*fact as usize] {
                     return Err(format!("hyp reason {fact} is not a hypothesis of the proof"));
+                }
+                if let Some(targets) = stmt_targets(cx.t, stmt) {
+                    for (tb, row) in targets {
+                        if !self.proven(fact + 1, tb, &row) && !self.proven(h, tb, &row) {
+                            return Err(format!("hyp reason {fact} states something the hypothesis does not give: {stmt:?}"));
+                        }
+                    }
                 }
             }
             Reason::Claim { block, fact, .. } => {

@@ -156,6 +156,18 @@ fn cases() -> Vec<Case> {
             neg: &[(AtomKey::ExtLawOfSines, &["A", "B", "C", "H"]), (AtomKey::ExtLawOfSines, &["A", "B", "Ma", "O"])],
         },
         Case {
+            name: "sine of complementary angles",
+            src: "A B C = triangle\nO = circumcenter(A, B, C)\nH = orthocenter(A, B, C)\nMa = midpoint(B, C)\nprove dist(A, H) = 2 * dist(O, Ma)",
+            pos: (AtomKey::SineComplement, &["B", "A", "H", "A", "B", "C", "B"]),
+            neg: &[(AtomKey::SineComplement, &["B", "A", "H", "A", "B", "C"]), (AtomKey::SineComplement, &["B", "A", "C", "A", "B", "C"]), (AtomKey::SineComplement, &["B", "A", "H", "A", "B", "C", "A"])],
+        },
+        Case {
+            name: "sine of equal or supplementary angles",
+            src: "A B C = triangle\nO = circumcenter(A, B, C)\nH = orthocenter(A, B, C)\nMa = midpoint(B, C)\nprove dist(A, H) = 2 * dist(O, Ma)",
+            pos: (AtomKey::SineSupplement, &["C", "A", "B", "H", "A", "B"]),
+            neg: &[(AtomKey::SineSupplement, &["C", "A", "B", "H", "A", "B", "C"]), (AtomKey::SineSupplement, &["C", "A", "B", "A", "B", "H"]), (AtomKey::SineSupplement, &["C", "A", "B", "B", "A", "C"])],
+        },
+        Case {
             name: "congruence (SSS)",
             src: "A B = segment\nC = free\nD = reflect(C, line(A, B))\nE = free\nprove eqangle(A, C, A, B, A, B, A, D)",
             pos: (AtomKey::CongruentSss, &["A", "C", "B", "A", "D", "B"]),

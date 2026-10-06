@@ -571,7 +571,8 @@ impl<'c, 'a> Builder<'c, 'a> {
                     s.extend(s2.iter().copied());
                     let from = self.atoms.len();
                     self.add_human(AtomKey::Parallel, vec![a.0, a.1, b.0, b.1, ma.0, ma.1], 1, s, (*h1).max(*h2));
-                    let via: Vec<usize> = [*v1, *v2].into_iter().flatten().collect();
+                    let shared = a.0 == b.0 || a.0 == b.1 || a.1 == b.0 || a.1 == b.1;
+                    let via: Vec<usize> = if shared { Vec::new() } else { [*v1, *v2].into_iter().flatten().collect() };
                     for at in &mut self.atoms[from..] {
                         at.via = via.clone();
                     }

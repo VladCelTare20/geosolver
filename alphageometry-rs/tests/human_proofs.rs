@@ -132,9 +132,10 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("Let M be the midpoint of BC."), "{t}");
     assert!(t.contains("OM is the perpendicular bisector of BC"), "{t}");
     assert!(t.contains("MN is a midline of"), "{t}");
-    assert!(t.contains("Hence \u{25b3}AHB \u{223c} \u{25b3}MON. (4)"), "{t}");
-    assert!(t.contains("Hence \u{25b3}AHG \u{223c} \u{25b3}MOG. (5)"), "{t}");
-    assert!(t.contains("intercept theorem, AB \u{2225} MN"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHB \u{223c} \u{25b3}MON. (5)"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHG \u{223c} \u{25b3}MOG. (6)"), "{t}");
+    assert!(t.contains("G is the centroid of \u{25b3}ABC, so AG = 2\u{b7}GM."), "{t}");
+    assert!(t.contains("= 1 / 2      [AG = 2\u{b7}GM, by (1)]"), "{t}");
     assert!(!t.contains("\u{25b3}ABG \u{223c} \u{25b3}MNG"), "{t}");
     assert!(t.contains("So O, G, H lie on one line, as required. \u{220e}"), "{t}");
 
@@ -143,8 +144,11 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("R = OA = OB = OC for its circumradius."), "{t}");
     assert!(t.contains("Plan: it suffices to show that AH = 2R\u{b7}cos A and M\u{2090}O = R\u{b7}cos A."), "{t}");
     assert!(t.contains("We show that AH = 2R\u{b7}cos A:"), "{t}");
-    assert!(t.contains("We show that BC = 2R\u{b7}sin A:"), "{t}");
-    assert!(t.contains("law of sines in \u{25b3}ABH"), "{t}");
+    assert!(t.contains("We show that AB = 2R\u{b7}sin C:"), "{t}");
+    assert!(t.contains("extended law of sines"), "{t}");
+    assert!(t.contains("law of sines in \u{25b3}BHA"), "{t}");
+    assert!(!t.contains("sin\u{2220}COA") && !t.contains("sin\u{2220}BOA") && !t.contains("sin\u{2220}COB"), "{t}");
+    assert!(t.lines().filter(|l| l.trim_start().starts_with('=')).count() <= 5, "{t}");
     assert!(t.contains("so AH = 2\u{b7}M\u{2090}O, as required. \u{220e}"), "{t}");
     assert!(!t.contains("|sin") && !t.contains("R\u{b7}R") && !t.contains("R\u{b2}\u{b7}sin\u{2220}OCB / R"), "{t}");
     let laws = |b: &ddar::human::Block| t.lines().count() > 0 && b.body.iter().all(|s| match s {
@@ -176,7 +180,9 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("Let F be the foot of the perpendicular from B to AR."), "{t}");
     assert!(t.contains("OF is the perpendicular bisector of BN"), "{t}");
     assert!(t.contains("So R, N, F, O are concyclic."), "{t}");
-    assert!(t.contains("\u{2220}MCN = \u{bd}\u{b7}\u{2220}MON"), "{t}");
+    assert!(t.contains("= \u{bd}\u{b7}\u{2220}NOM    [central angle"), "{t}");
+    assert!(t.contains("NC \u{27c2} NB, by (1) and OF \u{27c2} NB, by (4), so NC \u{2225} OF. (5)"), "{t}");
+    assert!(t.contains("= \u{2221}NOF + \u{2221}PRN    [NC \u{2225} OF, by (5)]"), "{t}");
     assert!(t.contains("power of the point A"), "{t}");
     assert!(t.contains("so R, A, F, P are collinear (the radical axis theorem)."), "{t}");
     assert!(t.contains("So P lies on the line BC, as required. \u{220e}"), "{t}");
@@ -190,6 +196,8 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");
     assert!(t.contains("So AX bisects \u{2220}BAC, as required. \u{220e}"), "{t}");
     assert!(!t.contains("OA : OX = OP : OX"), "{t}");
+    assert!(!t.contains("2\u{2221}"), "no doubled directed angles:\n{t}");
+    assert!(t.contains("We show that \u{2221}IAP = \u{2221}APX:"), "{t}");
     assert!(!hp.blocks.last().unwrap().engine_facts.is_empty());
 }
 

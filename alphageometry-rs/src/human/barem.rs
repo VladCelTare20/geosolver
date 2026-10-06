@@ -759,7 +759,10 @@ fn promote_atoms(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
                     for l in links {
                         if !parallel_extras(l).is_empty() {
                             if let Some(Reason::Atom { key, args, .. }) = parallel_reason(l) {
-                                justified.insert((*key, args.clone()));
+                                let shared = args.len() >= 4 && (args[0] == args[2] || args[0] == args[3] || args[1] == args[2] || args[1] == args[3]);
+                                if !shared {
+                                    justified.insert((*key, args.clone()));
+                                }
                             }
                         }
                     }
