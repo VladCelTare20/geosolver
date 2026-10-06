@@ -1158,10 +1158,12 @@
     S.baseline = sol.input;
     var v = sol.view || {};
     var m = renderVerdict(sol);
-    renderStatement(sol);
+    S.rendering = true;
     renderProof(sol);
+    renderStatement(sol);
     renderDetails(sol);
     document.body.classList.add("has-result");
+    S.rendering = false;
     renderFigure(sol);
     $("proof-area").hidden = false;
     if (opts.announce) announce(m.head + ". " + m.text);
@@ -1177,11 +1179,14 @@
 
   function renderStatement(sol) {
     var v = sol.view || {};
-    var given = (v.given || []).map(function (f) { return '<li class="math" tabindex="-1" data-points="' + esc((f.points || []).join(" ")) + '">' + GS.fact(f) + "</li>"; }).join("");
+    var givenFacts = proofMode(sol) && v.given_proof ? v.given_proof : v.given || [];
+    var given = givenFacts.map(function (f) { return '<li class="math" tabindex="-1" data-points="' + esc((f.points || []).join(" ")) + '">' + GS.fact(f) + "</li>"; }).join("");
     var aux = (v.aux || []).map(function (a) {
       return '<li class="math" tabindex="-1" data-points="' + esc(a.name) + '"><span class="aux-name">' + GS.math(a.name) + "</span>: " + GS.math(auxText(a)) + "</li>";
     }).join("");
-    var helpers = (v.helpers || []).map(function (a) {
+    var hide = proofTabHides(sol);
+    var helperList = (v.helpers || []).filter(function (a) { return hide.indexOf(a.name) < 0; });
+    var helpers = helperList.map(function (a) {
       return '<li class="math" tabindex="-1" data-points="' + esc(a.name) + '">' + GS.math(a.name) + ": " + GS.math(auxText(a)) + "</li>";
     }).join("");
     var html = '<h2 class="sr-only" id="st-h">' + esc(t("st.statement")) + "</h2>";
@@ -1190,13 +1195,13 @@
     if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" tabindex="-1" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
     if (helpers) html += '<div class="st-block st-helpers"><h3 class="label">' + esc(t("st.helpers")) + '</h3><ul class="facts" role="list">' + helpers + '</ul><p class="hint">' + esc(t("st.helpers.hint")) + "</p></div>";
     if (aux) html += '<div class="st-block st-aux"><h3 class="label">' + esc(t("st.aux")) + '</h3><ul class="facts" role="list">' + aux + '</ul><p class="hint">' + esc(t("st.aux.hint")) + "</p></div>";
-    var nItems = (v.given || []).length + (v.helpers || []).length + (v.aux || []).length + (v.goal ? 1 : 0);
+    var nItems = givenFacts.length + helperList.length + (v.aux || []).length + (v.goal ? 1 : 0);
     if (nItems > 1) html += '<p class="hint kbd-hint" id="st-kbd">' + esc(t("st.kbd")) + "</p>";
     var box = $("statement");
     box.innerHTML = html;
     box.hidden = !(sol.title || given || v.goal || aux || helpers);
     var items = Array.prototype.slice.call(box.querySelectorAll("[data-points]"));
-    var facts = (v.given || []).concat(v.goal ? [v.goal] : []);
+    var facts = givenFacts.concat(v.goal ? [v.goal] : []);
     items.forEach(function (el, i) {
       var pts = el.getAttribute("data-points").split(" ");
       var fs = facts[i] ? [facts[i]] : null;
@@ -1306,6 +1311,22 @@
     $("hp-kbd").hidden = which !== "human";
     $("proof-kbd").hidden = which === "human";
     if (which === "ai") loadAi(false);
+    syncProofFigure();
+  }
+  function proofMode(sol) {
+    return !!humanOf(sol) && currentProofTab() !== "steps";
+  }
+  function proofTabHides(sol) {
+    return proofMode(sol) ? (sol.view || {}).proof_hidden || [] : [];
+  }
+  function figureFor(sol) {
+    return sol.svg_proof && proofMode(sol) ? sol.svg_proof : sol.svg;
+  }
+  function syncProofFigure() {
+    var sol = S.sol, v = (sol && sol.view) || {};
+    if (!sol || S.rendering || !(sol.svg_proof || v.given_proof || v.proof_hidden) || proofMode(sol) === S.shownProofMode) return;
+    renderFigure(sol);
+    renderStatement(sol);
   }
   function currentProofTab() {
     var on = PROOF_TABS.filter(function (k) { return $("ptab-" + k).getAttribute("aria-selected") === "true"; })[0];
@@ -1406,15 +1427,18 @@
 
   function figureAria(sol) {
     var v = sol.view || {};
-    var pts = (v.points || []).map(function (p) { return p.name; }).join(", ");
+    var hide = figureFor(sol) === sol.svg_proof ? v.proof_hidden || [] : [];
+    var pts = (v.points || []).map(function (p) { return p.name; }).filter(function (n) { return hide.indexOf(n) < 0; }).join(", ");
     return t("fig.aria", { pts: pts, goal: v.goal ? GS.factText(v.goal) : "—" });
   }
   function renderFigure(sol) {
-    if (!sol.svg) { fitViewportToFigure(""); viewer.setSvg(""); $("fig-empty").hidden = false; figTools(false); return; }
+    S.shownProofMode = proofMode(sol);
+    var svg = figureFor(sol);
+    if (!svg) { fitViewportToFigure(""); viewer.setSvg(""); $("fig-empty").hidden = false; figTools(false); return; }
     $("fig-empty").hidden = true;
     figTools(true);
-    fitViewportToFigure(sol.svg);
-    viewer.setSvg(sol.svg, figureAria(sol));
+    fitViewportToFigure(svg);
+    viewer.setSvg(svg, figureAria(sol));
     $("fig-legend").hidden = false;
     $("fig-legend").querySelector(".lg-aux").hidden = !((sol.view && sol.view.aux) || []).length;
     $("fig-legend").querySelector(".lg-goal").hidden = !viewer.svg || !viewer.svg.querySelector(".f-goal");
@@ -1593,7 +1617,7 @@
     var label = fmt.toUpperCase();
     var derivation = !!(S.derivation && humanOf(sol));
     if (fmt === "svg") {
-      deliver(new Blob([sol.svg], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg", "SVG", true);
+      deliver(new Blob([figureFor(sol)], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg", "SVG", true);
       return;
     }
     if (S.exporting) return;
