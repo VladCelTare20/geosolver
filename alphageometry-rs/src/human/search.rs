@@ -379,6 +379,12 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
             clear_extra(w);
             return out;
         }
+        if f == GOAL {
+            let cap = route::TOTAL_BUDGET - route::GOAL_RESERVE;
+            if w.route_spent.load(std::sync::atomic::Ordering::Relaxed) > cap {
+                w.route_spent.store(cap, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         let node = w.nodes[&f].clone();
         let present = present_cost(&node);
         let Some(parts) = node.parts.as_ref() else {

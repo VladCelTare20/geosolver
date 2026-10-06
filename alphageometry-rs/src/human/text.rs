@@ -832,7 +832,11 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
             if let Some(g) = &goal {
                 let so = format!("so {}.", stmt(&n, &b.stmt));
                 let so_cap = format!("So {}.", stmt(&n, &b.stmt));
-                if out.ends_with(&so) {
+                let hence = format!("Hence {}.", stmt(&n, &b.stmt));
+                if out.ends_with(&hence) {
+                    out.truncate(out.len() - hence.len());
+                    out.push_str(&format!("Hence {g}, as required."));
+                } else if out.ends_with(&so) {
                     out.truncate(out.len() - so.len());
                     out.push_str(&format!("so {g}, as required."));
                 } else if out.ends_with(&so_cap) {

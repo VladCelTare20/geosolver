@@ -573,6 +573,8 @@ pub struct Figure<'t> {
     pub lines: Vec<Vec<PointId>>,
     pub circles: Vec<Vec<PointId>>,
     pub sines: FxHashSet<(PointId, PointId, PointId)>,
+    pub used_sines: FxHashSet<(PointId, PointId, PointId)>,
+    pub trig_goal: bool,
     on: FxHashMap<(PointId, PointId), Vec<PointId>>,
     eps: f64,
 }
@@ -624,7 +626,7 @@ impl<'t> Figure<'t> {
         }).collect();
         cs.sort();
         cs.dedup();
-        Figure { t, lines: merged, circles: cs, sines: FxHashSet::default(), on, eps: tol(t) }
+        Figure { t, lines: merged, circles: cs, sines: FxHashSet::default(), used_sines: FxHashSet::default(), trig_goal: false, on, eps: tol(t) }
     }
 
     pub fn on(&self, a: PointId, b: PointId) -> &[PointId] {
@@ -966,7 +968,7 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
         }
     }
     let mut trig: Vec<(PointId, PointId, PointId, bool, f64)> = Vec::new();
-    for x in &t.sines {
+    for x in t.sines.iter().filter(|_| fig.trig_goal) {
         let sh = x.shift.mod_one();
         let cos = sh == half();
         if !(sh.is_zero() || cos) || x.p == x.q || x.v == x.p || x.v == x.q || t.orient(x.v, x.p, x.q) == 0 {
@@ -987,6 +989,10 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
             if i == j || (!y.3 && j < i) || (x.4 - y.4).abs() > 1e-9 * x.4.max(1.0) {
                 continue;
             }
+            let used = |e: &(PointId, PointId, PointId, bool, f64)| e.3 || fig.used_sines.contains(&(e.0, e.1, e.2));
+            if !used(x) && !used(y) {
+                continue;
+            }
             let key = if y.3 { AtomKey::SineComplement } else { AtomKey::SineSupplement };
             if let Some(args) = trig_identity_args(t, key, &[x.0, x.1, x.2, y.0, y.1, y.2]) {
                 push(&mut out, key, args);
@@ -1000,6 +1006,9 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
     for [a, p, q] in sine_tris {
         for (b, c) in [(p, q), (q, p)] {
             if !has(b, c, a) {
+                continue;
+            }
+            if !fig.used_sines.contains(&(a, p.min(q), p.max(q))) && !fig.used_sines.contains(&(b, c.min(a), c.max(a))) {
                 continue;
             }
             push(&mut out, AtomKey::LawOfSines, vec![a, b, c]);

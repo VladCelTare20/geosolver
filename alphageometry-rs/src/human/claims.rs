@@ -2269,7 +2269,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
-        let p = g.search(cx, &splits, 3000, i64::MAX, &spent, &weights)?;
+        let t0 = std::time::Instant::now();
+        let found = g.search(cx, &splits, 3000, i64::MAX, &spent, &weights);
+        if std::env::var_os("HP_TIME").is_some() {
+            eprintln!("halved lemma route: {:.1} ms, {} expansions, found {}", t0.elapsed().as_secs_f64() * 1000.0, spent.load(std::sync::atomic::Ordering::Relaxed), found.is_some());
+        }
+        let p = found?;
         if p.nodes.iter().any(|x| classes(x).iter().all(|(_, k)| k.numer_i64().is_some_and(|n| n % 2 == 0)) && !classes(x).is_empty()) {
             return None;
         }

@@ -14,7 +14,8 @@ use std::collections::{BTreeSet, BinaryHeap};
 pub const MAX_LINKS: usize = 8;
 pub const BUDGET: usize = 300;
 pub const UNDIRECTED_BUDGET: usize = 200;
-pub const TOTAL_BUDGET: usize = 12_000;
+pub const TOTAL_BUDGET: usize = 3_500;
+pub const GOAL_RESERVE: usize = 1_500;
 
 pub const OFF: i64 = i64::MAX;
 
@@ -143,13 +144,10 @@ impl Graph {
     }
 
     pub fn shape(&self, cx: &Ctx, c: &LinComb) -> Option<i64> {
-        if !self.undirected {
-            return directed_shape(cx, self.table, c);
-        }
         if let Some(v) = self.shown.borrow().get(c) {
             return *v;
         }
-        let r = undirected_shape(cx, c);
+        let r = if self.undirected { undirected_shape(cx, c) } else { directed_shape(cx, self.table, c) };
         self.shown.borrow_mut().insert(c.clone(), r);
         r
     }

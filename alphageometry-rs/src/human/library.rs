@@ -369,9 +369,17 @@ impl<'c, 'a> Builder<'c, 'a> {
                     eprintln!("sine var {} canon {} {}{}{} flip {} shift {} used {}", x.var, t.sine_canon(x.var), t.name(x.p), t.name(x.v), t.name(x.q), x.flip, x.shift, used_sines.contains(&t.sine_canon(x.var)));
                 }
             }
+            fig.trig_goal = matches!(cx.goal.name.as_str(), "cong" | "eqratio" | "rconst" | "distmeq");
             for x in &t.sines {
                 if x.shift.mod_one().is_zero() && x.p != x.q && x.v != x.p && x.v != x.q && t.orient(x.v, x.p, x.q) != 0 {
-                    fig.sines.insert((x.v, x.p.min(x.q), x.p.max(x.q)));
+                    let key = (x.v, x.p.min(x.q), x.p.max(x.q));
+                    let used = used_sines.contains(&t.sine_canon(x.var));
+                    if used {
+                        fig.used_sines.insert(key);
+                    }
+                    if used || fig.trig_goal {
+                        fig.sines.insert(key);
+                    }
                 }
             }
         }
@@ -446,7 +454,8 @@ impl<'c, 'a> Builder<'c, 'a> {
                 .collect()
         };
         for (key, args, rows, acc) in tried.into_iter().flatten() {
-            if per_key.get(&key).copied().unwrap_or(0) >= PER_KEY {
+            let cap = if matches!(key, AtomKey::SineSupplement | AtomKey::SineComplement) { PER_KEY / 3 } else { PER_KEY };
+            if per_key.get(&key).copied().unwrap_or(0) >= cap {
                 continue;
             }
             *per_key.entry(key).or_default() += 1;
