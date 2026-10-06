@@ -19,6 +19,7 @@ pub struct Path {
     pub nodes: Vec<LinComb>,
     pub links: Vec<Group>,
     pub weight: i64,
+    pub undirected: bool,
 }
 
 pub fn classes(c: &LinComb) -> Vec<(VarId, Rat)> {
@@ -192,7 +193,7 @@ pub fn bfs(
             }
             seq.reverse();
             links.reverse();
-            let path = Path { split: si, nodes: seq.iter().map(|&k| nodes[k].clone()).collect(), links, weight: dist[end] };
+            let path = Path { split: si, nodes: seq.iter().map(|&k| nodes[k].clone()).collect(), links, weight: dist[end], undirected: false };
             if best.as_ref().is_none_or(|b| path.weight < b.weight) {
                 best = Some(path);
             }

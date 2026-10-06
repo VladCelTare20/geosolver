@@ -6,7 +6,7 @@ use crate::predicate::{PointId, Predicate};
 use crate::proof::{FactId, Reason};
 use crate::rational::Rat;
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
+use std::sync::Mutex;
 use std::collections::BTreeSet;
 use std::time::Instant;
 
@@ -89,8 +89,8 @@ pub struct Ctx<'a> {
     pub deadline: Option<Instant>,
     pub hyp_pred: FxHashMap<FactId, Predicate>,
     pub library: bool,
-    store: RefCell<Vec<Option<super::cert::Echelon>>>,
-    src_memo: RefCell<FxHashMap<FactId, BTreeSet<FactId>>>,
+    store: Mutex<Vec<Option<super::cert::Echelon>>>,
+    src_memo: Mutex<FxHashMap<FactId, BTreeSet<FactId>>>,
 }
 
 pub fn transfer_add_row(t: &EngineTrace, f: FactId) -> Option<LinComb> {
@@ -155,8 +155,8 @@ impl<'a> Ctx<'a> {
             deadline,
             hyp_pred,
             library: true,
-            store: RefCell::new(vec![None, None, None, None]),
-            src_memo: RefCell::new(FxHashMap::default()),
+            store: Mutex::new(vec![None, None, None, None]),
+            src_memo: Mutex::new(FxHashMap::default()),
         };
         cx.refine_silent();
         cx.build_objects();
@@ -364,7 +364,7 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn store_verified(&self, tb: Table, canon: &LinComb) -> bool {
-        let mut st = self.store.borrow_mut();
+        let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
         let b = st[tb.idx()].get_or_insert_with(|| { let t0 = std::time::Instant::now();
             let mut b = super::cert::Echelon::new(&self.piv[tb.idx()]);
             for (_, r) in self.t.rows[tb.idx()].iter() {
@@ -389,7 +389,7 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn fact_sources(&self, f: FactId) -> BTreeSet<FactId> {
-        if let Some(s) = self.src_memo.borrow().get(&f) {
+        if let Some(s) = self.src_memo.lock().unwrap_or_else(|e| e.into_inner()).get(&f) {
             return s.clone();
         }
         let out: BTreeSet<FactId> = match self.class.get(f as usize).copied().unwrap_or(FactClass::Outside) {
@@ -424,7 +424,7 @@ impl<'a> Ctx<'a> {
                 s
             }
         };
-        self.src_memo.borrow_mut().insert(f, out.clone());
+        self.src_memo.lock().unwrap_or_else(|e| e.into_inner()).insert(f, out.clone());
         out
     }
 

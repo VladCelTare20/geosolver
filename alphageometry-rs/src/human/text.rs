@@ -949,9 +949,54 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
     }
 }
 
+pub fn perp_lines(r: &Reason) -> Option<[(PointId, PointId); 2]> {
+    let st = match r {
+        Reason::Lemma { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Hyp { stmt, .. } => stmt.clone(),
+        Reason::Atom { key: AtomKey::Thales, args, .. } => return Some([(args[2], args[0]), (args[2], args[1])]),
+        Reason::Atom { key: AtomKey::PerpBisector, args, .. } | Reason::Atom { key: AtomKey::Orthocentre, args, .. } => {
+            return if let Stmt::Perp { l1, l2 } = super::claims::atom_stmt(AtomKey::PerpBisector, args) { Some([l1, l2]) } else { None };
+        }
+        _ => return None,
+    };
+    match st {
+        Stmt::Perp { l1, l2 } => Some([l1, l2]),
+        Stmt::AngleConst { angle: Expr::Angle { a, b, c, .. }, degrees } if degrees == Rat::from_int(90) => Some([(b, a), (b, c)]),
+        _ => None,
+    }
+}
+
+pub fn same_line(a: (PointId, PointId), b: (PointId, PointId)) -> bool {
+    (a.0 == b.0 && a.1 == b.1) || (a.0 == b.1 && a.1 == b.0)
+}
+
+pub fn parallel_justification(args: &[PointId], extras: &[Reason], i: usize) -> Option<usize> {
+    let l = (args[2 * i], args[2 * i + 1]);
+    let m = (args[4], args[5]);
+    extras.iter().position(|r| perp_lines(r).is_some_and(|[x, y]| (same_line(x, l) && same_line(y, m)) || (same_line(x, m) && same_line(y, l))))
+}
+
+fn parallel_text(n: &dyn PointNames, st: &Stmt, args: &[PointId], extras: &[Reason], claims: &BTreeMap<u16, u16>) -> String {
+    let parts: Vec<String> = (0..2)
+        .map(|i| {
+            let perp = format!("{} ⟂ {}", n.pts(&[args[2 * i], args[2 * i + 1]]), n.pts(&[args[4], args[5]]));
+            match parallel_justification(args, extras, i).map(|k| &extras[k]) {
+                Some(Reason::Lemma { block, .. }) | Some(Reason::Fact { block: Some(block), .. }) => by_step(perp, *block),
+                Some(r @ Reason::Atom { .. }) => format!("{perp} ({})", reason(n, r, claims)),
+                _ => perp,
+            }
+        })
+        .collect();
+    format!("{}, so {}.", cap(&join_and(&parts)), stmt(n, st))
+}
+
 fn because_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason], claims: &BTreeMap<u16, u16>) -> String {
     if reasons.is_empty() {
         return format!("Hence {}.", stmt(n, st));
+    }
+    if let [Reason::Atom { key: AtomKey::Parallel, args, stmt: s2, .. }, extras @ ..] = reasons {
+        if same_stmt(s2, st) && !extras.is_empty() {
+            return parallel_text(n, st, args, extras, claims);
+        }
     }
     let flat: Vec<Reason>;
     let inner = match reasons {

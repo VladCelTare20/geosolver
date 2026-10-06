@@ -178,7 +178,7 @@ pub struct HypEval<'d> {
     dir: &'d Directory,
     closure: Vec<super::cert::Basis>,
     rows: Vec<Vec<(u32, FactId, Option<FactId>, Option<usize>, LinComb)>>,
-    pub store_checks: usize,
+    pub store_checks: std::sync::atomic::AtomicUsize,
 }
 
 impl<'d> HypEval<'d> {
@@ -192,7 +192,7 @@ impl<'d> HypEval<'d> {
                 }
             }
         }
-        HypEval { dir, closure, rows: Vec::new(), store_checks: 0 }
+        HypEval { dir, closure, rows: Vec::new(), store_checks: std::sync::atomic::AtomicUsize::new(0) }
     }
 
     pub fn with_rows(mut self, b: &Builder) -> Self {
@@ -249,12 +249,12 @@ impl<'d> HypEval<'d> {
         Some(f)
     }
 
-    pub fn verified(&mut self, cx: &Ctx, tb: Table, r: &LinComb) -> bool {
+    pub fn verified(&self, cx: &Ctx, tb: Table, r: &LinComb) -> bool {
         let row = canon_row(cx.t, tb, r);
         if self.closure[tb.idx()].contains(&row) {
             return true;
         }
-        self.store_checks += 1;
+        self.store_checks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         cx.store_verified(tb, &row)
     }
 
@@ -377,7 +377,7 @@ impl<'c, 'a> Builder<'c, 'a> {
         cands.extend(congruence_candidates(&pairs));
         let present: BTreeSet<(AtomKey, Vec<PointId>)> = self.atoms.iter().filter_map(|a| if let AtomSrc::Human(k) = a.src { is_theorem(k).then(|| (k, a.args.clone())) } else { None }).collect();
         let dir = Directory::new(self);
-        let mut ev = HypEval::new(cx, &dir).with_rows(self);
+        let ev = HypEval::new(cx, &dir).with_rows(self);
         let mut made: Vec<(AtomKey, Vec<PointId>, Vec<(Table, LinComb)>, Found)> = Vec::new();
         let ncand = cands.len();
         let mut cand_keys: BTreeMap<AtomKey, usize> = BTreeMap::new();
@@ -396,27 +396,25 @@ impl<'c, 'a> Builder<'c, 'a> {
             }
         }
         let mut per_key: BTreeMap<AtomKey, usize> = BTreeMap::new();
-        for (key, args) in cands {
-            if cx.timed_out() {
-                break;
-            }
-            if present.contains(&(key, args.clone())) || per_key.get(&key).copied().unwrap_or(0) >= PER_KEY {
-                continue;
-            }
-            let Some(sp) = spec(t, key, &args) else { continue };
-            let trig_ok = sp.rows.iter().all(|(tb, r)| *tb != Table::Ratio || t.canon_ratio(r).terms.iter().all(|(v, _)| !sine_vars.contains(v) || used_sines.contains(v)));
-            if !trig_ok {
-                continue;
-            }
-            if !sp.hyps.iter().filter(|h| h.is_config()).all(|h| config_holds(t, h)) {
-                continue;
-            }
-            let forbid: Vec<(Table, LinComb)> = sp.rows.iter().filter_map(|(tb, r)| row_key(cx, *tb, r)).collect();
-            let mut acc = Found::default();
-            let mut ok = true;
-            for h in sp.hyps.iter().filter(|h| !h.is_config()) {
-                match ev.eval(self, h, &forbid, None) {
-                    Some(f) => {
+        let me: &Builder = self;
+        let evr = &ev;
+        let tried: Vec<Option<(AtomKey, Vec<PointId>, Vec<(Table, LinComb)>, Found)>> = {
+            use rayon::prelude::*;
+            cands
+                .into_par_iter()
+                .map(|(key, args)| {
+                    if cx.timed_out() || present.contains(&(key, args.clone())) {
+                        return None;
+                    }
+                    let sp = spec(t, key, &args)?;
+                    let trig_ok = sp.rows.iter().all(|(tb, r)| *tb != Table::Ratio || t.canon_ratio(r).terms.iter().all(|(v, _)| !sine_vars.contains(v) || used_sines.contains(v)));
+                    if !trig_ok || !sp.hyps.iter().filter(|h| h.is_config()).all(|h| config_holds(t, h)) {
+                        return None;
+                    }
+                    let forbid: Vec<(Table, LinComb)> = sp.rows.iter().filter_map(|(tb, r)| row_key(cx, *tb, r)).collect();
+                    let mut acc = Found::default();
+                    for h in sp.hyps.iter().filter(|h| !h.is_config()) {
+                        let f = evr.eval(me, h, &forbid, None)?;
                         acc.avail = acc.avail.max(f.avail);
                         acc.sources.extend(f.sources);
                         for v in f.via {
@@ -425,22 +423,22 @@ impl<'c, 'a> Builder<'c, 'a> {
                             }
                         }
                     }
-                    None => {
-                        ok = false;
-                        break;
+                    if !sp.rows.iter().all(|(tb, r)| evr.verified(cx, *tb, r)) {
+                        return None;
                     }
-                }
+                    let restates_goal = acc.sources.is_empty() && acc.via.is_empty() && sp.rows.iter().any(|(tb, r)| row_key(cx, *tb, r).is_some_and(|k| goal_keys.contains(&k)));
+                    (!restates_goal).then_some((key, args, sp.rows, acc))
+                })
+                .collect()
+        };
+        for (key, args, rows, acc) in tried.into_iter().flatten() {
+            if per_key.get(&key).copied().unwrap_or(0) >= PER_KEY {
+                continue;
             }
-            if ok && !sp.rows.iter().all(|(tb, r)| ev.verified(cx, *tb, r)) {
-                ok = false;
-            }
-            let restates_goal = acc.sources.is_empty() && acc.via.is_empty() && sp.rows.iter().any(|(tb, r)| row_key(cx, *tb, r).is_some_and(|k| goal_keys.contains(&k)));
-            if ok && !restates_goal {
-                *per_key.entry(key).or_default() += 1;
-                made.push((key, args, sp.rows, acc));
-            }
+            *per_key.entry(key).or_default() += 1;
+            made.push((key, args, rows, acc));
         }
-        let store_checks = ev.store_checks;
+        let store_checks = ev.store_checks.load(std::sync::atomic::Ordering::Relaxed);
         drop(ev);
         drop(dir);
         for (key, args, rows, acc) in made {

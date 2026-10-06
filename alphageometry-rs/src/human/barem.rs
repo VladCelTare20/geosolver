@@ -192,7 +192,7 @@ fn negate_link(l: Link) -> Link {
     Link { reasons: l.reasons, combination: l.combination.into_iter().map(|t| Term { coef: -&t.coef, ..t }).collect() }
 }
 
-fn term_score(e: &Expr) -> Option<i64> {
+pub fn term_score(e: &Expr) -> Option<i64> {
     let ninety = Rat::from_int(90);
     let one_eighty = Rat::from_int(180);
     match e {
@@ -289,7 +289,7 @@ fn undirected_chain(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], 
     Some(Sentence::Chain { terms: out, links, then, directed: false })
 }
 
-fn lin_terms(e: &Expr) -> usize {
+pub fn lin_terms(e: &Expr) -> usize {
     match e {
         Expr::Lin { terms } => terms.iter().filter(|(_, x)| !matches!(x, Expr::Const { .. })).count(),
         _ => 1,
@@ -721,7 +721,25 @@ fn promote_atoms(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
                 }
             }
         }
-        let pick = uses.iter().filter(|(k, (_, n, crowded))| !tried.contains(*k) && (*n >= 2 || ALWAYS.contains(&k.0) || (*crowded && k.0 != AtomKey::Parallel))).min_by_key(|(_, (bi, _, _))| *bi).map(|(k, v)| (k.clone(), *v));
+        let mut justified: BTreeSet<(AtomKey, Vec<PointId>)> = BTreeSet::new();
+        for b in hp.blocks.iter().filter(|b| b.kind != BlockKind::Raw) {
+            for s in &b.body {
+                if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } = s {
+                    for l in links {
+                        if !parallel_extras(l).is_empty() {
+                            if let Some(Reason::Atom { key, args, .. }) = parallel_reason(l) {
+                                justified.insert((*key, args.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let pick = uses
+            .iter()
+            .filter(|(k, (_, n, crowded))| !tried.contains(*k) && (*n >= 2 || ALWAYS.contains(&k.0) || justified.contains(*k) || (*crowded && k.0 != AtomKey::Parallel)))
+            .min_by_key(|(_, (bi, _, _))| *bi)
+            .map(|(k, v)| (k.clone(), *v));
         let Some(((key, args), (first, _, _))) = pick else { return };
         tried.insert((key, args.clone()));
         let Some(cand) = promote_one(cx, hp, key, &args, first) else { continue };
@@ -732,6 +750,23 @@ fn promote_atoms(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
             eprintln!("barem promotion of {key:?} {args:?} rejected: {:?}", v.first().map(|x| &x.detail));
         }
     }
+}
+
+fn parallel_reason(l: &Link) -> Option<&Reason> {
+    let used: BTreeSet<u16> = l.combination.iter().map(|t| t.reason).collect();
+    let par: Vec<&Reason> = used.iter().filter_map(|&i| l.reasons.get(i as usize)).filter(|r| matches!(r, Reason::Atom { key: AtomKey::Parallel, .. })).collect();
+    match par.as_slice() {
+        [r] => Some(*r),
+        _ => None,
+    }
+}
+
+fn parallel_extras(l: &Link) -> Vec<usize> {
+    let used: BTreeSet<u16> = l.combination.iter().map(|t| t.reason).collect();
+    if parallel_reason(l).is_none() || used.len() != 1 {
+        return Vec::new();
+    }
+    (0..l.reasons.len()).filter(|i| !used.contains(&(*i as u16))).collect()
 }
 
 fn exact_rows(cx: &Ctx, rows: Vec<(Table, LinComb)>) -> Vec<(Table, LinComb)> {
@@ -762,15 +797,56 @@ fn promote_one(cx: &Ctx, hp: &HumanProof, key: AtomKey, args: &[PointId], first:
         }
         found?
     };
-    let body = vec![Sentence::Because { stmt: stmt.clone(), reasons: vec![atom_reason.clone()], combination: vec![Term { reason: 0, row: ai as u16, coef: sign.clone() }] }];
-    let from: Vec<u16> = match &atom_reason {
+    let mut carried: Vec<Reason> = Vec::new();
+    if key == AtomKey::Parallel {
+        for s in &user.body {
+            if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } = s {
+                for l in links {
+                    if parallel_reason(l).is_some_and(|r| atom_key_args(r).is_some_and(|(k, a)| k == key && a == args)) {
+                        for i in parallel_extras(l) {
+                            if !carried.contains(&l.reasons[i]) {
+                                carried.push(l.reasons[i].clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut from: Vec<u16> = match &atom_reason {
         Reason::Atom { from, .. } => from.clone(),
         _ => Vec::new(),
     };
+    for r in &carried {
+        match r {
+            Reason::Lemma { block, .. } | Reason::Claim { block, .. } | Reason::Fact { block: Some(block), .. } => from.push(*block),
+            Reason::Atom { from: f, .. } => from.extend(f.iter().copied()),
+            _ => {}
+        }
+    }
     let at = from.iter().filter_map(|&f| deps_at(f)).map(|i| i + 1).max().unwrap_or(0).min(first);
     let at = (at..=first).find(|&i| hp.blocks[i].kind != BlockKind::Raw || i == first).unwrap_or(first);
     let first = at;
     let new_id = hp.blocks[first].id;
+    let shift = |id: u16| if id >= new_id { id + 1 } else { id };
+    let carried: Vec<Reason> = carried
+        .into_iter()
+        .map(|mut r| {
+            match &mut r {
+                Reason::Lemma { block, .. } | Reason::Claim { block, .. } | Reason::Fact { block: Some(block), .. } => *block = shift(*block),
+                Reason::Atom { from, .. } => from.iter_mut().for_each(|x| *x = shift(*x)),
+                _ => {}
+            }
+            r
+        })
+        .collect();
+    let atom_reason = match atom_reason {
+        Reason::Atom { key, stmt, args, from } => Reason::Atom { key, stmt, args, from: from.into_iter().map(shift).collect() },
+        r => r,
+    };
+    let mut reasons = vec![atom_reason.clone()];
+    reasons.extend(carried.iter().cloned());
+    let body = vec![Sentence::Because { stmt: stmt.clone(), reasons, combination: vec![Term { reason: 0, row: ai as u16, coef: sign.clone() }] }];
     let block = Block {
         id: new_id,
         kind: BlockKind::Step,
@@ -790,6 +866,9 @@ fn promote_one(cx: &Ctx, hp: &HumanProof, key: AtomKey, args: &[PointId], first:
     for b in out.blocks.iter_mut().skip(first + 1) {
         for s in b.body.iter_mut() {
             replace_atom(cx, s, key, args, &lemma, ai, &sign);
+            if !carried.is_empty() {
+                drop_carried(s, &lemma, &carried);
+            }
         }
     }
     Some(out)
@@ -851,6 +930,25 @@ fn replace_atom(cx: &Ctx, s: &mut Sentence, key: AtomKey, args: &[PointId], lemm
             }
         }
     });
+}
+
+fn drop_carried(s: &mut Sentence, lemma: &Reason, carried: &[Reason]) {
+    let (Sentence::Chain { links, .. } | Sentence::Computation { links, .. }) = s else { return };
+    for l in links.iter_mut() {
+        if !l.reasons.contains(lemma) {
+            continue;
+        }
+        let used: BTreeSet<u16> = l.combination.iter().map(|t| t.reason).collect();
+        let keep: Vec<usize> = (0..l.reasons.len()).filter(|&i| used.contains(&(i as u16)) || !carried.contains(&l.reasons[i])).collect();
+        if keep.len() == l.reasons.len() {
+            continue;
+        }
+        let map: BTreeMap<usize, u16> = keep.iter().enumerate().map(|(k, &i)| (i, k as u16)).collect();
+        l.reasons = keep.iter().map(|&i| l.reasons[i].clone()).collect();
+        for t in l.combination.iter_mut() {
+            t.reason = map[&(t.reason as usize)];
+        }
+    }
 }
 
 fn remap_ids(hp: &mut HumanProof, f: &dyn Fn(u16) -> u16) {

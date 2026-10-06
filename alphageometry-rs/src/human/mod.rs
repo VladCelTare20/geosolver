@@ -10,6 +10,7 @@ pub mod ctx;
 pub mod expr;
 pub mod library;
 pub mod model;
+pub mod route;
 pub mod search;
 pub mod text;
 pub mod theorems;
@@ -101,8 +102,12 @@ pub fn write(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxI
     let raw_steps = trace.closure(deps).len();
     let lib_only = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "only");
     let no_lib = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "0");
-    let base = if lib_only { None } else { guarded(trace, goal, deps, aux, opts, false) };
-    let lib = if no_lib { None } else { guarded(trace, goal, deps, aux, opts, true) };
+    let (base, lib) = std::thread::scope(|sc| {
+        let hb = if lib_only { None } else { Some(sc.spawn(|| guarded(trace, goal, deps, aux, opts, false))) };
+        let lib = if no_lib { None } else { guarded(trace, goal, deps, aux, opts, true) };
+        let base = hb.and_then(|h| h.join().ok().flatten());
+        (base, lib)
+    });
     let lib_ok = lib.as_ref().filter(|h| h.available && !h.metrics.timed_out && h.metrics.check_violations == 0 && !(restates_goal(trace, h) && base.as_ref().is_some_and(|b| b.available)));
     if std::env::var_os("HP_LIBSTAT").is_some() {
         let d = |h: Option<&HumanProof>| h.map(|h| format!("avail={} timed_out={} violations={} score={}", h.available, h.metrics.timed_out, h.metrics.check_violations, score(h))).unwrap_or_else(|| "none".into());
@@ -145,7 +150,12 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     tick("atoms");
     w.first_pass();
     tick("first pass");
-    let found = if library { Some(search::optimise(&mut w)) } else { None };
+    let found = if library {
+        Some(search::optimise(&mut w))
+    } else {
+        search::optimise_with(&mut w, false);
+        None
+    };
     tick("search");
     w.select();
     if let Some(s) = &found {

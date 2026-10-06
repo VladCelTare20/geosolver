@@ -521,10 +521,10 @@ impl<'c, 'a> Builder<'c, 'a> {
         start
     }
 
-    pub fn perps(&self) -> Vec<((PointId, PointId), (PointId, PointId), FactId, BTreeSet<FactId>)> {
+    pub fn perps(&self) -> Vec<((PointId, PointId), (PointId, PointId), FactId, BTreeSet<FactId>, Option<usize>)> {
         let cx = self.cx;
         let mut out = Vec::new();
-        for a in &self.atoms {
+        for (i, a) in self.atoms.iter().enumerate() {
             if a.avail == NEVER {
                 continue;
             }
@@ -533,15 +533,15 @@ impl<'c, 'a> Builder<'c, 'a> {
                     if let Some(p) = cx.hyp_pred.get(&f) {
                         if p.name == "perp" && p.points.len() == 4 {
                             let pts = &p.points;
-                            out.push(((pts[0], pts[1]), (pts[2], pts[3]), a.avail, BTreeSet::new()));
+                            out.push(((pts[0], pts[1]), (pts[2], pts[3]), a.avail, BTreeSet::new(), None));
                         }
                     }
                 }
                 AtomSrc::Human(AtomKey::PerpBisector) => {
-                    out.push(((a.args[0], a.args[1]), (a.args[2], a.args[3]), a.avail, a.sources.clone()));
+                    out.push(((a.args[0], a.args[1]), (a.args[2], a.args[3]), a.avail, a.sources.clone(), Some(i)));
                 }
                 AtomSrc::Human(AtomKey::Thales) => {
-                    out.push(((a.args[2], a.args[0]), (a.args[2], a.args[1]), a.avail, a.sources.clone()));
+                    out.push(((a.args[2], a.args[0]), (a.args[2], a.args[1]), a.avail, a.sources.clone(), Some(i)));
                 }
                 _ => {}
             }
@@ -560,8 +560,8 @@ impl<'c, 'a> Builder<'c, 'a> {
                 if i >= j {
                     continue;
                 }
-                let (l1, m1, h1, s1) = &perps[i];
-                let (l2, m2, h2, s2) = &perps[j];
+                let (l1, m1, h1, s1, v1) = &perps[i];
+                let (l2, m2, h2, s2, v2) = &perps[j];
                 let combos = [(*l1, *m1, *l2, *m2), (*l1, *m1, *m2, *l2), (*m1, *l1, *l2, *m2), (*m1, *l1, *m2, *l2)];
                 for (a, ma, b, mb) in combos {
                     if cls(ma).is_none() || cls(ma) != cls(mb) || cls(a) == cls(b) {
@@ -569,7 +569,12 @@ impl<'c, 'a> Builder<'c, 'a> {
                     }
                     let mut s = s1.clone();
                     s.extend(s2.iter().copied());
+                    let from = self.atoms.len();
                     self.add_human(AtomKey::Parallel, vec![a.0, a.1, b.0, b.1, ma.0, ma.1], 1, s, (*h1).max(*h2));
+                    let via: Vec<usize> = [*v1, *v2].into_iter().flatten().collect();
+                    for at in &mut self.atoms[from..] {
+                        at.via = via.clone();
+                    }
                 }
             }
         }
@@ -613,7 +618,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                 }
             }
             m.sort_unstable();
-            for (l, mm, h, s) in &perps {
+            for (l, mm, h, s, _) in &perps {
                 for (pl, pm) in [(*l, *mm), (*mm, *l)] {
                     let pt = [pl.0, pl.1].into_iter().find(|p| [pm.0, pm.1].contains(p) && m.contains(p));
                     let Some(p) = pt else { continue };

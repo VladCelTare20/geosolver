@@ -236,7 +236,7 @@ fn path_from_groups(split: usize, l: &LinComb, items: &[(usize, Rat, LinComb)], 
         nodes.push(cur.clone());
         links.push(grp);
     }
-    Path { split, nodes, links, weight: 0 }
+    Path { split, nodes, links, weight: 0, undirected: false }
 }
 
 pub const GOAL: FactId = FactId::MAX - 1;
@@ -255,6 +255,7 @@ pub enum Role {
 pub struct Part {
     pub target: Target,
     pub support: Vec<(usize, Rat)>,
+    pub route: Option<Path>,
 }
 
 #[derive(Clone, Debug)]
@@ -283,8 +284,9 @@ pub struct Writer<'c, 'a> {
     pub nodes: BTreeMap<FactId, Node>,
     pub claim_cost: BTreeSet<FactId>,
     pub bfs_budget: usize,
-    pub span_cache: std::cell::RefCell<BTreeMap<(FactId, Option<FactId>), Vec<super::cert::Basis>>>,
+    pub span_cache: std::sync::Mutex<BTreeMap<(FactId, Option<FactId>), std::sync::Arc<Vec<super::cert::Basis>>>>,
     pub extra: Vec<u32>,
+    pub route_spent: std::sync::atomic::AtomicUsize,
 }
 
 pub fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &Ctx) -> u32 {
@@ -306,7 +308,7 @@ impl<'c, 'a> Writer<'c, 'a> {
     pub fn new(cx: &'c Ctx<'a>) -> Writer<'c, 'a> {
         let atoms = build_all(cx);
         let extra = vec![0; atoms.len()];
-        Writer { cx, atoms, nodes: BTreeMap::new(), claim_cost: BTreeSet::new(), bfs_budget: 20_000, span_cache: std::cell::RefCell::new(BTreeMap::new()), extra }
+        Writer { cx, atoms, nodes: BTreeMap::new(), claim_cost: BTreeSet::new(), bfs_budget: 20_000, span_cache: std::sync::Mutex::new(BTreeMap::new()), extra, route_spent: std::sync::atomic::AtomicUsize::new(0) }
     }
 
     pub fn certify(&self, tb: Table, target: &LinComb, h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(Vec<(usize, Rat)>, i64)> {
@@ -373,16 +375,21 @@ impl<'c, 'a> Writer<'c, 'a> {
 
     pub fn in_admissible_span(&self, tb: Table, row: &LinComb, h: FactId, exclude: Option<FactId>) -> bool {
         let key = (h, exclude);
-        let mut cache = self.span_cache.borrow_mut();
-        let bases = cache.entry(key).or_insert_with(|| {
-            let mut v: Vec<super::cert::Basis> = Table::ALL.iter().map(|t| super::cert::Basis::new(&self.cx.piv[t.idx()], false)).collect();
-            for (i, a) in self.atoms.iter().enumerate() {
-                if a.admissible(h) && (exclude.is_none() || a.fact() != exclude) {
-                    v[a.table.idx()].insert(i as u32, &a.row);
+        let hit = self.span_cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned();
+        let bases = match hit {
+            Some(b) => b,
+            None => {
+                let mut v: Vec<super::cert::Basis> = Table::ALL.iter().map(|t| super::cert::Basis::new(&self.cx.piv[t.idx()], false)).collect();
+                for (i, a) in self.atoms.iter().enumerate() {
+                    if a.admissible(h) && (exclude.is_none() || a.fact() != exclude) {
+                        v[a.table.idx()].insert(i as u32, &a.row);
+                    }
                 }
+                let v = std::sync::Arc::new(v);
+                self.span_cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, v.clone());
+                v
             }
-            v
-        });
+        };
         bases[tb.idx()].contains(row)
     }
 
@@ -421,7 +428,7 @@ impl<'c, 'a> Writer<'c, 'a> {
                 match best_t {
                     Some((s, c, chosen)) => {
                         total += c;
-                        parts.push(Part { target: chosen, support: s });
+                        parts.push(Part { target: chosen, support: s, route: None });
                     }
                     None => {
                         ok = false;
@@ -450,19 +457,23 @@ impl<'c, 'a> Writer<'c, 'a> {
     }
 
     pub fn first_pass(&mut self) {
+        use rayon::prelude::*;
         let cx = self.cx;
         let goal_fact = self.goal_fact();
-        for &f in &cx.closure {
-            if cx.timed_out() {
-                break;
-            }
-            let class = cx.class[f as usize];
-            let needs = class == FactClass::Derived || (class == FactClass::Silent && cx.fact_sources(f).contains(&f));
-            if !needs || Some(f) == goal_fact {
-                continue;
-            }
-            let node = self.make_node(f);
-            self.nodes.insert(f, node);
+        let todo: Vec<FactId> = cx
+            .closure
+            .iter()
+            .copied()
+            .filter(|&f| {
+                let class = cx.class[f as usize];
+                let needs = class == FactClass::Derived || (class == FactClass::Silent && cx.fact_sources(f).contains(&f));
+                needs && Some(f) != goal_fact
+            })
+            .collect();
+        let me: &Writer = self;
+        let made: Vec<Option<Node>> = todo.par_iter().map(|&f| if cx.timed_out() { None } else { Some(me.make_node(f)) }).collect();
+        for n in made.into_iter().flatten() {
+            self.nodes.insert(n.fact, n);
         }
         for &f in &cx.closure {
             if let FactClass::TheoremReg(g) | FactClass::MergeReg(g) = cx.class[f as usize] {
@@ -710,34 +721,41 @@ impl<'c, 'a> Writer<'c, 'a> {
             return;
         }
         self.claim_cost = claims.clone();
+        use rayon::prelude::*;
         let first = *claims.iter().next().unwrap();
         let keys: Vec<FactId> = self.nodes.keys().copied().filter(|&k| k > first).collect();
-        for k in keys {
-            if self.cx.timed_out() {
-                break;
-            }
-            let n = &self.nodes[&k];
-            if n.parts.is_none() || n.theorem || n.label == "identity" {
-                continue;
-            }
-            let obls = if k == GOAL { self.goal_obls(n.extra.first().copied()) } else { fact_obligations(self.cx, k).unwrap_or_default() };
-            let focus = self.focus_of(k);
-            let exclude = if k == GOAL { n.extra.first().copied() } else { Some(k) };
-            if let Some((label, parts, cost, req)) = self.certify_obls(&obls, n.horizon, &focus, exclude) {
-                let mut deps = self.deps_of(&parts);
+        let me: &Writer = self;
+        let redone: Vec<Option<(FactId, &'static str, Vec<Part>, i64, Vec<FactId>, BTreeSet<FactId>)>> = keys
+            .par_iter()
+            .map(|&k| {
+                if me.cx.timed_out() {
+                    return None;
+                }
+                let n = &me.nodes[&k];
+                if n.parts.is_none() || n.theorem || n.label == "identity" || n.parts.as_ref().is_some_and(|ps| ps.iter().any(|p| p.route.is_some())) {
+                    return None;
+                }
+                let obls = if k == GOAL { me.goal_obls(n.extra.first().copied()) } else { fact_obligations(me.cx, k).unwrap_or_default() };
+                let focus = me.focus_of(k);
+                let exclude = if k == GOAL { n.extra.first().copied() } else { Some(k) };
+                let (label, parts, cost, req) = me.certify_obls(&obls, n.horizon, &focus, exclude)?;
+                let mut deps = me.deps_of(&parts);
                 for &r in &req {
-                    for s in self.cx.fact_sources(r) {
-                        deps.insert(self.cx.displayable(s));
+                    for s in me.cx.fact_sources(r) {
+                        deps.insert(me.cx.displayable(s));
                     }
                 }
-                let n = self.nodes.get_mut(&k).unwrap();
-                n.label = label;
-                n.parts = Some(parts);
-                n.cost = cost;
-                n.deps = deps;
-                n.requires = req;
-                n.deps.remove(&k);
-            }
+                deps.remove(&k);
+                Some((k, label, parts, cost, req, deps))
+            })
+            .collect();
+        for (k, label, parts, cost, req, deps) in redone.into_iter().flatten() {
+            let n = self.nodes.get_mut(&k).unwrap();
+            n.label = label;
+            n.parts = Some(parts);
+            n.cost = cost;
+            n.deps = deps;
+            n.requires = req;
         }
     }
 
@@ -2252,6 +2270,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     .collect(),
                 links: p.links.iter().map(|g| g.iter().map(|(i, l)| (*i, l * &half)).collect()).collect(),
                 weight: p.weight,
+                undirected: p.undirected,
             };
             &halved
         } else {
@@ -2392,7 +2411,7 @@ fn penalty(a: &Atom) -> i64 {
     p + 5 * a.sources.len() as i64
 }
 
-fn fix_exact(cx: &Ctx, target: &Target, splits: &[(LinComb, LinComb)]) -> Vec<(LinComb, LinComb)> {
+pub fn fix_exact(cx: &Ctx, target: &Target, splits: &[(LinComb, LinComb)]) -> Vec<(LinComb, LinComb)> {
     if target.table != Table::Angle {
         return splits.to_vec();
     }
@@ -2526,7 +2545,20 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             } else {
                 then
             };
-            let (mut s, l, p) = self.chain_sentences(&part.target, &part.support, h, then, &focus);
+            let routed = match &part.route {
+                Some(route) => {
+                    let saved = self.force_undirected;
+                    self.force_undirected = route.undirected;
+                    let r = self.path_sentences(&part.target, route, h, then.clone(), &focus, &[]).map(|s| (s, route.links.len(), false));
+                    self.force_undirected = saved;
+                    r
+                }
+                None => None,
+            };
+            let (mut s, l, p) = match routed {
+                Some(x) => x,
+                None => self.chain_sentences(&part.target, &part.support, h, then, &focus),
+            };
             links += l;
             pooled |= p;
             shift_pending(&mut s, out.len());

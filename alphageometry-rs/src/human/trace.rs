@@ -49,6 +49,7 @@ pub struct EngineTrace {
     pub pair: [Vec<Option<VarId>>; 4],
     pub primes: Vec<(u64, VarId)>,
     pub sines: Vec<SineVar>,
+    pub sine_canon_memo: std::sync::OnceLock<rustc_hash::FxHashMap<VarId, VarId>>,
 }
 
 impl EngineTrace {
@@ -145,9 +146,17 @@ impl EngineTrace {
     }
 
     pub fn sine_canon(&self, v: VarId) -> VarId {
-        let Some(s) = self.sines.iter().find(|x| x.var == v) else { return v };
-        let k = Self::sine_key(s);
-        self.sines.iter().filter(|x| Self::sine_key(x) == k).map(|x| x.var).min().unwrap_or(v)
+        let memo = self.sine_canon_memo.get_or_init(|| {
+            let mut first: std::collections::BTreeMap<(PointId, PointId, PointId, bool, Rat), VarId> = std::collections::BTreeMap::new();
+            for s in &self.sines {
+                let e = first.entry(Self::sine_key(s)).or_insert(s.var);
+                if s.var < *e {
+                    *e = s.var;
+                }
+            }
+            self.sines.iter().map(|s| (s.var, first[&Self::sine_key(s)])).collect()
+        });
+        memo.get(&v).copied().unwrap_or(v)
     }
 
     pub fn canon_ratio(&self, c: &LinComb) -> LinComb {
