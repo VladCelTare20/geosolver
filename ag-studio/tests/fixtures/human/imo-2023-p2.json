@@ -1295,6 +1295,15 @@
         "kind": "directed_angles"
       },
       {
+        "kind": "directed_steps",
+        "steps": [
+          4,
+          5,
+          6,
+          8
+        ]
+      },
+      {
         "kind": "circle",
         "name": "Ω",
         "through": [
@@ -1406,6 +1415,84 @@
       },
       {
         "id": 2,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "aconst",
+          "args": [
+            "∠NES",
+            "90"
+          ],
+          "points": [
+            "N",
+            "S",
+            "E"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "aconst",
+              "args": [
+                "∠NES",
+                "90"
+              ],
+              "points": [
+                "N",
+                "S",
+                "E"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "thales",
+                "args": [
+                  "N",
+                  "S",
+                  "E",
+                  "O"
+                ],
+                "stmt": {
+                  "kind": "aconst",
+                  "args": [
+                    "∠NES",
+                    "90"
+                  ],
+                  "points": [
+                    "N",
+                    "S",
+                    "E"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          43
+        ],
+        "points": [
+          "N",
+          "S",
+          "E",
+          "O"
+        ],
+        "objects": [],
+        "step": 2,
+        "tag": true
+      },
+      {
+        "id": 3,
         "kind": "claim",
         "n": 1,
         "stmt": {
@@ -1503,27 +1590,21 @@
               {
                 "reasons": [
                   {
-                    "kind": "atom",
-                    "key": "thales",
+                    "kind": "aconst",
                     "args": [
+                      "∠NES",
+                      "90"
+                    ],
+                    "points": [
                       "N",
                       "S",
-                      "E",
-                      "O"
+                      "E"
                     ],
-                    "stmt": {
-                      "kind": "aconst",
-                      "args": [
-                        "∠NES",
-                        "90"
-                      ],
-                      "points": [
-                        "N",
-                        "S",
-                        "E"
-                      ]
-                    },
-                    "from": []
+                    "step": null,
+                    "block": 2,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
                   }
                 ],
                 "combination": [
@@ -1607,11 +1688,11 @@
             ]
           }
         ],
-        "step": 2,
+        "step": 3,
         "tag": true
       },
       {
-        "id": 3,
+        "id": 4,
         "kind": "claim",
         "n": 2,
         "stmt": {
@@ -2028,11 +2109,11 @@
             ]
           }
         ],
-        "step": 3,
+        "step": 4,
         "tag": true
       },
       {
-        "id": 4,
+        "id": 5,
         "kind": "claim",
         "n": 3,
         "stmt": {
@@ -2069,7 +2150,7 @@
                   {
                     "kind": "claim",
                     "n": 1,
-                    "block": 2,
+                    "block": 3,
                     "step": 43
                   }
                 ],
@@ -2398,110 +2479,40 @@
             ]
           }
         ],
-        "step": 4,
+        "step": 5,
         "tag": true
       },
       {
-        "id": 5,
+        "id": 6,
         "kind": "step",
         "n": null,
         "stmt": {
           "kind": "eqangle",
           "args": [
-            "2∡PSO",
-            "2∡XPD"
+            "∡APX",
+            "∡OTP + 90°"
           ],
           "points": [
+            "A",
             "O",
-            "S",
-            "D",
             "P",
-            "X"
+            "X",
+            "T"
           ]
         },
         "body": [
           {
             "kind": "chain",
             "terms": [
-              "2∡PSO",
-              "2∡PNS",
-              "2∡PAS",
-              "2∡PBX",
-              "2∡XPD"
+              "∡APX",
+              "∡ASX + ∡BPX",
+              "∡(AS, DP)",
+              "∡SAE + ∡ETP",
+              "∡ONE + ∡ETP",
+              "∡OSE + ∡ETP + 90°",
+              "∡OTP + 90°"
             ],
             "links": [
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "thales",
-                    "args": [
-                      "N",
-                      "S",
-                      "P",
-                      "O"
-                    ],
-                    "stmt": {
-                      "kind": "aconst",
-                      "args": [
-                        "∠NPS",
-                        "90"
-                      ],
-                      "points": [
-                        "N",
-                        "S",
-                        "P"
-                      ]
-                    },
-                    "from": []
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "-2"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "inscribed",
-                    "args": [
-                      "A",
-                      "N",
-                      "S",
-                      "P"
-                    ],
-                    "stmt": {
-                      "kind": "cyclic",
-                      "args": [
-                        "A",
-                        "N",
-                        "S",
-                        "P"
-                      ],
-                      "points": [
-                        "A",
-                        "N",
-                        "S",
-                        "P"
-                      ]
-                    },
-                    "from": [],
-                    "circle": "Ω"
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "2"
-                  }
-                ]
-              },
               {
                 "reasons": [
                   {
@@ -2536,7 +2547,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-2"
+                    "coef": "-1"
                   }
                 ]
               },
@@ -2572,7 +2583,107 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-2"
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "claim",
+                    "n": 3,
+                    "block": 5,
+                    "step": 45
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 1,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "inscribed",
+                    "args": [
+                      "A",
+                      "N",
+                      "S",
+                      "E"
+                    ],
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "A",
+                        "N",
+                        "S",
+                        "E"
+                      ],
+                      "points": [
+                        "A",
+                        "N",
+                        "S",
+                        "E"
+                      ]
+                    },
+                    "from": [],
+                    "circle": "Ω"
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "aconst",
+                    "args": [
+                      "∠NES",
+                      "90"
+                    ],
+                    "points": [
+                      "N",
+                      "S",
+                      "E"
+                    ],
+                    "step": null,
+                    "block": 2,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "claim",
+                    "n": 1,
+                    "block": 3,
+                    "step": 43
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
                   }
                 ]
               }
@@ -2591,160 +2702,9 @@
           "N",
           "S",
           "D",
-          "P",
-          "O₁",
-          "X"
-        ],
-        "objects": [],
-        "step": 5,
-        "tag": true
-      },
-      {
-        "id": 6,
-        "kind": "step",
-        "n": null,
-        "stmt": {
-          "kind": "eqangle",
-          "args": [
-            "2∡APX",
-            "2∡OTP"
-          ],
-          "points": [
-            "A",
-            "O",
-            "P",
-            "X",
-            "T"
-          ]
-        },
-        "body": [
-          {
-            "kind": "chain",
-            "terms": [
-              "2∡APX",
-              "2∡AES + 2∡SPX",
-              "2∡ADP + 2∡OSE",
-              "2∡EDP + 2∡OTE",
-              "2∡OTP"
-            ],
-            "links": [
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "inscribed",
-                    "args": [
-                      "A",
-                      "S",
-                      "E",
-                      "P"
-                    ],
-                    "stmt": {
-                      "kind": "cyclic",
-                      "args": [
-                        "A",
-                        "S",
-                        "E",
-                        "P"
-                      ],
-                      "points": [
-                        "A",
-                        "S",
-                        "E",
-                        "P"
-                      ]
-                    },
-                    "from": [],
-                    "circle": "Ω"
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "-2"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "eqangle",
-                    "args": [
-                      "2∡PSO",
-                      "2∡XPD"
-                    ],
-                    "points": [
-                      "O",
-                      "S",
-                      "D",
-                      "P",
-                      "X"
-                    ],
-                    "step": null,
-                    "block": 5,
-                    "because": [],
-                    "lemma": true,
-                    "sentence": 0
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "claim",
-                    "n": 1,
-                    "block": 2,
-                    "step": 43
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "-2"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "claim",
-                    "n": 3,
-                    "block": 4,
-                    "step": 45
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 1,
-                    "coef": "-2"
-                  }
-                ]
-              }
-            ],
-            "then": null,
-            "directed": true
-          }
-        ],
-        "engine_steps": [
-          46
-        ],
-        "points": [
-          "A",
-          "O",
-          "S",
-          "D",
           "E",
           "P",
+          "O₁",
           "X",
           "T"
         ],
@@ -2815,14 +2775,14 @@
                   {
                     "kind": "claim",
                     "n": 2,
-                    "block": 3,
+                    "block": 4,
                     "step": 44
                   },
                   {
                     "kind": "eqangle",
                     "args": [
-                      "2∡APX",
-                      "2∡OTP"
+                      "∡APX",
+                      "∡OTP + 90°"
                     ],
                     "points": [
                       "A",
@@ -2847,7 +2807,7 @@
                   {
                     "reason": 1,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "-2"
                   }
                 ]
               }
@@ -2934,56 +2894,30 @@
         "stmt": {
           "kind": "eqangle",
           "args": [
-            "2∡BCA",
-            "2∡BPD"
+            "∡IAP",
+            "∡APX"
           ],
           "points": [
             "A",
-            "B",
-            "C",
-            "D",
-            "P"
+            "I",
+            "P",
+            "X"
           ]
         },
         "body": [
           {
             "kind": "chain",
             "terms": [
-              "2∡BCA",
-              "2∡EAC",
-              "2∡LBC",
-              "2∡BLD",
-              "2∡BPD"
+              "∡IAP",
+              "∡NBP",
+              "∡DBP + 90°",
+              "∡DLP + 90°",
+              "∡(BC, LP) + 90°",
+              "∡(AD, LP)",
+              "∡AEB + ∡BPX",
+              "∡APX"
             ],
             "links": [
-              {
-                "reasons": [
-                  {
-                    "kind": "hyp",
-                    "stmt": {
-                      "kind": "perp",
-                      "args": [
-                        "AD",
-                        "BC"
-                      ],
-                      "points": [
-                        "A",
-                        "B",
-                        "C",
-                        "D"
-                      ]
-                    },
-                    "step": 11
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "2"
-                  }
-                ]
-              },
               {
                 "reasons": [
                   {
@@ -2992,22 +2926,22 @@
                     "args": [
                       "A",
                       "B",
-                      "C",
-                      "E"
+                      "N",
+                      "P"
                     ],
                     "stmt": {
                       "kind": "cyclic",
                       "args": [
                         "A",
                         "B",
-                        "C",
-                        "E"
+                        "N",
+                        "P"
                       ],
                       "points": [
                         "A",
                         "B",
-                        "C",
-                        "E"
+                        "N",
+                        "P"
                       ]
                     },
                     "from": [],
@@ -3018,7 +2952,70 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-2"
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "thales",
+                    "args": [
+                      "N",
+                      "S",
+                      "B",
+                      "O"
+                    ],
+                    "stmt": {
+                      "kind": "aconst",
+                      "args": [
+                        "∠NBS",
+                        "90"
+                      ],
+                      "points": [
+                        "B",
+                        "N",
+                        "S"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "cyclic",
+                    "args": [
+                      "P",
+                      "L",
+                      "D",
+                      "B"
+                    ],
+                    "points": [
+                      "B",
+                      "D",
+                      "L",
+                      "P"
+                    ],
+                    "step": 17,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
                   }
                 ]
               },
@@ -3046,228 +3043,28 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-2"
+                    "coef": "-1"
                   }
                 ]
               },
               {
                 "reasons": [
                   {
-                    "kind": "atom",
-                    "key": "inscribed",
-                    "args": [
-                      "B",
-                      "D",
-                      "L",
-                      "P"
-                    ],
+                    "kind": "hyp",
                     "stmt": {
-                      "kind": "cyclic",
+                      "kind": "perp",
                       "args": [
-                        "B",
-                        "D",
-                        "L",
-                        "P"
-                      ],
-                      "points": [
-                        "B",
-                        "D",
-                        "L",
-                        "P"
-                      ]
-                    },
-                    "from": [],
-                    "circle": "ω₁"
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "2"
-                  }
-                ]
-              }
-            ],
-            "then": null,
-            "directed": true
-          }
-        ],
-        "engine_steps": [
-          46
-        ],
-        "points": [
-          "A",
-          "B",
-          "C",
-          "D",
-          "E",
-          "L",
-          "P"
-        ],
-        "objects": [],
-        "step": 8,
-        "tag": true
-      },
-      {
-        "id": 9,
-        "kind": "step",
-        "n": null,
-        "stmt": {
-          "kind": "eqangle",
-          "args": [
-            "2∡IAP",
-            "2∡APX"
-          ],
-          "points": [
-            "A",
-            "I",
-            "P",
-            "X"
-          ]
-        },
-        "body": [
-          {
-            "kind": "chain",
-            "terms": [
-              "2∡IAP",
-              "2∡SAP",
-              "2∡CAP + 2∡DBC",
-              "2∡PAC + 2∡CBP + 2∡DBP",
-              "2∡APB + 2∡BDP",
-              "2∡APX"
-            ],
-            "links": [
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "thales",
-                    "args": [
-                      "N",
-                      "S",
-                      "A",
-                      "O"
-                    ],
-                    "stmt": {
-                      "kind": "aconst",
-                      "args": [
-                        "∠NAS",
-                        "90"
-                      ],
-                      "points": [
-                        "A",
-                        "N",
-                        "S"
-                      ]
-                    },
-                    "from": []
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "2"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "inscribed",
-                    "args": [
-                      "A",
-                      "B",
-                      "C",
-                      "S"
-                    ],
-                    "stmt": {
-                      "kind": "cyclic",
-                      "args": [
-                        "A",
-                        "B",
-                        "C",
-                        "S"
+                        "AD",
+                        "BC"
                       ],
                       "points": [
                         "A",
                         "B",
                         "C",
-                        "S"
+                        "D"
                       ]
                     },
-                    "from": [],
-                    "circle": "Ω"
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "-2"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "inscribed",
-                    "args": [
-                      "A",
-                      "B",
-                      "C",
-                      "P"
-                    ],
-                    "stmt": {
-                      "kind": "cyclic",
-                      "args": [
-                        "A",
-                        "B",
-                        "C",
-                        "P"
-                      ],
-                      "points": [
-                        "A",
-                        "B",
-                        "C",
-                        "P"
-                      ]
-                    },
-                    "from": [],
-                    "circle": "Ω"
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "4"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "eqangle",
-                    "args": [
-                      "2∡BCA",
-                      "2∡BPD"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "C",
-                      "D",
-                      "P"
-                    ],
-                    "step": null,
-                    "block": 8,
-                    "because": [],
-                    "lemma": true,
-                    "sentence": 0
+                    "step": 11
                   }
                 ],
                 "combination": [
@@ -3287,7 +3084,7 @@
                       "P",
                       "X",
                       "B",
-                      "D",
+                      "L",
                       "O₁"
                     ],
                     "stmt": {
@@ -3310,7 +3107,45 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "2"
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "inscribed",
+                    "args": [
+                      "A",
+                      "B",
+                      "E",
+                      "P"
+                    ],
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "A",
+                        "B",
+                        "E",
+                        "P"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "E",
+                        "P"
+                      ]
+                    },
+                    "from": [],
+                    "circle": "Ω"
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
                   }
                 ]
               }
@@ -3331,16 +3166,18 @@
           "N",
           "S",
           "D",
+          "E",
+          "L",
           "P",
           "O₁",
           "X"
         ],
         "objects": [],
-        "step": 9,
+        "step": 8,
         "tag": true
       },
       {
-        "id": 10,
+        "id": 9,
         "kind": "conclusion",
         "n": null,
         "stmt": {
@@ -3422,8 +3259,8 @@
                   {
                     "kind": "eqangle",
                     "args": [
-                      "2∡IAP",
-                      "2∡APX"
+                      "∡IAP",
+                      "∡APX"
                     ],
                     "points": [
                       "A",
@@ -3432,7 +3269,7 @@
                       "X"
                     ],
                     "step": null,
-                    "block": 9,
+                    "block": 8,
                     "because": [],
                     "lemma": true,
                     "sentence": 0
@@ -3447,7 +3284,7 @@
                   {
                     "reason": 1,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "2"
                   }
                 ]
               }
@@ -3478,13 +3315,13 @@
           "X"
         ],
         "objects": [],
-        "step": 10,
+        "step": 9,
         "tag": false
       }
     ],
     "plan": [
       7,
-      9
+      8
     ],
     "goal": {
       "kind": "bisects",
@@ -3501,19 +3338,19 @@
     "metrics": {
       "raw_steps": 54,
       "derived": 31,
-      "blocks": 10,
+      "blocks": 9,
       "claims": 4,
-      "sentences": 12,
-      "chain_links": 40,
-      "chains": 9,
-      "pure_chains": 7,
+      "sentences": 11,
+      "chain_links": 36,
+      "chains": 7,
+      "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 594,
-      "lines_en": 60,
-      "citations": 46,
+      "words_en": 605,
+      "lines_en": 56,
+      "citations": 43,
       "aux_shown": 0,
-      "human_cost": 158,
+      "human_cost": 152,
       "reproved": 4,
       "silent": 24,
       "pruned": 3,
@@ -3523,10 +3360,10 @@
       "check_violations": 0,
       "similar_steps": 1,
       "theorem_steps": 5,
-      "steps": 10,
+      "steps": 9,
       "multi_fact_links": 2,
       "undirected_chains": 3,
-      "directed_chains": 6
+      "directed_chains": 4
     }
   }
 }

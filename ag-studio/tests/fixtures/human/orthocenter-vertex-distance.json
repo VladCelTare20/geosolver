@@ -1115,7 +1115,7 @@
                       "kind": "eq",
                       "args": [
                         "∠ABH",
-                        "∠A + 90°"
+                        "A + 90°"
                       ],
                       "points": [
                         "A",
@@ -1151,7 +1151,7 @@
                     "stmt": {
                       "kind": "eq",
                       "args": [
-                        "∠C",
+                        "C",
                         "∠AHB"
                       ],
                       "points": [
@@ -1242,37 +1242,10 @@
             "comp": "trig",
             "terms": [
               "MaO",
-              "OMa·sin∠OMaB",
               "R·sin∠MaBO",
               "R·cos A"
             ],
             "links": [
-              {
-                "reasons": [
-                  {
-                    "kind": "aconst",
-                    "args": [
-                      "∠OMaB",
-                      "90"
-                    ],
-                    "points": [
-                      "B",
-                      "O",
-                      "Ma"
-                    ],
-                    "step": 38,
-                    "block": null,
-                    "because": []
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "-1"
-                  }
-                ]
-              },
               {
                 "reasons": [
                   {
@@ -1296,6 +1269,43 @@
                       ]
                     },
                     "from": []
+                  },
+                  {
+                    "kind": "aconst",
+                    "args": [
+                      "∠OMaB",
+                      "90"
+                    ],
+                    "points": [
+                      "B",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 38,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "radii",
+                    "args": [
+                      "O",
+                      "A",
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "OA",
+                        "OB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "O"
+                      ]
+                    },
+                    "from": []
                   }
                 ],
                 "combination": [
@@ -1303,6 +1313,16 @@
                     "reason": 0,
                     "row": 0,
                     "coef": "1"
+                  },
+                  {
+                    "reason": 1,
+                    "row": 0,
+                    "coef": "-1"
+                  },
+                  {
+                    "reason": 2,
+                    "row": 0,
+                    "coef": "-1"
                   }
                 ]
               },
@@ -1323,7 +1343,7 @@
                       "kind": "eq",
                       "args": [
                         "∠OBMa",
-                        "90° − ∠A"
+                        "90° − A"
                       ],
                       "points": [
                         "A",
@@ -1331,28 +1351,6 @@
                         "C",
                         "O",
                         "Ma"
-                      ]
-                    },
-                    "from": []
-                  },
-                  {
-                    "kind": "atom",
-                    "key": "radii",
-                    "args": [
-                      "O",
-                      "A",
-                      "B"
-                    ],
-                    "stmt": {
-                      "kind": "cong",
-                      "args": [
-                        "OA",
-                        "OB"
-                      ],
-                      "points": [
-                        "A",
-                        "B",
-                        "O"
                       ]
                     },
                     "from": []
@@ -1409,11 +1407,6 @@
                     "reason": 0,
                     "row": 0,
                     "coef": "1"
-                  },
-                  {
-                    "reason": 1,
-                    "row": 0,
-                    "coef": "-1"
                   }
                 ]
               }
@@ -1550,16 +1543,16 @@
       "blocks": 4,
       "claims": 0,
       "sentences": 4,
-      "chain_links": 8,
+      "chain_links": 7,
       "chains": 0,
       "pure_chains": 0,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 167,
-      "lines_en": 14,
+      "words_en": 165,
+      "lines_en": 13,
       "citations": 14,
       "aux_shown": 0,
-      "human_cost": 29,
+      "human_cost": 28,
       "reproved": 0,
       "silent": 12,
       "pruned": 24,
@@ -1570,7 +1563,7 @@
       "similar_steps": 0,
       "theorem_steps": 6,
       "steps": 4,
-      "multi_fact_links": 0,
+      "multi_fact_links": 1,
       "undirected_chains": 0,
       "directed_chains": 0
     }

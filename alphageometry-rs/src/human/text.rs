@@ -482,6 +482,7 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
             None => format!("{} is tangent to the circle centred at {} (tangent–chord angle)", n.pts(&[a[0], a[1]]), n.get(a[4])),
         },
         AtomKey::PerpBisector => format!("{} is the perpendicular bisector of {}", n.pts(&[a[0], a[1]]), n.pts(&[a[2], a[3]])),
+        AtomKey::Parallel if a[0] == a[2] || a[0] == a[3] || a[1] == a[2] || a[1] == a[3] => format!("{} ⟂ {} and {} ⟂ {}", n.pts(&[a[0], a[1]]), n.pts(&[a[4], a[5]]), n.pts(&[a[2], a[3]]), n.pts(&[a[4], a[5]])),
         AtomKey::Parallel => format!("{} ∥ {}, both ⟂ {}", n.pts(&[a[0], a[1]]), n.pts(&[a[2], a[3]]), n.pts(&[a[4], a[5]])),
         AtomKey::Radii | AtomKey::Isosceles if a.len() > 3 => a[1..].iter().map(|p| n.pts(&[a[0], *p])).collect::<Vec<_>>().join(" = "),
         AtomKey::Radii => stmt(n, s),
@@ -833,7 +834,16 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
                 let so = format!("so {}.", stmt(&n, &b.stmt));
                 let so_cap = format!("So {}.", stmt(&n, &b.stmt));
                 let hence = format!("Hence {}.", stmt(&n, &b.stmt));
-                if out.ends_with(&hence) {
+                let restated = format!("{}, by ", stmt(&n, &b.stmt));
+                let by_tail = out.rfind(&restated).filter(|&i| {
+                    let rest = &out[i + restated.len()..];
+                    (i == 0 || out[..i].ends_with(' ') || out[..i].ends_with('\n')) && rest.starts_with('(') && rest.ends_with(").") && rest.trim_end_matches('.').replace(" and ", ",").chars().all(|c| c.is_ascii_digit() || matches!(c, '(' | ')' | ',' | ' '))
+                });
+                if let Some(i) = by_tail {
+                    let cites = out[i + restated.len()..].trim_end_matches('.').to_string();
+                    out.truncate(i);
+                    out.push_str(&format!("{g}, as required, by {cites}."));
+                } else if out.ends_with(&hence) {
                     out.truncate(out.len() - hence.len());
                     out.push_str(&format!("Hence {g}, as required."));
                 } else if out.ends_with(&so) {

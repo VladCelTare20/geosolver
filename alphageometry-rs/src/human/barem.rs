@@ -440,6 +440,9 @@ fn display(cx: &Ctx, tb: Table, node: &LinComb, directed: bool, near: &[&[PointI
         if !directed && (!undirect_expr(&e) || lin_terms(&e) > 2) {
             return None;
         }
+        if (directed && super::chain::fractional_angle(&e)) || (!directed && super::chain::degenerate_angle(cx, &e)) {
+            return None;
+        }
         e
     } else {
         ratio_expr(cx, node)

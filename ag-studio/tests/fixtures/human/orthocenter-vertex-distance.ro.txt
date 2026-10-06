@@ -9,14 +9,13 @@ AB = 2R·sin C    [teorema sinusurilor generalizată în △CAB; OA = OC] (1)
 2. Arătăm că AH = 2R·cos A:
 
 AH = AB·sin∢HBA / sin∢BHA    [teorema sinusurilor în △BHA]
-   = AB·cos A / sin∢BHA    [∢ABH = ∢A + 90°]
-   = AB·cos A / sin C    [∢C = ∢AHB]
+   = AB·cos A / sin∢BHA    [∢ABH = A + 90°]
+   = AB·cos A / sin C    [C = ∢AHB]
    = 2R·cos A    [din (1)] (2)
 
 3. Arătăm că MaO = R·cos A:
 
-MaO = OMa·sin∢OMaB    [∢OMaB = 90°]
-    = R·sin∢MaBO    [teorema sinusurilor în △BMaO]
-    = R·cos A    [∢OBMa = 90° − ∢A; OA = OB; unghiul la centru ∢AOB = 2∢ACB] (3)
+MaO = R·sin∢MaBO    [teorema sinusurilor în △BMaO; ∢OMaB = 90°; OA = OB]
+    = R·cos A    [∢OBMa = 90° − A; unghiul la centru ∢AOB = 2∢ACB; OA = OB] (3)
 
 4. AH = 2R·cos A, din (2) și MaO = R·cos A, din (3) ⇒ AH : MaO = 2, ceea ce trebuia demonstrat. ∎

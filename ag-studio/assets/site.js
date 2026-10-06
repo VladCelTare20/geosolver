@@ -555,7 +555,10 @@
       if (r.kind === "engine") return stepLink(r.step);
       if (r.kind === "atom") {
         var text = atomHtml(r, ctx);
-        if (r.key === "parallel" && ctx === "n") text = stmtHtml(r.stmt, ctx) + ", " + text;
+        var pa = r.args || [];
+        var shared = r.key === "parallel" && pa.length >= 6 && (pa[0] === pa[2] || pa[0] === pa[3] || pa[1] === pa[2] || pa[1] === pa[3]);
+        if (shared) text = SP(atomTemplate("parallel.shared", pa, ctx));
+        else if (r.key === "parallel" && ctx === "n") text = stmtHtml(r.stmt, ctx) + ", " + text;
         var bl = byList(r.from);
         if (bl != null) text += ", " + bl;
         return text;

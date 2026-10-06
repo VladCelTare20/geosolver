@@ -977,7 +977,10 @@ impl Cx<'_> {
             },
             Reason::Atom { key, args, stmt, from, circle } => {
                 let (mut text, _) = self.atom(*key, args, stmt, circle.as_deref(), ctx);
-                if matches!(key, AtomKey::Parallel) && ctx == Ctx::Note {
+                let shared = args.len() >= 6 && (args[0] == args[2] || args[0] == args[3] || args[1] == args[2] || args[1] == args[3]);
+                if matches!(key, AtomKey::Parallel) && shared {
+                    text = fill_args(self.t("hp.atom.parallel.shared"), args);
+                } else if matches!(key, AtomKey::Parallel) && ctx == Ctx::Note {
                     text = format!("{}, {text}", self.stmt(stmt, ctx));
                 }
                 if let Some(by) = self.by_list(from) {

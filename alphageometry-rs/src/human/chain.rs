@@ -598,6 +598,35 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
 }
 
 pub fn display_node(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
+    let e = display_node_any(cx, node, directed, near, focus)?;
+    if directed && fractional_angle(&e) {
+        return None;
+    }
+    if !directed && degenerate_angle(cx, &e) {
+        return None;
+    }
+    Some(e)
+}
+
+pub fn fractional_angle(e: &Expr) -> bool {
+    match e {
+        Expr::Lin { terms } => terms.iter().any(|(k, x)| matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }) && !k.is_integer()),
+        _ => false,
+    }
+}
+
+pub fn degenerate_angle(cx: &Ctx, e: &Expr) -> bool {
+    match e {
+        Expr::Angle { a, b, c, directed: false } => {
+            let v = super::theorems::interior_degrees(cx.t, *a, *b, *c);
+            !(1e-6..=180.0 - 1e-6).contains(&v)
+        }
+        Expr::Lin { terms } => terms.iter().any(|(_, x)| degenerate_angle(cx, x)),
+        _ => false,
+    }
+}
+
+fn display_node_any(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
     if single_angle(node).is_some() {
         return angle_expr(cx, node, directed, near, focus);
     }
