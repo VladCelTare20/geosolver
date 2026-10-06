@@ -463,7 +463,7 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
     }
     out.complete = true;
     if std::env::var_os("HP_TIME").is_some() {
-        eprintln!("route search: {:.1} ms, {} expansions", route_time * 1e3, w.route_spent.load(std::sync::atomic::Ordering::Relaxed));
+        eprintln!("route search: {:.1} ms, {} expansions, {} nodes, {} atoms", route_time * 1e3, w.route_spent.load(std::sync::atomic::Ordering::Relaxed), w.nodes.len(), w.atoms.len());
     }
     out
 }

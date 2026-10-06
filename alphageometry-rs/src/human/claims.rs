@@ -2264,9 +2264,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             self.halve_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, false))
         } else {
             self.ratio_graph.get_or_init(|| {
-                let mut g = super::route::Graph::new(cx, &w.atoms, Table::Ratio, false);
-                g.max_vars = 6;
-                g
+                super::route::Graph::new(cx, &w.atoms, Table::Ratio, false)
             })
         };
         let weights: Vec<i64> = w
@@ -2275,7 +2273,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             .map(|a| if a.table == target.table && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
-        let found = g.search(cx, &splits, 3000, i64::MAX, &spent, &weights);
+        let budget = if target.table == Table::Ratio { 1200 } else { 3000 };
+        let found = g.search(cx, &splits, budget, i64::MAX, &spent, &weights);
         if std::env::var_os("HP_ROUTE").is_some() {
             eprintln!("route_now {:?} {:?}: {} splits, found {:?}", form.table, form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
         }
