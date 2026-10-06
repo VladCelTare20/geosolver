@@ -111,9 +111,11 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("BC is the perpendicular bisector of HK"), "{t}");
 
     let (_, hp, t) = get("euler_line");
-    assert_eq!(claims(hp), 2);
+    assert_eq!(claims(hp), 1);
     assert!(t.contains("Let M be the midpoint of BC."), "{t}");
     assert!(t.contains("Claim 1. △AHB ∼ △MON."), "{t}");
+    assert!(t.contains("intercept theorem, AB ∥ MN"), "{t}");
+    assert!(!t.contains("△ABG ∼ △MNG"), "{t}");
     assert!(t.contains("so O, G, H are collinear. ∎"), "{t}");
 
     let (_, hp, t) = get("orthocenter_vertex_distance");

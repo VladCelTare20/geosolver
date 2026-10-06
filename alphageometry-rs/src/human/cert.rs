@@ -152,3 +152,51 @@ pub fn certify_greedy(
     let lam = solve_rows(pivotable, &refs, target)?;
     Some(lam.into_iter().map(|(k, l)| (support[k], l)).collect())
 }
+
+#[derive(Clone)]
+pub struct Echelon {
+    rows: FxHashMap<VarId, LinComb>,
+    pivotable: Vec<bool>,
+}
+
+impl Echelon {
+    pub fn new(pivotable: &[bool]) -> Echelon {
+        Echelon { rows: FxHashMap::default(), pivotable: pivotable.to_vec() }
+    }
+
+    fn key(&self, v: VarId) -> (bool, VarId) {
+        (self.pivotable.get(v as usize).copied().unwrap_or(true), v)
+    }
+
+    fn reduce(&self, v: &mut LinComb) -> Option<(VarId, Rat)> {
+        loop {
+            let (var, c) = v.terms.iter().max_by_key(|(var, _)| self.key(*var)).map(|(var, c)| (*var, c.clone()))?;
+            if !self.key(var).0 {
+                return Some((var, c));
+            }
+            match self.rows.get(&var) {
+                Some(row) => {
+                    let neg = -&c;
+                    v.iadd_mul(row, &neg);
+                }
+                None => return Some((var, c)),
+            }
+        }
+    }
+
+    pub fn insert(&mut self, row: &LinComb) -> bool {
+        let mut v = row.clone();
+        let Some((var, c)) = self.reduce(&mut v) else { return false };
+        if !self.key(var).0 {
+            return false;
+        }
+        v.mul_assign_scalar(&c.recip());
+        self.rows.insert(var, v);
+        true
+    }
+
+    pub fn contains(&self, t: &LinComb) -> bool {
+        let mut v = t.clone();
+        self.reduce(&mut v).is_none()
+    }
+}

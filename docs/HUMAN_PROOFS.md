@@ -777,6 +777,11 @@ Of the IMO proofs, 26 contain at least one pooled sentence.
 - **Formula statements** are short: law of sines → `formula` text "law of sines in △ABH"; equal sines, complements and double angles → `eq` with `sin`/`cos` terms; sine of 90° → `aconst` 90° (validated against the fact row).
 - **Conclusion blocks** always carry `engine_steps`. A goal-only conclusion uses the goal's dependencies, or the last closure step.
 
+**Added by the theorem library (`wf/hp-theorems`, §13.8). All changes are additive; existing fields keep their meaning.**
+- **Atom keys.** `equal_tangents, tangent_secant, power_converse, intercept, intercept_converse, bisector_ratio, ext_bisector_ratio, bisector_converse, ext_bisector_converse, menelaus, menelaus_converse, ceva, ceva_converse, midline_converse, centroid, pythagoras, pythagoras_converse, isosceles_converse, perp_bisector_locus, median_hypotenuse, simson, miquel, reim, law_of_sines, ext_law_of_sines, congruent_sss, congruent_sas, congruent_asa, congruent_rhs`. An atom reason keeps the shape `{kind: "atom", key, args, stmt, from}`; `args` are the points in the order of the §13.8 table, and `stmt` is the statement the theorem gives (`cong`, `eq`, `eqratio`, `eqangle`, `para`, `perp`, `coll`, `cyclic`, `rconst`, `contri`). ag-studio renders them from `hp.atom.<key>` and `hp.atom.<key>.np` (EN and RO, `{i}` = the i-th argument).
+- **Reasons without a combination term.** A link's or sentence's `reasons` may contain atoms that its `combination` does not reference: they establish a hypothesis of an atom that it does reference (engine-side `Atom.via`). A renderer shows them as ordinary reasons; the checker re-checks their templates at the block's position.
+- **Metrics.** `similar_steps` (distinct similarity or congruence statements and inline congruence criteria shown), `theorem_steps` (distinct named-theorem atoms plus theorem sentences) and `library` (true when the proof came from the library pipeline).
+
 ### 13.5 Second quality round (`wf/human-proofs-q2`)
 
 Goal: proofs that read like IMO solutions, built from theorems and short chains instead of pooled angle chases.
@@ -841,3 +846,83 @@ The IMO solve gate is unchanged: `flock -w 3600 …/.bench.lock ddar --corpus co
   - English uses "center" throughout, as the rest of the app does.
   - Helper aliasing (`AP₁` → `AR`) stays in ag-studio: the engine's `dehelper` covers ⟂/∥ statements only, and ag-studio names helpers P₁, P₂.
 
+### 13.8 Theorem library and minimum-cost derivation (`wf/hp-theorems`)
+
+The owner, verbatim: "Make sure it uses theorems and other stuff instead of only similar triangles and other verbose stuff (to make shorter proofs, e.g. if 7 pairs of similar triangles can be replaced with 2 theorems)!" and "make sure the proof is correct".
+
+**What changed.** The writer gained a library of textbook theorems as atoms (`src/human/theorems.rs`, `library.rs`) and a minimum-cost derivation search (`search.rs`). `human::write` runs the previous pipeline and the library pipeline on the same trace and keeps the proof with the lower score (`mod.rs:score` = HumanCost + 8 × similar-triangle steps + 2 per reason beyond four in one link). If the library pipeline times out, fails the checker, or only restates the problem through the theorem the problem is an instance of (`mod.rs:restates_goal`, e.g. "Simson line" proved "by Simson's theorem"), the previous proof is used. Verdicts, the raw proof and the engine are untouched.
+
+**Soundness contract, and where it is enforced.**
+- A theorem atom changes only how a fact is justified. Its conclusion rows must be in the span of the rows of *all* engine facts (`Ctx::store_verified`, the whole fact store of the solve, not only the goal's closure). An unverified conclusion is never generated (`library.rs:Builder::theorems`) and never accepted (`check.rs:Checker::theorem_ok`, also in `combo`).
+- Every hypothesis of an applied theorem is checked: proven lines and circles are closure facts before the step; equations (⟂, ∥, equal angles, equal lengths, ratios, squared lengths) are engine-verified, in the closure before the step or in the full store; non-degeneracy and configuration (`Distinct`, `Triangle`, `Between`, `Outside`, `SplitAlike`, `OutsideParity`) are read from the figure, as the engine itself does for orientations, and the wording of those theorems says "as drawn".
+- The checker re-derives everything from `theorems::spec(key, args)` and the trace: it never trusts the writer's horizons, sources or `via`. A corrupted instance (one changed argument, another key, two swapped arguments) is rejected (`tests/human_theorems.rs:checker_rejects_a_corrupted_theorem_instance`).
+- Readability rule (writer only, stricter than the checker): a hypothesis must be one established statement (a hypothesis of the problem, a closure fact, or a cheap atom), or follow from at most three of them (`library.rs:SHORT_SUPPORT`). The atoms used are cited next to the theorem (`Atom.via`, rendered as extra reasons of the same link). A hypothesis may not be justified by an atom whose own hypotheses, transitively, contain the theorem's conclusion (`Directory::uses`).
+
+**The library.** Arguments are engine point ids; "line" means a proven collinear fact, "circle" a proven concyclic fact or a point proven equidistant from a centre.
+
+| key | theorem | hypotheses (engine-verified) | configuration (figure) | conclusion rows |
+|---|---|---|---|---|
+| `equal_tangents` [P,T₁,T₂,O] | equal tangents | OT₁ = OT₂, PT₁ ⟂ OT₁, PT₂ ⟂ OT₂ | distinct; P,T₁,T₂ not collinear | PT₁ = PT₂; ∡T₁PO = ∡OPT₂; ∡T₁OP = ∡POT₂ |
+| `tangent_secant` [X,T,A,B,O] | power of a point, tangent and secant | OT = OA = OB, XT ⟂ OT, line XAB | distinct | XT² = XA·XB |
+| `power_of_point` (existing) [X,A,B,C,D] | power of a point, secants and chords | circle ABCD, lines XAB, XCD | — | XA·XB = XC·XD |
+| `power_converse` [X,A,B,C,D] | converse of the power of a point | lines XAB, XCD, XA·XB = XC·XD | distinct; X,A,C not collinear; X inside both chords or outside both | A,B,C,D concyclic |
+| `intercept` [O,A,B,C,D] | intercept theorem (Thales) | lines OAB, OCD, AC ∥ BD | distinct; O,A,C not collinear | OA/OB = OC/OD; OA/OB = AC/BD |
+| `intercept_converse` | converse | lines OAB, OCD, OA/OB = OC/OD | as above; A,B on the same side of O iff C,D are | AC ∥ BD |
+| `bisector_ratio` / `ext_bisector_ratio` [A,B,C,D] | angle bisector theorem, internal / external | line BDC, ∡BAD = ∡DAC | triangle ABC; D strictly inside / outside segment BC | DB/DC = AB/AC |
+| `bisector_converse` / `ext_bisector_converse` | converses | line BDC, DB/DC = AB/AC | as above | ∡BAD = ∡DAC |
+| `menelaus` [A,B,C,D,E,F] | Menelaus | lines BDC, CEA, AFB, DEF | triangle; distinct | (DB/DC)(EC/EA)(FA/FB) = 1 |
+| `menelaus_converse` | converse | lines BDC, CEA, AFB, the product = 1 | an odd number of D,E,F outside their sides | D,E,F collinear |
+| `ceva` [A,B,C,D,E,F,P] | Ceva | lines BDC, CEA, AFB, APD, BPE, CPF | triangle; distinct | the product = 1 |
+| `ceva_converse` | converse | lines BDC, CEA, AFB, APD, BPE, the product = 1 | an even number outside | C,P,F collinear |
+| `midline` (existing), `midline_converse` [M,N,A,B,C] | midline theorem, converse | MA = MB, line AMB, line ANC, MN ∥ BC | triangle; distinct | NA = NC; BC = 2·MN |
+| `centroid` [G,A,B,C,Mₐ,M_b] | medians divide 2 : 1 | MₐB = MₐC, line BMₐC, M_bC = M_bA, line CM_bA, lines AGMₐ, BGM_b | triangle; distinct | AG = 2·GMₐ; BG = 2·GM_b |
+| `pythagoras` / `pythagoras_converse` [A,B,C] | Pythagoras, converse | BA ⟂ BC / AB² + BC² = AC² | triangle | AB² + BC² = AC² / BA ⟂ BC |
+| `isosceles` (existing), `isosceles_converse` [O,A,B] | base angles, converse | ∡OAB = ∡ABO | triangle | OA = OB |
+| `perp_bisector` (existing), `perp_bisector_locus` [X,A,B,M] | perpendicular bisector locus | MA = MB, line AMB, XM ⟂ AB | distinct | XA = XB |
+| `thales` (existing), `median_hypotenuse` [M,A,B,X] | Thales' circle, converse | XA ⟂ XB, MA = MB, line AMB | distinct | MX = MA |
+| `tangent_chord`, `inscribed`, `central_angle` (existing) | tangent–chord, inscribed angles / same arc / cyclic quadrilateral (converses are chains ending "so … concyclic") | as in §6.2 | — | as in §6.2 |
+| `simson` [P,A,B,C,D,E,F] | Simson line | circle PABC, line BDC & PD ⟂ BC, line CEA & PE ⟂ CA, line AFB & PF ⟂ AB | triangle; distinct | D,E,F collinear |
+| `miquel` [A,B,C,D,E,F,M] | Miquel | lines BDC, CEA, AFB, circles AEFM, BFDM | triangle; distinct | C,D,E,M concyclic |
+| `reim` [P,Q,A,B,C,D] | Reim | circles PQAB, PQCD, lines APC, BQD | distinct | AB ∥ CD |
+| `law_of_sines` [A,B,C], `ext_law_of_sines` [A,B,C,O] | law of sines, a = 2R·sin A | — / OA = OB = OC | triangle | BC/sin A = CA/sin B / BC = 2·OA·sin A (sines are the engine's sine variables, only those the closure uses) |
+| `congruent_sss` / `_sas` / `_asa` / `_rhs` [A,B,C,X,Y,Z] | congruence criteria | SSS: AB = XY, BC = YZ, CA = ZX; SAS: AB = XY, BC = YZ, ∡ABC = ±∡XYZ; ASA: AB = XY, ∡A, ∡B; RHS: AB = XY, CA = ZX, BA ⟂ BC, YX ⟂ YZ | both triangles non-degenerate; the sign of the angle equalities follows the figure's orientations | the remaining sides and angles |
+
+The radical axis stays the engine's theorem fact (`Sentence::Theorem`, §6.3). Not built, with the reason: Ptolemy and its converse and the law of cosines (the AR tables have no row for a sum of products of lengths, nor for a product with a cosine), trigonometric Ceva and the radical centre (the engine emits no such facts, so their conclusions can never be engine-verified). Similarity criteria stay engine facts: one key similarity is shown as a claim when the search finds nothing cheaper.
+
+**Candidates.** `theorems::candidates` enumerates instances from the figure: proven lines and circles (closure facts and centre groups), numeric ⟂/∥/equal-length/concyclicity tests, at most `PER_KEY` = 120 atoms per key. Congruence candidates are only the triangle pairs the engine proved congruent; law-of-sines candidates only triangles whose sine variables occur in the closure's rows. Library atoms are generated twice: after the radii atoms (so equal tangents can replace a congruence behind an equal-radius atom, `Builder::refine`) and after the composite atoms (so midline or perpendicular-bisector atoms can establish hypotheses), then every theorem atom is re-justified with the cheapest established statements (`Builder::rejustify`).
+
+**Search.** Nodes are the closure facts that need a proof, plus the goal; a hyperedge is a certificate (a set of atoms whose exact combination is the target) and its premises are the displayed facts the atoms' sources force. Facts only depend on earlier facts, so the hypergraph is acyclic and Knuth's generalisation of Dijkstra to superior functions (Knuth 1977) reduces to one pass in fact order: `total(f) = min over hyperedges e of [edge(e) + present(f) + Σ total(premise)]` (`search.rs:optimise`). The hyperedges per node are the certificate of the first pass and a re-certification in which every atom's weight includes the total cost of the facts its sources force (`Writer.extra`). The result is exact over the generated hyperedges, not over every possible certificate. Costs, in the units of `claims.rs:eff` (4 × atom cost + foreign points + sources):
+- atom costs: a named theorem 1 (converses and "as drawn" theorems, Menelaus, Ceva, congruence criteria and the laws of sines 2), inscribed/Thales/tangent–chord/parallel 1, isosceles/central angle 2, an engine row 3–6;
+- `edge`: Σ atom weights, + 2 per atom, + 6 per atom beyond six (a long chain or a pooled computation), + 3 per auxiliary point it introduces;
+- `present`: similar triangles 60, congruent triangles 40, concyclic/collinear 14, a length or angle 8, an engine theorem 10, an isosceles step 6, an uncertified (raw) fact 80.
+After the claims are chosen, the re-certification with claims as cheap atoms keeps pruned facts expensive (`protect_pruned`), so it cannot bring back a similarity the search removed.
+
+**Time.** The library pipeline runs under the same deadline as the writer (default 2 s; ag-studio clamps it to 0.3–2 s) after the previous pipeline. Past the deadline it is dropped and the previous proof is returned (`tests/human_theorems.rs:the_theorem_search_respects_its_deadline_and_never_lies`).
+
+**Measured** (`ddar --corpus-one … --budget 150 --human --human-json --human-stats -`, 3 problems at a time; before = c7ed236, after = this branch). "Similar-triangle steps" counts distinct similarity or congruence statements shown (blocks, "Hence △…" sentences, cited facts); inline congruence criteria (`congruent_*` atoms) are counted separately. "Theorem applications" counts distinct named-theorem atoms other than inscribed angles, radii, isosceles, parallels and central angles, plus theorem sentences.
+
+| | IMO before | IMO after | JGEX before | JGEX after |
+|---|---|---|---|---|
+| conjuncts / available / checker violations / panics | 30 / 30 / 0 / 0 | 30 / 30 / 0 / 0 | 240 / 240 / 0 / 0 | 240 / 240 / 0 / 0 |
+| similar-triangle steps shown | 154 | 101 (+19 inline congruence criteria) | 267 | 155 (+44) |
+| theorem applications | 134 | 177 | 211 | 352 |
+| claims | 142 | 121 | 218 | 138 |
+| chain links | 912 | 791 | 1470 | 1238 |
+| pooled sentences | 7 | 5 | 4 | 7 |
+| sentences | 639 | 514 | 1224 | 892 |
+| words (EN) | 12814 | 11836 | 22320 | 19641 |
+| HumanCost (sum) | 5385 | 4416 | 9250 | 6775 |
+| fallback blocks | 7 | 1 | 13 | 2 |
+| writer time median / p95 / max | TIME_BEFORE | TIME_AFTER | | |
+
+TIME_NOTE
+
+IMO_TABLE
+
+**Known weaknesses.**
+- Two JGEX proofs got slightly longer by HumanCost (M010-26 8 → 11, E037-25 9 → 13): the score's similarity penalty preferred four intercept-theorem links, or three "as drawn" converses, to two congruences.
+- A congruence used through two criteria in one link is cited twice ("△OMR ≅ △ONR (ASA), △ROM ≅ △RON (SAS)").
+- The readability rule (≤ 3 established statements per hypothesis) rejects theorem instances whose hypothesis needs a longer chase; those chases are not promoted to their own steps, so the similarity stays (e.g. JGEX yL252-6 keeps 6).
+- The search's hyperedges per node are two certificates, so the minimum is over those, not over all certificates; certificates themselves are greedy (`certify_greedy`).
+- IMO 2004 P1 and IMO 2023 P2 are unchanged: their proofs had no similarity left to remove (2023 P2's congruence △OAX ≅ △OPX is the natural step), and the library variants scored worse.
+- Engine theorem facts with squared-length rows (Pythagoras chains in IMO 2008 P1) are still cited with their engine premises; they are not re-certified through the library.

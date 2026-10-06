@@ -334,6 +334,35 @@ closed_keys!(AtomKey, eng::AtomKey, {
     PowerOfPoint => "power_of_point",
     Midline => "midline",
     Orthocentre => "orthocentre",
+    EqualTangents => "equal_tangents",
+    TangentSecant => "tangent_secant",
+    PowerConverse => "power_converse",
+    Intercept => "intercept",
+    InterceptConverse => "intercept_converse",
+    BisectorRatio => "bisector_ratio",
+    ExtBisectorRatio => "ext_bisector_ratio",
+    BisectorConverse => "bisector_converse",
+    ExtBisectorConverse => "ext_bisector_converse",
+    Menelaus => "menelaus",
+    MenelausConverse => "menelaus_converse",
+    Ceva => "ceva",
+    CevaConverse => "ceva_converse",
+    MidlineConverse => "midline_converse",
+    Centroid => "centroid",
+    Pythagoras => "pythagoras",
+    PythagorasConverse => "pythagoras_converse",
+    IsoscelesConverse => "isosceles_converse",
+    PerpBisectorLocus => "perp_bisector_locus",
+    MedianHypotenuse => "median_hypotenuse",
+    Simson => "simson",
+    Miquel => "miquel",
+    Reim => "reim",
+    LawOfSines => "law_of_sines",
+    ExtLawOfSines => "ext_law_of_sines",
+    CongruentSss => "congruent_sss",
+    CongruentSas => "congruent_sas",
+    CongruentAsa => "congruent_asa",
+    CongruentRhs => "congruent_rhs",
 });
 
 impl AtomKey {
@@ -834,6 +863,7 @@ impl Cx<'_> {
                 ("midline", vec![g(0), g(1), tri.concat()], None)
             }
             AtomKey::Orthocentre => ("orthocentre", vec![], None),
+            other => (other.key(), args.to_vec(), None),
         };
         let t = first_of(self.lang, &context_keys(&format!("hp.atom.{base}"), ctx)).unwrap_or("");
         (fill_args(t, &shown), merge.map(|m| format!("{}|{m}", key.key())))

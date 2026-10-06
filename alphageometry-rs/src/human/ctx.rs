@@ -88,6 +88,8 @@ pub struct Ctx<'a> {
     pub aux: Vec<AuxInfo>,
     pub deadline: Option<Instant>,
     pub hyp_pred: FxHashMap<FactId, Predicate>,
+    pub library: bool,
+    store: RefCell<Vec<Option<super::cert::Echelon>>>,
     src_memo: RefCell<FxHashMap<FactId, BTreeSet<FactId>>>,
 }
 
@@ -152,6 +154,8 @@ impl<'a> Ctx<'a> {
             aux: aux.to_vec(),
             deadline,
             hyp_pred,
+            library: true,
+            store: RefCell::new(vec![None, None, None, None]),
             src_memo: RefCell::new(FxHashMap::default()),
         };
         cx.refine_silent();
@@ -357,6 +361,20 @@ impl<'a> Ctx<'a> {
                 _ => {}
             }
         }
+    }
+
+    pub fn store_verified(&self, tb: Table, canon: &LinComb) -> bool {
+        let mut st = self.store.borrow_mut();
+        let b = st[tb.idx()].get_or_insert_with(|| { let t0 = std::time::Instant::now();
+            let mut b = super::cert::Echelon::new(&self.piv[tb.idx()]);
+            for (_, r) in self.t.rows[tb.idx()].iter() {
+                let r2 = if tb == Table::Ratio { self.t.canon_ratio(r) } else { r.clone() };
+                b.insert(&r2);
+            }
+            if std::env::var_os("HP_TIME").is_some() { eprintln!("store {tb:?}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3); }
+            b
+        });
+        b.contains(canon)
     }
 
     pub fn is_hyp(&self, f: FactId) -> bool {

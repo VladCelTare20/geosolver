@@ -4,11 +4,7 @@ Claim 1. △AHB ∼ △MON.
 
 Proof. ∡HAB = ∡(AH, MN) = ∡OMN (MN is a midline of △ABC; AH ∥ OM, both ⟂ BC). ∡ABH = ∡(MN, BH) = ∡MNO (MN is a midline of △ABC; BH ∥ ON, both ⟂ AC). Hence △AHB ∼ △MON.
 
-Claim 2. △ABG ∼ △MNG.
-
-Proof. ∡BAG = ∡NMG (MN is a midline of △ABC). Hence △ABG ∼ △MNG.
-
-∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). As drawn, AH / AG = AB·OM / (AG·MN) = MO / MG (Claim 1; Claim 2). Hence △AHG ∼ △MOG.
+∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). As drawn, AH / AG = AH·MN / (AB·MG) = MO / MG (intercept theorem, AB ∥ MN, MN is a midline of △ABC; Claim 1). Hence △AHG ∼ △MOG.
 
 ∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG]
      = ∡OMB + 90°    [AH ⟂ BC]

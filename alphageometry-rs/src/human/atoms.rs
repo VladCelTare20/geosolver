@@ -31,6 +31,7 @@ pub struct Atom {
     pub tmpl: FactId,
     pub avail: FactId,
     pub row_idx: u16,
+    pub via: Vec<usize>,
 }
 
 impl Atom {
@@ -135,6 +136,7 @@ pub fn human_row(cx: &Ctx, key: AtomKey, a: &[PointId]) -> Option<Vec<(Table, Li
             }
             out
         }
+        k => super::theorems::spec(t, k, a)?.rows,
     };
     Some(rows)
 }
@@ -144,13 +146,13 @@ impl<'c, 'a> Builder<'c, 'a> {
         Builder { cx, atoms: Vec::new() }
     }
 
-    fn push(&mut self, src: AtomSrc, args: Vec<PointId>, rows: Vec<(Table, LinComb)>, cost: u32, sources: BTreeSet<FactId>, tmpl: FactId, avail: FactId) {
+    pub fn push(&mut self, src: AtomSrc, args: Vec<PointId>, rows: Vec<(Table, LinComb)>, cost: u32, sources: BTreeSet<FactId>, tmpl: FactId, avail: FactId) {
         for (k, (table, row)) in rows.into_iter().enumerate() {
             if row.is_zero() {
                 continue;
             }
             let q = if table == Table::Angle { self.cx.quot.q(&row) } else { row.clone() };
-            self.atoms.push(Atom { src, args: args.clone(), table, row, q, cost, sources: sources.clone(), tmpl, avail, row_idx: k as u16 });
+            self.atoms.push(Atom { src, args: args.clone(), table, row, q, cost, sources: sources.clone(), tmpl, avail, row_idx: k as u16, via: Vec::new() });
         }
     }
 
@@ -171,7 +173,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                         let q = if tb == Table::Angle { cx.quot.q(&r) } else { r.clone() };
                         let glue = is_line && tb == Table::Angle;
                         let (src, cost) = if glue { (AtomSrc::Glue(g), 0) } else { (AtomSrc::Engine(g), 2) };
-                        self.atoms.push(Atom { src, args: vec![], table: tb, row: r, q, cost, sources: BTreeSet::new(), tmpl: g + 1, avail: g + 1, row_idx: k as u16 });
+                        self.atoms.push(Atom { src, args: vec![], table: tb, row: r, q, cost, sources: BTreeSet::new(), tmpl: g + 1, avail: g + 1, row_idx: k as u16, via: Vec::new() });
                     }
                 }
                 _ => {
@@ -660,8 +662,31 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
     let mut b = Builder::new(cx);
     b.engine_atoms();
     let r = b.radii();
+    if cx.library {
+        b.theorems(r);
+        b.refine(r);
+    }
     b.composites(r);
     b.second_order(r);
+    if cx.library {
+        b.propagate_via(r);
+        b.theorems(r);
+        b.rejustify();
+    }
+    let mut map: Vec<Option<usize>> = Vec::with_capacity(b.atoms.len());
+    let mut k = 0;
+    for a in &b.atoms {
+        if a.avail != NEVER {
+            map.push(Some(k));
+            k += 1;
+        } else {
+            map.push(None);
+        }
+    }
     b.atoms.retain(|a| a.avail != NEVER);
+    for a in b.atoms.iter_mut() {
+        let via: Option<Vec<usize>> = a.via.iter().map(|&v| map.get(v).copied().flatten()).collect();
+        a.via = via.unwrap_or_default();
+    }
     b.atoms
 }

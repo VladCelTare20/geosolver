@@ -7,8 +7,11 @@ pub mod claims;
 pub mod classify;
 pub mod ctx;
 pub mod expr;
+pub mod library;
 pub mod model;
+pub mod search;
 pub mod text;
+pub mod theorems;
 pub mod trace;
 pub mod view;
 
@@ -45,37 +48,107 @@ pub fn unavailable(raw_steps: usize) -> HumanProof {
     }
 }
 
+pub fn restates_goal(trace: &EngineTrace, hp: &HumanProof) -> bool {
+    let [only] = hp.blocks.as_slice() else { return false };
+    let Some(goal_rows) = check::stmt_targets(trace, &only.stmt) else { return false };
+    let canon = |tb: trace::Table, r: &crate::lincomb::LinComb| library::canon_row(trace, tb, r);
+    let goal: Vec<(trace::Table, crate::lincomb::LinComb)> = goal_rows.iter().map(|(tb, r)| (*tb, canon(*tb, r))).collect();
+    only.body.iter().any(|s| {
+        all_reasons(s).iter().any(|r| match r {
+            Reason::Atom { key, args, .. } if theorems::is_theorem(*key) => check::check_rows(trace, *key, args).is_some_and(|rows| {
+                rows.iter().any(|(tb, r)| {
+                    let c = canon(*tb, r);
+                    goal.iter().any(|(gt, g)| gt == tb && (*g == c || *g == c.negated()))
+                })
+            }),
+            _ => false,
+        })
+    })
+}
+
+pub fn score(hp: &HumanProof) -> usize {
+    let crowded: usize = hp
+        .blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .map(|s| match s {
+            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().map(|l| l.reasons.len().saturating_sub(4)).sum(),
+            Sentence::Because { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.len().saturating_sub(4),
+            _ => 0,
+        })
+        .sum();
+    hp.metrics.human_cost + 8 * hp.metrics.similar_steps + 2 * crowded
+}
+
+fn guarded(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts, library: bool) -> Option<HumanProof> {
+    let res = if std::env::var_os("HP_DEBUG").is_some() {
+        Ok(write_inner(trace, goal, deps, aux, opts, library))
+    } else {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::quiet_panic::quiet(|| write_inner(trace, goal, deps, aux, opts, library))))
+    };
+    match res {
+        Ok(Some(hp)) => Some(hp),
+        _ => None,
+    }
+}
+
 pub fn write(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts) -> HumanProof {
     let start = Instant::now();
     let raw_steps = trace.closure(deps).len();
-    let res = if std::env::var_os("HP_DEBUG").is_some() {
-        Ok(write_inner(trace, goal, deps, aux, opts))
-    } else {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::quiet_panic::quiet(|| write_inner(trace, goal, deps, aux, opts))))
-    };
-    let mut hp = match res {
-        Ok(Some(hp)) => hp,
-        _ => unavailable(raw_steps),
+    let lib_only = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "only");
+    let no_lib = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "0");
+    let base = if lib_only { None } else { guarded(trace, goal, deps, aux, opts, false) };
+    let lib = if no_lib { None } else { guarded(trace, goal, deps, aux, opts, true) };
+    let lib_ok = lib.as_ref().filter(|h| h.available && !h.metrics.timed_out && h.metrics.check_violations == 0 && !(restates_goal(trace, h) && base.as_ref().is_some_and(|b| b.available)));
+    if std::env::var_os("HP_LIBSTAT").is_some() {
+        let d = |h: Option<&HumanProof>| h.map(|h| format!("avail={} timed_out={} violations={} score={}", h.available, h.metrics.timed_out, h.metrics.check_violations, score(h))).unwrap_or_else(|| "none".into());
+        eprintln!("HPLIB lib[{}] base[{}]", d(lib.as_ref()), d(base.as_ref()));
+    }
+    let mut hp = match (lib_ok, base) {
+        (Some(l), Some(b)) => {
+            if b.available && !b.metrics.timed_out && score(&b) < score(l) {
+                b
+            } else {
+                let mut l = l.clone();
+                l.metrics.library = true;
+                l
+            }
+        }
+        (Some(l), None) => {
+            let mut l = l.clone();
+            l.metrics.library = true;
+            l
+        }
+        (None, Some(b)) => b,
+        (None, None) => unavailable(raw_steps),
     };
     hp.metrics.micros = start.elapsed().as_micros() as u64;
     hp
 }
 
-fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts) -> Option<HumanProof> {
+fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts, library: bool) -> Option<HumanProof> {
     let t0 = Instant::now();
     let tick = |what: &str| {
         if std::env::var_os("HP_TIME").is_some() {
             eprintln!("time {what}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
         }
     };
-    let cx = Ctx::new(trace, goal, deps, aux, opts.deadline);
+    let mut cx = Ctx::new(trace, goal, deps, aux, opts.deadline);
+    cx.library = library;
+    let cx = cx;
     tick("ctx");
     let mut w = Writer::new(&cx);
     tick("atoms");
     w.first_pass();
     tick("first pass");
+    let found = if library { Some(search::optimise(&mut w)) } else { None };
+    tick("search");
     w.select();
+    if let Some(s) = &found {
+        search::protect_pruned(&mut w, s);
+    }
     w.recertify_with_claims();
+    search::clear_extra(&mut w);
     tick("recertify");
     w.select();
     if std::env::var_os("HP_DEBUG").is_some() {
@@ -309,6 +382,58 @@ fn setup_lines(cx: &Ctx, blocks: &[Block]) -> Vec<SetupLine> {
     out
 }
 
+pub fn shape_counts(blocks: &[Block]) -> (usize, usize) {
+    let tri = |s: &Stmt| matches!(s, Stmt::Sim { .. } | Stmt::Congruent { .. });
+    let mut sims: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut thms: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut theorem_sentences = 0;
+    fn walk<'r>(r: &'r Reason, out: &mut Vec<&'r Reason>) {
+        out.push(r);
+        if let Reason::Fact { because, .. } = r {
+            for b in because {
+                walk(b, out);
+            }
+        }
+    }
+    for b in blocks {
+        if tri(&b.stmt) {
+            sims.insert(format!("{:?}", b.stmt));
+        }
+        for s in &b.body {
+            match s {
+                Sentence::Because { stmt, .. } if tri(stmt) => {
+                    sims.insert(format!("{stmt:?}"));
+                }
+                Sentence::Theorem { .. } => theorem_sentences += 1,
+                _ => {}
+            }
+            let mut rs: Vec<&Reason> = Vec::new();
+            for r in all_reasons(s) {
+                walk(r, &mut rs);
+            }
+            for r in rs {
+                match r {
+                    Reason::Fact { stmt, .. } if tri(stmt) => {
+                        sims.insert(format!("{stmt:?}"));
+                    }
+                    Reason::Atom { key, args, .. } if theorems::is_congruence(*key) => {
+                        let mut t1 = args[0..3].to_vec();
+                        let mut t2 = args[3..6].to_vec();
+                        t1.sort_unstable();
+                        t2.sort_unstable();
+                        sims.insert(format!("cong{:?}", if t1 < t2 { (t1, t2) } else { (t2, t1) }));
+                    }
+                    Reason::Atom { key, args, .. } if !matches!(key, AtomKey::Inscribed | AtomKey::Radii | AtomKey::Isosceles | AtomKey::Parallel | AtomKey::CentralAngle) => {
+                        thms.insert(format!("{key:?}{args:?}"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    (sims.len(), thms.len() + theorem_sentences)
+}
+
 fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
     let m = &mut hp.metrics;
     m.raw_steps = cx.closure.len();
@@ -335,6 +460,9 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
         }
     }
     m.aux_shown = hp.setup.iter().filter(|s| matches!(s, SetupLine::Aux { .. })).count();
+    let (sim, thm) = shape_counts(&hp.blocks);
+    m.similar_steps = sim;
+    m.theorem_steps = thm;
     let mut displayed: std::collections::BTreeSet<FactId> = std::collections::BTreeSet::new();
     for b in &hp.blocks {
         displayed.extend(b.engine_facts.iter().copied());

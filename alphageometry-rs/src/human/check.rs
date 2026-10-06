@@ -106,6 +106,7 @@ pub fn check_rows(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Vec<(T
             }
             out
         }
+        k => super::theorems::spec(t, k, a)?.rows,
     })
 }
 
@@ -239,6 +240,35 @@ impl<'c, 'a> Checker<'c, 'a> {
         self.basis(h)[tb.idx()].contains(&row)
     }
 
+    fn verified(&mut self, tb: Table, row: &LinComb) -> bool {
+        let cx = self.cx;
+        let row = super::library::canon_row(cx.t, tb, row);
+        if self.basis(FactId::MAX)[tb.idx()].contains(&row) {
+            return true;
+        }
+        cx.store_verified(tb, &row)
+    }
+
+    pub fn theorem_ok(&mut self, h: FactId, key: AtomKey, a: &[PointId]) -> bool {
+        let t = self.cx.t;
+        let Some(spec) = super::theorems::spec(t, key, a) else { return false };
+        for hyp in &spec.hyps {
+            let ok = match hyp {
+                super::theorems::Hyp::Line(p) => self.on_line(h, p),
+                super::theorems::Hyp::Circle(p) => self.on_circle(h, p),
+                super::theorems::Hyp::Eq(tb, row) => t.holds(*tb, row) && (self.proven(h, *tb, row) || self.verified(*tb, row)),
+                other => super::theorems::config_holds(t, other),
+            };
+            if !ok {
+                if std::env::var_os("HP_DEBUG").is_some() {
+                    eprintln!("theorem {key:?} {a:?} hyp {hyp:?} fails before {h}");
+                }
+                return false;
+            }
+        }
+        spec.rows.iter().all(|(tb, row)| t.holds(*tb, row) && self.verified(*tb, row))
+    }
+
     fn equidistant(&mut self, h: FactId, o: PointId, pts: &[PointId]) -> bool {
         let t = self.cx.t;
         for &p in &pts[1..] {
@@ -295,6 +325,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                     && self.equidistant(h, a[1], &[a[4], a[3]])
             }
             AtomKey::Orthocentre => a.len() == 4 && self.perp_proven(h, (a[1], a[0]), (a[2], a[3])) && self.perp_proven(h, (a[2], a[0]), (a[3], a[1])),
+            k => self.theorem_ok(h, k, a),
         }
     }
 
@@ -414,7 +445,11 @@ impl<'c, 'a> Checker<'c, 'a> {
                 cache.insert(term.reason, rows);
             }
             let (t, row) = cache[&term.reason].get(term.row as usize)?.clone();
-            if matches!(r, Reason::Atom { .. }) && !self.proven(h, t, &row) {
+            let theorem = matches!(r, Reason::Atom { key, .. } if super::theorems::is_theorem(*key));
+            if theorem && !self.verified(t, &row) {
+                return None;
+            }
+            if matches!(r, Reason::Atom { .. }) && !theorem && !self.proven(h, t, &row) {
                 return None;
             }
             tb = t;

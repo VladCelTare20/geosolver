@@ -284,9 +284,10 @@ pub struct Writer<'c, 'a> {
     pub claim_cost: BTreeSet<FactId>,
     pub bfs_budget: usize,
     pub span_cache: std::cell::RefCell<BTreeMap<(FactId, Option<FactId>), Vec<super::cert::Basis>>>,
+    pub extra: Vec<u32>,
 }
 
-fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &Ctx) -> u32 {
+pub fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &Ctx) -> u32 {
     if atom.cost == 0 {
         return 0;
     }
@@ -304,7 +305,8 @@ fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &C
 impl<'c, 'a> Writer<'c, 'a> {
     pub fn new(cx: &'c Ctx<'a>) -> Writer<'c, 'a> {
         let atoms = build_all(cx);
-        Writer { cx, atoms, nodes: BTreeMap::new(), claim_cost: BTreeSet::new(), bfs_budget: 20_000, span_cache: std::cell::RefCell::new(BTreeMap::new()) }
+        let extra = vec![0; atoms.len()];
+        Writer { cx, atoms, nodes: BTreeMap::new(), claim_cost: BTreeSet::new(), bfs_budget: 20_000, span_cache: std::cell::RefCell::new(BTreeMap::new()), extra }
     }
 
     pub fn certify(&self, tb: Table, target: &LinComb, h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(Vec<(usize, Rat)>, i64)> {
@@ -353,7 +355,7 @@ impl<'c, 'a> Writer<'c, 'a> {
             .iter()
             .enumerate()
             .filter(|(i, a)| a.table == tb && a.admissible(h) && (exclude.is_none() || a.fact() != exclude) && !banned.contains(i))
-            .map(|(i, a)| (eff(a, focus, &self.claim_cost, cx), i))
+            .map(|(i, a)| (eff(a, focus, &self.claim_cost, cx) + self.extra.get(i).copied().unwrap_or(0), i))
             .collect();
         idx.sort();
         let rows: Vec<(u32, &LinComb)> = idx.iter().map(|(c, i)| (*c, &self.atoms[*i].row)).collect();
@@ -384,7 +386,7 @@ impl<'c, 'a> Writer<'c, 'a> {
         bases[tb.idx()].contains(row)
     }
 
-    fn focus_of(&self, f: FactId) -> BTreeSet<PointId> {
+    pub fn focus_of(&self, f: FactId) -> BTreeSet<PointId> {
         if f == GOAL {
             self.cx.goal.points.iter().copied().collect()
         } else {
@@ -392,7 +394,7 @@ impl<'c, 'a> Writer<'c, 'a> {
         }
     }
 
-    fn certify_obls(&self, obls: &[Obl], h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> {
+    pub fn certify_obls(&self, obls: &[Obl], h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> {
         let mut best: Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> = None;
         for o in obls {
             if self.cx.timed_out() {
@@ -510,12 +512,7 @@ impl<'c, 'a> Writer<'c, 'a> {
             pooled: false,
             requires: Vec::new(),
         };
-        let obls = fact_obligations(cx, f).map(|mut o| {
-            if let ER::Concyclic(p) | ER::Collinear(p) = &cx.t.facts[f as usize].reason {
-                o.extend(self.cover(p, matches!(cx.t.facts[f as usize].reason, ER::Concyclic(_)), f, Some(f)));
-            }
-            o
-        });
+        let obls = self.node_obls(f);
         match obls {
             Some(obls) if obls.is_empty() && matches!(k, Kind::Formula(TheoremKey::LawOfSines)) => {
                 node.parts = Some(Vec::new());
@@ -557,6 +554,16 @@ impl<'c, 'a> Writer<'c, 'a> {
         }
         node.deps.remove(&f);
         node
+    }
+
+    pub fn node_obls(&self, f: FactId) -> Option<Vec<Obl>> {
+        let cx = self.cx;
+        fact_obligations(cx, f).map(|mut o| {
+            if let ER::Concyclic(p) | ER::Collinear(p) = &cx.t.facts[f as usize].reason {
+                o.extend(self.cover(p, matches!(cx.t.facts[f as usize].reason, ER::Concyclic(_)), f, Some(f)));
+            }
+            o
+        })
     }
 
     fn make_goal(&self, goal_fact: Option<FactId>) -> Node {
@@ -626,7 +633,7 @@ impl<'c, 'a> Writer<'c, 'a> {
         node
     }
 
-    fn goal_obls(&self, goal_fact: Option<FactId>) -> Vec<Obl> {
+    pub fn goal_obls(&self, goal_fact: Option<FactId>) -> Vec<Obl> {
         let cx = self.cx;
         let mut obls = goal_obligations(cx, &cx.goal);
         let Some(gf) = goal_fact else { return obls };
@@ -1032,6 +1039,25 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if found.len() < 2 {
                 continue;
             }
+            let mut comp: Vec<usize> = (0..n).collect();
+            fn root(c: &mut Vec<usize>, x: usize) -> usize {
+                let mut r = x;
+                while c[r] != r {
+                    r = c[r];
+                }
+                c[x] = r;
+                r
+            }
+            for (_, p, q, _) in &members {
+                if let (Some(ip), Some(iq)) = (args.iter().position(|x| x == p), args.iter().position(|x| x == q)) {
+                    let (a, b) = (root(&mut comp, ip), root(&mut comp, iq));
+                    comp[a.max(b)] = a.min(b);
+                }
+            }
+            let r1 = root(&mut comp, 1);
+            if (2..n).any(|x| root(&mut comp, x) != r1) {
+                continue;
+            }
             from.sort_unstable();
             from.dedup();
             let reason = Reason::Atom { key: k, stmt: Stmt::Cong { s1: (o, args[1]), s2: (o, args[2]) }, args: args.clone(), from };
@@ -1068,6 +1094,19 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             };
             terms.push(Term { reason: pos as u16, row, coef });
+            let mut stack: Vec<(usize, usize)> = a.via.iter().map(|&v| (v, 0)).collect();
+            let mut seen: Vec<usize> = vec![*i];
+            while let Some((v, depth)) = stack.pop() {
+                if seen.contains(&v) || depth > 3 {
+                    continue;
+                }
+                seen.push(v);
+                let (vr, _) = self.atom_reason(&self.w.atoms[v], h, false);
+                if !extra.contains(&vr) {
+                    extra.push(vr);
+                }
+                stack.extend(self.w.atoms[v].via.iter().map(|&x| (x, depth + 1)));
+            }
             if let AtomSrc::Human(_) = a.src {
                 for s in &a.sources {
                     if let Some(r) = self.inline.get(&cx.displayable(*s)) {
@@ -2109,6 +2148,7 @@ pub fn atom_stmt(key: AtomKey, a: &[PointId]) -> Stmt {
         },
         AtomKey::Midline => Stmt::Para { l1: (a[0], a[1]), l2: (a[2], a[3]) },
         AtomKey::Orthocentre => Stmt::Perp { l1: (a[3], a[0]), l2: (a[1], a[2]) },
+        k => super::theorems::stmt(k, a).unwrap_or(Stmt::Formula { text: k.as_str().to_string(), pts: a.to_vec() }),
     }
 }
 
