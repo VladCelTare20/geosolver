@@ -718,9 +718,21 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
             if reasons.is_empty() {
                 format!("Hence {}.", stmt(n, st))
             } else {
+                let flat: Vec<Reason>;
                 let inner = match reasons.as_slice() {
                     [Reason::Fact { stmt: s2, because, .. }] if same_stmt(s2, st) && !because.is_empty() => because.as_slice(),
-                    _ => reasons.as_slice(),
+                    [_] => reasons.as_slice(),
+                    _ => {
+                        flat = reasons
+                            .iter()
+                            .flat_map(|r| match r {
+                                Reason::Fact { stmt: s2, because, .. } if same_stmt(s2, st) => because.clone(),
+                                Reason::Hyp { stmt: s2, .. } if same_stmt(s2, st) => Vec::new(),
+                                _ => vec![r.clone()],
+                            })
+                            .collect();
+                        if flat.is_empty() { reasons.as_slice() } else { flat.as_slice() }
+                    }
                 };
                 let rs: Vec<String> = reasons_text(n, inner, claims);
                 let own = stmt(n, st);

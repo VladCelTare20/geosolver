@@ -913,7 +913,7 @@ pub fn fact_obligations(cx: &Ctx, f: FactId) -> Option<Vec<Obl>> {
             let mut out = Vec::new();
             if let (Some(x), Some(y), Some(c)) = (t.dm(s1.0, s1.1), t.dm(s2.0, s2.1), t.prime_const(&k)) {
                 let row = &(&x - &y) - &c;
-                let tg = Target { table: Table::Ratio, row: row.clone(), splits: vec![Split { l: seg(s1.0, s1.1), r: seg(s2.0, s2.1), lraw: x, rraw: &y + &c }], stmt: stmt.clone(), alts: Vec::new() };
+                let tg = Target { table: Table::Ratio, row: row.clone(), splits: vec![Split { l: seg(s1.0, s1.1), r: if k.is_one() { seg(s2.0, s2.1) } else { Expr::Prod { factors: vec![(Expr::Num { value: k.clone() }, 1), (seg(s2.0, s2.1), 1)] } }, lraw: x, rraw: &y + &c }], stmt: stmt.clone(), alts: Vec::new() };
                 out.push(Obl { label: "lengths", targets: vec![tg], requires: vec![] });
             }
             if let (Some(x), Some(y)) = (t.single(Table::Add, s1.0, s1.1), t.single(Table::Add, s2.0, s2.1)) {
