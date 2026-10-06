@@ -247,17 +247,19 @@ fn rat_text(r: &Rat) -> String {
     }
 }
 
-fn main_vertex(a: PointId, b: PointId, c: PointId) -> bool {
+fn main_vertex(n: &dyn PointNames, a: PointId, b: PointId, c: PointId) -> bool {
     MAIN.with(|m| m.get()).is_some_and(|(x, y, z)| {
         let t = [x, y, z];
-        t.contains(&a) && t.contains(&b) && t.contains(&c) && a != b && b != c && a != c
+        let mut names: Vec<String> = t.iter().map(|&p| n.get(p)).collect();
+        names.sort();
+        names == ["A", "B", "C"] && t.contains(&a) && t.contains(&b) && t.contains(&c) && a != b && b != c && a != c
     })
 }
 
 pub fn expr(n: &dyn PointNames, e: &Expr) -> String {
     match e {
         Expr::Angle { directed: false, .. } if vertex_angle(n, e).is_some() => vertex_angle(n, e).unwrap_or_default(),
-        Expr::Angle { a, b, c, directed: false } if main_vertex(*a, *b, *c) => format!("∠{}", n.get(*b)),
+        Expr::Angle { a, b, c, directed: false } if main_vertex(n, *a, *b, *c) => format!("∠{}", n.get(*b)),
         Expr::Angle { a, b, c, directed } => format!("{}{}", if *directed { "∡" } else { "∠" }, n.pts(&[*a, *b, *c])),
         Expr::LineAngle { l1, l2, directed } => format!("{}({}, {})", if *directed { "∡" } else { "∠" }, n.pts(&[l1.0, l1.1]), n.pts(&[l2.0, l2.1])),
         Expr::Const { degrees } => deg(degrees),

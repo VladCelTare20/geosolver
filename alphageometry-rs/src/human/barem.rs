@@ -32,6 +32,9 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| dedupe_restated(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| absorb_by_triangles(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| restated_line_fact(cx, blocks, s));
+    let named: Vec<(PointId, Vec<PointId>)> = hp.setup.iter().filter_map(|l| if let SetupLine::Circle { name, through, centre: Some(o), .. } = l { (!name.is_empty()).then(|| (*o, through.clone())) } else { None }).collect();
+    per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| drop_setup_radii(&named, s));
+    per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| trim_parallel_extras(s));
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _, s| redisplay_drawn(cx, blocks, s));
     cut_long(cx, &mut ch, hp);
     lemma_steps(cx, &mut ch, hp);
@@ -366,6 +369,92 @@ fn absorb_by_triangles(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sente
     None
 }
 
+fn trim_parallel_link(l: &Link) -> Option<Link> {
+    let Some(Reason::Atom { key: AtomKey::Parallel, args, .. }) = l.reasons.first() else { return None };
+    if args.len() != 6 || l.reasons.len() <= 3 {
+        return None;
+    }
+    let used: BTreeSet<u16> = l.combination.iter().map(|t| t.reason).collect();
+    let extras: Vec<Reason> = l.reasons[1..].to_vec();
+    let mut keep: Vec<usize> = (0..l.reasons.len()).filter(|&i| used.contains(&(i as u16))).collect();
+    for i in 0..2 {
+        if let Some(k) = super::text::parallel_justification(args, &extras, i) {
+            keep.push(k + 1);
+        }
+    }
+    keep.sort_unstable();
+    keep.dedup();
+    if keep.len() == l.reasons.len() {
+        return None;
+    }
+    let map: BTreeMap<u16, u16> = keep.iter().enumerate().map(|(n, &o)| (o as u16, n as u16)).collect();
+    Some(Link { reasons: keep.iter().map(|&i| l.reasons[i].clone()).collect(), combination: l.combination.iter().map(|t| Term { reason: map[&t.reason], ..t.clone() }).collect() })
+}
+
+fn trim_parallel_extras(s: &Sentence) -> Option<Sentence> {
+    match s {
+        Sentence::Because { stmt, reasons, combination } => {
+            let l = trim_parallel_link(&Link { reasons: reasons.clone(), combination: combination.clone() })?;
+            Some(Sentence::Because { stmt: stmt.clone(), reasons: l.reasons, combination: l.combination })
+        }
+        Sentence::Chain { terms, links, then, directed } => {
+            let mut changed = false;
+            let out: Vec<Link> = links
+                .iter()
+                .map(|l| match trim_parallel_link(l) {
+                    Some(n) => {
+                        changed = true;
+                        n
+                    }
+                    None => l.clone(),
+                })
+                .collect();
+            changed.then(|| Sentence::Chain { terms: terms.clone(), links: out, then: then.clone(), directed: *directed })
+        }
+        _ => None,
+    }
+}
+
+fn setup_radius(named: &[(PointId, Vec<PointId>)], r: &Reason) -> bool {
+    let st = match r {
+        Reason::Hyp { stmt, .. } | Reason::Fact { stmt, because: _, .. } => stmt,
+        Reason::Atom { key: AtomKey::Radii, stmt, .. } => stmt,
+        _ => return false,
+    };
+    let Stmt::Cong { s1, s2 } = st else { return false };
+    named.iter().any(|(o, through)| {
+        let end = |s: &(PointId, PointId)| if s.0 == *o { Some(s.1) } else if s.1 == *o { Some(s.0) } else { None };
+        matches!((end(s1), end(s2)), (Some(a), Some(b)) if through.contains(&a) && through.contains(&b))
+    })
+}
+
+fn drop_setup_radii(named: &[(PointId, Vec<PointId>)], s: &Sentence) -> Option<Sentence> {
+    if let Sentence::Because { stmt, reasons, combination } = s {
+        if combination.is_empty() {
+            return None;
+        }
+        let l = drop_setup_radii(named, &Sentence::Chain { terms: Vec::new(), links: vec![Link { reasons: reasons.clone(), combination: combination.clone() }], then: None, directed: false })?;
+        let Sentence::Chain { links, .. } = l else { return None };
+        let l = links.into_iter().next()?;
+        return Some(Sentence::Because { stmt: stmt.clone(), reasons: l.reasons, combination: l.combination });
+    }
+    let Sentence::Chain { terms, links, then, directed } = s else { return None };
+    let mut changed = false;
+    let mut out: Vec<Link> = Vec::new();
+    for l in links {
+        let used: BTreeSet<u16> = l.combination.iter().map(|t| t.reason).collect();
+        let keep: Vec<usize> = (0..l.reasons.len()).filter(|&i| used.contains(&(i as u16)) || !setup_radius(named, &l.reasons[i])).collect();
+        if keep.len() == l.reasons.len() {
+            out.push(l.clone());
+            continue;
+        }
+        changed = true;
+        let map: BTreeMap<u16, u16> = keep.iter().enumerate().map(|(n, &o)| (o as u16, n as u16)).collect();
+        out.push(Link { reasons: keep.iter().map(|&i| l.reasons[i].clone()).collect(), combination: l.combination.iter().map(|t| Term { reason: map[&t.reason], ..t.clone() }).collect() });
+    }
+    changed.then(|| Sentence::Chain { terms: terms.clone(), links: out, then: then.clone(), directed: *directed })
+}
+
 fn restated_line_fact(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
     let Sentence::Chain { terms, links, then: Some(st @ (Stmt::Para { .. } | Stmt::Perp { .. })), .. } = s else { return None };
     let ([_, Expr::Const { degrees }], [l]) = (terms.as_slice(), links.as_slice()) else { return None };
@@ -388,7 +477,53 @@ fn chain_score(terms: &[Expr]) -> Option<i64> {
     terms.iter().map(|e| term_score(e).filter(|s| *s < 4)).sum()
 }
 
+fn soft_score(terms: &[Expr]) -> i64 {
+    terms.iter().map(|e| term_score(e).unwrap_or(8)).sum()
+}
+
+fn negated_expr(e: &Expr) -> Option<Expr> {
+    let terms: Vec<(Rat, Expr)> = match e {
+        Expr::Angle { .. } => vec![(Rat::one(), e.clone())],
+        Expr::Const { degrees } => return Some(Expr::Const { degrees: -degrees }),
+        Expr::Lin { terms } => terms.clone(),
+        _ => return None,
+    };
+    let mut out: Vec<(Rat, Expr)> = Vec::new();
+    let mut konst = Rat::zero();
+    for (k, x) in terms {
+        match x {
+            Expr::Const { degrees } => konst = &konst - &(&degrees * &k),
+            Expr::Angle { .. } | Expr::LineAngle { .. } => out.push((-&k, x)),
+            _ => return None,
+        }
+    }
+    out.sort_by_key(|(k, _)| k.is_negative());
+    if !konst.is_zero() {
+        let lead = !konst.is_negative() && out.iter().all(|(k, _)| k.is_negative());
+        let c = (Rat::one(), Expr::Const { degrees: konst });
+        if lead {
+            out.insert(0, c);
+        } else {
+            out.push(c);
+        }
+    }
+    Some(match out.as_slice() {
+        [(k, x)] if k.is_one() => x.clone(),
+        _ => Expr::Lin { terms: out },
+    })
+}
+
+fn negate_drawn(s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain { terms, links, then, directed: false } = s else { return None };
+    let nt: Vec<Expr> = terms.iter().map(negated_expr).collect::<Option<Vec<_>>>()?;
+    let leading_minus = |ts: &[Expr]| ts.iter().filter(|e| matches!(e, Expr::Lin { terms } if terms.first().is_some_and(|(k, _)| k.is_negative()))).count();
+    (soft_score(&nt) < soft_score(terms) && leading_minus(&nt) < leading_minus(terms)).then(|| Sentence::Chain { terms: nt, links: links.iter().cloned().map(negate_link).collect(), then: then.clone(), directed: false })
+}
+
 fn redisplay_drawn(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
+    if let Some(n) = negate_drawn(s) {
+        return Some(n);
+    }
     let Sentence::Chain { terms, links, then, directed: false } = s else { return None };
     let old = chain_score(terms).unwrap_or(i64::MAX);
     if old == 0 {
