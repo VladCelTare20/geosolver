@@ -21,7 +21,7 @@
           src = nixpkgs.lib.cleanSourceWith {
             src = self;
             filter =
-              path: type:
+              path: _:
               let
                 base = baseNameOf path;
               in

@@ -8,7 +8,7 @@ Set-Location -Path $PSScriptRoot
 $port = if ($args.Count -ge 1) { [int]$args[0] } else { 8787 }
 
 Write-Host "Building GeoSolver (release)..." -ForegroundColor Cyan
-cargo build --release -p ag-studio
+cargo build --release --locked -p ag-studio
 if ($LASTEXITCODE -ne 0) { Write-Host "Build failed." -ForegroundColor Red; exit 1 }
 
 $exe = Join-Path $PSScriptRoot 'target\release\agstudio.exe'

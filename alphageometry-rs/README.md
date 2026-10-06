@@ -311,13 +311,19 @@ proof; `--proofs <dir>` writes every one.
 
 | Corpus | Budget | Proved | DDAR alone | With aux points | AG1 reference |
 | --- | ---: | ---: | ---: | ---: | --- |
-| imo_ag_30 | 120 s | **25/30** | 15 | 10 | DD+AR 14, AlphaGeometry (LM) 25 |
-| jgex_ag_231 | 30 s | **227/231** | 196 | 31 | DD+AR 198 |
+| imo_ag_30 | 120 s | **30/30** | 16 | 14 | DD+AR 14, AlphaGeometry (LM) 25, AG2 30 |
+| jgex_ag_231 | 30 s | **231/231** | 213 | 18 | DD+AR 198 |
 
-*(Commit 2e916c7, 4 × 3 threads for imo, 6 × 2 for jgex, on a shared
-i7-11700K. Every problem of both sets translates and its goal holds on the
-sampled figure.)* Unsolved: IMO 2008 P1b, 2008 P6, 2011 P6, 2020 P1, 2021 P3;
-JGEX Morley, Thébault t5, E075-27f, yL182-1.
+*(Engine at commit 0a6e67b, 4 × 3 threads for imo, 6 × 2 for jgex, under the
+benchmark lock on a shared i7-11700K; `--bench` 26/26 in the same run. Every
+problem of both sets translates and its goal holds on the sampled figure.)*
+Both sets were developed against, so these are development-set numbers. Two
+IMO problems sit close to the budget — 2008 P6 (94 s) and 2021 P3 (68 s) —
+and timed out in earlier runs at other commits (28/30), so a slower machine
+can lose them. On held-out problems the frozen engine (commit 4ff884c) proved
+318 of HAGeo-409, 8 of the 10 expressible IMO-AG-50 problems beyond these 30,
+and 10 of 15 expressible ISL 2024–2025 / IMO 2026 problems, with 0 unsound
+results (`corpus/heldout/REPORT.md` on the `wf/heldout-eval` branch).
 
 ```sh
 ddar --corpus ../corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 \
@@ -343,9 +349,14 @@ Where the speed comes from:
 # Prove the bundled IMO set with per-problem timings (like `python -m test`):
 cargo run --release --bin ddar -- --bench
 
-# Prove a single problem given in the AlphaGeometry format:
-cargo run --release --bin ddar -- "a@0.0_0.0 = ; b@1.0_0.0 = ; c@0.5_0.9 = \
-  cong a b a c ? cong a b a c"
+# Prove a single problem given in the AlphaGeometry format (isosceles base angles):
+cargo run --release --bin ddar -- --proof "a@0.0_0.0 = ; b@1.0_0.0 = ; c@0.5_0.9 = \
+  cong c a c b ? eqangle a b a c b c b a"
+#   Proven :-)  (0.000s)
+#   Proof of eqangle a b a c b c b a (2 steps, 8 facts recorded in total):
+#   001. assumption: cong c a c b
+#   002. similar triangles: △acb ∼ △bca [001]
+#   ∎ eqangle a b a c b c b a
 
 # Search for auxiliary points if pure deduction is not enough:
 cargo run --release --bin ddar -- --aux "<problem string>"
@@ -366,17 +377,20 @@ cargo run --release --bin ddar -- --batch examples/olympiad
 cargo run --release --bin ddar -- --explore
 ```
 
-The release build targets the host CPU (`.cargo/config.toml` sets
+A plain `cargo build --release` targets the host CPU (`.cargo/config.toml` sets
 `target-cpu=native`) so the f64 geometry oracle and 128-bit rational path use the
-machine's full instruction set. Delete that file for a portable binary.
+machine's full instruction set. The Docker image and the Nix package are
+portable builds (the flag is removed or overridden there); on `--bench` the two
+measure the same within noise. Delete that file for a portable cargo build.
 
-Run the test suite (the debug build activates numeric-consistency assertions
-that check *every* forced fact is numerically true):
+Run the test suite. The gate is the release build, which is what ships and what
+the time-budgeted search tests are calibrated for:
 
 ```sh
-cargo test                       # unit + integration (26/26) + aux rediscovery
+RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6   # the gate
+cargo test -p alphageometry-rs   # debug: adds numeric-consistency assertions on every forced fact
 cargo test --lib rational        # 4000-case property fuzz of Rat vs BigRational
-cargo clippy --all-targets       # lints (clean)
+cargo clippy --all-targets       # lints
 ```
 
 ## Architecture

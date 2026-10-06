@@ -615,7 +615,7 @@ Measured on the golden texts: non-empty display lines, word tokens. For comparis
    - median `blocks` ≤ 6, median displayed sentences ≤ 30 % of `raw_shown`;
    - no displayed chain > 8 links (longer becomes pooled);
    - zero displayed self-similarities and zero restated hypotheses (asserted).
-7. **Goldens.** `docs/human-proofs/*.md` become `ag-studio/tests/human_goldens.rs`:
+7. **Goldens.** `docs/human-proofs/*.md` become executable goldens (as built: `ag-studio/tests/fixtures/human/*` checked by the `human_view.rs` tests, and `alphageometry-rs/tests/golden/human/` by `alphageometry-rs/tests/human_proofs.rs`):
    - structure (claim statements and order, engine facts per block) must match exactly;
    - chain terms must match exactly where the golden marks them "exact";
    - pooled reason lists must be subsets of the golden's allowed set and certify;

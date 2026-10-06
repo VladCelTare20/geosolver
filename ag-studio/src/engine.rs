@@ -1804,7 +1804,7 @@ mod tests {
     #[ignore = "60 s best search; run with --ignored"]
     fn best_mode_returns_a_proof_at_least_as_readable_as_the_imo_2023_p2_golden() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let src = std::fs::read_to_string(root.join("imo2023p2.geo")).unwrap();
+        let src = std::fs::read_to_string(root.join("alphageometry-rs/examples/imo/2023_p2.geo")).unwrap();
         let best = solve_best(&src, &SolveOptions::default(), Duration::from_secs(60)).unwrap();
         assert!(best.proved, "{}", best.note);
         assert!(best.note.starts_with("most readable of"), "{}", best.note);

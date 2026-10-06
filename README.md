@@ -3,7 +3,7 @@
 **Photograph or describe an olympiad geometry problem → get a full, numbered
 proof and a figure — in your browser, inside Claude, or on the command line.**
 
-![Example proof + figure](docs/example-report.png)
+![Example report: figure, verdict and human-style proof](docs/example-report.png)
 
 GeoSolver wraps a fast, from-scratch **Rust** reimplementation of the
 **DDAR** symbolic engine from
@@ -259,18 +259,51 @@ A Cargo workspace:
 | [`ag-studio/`](ag-studio/) | this product: `engine` (in-process solve wrapper), `render` (SVG→PNG/PDF, report page), `translate` (photo/NL→`.geo` via the Claude CLI), `web` (axum server + UI), `mcp` (MCP server) |
 | [`corpus/`](corpus/) | AlphaGeometry problem sets & definitions (for testing / reference) |
 
-The `agstudio` binary has five subcommands: `render`, `best`, `translate`, `serve`, `mcp`.
+The `agstudio` binary has the subcommands `render`, `best`, `translate`, `serve`, `mcp`,
+`backup` (a consistent copy of the server database) and `--version`.
 
 ## Build & test
 
 ```sh
 cargo build --release            # the agstudio binary + engine
-cargo test                       # engine unit/integration tests + ag-studio tests
-cargo run -p alphageometry-rs --bin ddar -- --bench   # engine speed on the IMO set
+RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6   # all tests: the gate
+cargo run --release -p alphageometry-rs --bin ddar -- --bench   # engine speed on 26 IMO rows
 ```
 
-The release build targets the host CPU (`.cargo/config.toml`), appropriate for a
-locally-run prover; delete that file for a portable binary.
+Run the tests in release: that is what ships, and the time-budgeted search
+tests are calibrated for it. A debug `cargo test` also works, with the engine's
+numeric-consistency assertions on, but skips the two longest searches (IMO 2008
+P6 through the app and the corpus-through-the-API test; they are `#[ignore]`d
+in debug builds).
+
+A plain `cargo build --release` targets the host CPU (`.cargo/config.toml`),
+appropriate for a locally-run prover. The Docker image and the Nix package are
+portable builds; on the benchmark both measure the same within noise
+([deploy/DEPLOY.md](deploy/DEPLOY.md#builds)).
+
+## Results
+
+Measured with the corpus benchmark (`ddar --corpus`: the full pipeline, DDAR
+then the auxiliary-point search, a hard per-problem deadline, a numbered proof
+required), on a shared i7-11700K:
+
+| Set | Budget | Proved | DDAR alone | With aux | Run |
+| --- | ---: | ---: | ---: | ---: | --- |
+| IMO-AG-30 (development set) | 120 s | **30/30** | 16 | 14 | commit 0a6e67b, 4 jobs × 3 threads |
+| JGEX-AG-231 (development set) | 30 s | **231/231** | 213 | 18 | commit 0a6e67b, 6 jobs × 2 threads |
+| HAGeo-409 (held out) | 120 s | **318/409** (77.8%) | 126 | 192 | commit 4ff884c, frozen engine |
+| IMO-AG-50, the 20 beyond IMO-AG-30 (held out) | 120 s | **8/10** expressible | 1 | 7 | commit 4ff884c |
+| ISL 2024–2025, IMO 2026 (held out) | 120 s | **10/15** expressible | 5 | 5 | commit 4ff884c |
+
+The two corpora in the first rows were developed against, so they show what
+the engine can do, not how it generalises; the held-out rows were run once on a
+frozen engine with no tuning, 0 unsound results (report on the `wf/heldout-eval`
+branch, `corpus/heldout/REPORT.md`). Two IMO-AG-30 problems are close to the
+budget: 2008 P6 took 94 s and 2021 P3 68 s in the 0a6e67b run, and earlier
+runs at other commits timed out on them (28/30), so a slower or busier machine
+can drop them. Soundness is checked separately: the fuzzer
+(`ddar --fuzz-false`) turns corpus problems into false statements and fails if
+any is proved, and every bug it has found is a regression test.
 
 ### Device coverage
 
@@ -297,8 +330,9 @@ A single binary (UI, fonts, and grammar are baked in) plus one SQLite file for
 accounts and history, hardened for public exposure — see **[deploy/DEPLOY.md](deploy/DEPLOY.md)**. The fastest path:
 
 ```sh
-cp deploy/.env.example deploy/.env          # set AGSTUDIO_BASIC_AUTH, AGSTUDIO_PUBLIC_HOST
+install -m 600 deploy/.env.example deploy/.env   # set AGSTUDIO_BASIC_AUTH, AGSTUDIO_PUBLIC_HOST
 docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml exec app agstudio backup /data/backup.db   # backups
 ```
 
 Security defaults: the server **refuses to start on a public interface without
@@ -307,10 +341,19 @@ browsers enter it once on a password page that keeps them signed in, while API
 clients can still use HTTP Basic), and enforces a per-IP rate limit, a
 concurrency cap, a body-size limit, and CSP/security headers. Config is all environment variables
 ([reference](deploy/DEPLOY.md#environment-variables)). Options include Docker +
-nginx (TLS), plain `docker run`, or a hardened `systemd` unit.
+nginx (TLS, Let's Encrypt renewal), plain `docker run`, a hardened `systemd`
+unit behind Caddy or nginx, and a NixOS module (`nixosModules.default`, with
+Tailscale Funnel). The guide covers backup and restore, upgrades and rollback,
+sizing, and turning on the AI features with a subscription token.
 
 ## Credits & license
 
 Built on a Rust port of the DDAR core of Google DeepMind's AlphaGeometry2.
-Apache-2.0. Not an official Google/DeepMind product. Bundled fonts: DejaVu
-(public-domain-style license).
+Apache-2.0. Not an official Google/DeepMind product. Bundled fonts: Inter
+(© The Inter Project Authors) and STIX Two Text (© The STIX Fonts Project
+Authors), both SIL Open Font License 1.1, and DejaVu (Bitstream Vera and Arev
+licences); full texts in
+[`ag-studio/assets/fonts/FONT-LICENSES.txt`](ag-studio/assets/fonts/FONT-LICENSES.txt),
+also served by the app at `/licenses`. Rust dependencies:
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md). Changes:
+[`CHANGELOG.md`](CHANGELOG.md); security reports: [`SECURITY.md`](SECURITY.md).

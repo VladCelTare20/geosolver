@@ -2,7 +2,7 @@
 #   ./deploy/build-linux.sh
 #   sudo install -Dm755 target/release/agstudio /opt/agstudio/agstudio
 #   sudo cp deploy/agstudio.service /etc/systemd/system/
-#   sudo cp deploy/.env.example /etc/agstudio.env   # then edit it
+#   sudo install -m 600 -o root -g root deploy/.env.example /etc/agstudio.env   # then edit it
 #   sudo systemctl daemon-reload && sudo systemctl enable --now agstudio
 [Unit]
 Description=GeoSolver
@@ -22,6 +22,7 @@ Environment=AGSTUDIO_DB=/var/lib/agstudio/agstudio.db
 UMask=0077
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=20
 
 # Run as a dedicated, unprivileged, dynamically-allocated user.
 DynamicUser=yes
@@ -48,9 +49,15 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
 AmbientCapabilities=
-# Note: this hardened profile isolates the service from a user home, so photo/NL
-# translation (which needs the `claude` CLI + its credentials) is unavailable.
-# To enable it, relax ProtectHome and run as a fixed user signed into `claude`.
+# Photo/NL translation and AI explanations (deploy/DEPLOY.md, "AI on a server"):
+# install the `claude` CLI, put CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`)
+# and AGSTUDIO_CLAUDE_BIN=<absolute path to claude> in /etc/agstudio.env, and
+# override (systemctl edit agstudio):
+#   [Service]
+#   MemoryDenyWriteExecute=no
+#   Environment=HOME=/var/lib/agstudio CLAUDE_CONFIG_DIR=/var/lib/agstudio/claude DISABLE_AUTOUPDATER=1
+# The CLI's JIT needs writable+executable memory, and it keeps its state under
+# HOME, which must be inside the StateDirectory.
 
 [Install]
 WantedBy=multi-user.target

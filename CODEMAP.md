@@ -7,10 +7,11 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 
 ## Commands
 - `cargo build --release -p ag-studio` — the `agstudio` binary
-- `RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6` — all tests (~400; the thread caps keep it inside the shared box's budget)
+- `RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6` — all tests (~580; the thread caps keep it inside the shared box's budget). Run them in release: debug builds skip the two longest time-budgeted searches
 - `cargo run --release -p alphageometry-rs --bin ddar -- --bench` — must stay 26/26
 - `ddar --corpus corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 --out r.tsv` — honest solve rate on the AG1 corpora (DDAR + aux search, hard per-problem deadline); `--corpus-check` translates only. Keep jobs × threads ≤ 12 on the shared box. `AUX_VERBOSE=1` prints the aux pool and rollout progress; `AUX_LEGACY=1` runs the old aux search.
-- `nix build .#geosolver`, `nix develop`
+- `nix build .#geosolver` (no tests), `nix flake check` (the test suite), `nix develop`; `nixosModules.default` is `nix/module.nix`
+- `agstudio backup <dest.db>` — consistent copy of the server database; `agstudio --version` — version and commit
 
 ## Invariants
 - **Never report a false statement as proved.** Goals DDAR cannot express are a
@@ -30,7 +31,10 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 - [alphageometry-rs/src/](alphageometry-rs/src/CODEMAP.md) — the engine.
 - [ag-studio/src/](ag-studio/src/CODEMAP.md) — the product binary.
 - [ag-studio/assets/](ag-studio/assets/CODEMAP.md) — the web pages (app, landing, sign-in), design system, fonts.
-- [ag-studio/tests/](ag-studio/tests/CODEMAP.md) — binary integration tests, iPhone CSS invariants, the WebKit iPhone check.
-- `deploy/` — Docker, nginx, systemd; `DEPLOY.md` mirrors the env table in `ag-studio/src/security.rs`.
+- [ag-studio/tests/](ag-studio/tests/CODEMAP.md) — binary integration tests, source-level CSS/compat invariants, and the browser suites (iPhone, Android, desktop/iPad, compat, human-proof shots).
+- [alphageometry-rs/tests/](alphageometry-rs/tests/CODEMAP.md) — engine integration tests: soundness regressions, fuzz, corpora, examples, human proofs.
+- `deploy/` — compose + nginx (`nginx.conf`, ACME webroot, `certbot-deploy-hook.sh`), host proxies (`Caddyfile`, `nginx-host.conf`), the systemd unit, `build-linux.sh`, `third-party-licenses.sh`; `DEPLOY.md` is the operator guide and mirrors the env table in `ag-studio/src/security.rs`. `Dockerfile` (root) has the `runtime` (default) and `ai` targets.
+- `nix/module.nix` — the NixOS module (`services.geosolver`); evaluated by hand with a test configuration, not by `nix flake check`.
+- `.github/workflows/ci.yml` — tests, bench rows, MSRV, Docker build + smoke test, licence list check.
 - `corpus/` — AlphaGeometry problem sets (data, not code).
 - `docs/HUMAN_PROOFS.md` — design of the deterministic human proof writer; engine side in `alphageometry-rs/src/human/` (status and data-model changes at the end of the spec), wired into ag-studio (`engine.rs`, `present.rs:human_view`, Proof tab, MCP, reports); goldens and the measurement prototype patch in `docs/human-proofs/`.

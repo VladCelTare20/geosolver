@@ -3,6 +3,7 @@
 Up: [../../CODEMAP.md](../../CODEMAP.md)
 
 ## Files
+- `lib.rs` — the crate root (library name `ddar`): the public modules and the re-exports `Ddar`, `Predicate`, `Problem`.
 - `geo.rs` — the `.geo` language: parse, expand constructions, sample a figure, compile to predicates. Point cap counts expanded points.
 - `predicate.rs` — the low-level AlphaGeometry predicate language and parser.
 - `engine.rs` — DDAR deductive closure; goals include `acompute` (angle) and `rcompute` (ratio fixed to a constant).
