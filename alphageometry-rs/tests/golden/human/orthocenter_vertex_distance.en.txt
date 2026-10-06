@@ -1,10 +1,13 @@
+Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius.
 
-    AH / (2·MaO)
-  = AH / (2·AO·sin∠OCB)    [sine of 90°: |sin ∠(MaO,MaB)| = 1 (OMa is the perpendicular bisector of BC); OA = OB; law of sines: in △BOMa, MaB / |sin ∠(OB,OMa)| = OB / |sin ∠(MaO,MaB)|; law of sines: in △BOMa, OMa / |sin ∠(BMa,BO)| = BMa / |sin ∠(OB,OMa)|; equal or supplementary angles have equal sines: |sin ∠(CB,CO)| = |sin ∠(BMa,BO)| (OB = OC); equal or supplementary angles have equal sines: |sin(∠(OB,OC))| = |sin ∠(OC,OB)|]
-  = AH·BC / (4·AO·BO·sin∠CAB·sin∠HBA)    [law of sines: in △BCO, OB / |sin ∠(CB,CO)| = CB / |sin ∠(OC,OB)|; double-angle formula: x = ∠(AB,AC), 2x ≡ ±∠(OC,OB): |sin x|·|sin(x + 90°)| = |sin 2x| / 2 (central angle ∠BOC = 2∠BAC); equal or supplementary angles have equal sines: |sin(∠(AB,AC))| = |sin ∠(AC,AB)|; equal or supplementary angles have equal sines: |sin(∠(AB,AC) + 90°)| = |sin ∠(BA,BH)| (BH ⟂ AC)]
-  = BC·BH·sin∠CBA / (2·AO·BO·sin∠CAB·sin∠COA)    [law of sines: in △ABH, BH / |sin ∠(AH,AB)| = AH / |sin ∠(BA,BH)|; equal or supplementary angles have equal sines: |sin(∠(AB,AH))| = |sin ∠(AH,AB)|; double-angle formula: x = ∠(AB,AH), 2x ≡ ±∠(OC,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2 (AH ⟂ BC, central angle ∠AOC = 2∠ABC); equal or supplementary angles have equal sines: |sin(∠(OA,OC))| = |sin ∠(OC,OA)|; equal or supplementary angles have equal sines: |sin(∠(AB,AH) + 90°)| = |sin ∠(BA,BC)| (AH ⟂ BC)]
-  = BC·BH·sin∠CBA / (2·AC·BO·sin∠CAB·sin∠OCA)    [law of sines: in △ACO, OA / |sin ∠(CA,CO)| = CA / |sin ∠(OC,OA)|]
-  = AB·BH·sin∠CAB / (2·BC·BO·sin∠BCA·sin∠OCA)    [law of sines: in △ABC, BC / |sin ∠(AC,AB)| = AC / |sin ∠(BA,BC)|; law of sines: in △ABC, CA / |sin ∠(BA,BC)| = BA / |sin ∠(CB,CA)|; equal or supplementary angles have equal sines: |sin(∠(CB,CA))| = |sin ∠(CB,CA)|]
-  = AB·sin∠OAB / (BO·sin∠BOA)    [law of sines: in △BCH, HB / |sin ∠(CB,CH)| = CB / |sin ∠(HC,HB)|; equal or supplementary angles have equal sines: |sin ∠(AC,AB)| = |sin ∠(HC,HB)| (BH ⟂ AC, CH ⟂ AB, the altitudes concur); equal or supplementary angles have equal sines: |sin ∠(CA,CO)| = |sin ∠(CB,CH)| (OA = OC, central angle ∠AOC = 2∠ABC, CH ⟂ AB, the altitudes concur); double-angle formula: x = ∠(CB,CA), 2x ≡ ±∠(OB,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2 (central angle ∠AOB = 2∠ACB); equal or supplementary angles have equal sines: |sin(∠(OB,OA))| = |sin ∠(OB,OA)|; equal or supplementary angles have equal sines: |sin(∠(CB,CA) + 90°)| = |sin ∠(AO,AB)| (central angle ∠AOB = 2∠ACB, OA = OB)]
-  = 1    [law of sines: in △ABO, BO / |sin ∠(AO,AB)| = AO / |sin ∠(BA,BO)|; law of sines: in △ABO, OA / |sin ∠(BA,BO)| = BA / |sin ∠(OB,OA)|]
- ∎
+    AH = 2·BH·cos A·sin B / sin∠COA    [cos A = sin∠ABH (BH ⟂ AC); law of sines in △ABH; sin∠COA = 2·sin∠BAH·cos∠BAH (AH ⟂ BC, central angle ∠AOC = 2∠ABC); cos∠BAH = sin B (AH ⟂ BC)]
+       = 2·AC·BH·sin A·cos A / (BC·sin∠COA)    [law of sines in △ABC]
+       = 2R·BH·sin A·cos A / (BC·sin∠OCA)    [law of sines in △ACO]
+       = 2R·cos A    [law of sines in △BCH; sin A = sin∠CHB (BH ⟂ AC, CH ⟂ AB, the altitudes concur); sin∠ACO = sin∠BCH (OA = OC, central angle ∠AOC = 2∠ABC, CH ⟂ AB, the altitudes concur)]
+
+    MₐO = R·sin∠BOA·sin∠OCB / (2·sin C·sin∠OAB)    [∠OMₐB = 90° (OMₐ is the perpendicular bisector of BC); OA = OB; law of sines in △BOMₐ; sin∠BCO = sin∠MₐBO (OB = OC); cos C = sin∠OAB (central angle ∠AOB = 2∠ACB, OA = OB); sin∠BOA = 2·sin C·cos C (central angle ∠AOB = 2∠ACB)]
+        = AB·sin∠OBA·sin∠OCB / (2·sin C·sin∠OAB)    [law of sines in △ABO]
+        = BC·sin∠OBA·sin∠OCB / (2·sin A·sin∠OAB)    [law of sines in △ABC]
+        = BC·sin∠OCB / (2·sin A)    [law of sines in △ABO]
+        = R·cos A    [law of sines in △BCO; sin∠COB = 2·sin A·cos A (central angle ∠BOC = 2∠BAC)]
+AH = 2·MₐO (AH = 2R·cos A; MₐO = R·cos A). ∎

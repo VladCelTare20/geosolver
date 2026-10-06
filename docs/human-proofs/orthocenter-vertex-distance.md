@@ -158,3 +158,34 @@ Deviations from the target:
 - The reasons are the engine's formula statements ("law of sines: in △BOMa, …", "double-angle formula: …", "equal or supplementary angles have equal sines: …") rather than the target's short phrases. R = OA is not introduced (AO and BO appear).
 - The program's point `Ma` prints as `Ma`, not `Mₐ` (only digit subscripts are rendered).
 - No "Write R = …" setup line and no "Claim." wrapper: a one-block proof prints as the conclusion directly.
+
+## Second quality round (branch wf/human-proofs-q2)
+
+Pinned verbatim in `alphageometry-rs/tests/golden/human/orthocenter_vertex_distance.en.txt`. Every block passes the independent checker in strict mode.
+
+```
+Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius.
+
+    AH = 2·BH·cos A·sin B / sin∠COA    [cos A = sin∠ABH (BH ⟂ AC); law of sines in △ABH; sin∠COA = 2·sin∠BAH·cos∠BAH (AH ⟂ BC, central angle ∠AOC = 2∠ABC); cos∠BAH = sin B (AH ⟂ BC)]
+       = 2·AC·BH·sin A·cos A / (BC·sin∠COA)    [law of sines in △ABC]
+       = 2R·BH·sin A·cos A / (BC·sin∠OCA)    [law of sines in △ACO]
+       = 2R·cos A    [law of sines in △BCH; sin A = sin∠CHB (BH ⟂ AC, CH ⟂ AB, the altitudes concur); sin∠ACO = sin∠BCH (OA = OC, central angle ∠AOC = 2∠ABC, CH ⟂ AB, the altitudes concur)]
+
+    MₐO = R·sin∠BOA·sin∠OCB / (2·sin C·sin∠OAB)    [∠OMₐB = 90° (OMₐ is the perpendicular bisector of BC); OA = OB; law of sines in △BOMₐ; sin∠BCO = sin∠MₐBO (OB = OC); cos C = sin∠OAB (central angle ∠AOB = 2∠ACB, OA = OB); sin∠BOA = 2·sin C·cos C (central angle ∠AOB = 2∠ACB)]
+        = AB·sin∠OBA·sin∠OCB / (2·sin C·sin∠OAB)    [law of sines in △ABO]
+        = BC·sin∠OBA·sin∠OCB / (2·sin A·sin∠OAB)    [law of sines in △ABC]
+        = BC·sin∠OCB / (2·sin A)    [law of sines in △ABO]
+        = R·cos A    [law of sines in △BCO; sin∠COB = 2·sin A·cos A (central angle ∠BOC = 2∠BAC)]
+AH = 2·MₐO (AH = 2R·cos A; MₐO = R·cos A). ∎
+```
+
+What changed in this round:
+- The setup line introduces the conventional notation: "Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius."
+- The goal is split into two textbook lemmas, AH = 2R·cos A and OMₐ = R·cos A. The writer finds the sine variable (here cos A) for which both sides are certified multiples of R, and shows each as its own computation. The conclusion cites the two lemmas.
+- Reasons are short names: "law of sines in △ABH", "sin∠COA = 2·sin∠BAH·cos∠BAH", "cos A = sin∠ABH (BH ⟂ AC)". Identity rows such as |sin(∠(CB,CA))| = |sin ∠(CB,CA)| are silent.
+- `Ma` prints as `Mₐ`. Letter subscripts are used only when every point name of the problem can be subscripted.
+
+Deviations from the target ("AH = 2R cos A and OMₐ = R cos A, few lines"):
+- The two computations take 4 and 5 rows. A textbook takes 2–3: the law of sines in △ABH with AB = 2R sin C, and the right triangle OMₐB. The writer can only combine sine relations that are rows of engine facts. The engine's closure has no row for sin∠OBMₐ = cos A or AB = 2R·sin C, so these go through △ABO, △ABC and △BCO.
+- Intermediate expressions still contain angles outside A, B, C (∠COA, ∠OCA, ∠OAB).
+- The segment prints as MₐO, not OMₐ: the writer keeps the engine's point order.

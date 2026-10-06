@@ -27,8 +27,9 @@ pub struct HumanProof {
 pub enum SetupLine {
     DirectedAngles,
     Circle { name: String, through: Vec<PointId>, centre: Option<PointId>, diameter: Option<Line> },
-    Aux { point: PointId, aux_index: usize },
+    Aux { point: PointId, aux_index: usize, wording: Option<super::aux::AuxWording> },
     Helper { point: PointId, meaning: HelperMeaning },
+    Notation { triangle: Tri, circumcentre: Option<PointId> },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -36,6 +37,8 @@ pub enum SetupLine {
 pub enum HelperMeaning {
     Midpoint { of: Line },
     Reflection { of: PointId, line: Line },
+    Perp { through: PointId, to: Line },
+    Para { through: PointId, to: Line },
     Point,
 }
 
@@ -108,7 +111,10 @@ pub enum Reason {
     Atom { key: AtomKey, stmt: Stmt, args: Vec<PointId>, from: Vec<u16> },
     Fact { stmt: Stmt, fact: FactId, block: Option<u16>, because: Vec<Reason> },
     Engine { fact: FactId },
+    Lemma { stmt: Stmt, block: u16, sentence: u16 },
 }
+
+pub const PENDING_BLOCK: u16 = u16::MAX;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]

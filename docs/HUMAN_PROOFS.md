@@ -1,6 +1,6 @@
 # Human proof writer — specification
 
-Status: engine side implemented on `wf/human-proofs-engine` (`alphageometry-rs/src/human/`, `ddar --human`, ag-studio `best` HumanCost selection); ag-studio rendering built on `wf/human-proofs-ui`; both wired together on `wf/human-proofs-wire` (§13.6). See §13 for what was built, the measured coverage and the data model changes. Design branch `wf/human-proofs-design` (from `wf/release` 4ff884c).
+Status: engine side implemented on `wf/human-proofs-engine` (`alphageometry-rs/src/human/`, `ddar --human`, ag-studio `best` HumanCost selection); ag-studio rendering built on `wf/human-proofs-ui`; both wired together on `wf/human-proofs-wire` (§13.7). See §13 for what was built, the measured coverage and the data model changes. Design branch `wf/human-proofs-design` (from `wf/release` 4ff884c).
 Golden examples: [`docs/human-proofs/`](human-proofs/). Reference prototype: [`docs/human-proofs/prototype.patch`](human-proofs/prototype.patch) (evidence only — not product code).
 
 The owner asked for this verbatim:
@@ -762,18 +762,68 @@ Of the IMO proofs, 26 contain at least one pooled sentence.
 - **Closed keys.**
   - Atom: `inscribed, thales, tangent_chord, perp_bisector, parallel, radii, isosceles, central_angle, power_of_point, midline, orthocentre`.
   - Theorem: `radical_axis, arc_chord, angle_bisector_thm, angle_bisector_thm_converse, intercept, homothety, monge, menelaus, menelaus_converse, ceva_converse, bisector_concurrency, triangle_equality, pythagoras, perp_from_squares, squares_of_ratio, stewart, lengths_from_squares, law_of_sines, equal_sines, double_angle, triple_angle, sine_const, sines_converse, point_merge, tangent_merge, congruence, similarity, collinear, concyclic, other`.
-- **Step numbers.** `engine_steps`, and every `step`/`cites`, are **1-based positions in the engine's fact closure for the goal** (the raw `--proof` numbering). ag-studio renumbers them to the displayed steps after `drop_restatements` (§13.6).
+- **Step numbers.** `engine_steps`, and every `step`/`cites`, are **1-based positions in the engine's fact closure for the goal** (the raw `--proof` numbering). ag-studio renumbers them to the displayed steps after `drop_restatements` (§13.7).
 - `metrics` carries the §8 counters plus `reproved, silent, pruned, theorem, fallback_facts, check_violations, human_cost`. `micros` and `timed_out` are not serialised.
 - Setup: `helper {point, meaning: {kind: midpoint, of} | {kind: reflection, of, line} | {kind: point}}`, and `aux {point, aux_index}`.
 
-### 13.5 Known weaknesses
+**Added in the second quality round (`wf/human-proofs-q2`). All changes are additive; existing fields keep their meaning.**
+- **Lemma reason.** A reason may cite an earlier sentence of a proof: an intermediate equality that a chain or pooled sentence established. JSON: the statement object `{kind, args, points}` plus `step: null`, `block`, `because: []`, `lemma: true`, `sentence` (index into that block's `body`). A renderer that only knows fact reasons shows the statement, which is the intended text. The checker re-verifies the cited sentence (`check.rs:establishes`): a chain's endpoints, or a `because`/`pooled`/`computation` statement.
+- **Setup.**
+  - `{kind: "notation", triangle: [A,B,C], circumcentre: O|null}`: "Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius", emitted when a trig computation is shown.
+  - `aux` lines gain an optional `wording: {key, args: [{key, pts}]}`. The keys are those of ag-studio's i18n (`aux.midpoint`, `aux.foot`, `aux.reflect`, `aux.circumcenter`, `aux.orthocenter`, `aux.incenter`, `aux.excenter`, `aux.centroid`, `aux.bisector_foot`, `aux.antipode_on`, `aux.parallelogram`, `aux.incircle_touch`, `aux.excircle_touch`, `aux.spiral_center`, `aux.isogonal`, `aux.inverse`, `aux.pole`, `aux.tangent`, `aux.arc_midpoint`, `aux.harmonic`, `aux.intersect`, `aux.intersect2`), so RO can be rendered from keys. EN text never prints `Let X = construction(…)`.
+  - `helper.meaning` gains `{kind: "perp"|"para", through, to: [P, Q]}`. A line helper on a perpendicular or parallel is never printed as P₁: reasons use a named point of the same line (`classify.rs:dehelper`).
+  - `circle` lines now name every circle cited at least twice: Ω (circumcircle of the main triangle), ω_k (centre O_k), otherwise ω, γ, Γ, σ, τ, κ.
+- **Atom reason** gains an optional `circle` (the name of the circle an inscribed-angle or tangent–chord atom uses). Pooled sentences merge equal-radius reasons that share a centre into one `radii` or `isosceles` atom with more than three `args` (`[O, P₁, …, Pₖ]`, rows = all pairs); EN prints it as "AB = AC = AD = AE".
+- **Formula statements** are short: law of sines → `formula` text "law of sines in △ABH"; equal sines, complements and double angles → `eq` with `sin`/`cos` terms; sine of 90° → `aconst` 90° (validated against the fact row).
+- **Conclusion blocks** always carry `engine_steps`. A goal-only conclusion uses the goal's dependencies, or the last closure step.
 
-- **Pooled sentences.** 100 of the IMO sentences are pooled angle chases. These are cases where no single-angle chain of at most 8 links exists over the admissible atoms, typically when a step combines two circles and a tangency (IMO 2023 P2 Claims 2–3, the 2004 P1 finale).
-- **Trig computations** are faithful but verbose: their reasons are the engine's formula strings.
+### 13.5 Second quality round (`wf/human-proofs-q2`)
+
+Goal: proofs that read like IMO solutions, built from theorems and short chains instead of pooled angle chases.
+
+What changed:
+- **Pooled sentences become chains.** `chain_sentences` orders a certificate with A* over subsets of its atoms. Chain nodes may be sums of two named angles; coefficients are 1, 2 or ½. If that fails, connected subsets whose sum is a two-angle equality become **lemma sentences** that the main chain cites (`Reason::Lemma`). An undirected "as drawn" mode handles halves. Whatever stays pooled is cut by `pooled_steps` into exact intermediate equalities, so no pooled sentence cites more than 5 reasons. A support with coefficients ⅓, ¼, … is first re-certified without those atoms (IMO 2002 P2b: one sentence with three named reasons).
+- **Trig reads like a textbook**: the A, B, C, R notation; `XY = k·R·sin/cos` lemmas for both sides of a length goal; short reason names; identity rows silent.
+- **Names and setup**: wording keys for every aux kind; named circles; no helper names in the text; circles introduced after the points that define them; consistent letter subscripts (Mₐ only when every name can be subscripted).
+- **Order and redundancy**: equal radii from one centre are cited once ("AB = AC = AD = AE"). Claims that only restate a user's atom are replaced by the human statement (IMO 2023 P2: XA = XP). Statements are never justified by themselves (`drop_self_reasons`, plus text-level flattening). Bookkeeping openings such as NB = NC are inlined. Congruence sentences fold their restated sides.
+- **Bug fixed on the way**: a ratio-constant target (`CH = ½·AH`) ended its chain at `AH` without the constant. That produced the 2 JGEX checker violations (blocks shown as raw), which existed before this round's last commits.
+
+Measured with `ddar --corpus-one … --human --human-json --human-stats -` on every proved conjunct, before (`wf/human-proofs-engine` dc1654b) and after. Corpus counts come from runs 4 problems in parallel. IMO writer times come from a sequential run, because parallel runs on the shared box inflated them by up to 1.6×. The JGEX columns cover 239 conjuncts. The 240th (`rebuilt example_9point`, whose name has a space) was run separately: available, 0 violations, no pooled sentence.
+
+| | IMO before | IMO after | JGEX before | JGEX after |
+|---|---|---|---|---|
+| conjuncts / available / panics / violations | 30 / 30 / 0 / 0 | 30 / 30 / 0 / 0 | 239 / 239 / 0 / 0 | 239 / 239 / 0 / 0 |
+| problems with a pooled sentence | 26 | 4 | 115 | 3 |
+| pooled sentences / max reasons in one | 100 / 17 | 7 / 5 | 166 / not measured | 4 / 8 |
+| chains / chain links | 191 / 452 | 305 / 914 | 426 / 1016 | 573 / 1497 |
+| claims / sentences | 144 / 661 | 143 / 643 | 225 / 1285 | 218 / 1241 |
+| fallback blocks (problems) | 10 (5) | 7 (2) | 18 (14) | 13 (11) |
+| EN lines / words | 530 / 12573 | 525 / 12851 | 1165 / 26212 | 1088 / 22931 |
+| HumanCost (sum) | 6003 | 5403 | 10492 | 9364 |
+| median blocks / sentences per raw step | 7 / 0.42 | 7 / 0.43 | 2 / 0.19 | 2 / 0.20 |
+| writer time median / p95 / max (ms) | 9.3 / 62 / 146 | 12.5 / 86 / 387 | 0.6 / 4.7 / 127 | 0.7 / 5.9 / 160 |
+
+(p95 is the 29th of 30 IMO conjuncts. The IMO max is IMO 2011 P6: 152 ms of it is the first pass and re-certification, before presentation starts, and the 2 s deadline still bounds it. The JGEX max is a single problem.)
+
+Pooled sentences per IMO problem, before → after, for the twelve called out in the brief: 2002 P2a 1→0, 2002 P2b 1→0, 2004 P1 1→0, 2005 P5 3→0, 2007 P4 1→0, 2013 P4 3→0, 2015 P3 10→4 (max reasons 15→5), 2016 P1 5→0, 2017 P4 2→1 (10→5), 2019 P6 9→0, 2021 P3 6→0, 2022 P4 2→0. Two more problems still have a pooled sentence: 2011 P6 8→1 (17→5) and 2020 P1 3→1 (12→5).
+
+Deviations from the round's targets:
+- **"At most 3 of 30 IMO proofs with any pooled sentence"**: missed, 4 (2011 P6, 2015 P3, 2017 P4, 2020 P1). The "no pooled sentence cites more than 5 reasons" target holds on IMO but not on JGEX: one problem (`ye_aux_ll43`) keeps an 8-reason ratio sentence, because its coefficients (½, 3/2) leave no product-form intermediate. The remaining pooled sentences combine 4–5 reasons whose sum has no single-angle or two-segment form. They are split into exact intermediates with up to two terms a side, e.g. "∠BSK + ∠O₁TB − 180° = ∠BRK − 90°" in 2017 P4: correct, but not natural.
+- **Words** went up 2 % on IMO: a chain names every intermediate angle where a pooled sentence named only its reasons.
+- **Trig**: AH = 2R·cos A takes 4 rows and OMₐ = R·cos A takes 5. The engine's closure has no row for sin∠OBMₐ = cos A or AB = 2R·sin C, and the writer may only combine rows that are in it.
+- **Reused intermediates are not promoted to claims**: lemma sentences live inside the block that uses them.
+- **Restated reasons in JSON**: a `because` sentence whose reasons include an atom that restates its statement keeps that atom in JSON (the combination needs it); only the EN text drops it.
+
+The IMO solve gate is unchanged: `flock -w 3600 …/.bench.lock ddar --corpus corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 --mem-mb 2048` gives 30/30 (16 by DDAR alone, 14 with aux points) in 50 s wall, the same set as before.
+
+### 13.6 Known weaknesses
+
+- **Pooled sentences.** 7 remain on IMO, in 4 problems (2011 P6, 2015 P3 ×4, 2017 P4, 2020 P1), each citing at most 5 reasons; their intermediate equalities may have two terms a side. JGEX has 4, in 3 problems, one of them citing 8. **Long chains** replaced most pooled sentences: IMO 2004 P1's finale has 7 links mixing named and line-pair angles, and IMO 2023 P2's Claims 2–3 have 7 and 6.
+- **Trig computations** use short reason names, but the rows follow the engine's closure: AH = 2R·cos A takes 4 rows, and intermediate expressions name angles outside A, B, C.
 - **IMO 2008 P1** stays long. Its six-point circle is re-proved through centre distances, after 20 Pythagoras and squared-ratio steps.
-- **Aux wording.** An aux point whose construction has no wording falls back to `Let X = <construction>`.
+- **Aux wording.** Every aux kind has a wording key. A construction the parser does not recognise is worded "Let X be the point constructed as …" (never `Let X = construction(…)`); none occurs in the IMO or JGEX corpora.
 
-### 13.6 Wiring into ag-studio (`wf/human-proofs-wire`)
+### 13.7 Wiring into ag-studio (`wf/human-proofs-wire`)
 
 - **Where it runs.** `engine.rs` takes the displayed proof from `runner::solve_problem_with_trace` (the same tracked re-solve as before) and runs `human::write` once after the verdict, inside the worker, with the solve's remaining time clamped to 0.3–2 s. `best` keeps the winning candidate's proof from `most_readable`. `AGSTUDIO_HUMAN_PROOFS=0` switches the writer off.
 - **Model.** ag-studio's `human_view.rs` mirrors this section's JSON exactly; the engine model is authoritative. ag-studio supplies point names (`present::Names`) and displayed step numbers, and sends a bisector hypothesis as `bisects`. Atom arguments stay engine point lists; the wording chooses circle names from them.

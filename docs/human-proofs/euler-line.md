@@ -126,3 +126,21 @@ Deviations from the target:
 - Claim 1 is proved by two angle chains (AA) rather than by "parallel sides"; each chain is checked link by link.
 - Claim 2 cites only the midline (the angle at G is between the same two lines on both sides, so it costs nothing); the target also cites G = AM ∩ BN.
 - The finale proves △AHG ∼ △MOG (SAS from Claims 1 and 2) and then the collinearity as one chain ending in `0°`, instead of "∡AGH = ∡MGO … so are H, G, O".
+
+## Second quality round (branch wf/human-proofs-q2)
+
+Pinned verbatim in `alphageometry-rs/tests/golden/human/euler_line.en.txt`. Every block passes the independent checker in strict mode.
+
+```
+∡ denotes directed angles modulo 180°.
+Let M be the midpoint of BC.
+Let N be the midpoint of AC.
+
+Claim 1. △AHB ∼ △MON.
+Proof. ∡HAB = ∡(AH, MN) = ∡OMN (midline MN ∥ BA; AH ∥ OM, both ⟂ BC). ∡ABH = ∡(MN, BH) = ∡MNO (midline MN ∥ BA; BH ∥ ON, both ⟂ AC). Hence △AHB ∼ △MON.
+Claim 2. △ABG ∼ △MNG.
+Proof. ∡BAG = ∡NMG (midline MN ∥ BA). Hence △ABG ∼ △MNG.
+∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). As drawn, AH / AG = AB·OM / (AG·MN) = MO / MG (Claim 1; Claim 2). Hence △AHG ∼ △MOG. ∡OGH = ∡(OM, AH) = ∡OMB + 90° = 0° (△AHG ∼ △MOG; AH ⟂ BC; OM is the perpendicular bisector of BC), so O, G, H are collinear. ∎
+```
+
+Deviations from the target: none new in this round. Both similarities stay claims; the finale is the third similarity and one short chain.

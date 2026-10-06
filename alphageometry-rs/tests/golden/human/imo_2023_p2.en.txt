@@ -1,12 +1,13 @@
 ∡ denotes directed angles modulo 180°.
+Let Ω be the circumcircle of triangle ABC, with centre O; N, S, E, P lie on Ω.
+Let ω₁ be the circle centred at O₁ through B, D, L, P.
 
-∡CBN = ∡CAN = ∡NAB = ∡NCB (ABCN cyclic; AI bisects ∠BAC; N, C, B, A are concyclic). Hence NB = NC.
 Claim 1. T, E, S, O are concyclic.
-Proof. ∡STO = ∡SBE + 90° = ∡SNE + 90° = ∡OSE = ∡SEO (OP₁ ⟂ BE; BNSE cyclic; NS is a diameter; central angle ∠NOE = 2∠NSE), so T, E, S, O are concyclic.
+Proof. ∡STO = ∡SBE + 90° = ∡SNE + 90° = ∡OSE = ∡SEO (OT ⟂ BE; inscribed angles in Ω; NS is a diameter; central angle ∠NOE = 2∠NSE), so T, E, S, O are concyclic.
 Claim 2. T, P, X, O are concyclic.
-Proof. Angle chasing with OP₁ ⟂ BE, the inscribed angles in (ABCNSEP), BDLP cyclic, PX is tangent to the circle centred at O₁, DL ∥ BC, ON is the perpendicular bisector of BC and ON = OP gives T, P, X, O are concyclic.
+Proof. ∡TXP = ∡XBP + ∡BDP = 2∡SAP + ∡BPD = ∡BPD + ∡NOP = ∡BLD + ∡NOP = ∡LBC + ∡NOP = ∡(BE, OP) + 90° = ∡TOP (PX is tangent to ω₁; inscribed angles in Ω; ON = OP, inscribed angles in Ω; inscribed angles in ω₁; DL ∥ BC; ON is the perpendicular bisector of BC, NB = NC (inscribed angles in Ω, AI bisects ∠BAC); OT ⟂ BE), so T, P, X, O are concyclic.
 Claim 3. T, P, E, D are concyclic.
-Proof. Angle chasing with the inscribed angles in (ABCNSEP), BDLP cyclic, DL ∥ BC, Claim 1, ON is the perpendicular bisector of BC, OA = OE and central angle ∠AOE = 2∠APE gives T, P, E, D are concyclic.
-Claim 4. △OAX ≅ △OPX.
-Proof. Angle chasing with Claim 2, the inscribed angles in (ABCNSEP), NS is a diameter, PX is tangent to the circle centred at O₁, Claim 1, Claim 3 and OA = OP gives ∡AOX = ∡XOP. OA : OX = OP : OX (OA = OP). Hence △OAX ≅ △OPX.
-Angle chasing with AD ⟂ BC, the inscribed angles in (ABCNSEP), AI bisects ∠BAC, DL ∥ BC, BDLP cyclic, NS is a diameter, PX is tangent to the circle centred at O₁ and XA = XP (Claim 4) gives ∡BAX = ∡XAC. ∎
+Proof. ∡ETD = ∡EON = ∡(OE, BC) + 90° = ∡(OE, DL) + 90° = ∡OEB + ∡BPD + 90° = ∡OEA + ∡APD + 90° = ∡EPD (Claim 1; ON is the perpendicular bisector of BC, NB = NC (inscribed angles in Ω, AI bisects ∠BAC); DL ∥ BC; inscribed angles in ω₁; inscribed angles in Ω; OA = OE, central angle ∠AOE = 2∠APE), so T, P, E, D are concyclic.
+Claim 4. XA = XP.
+Proof. 2∡PSO = 2∡PNS = 2∡PAS = 2∡PBX = 2∡XPD (NS is a diameter; inscribed angles in Ω; inscribed angles in Ω; PX is tangent to ω₁). 2∡APX = 2∡AES + 2∡SPX = 2∡EDP + 2∡OTE = 2∡OTP (inscribed angles in Ω; Claim 1, 2∡PSO = 2∡XPD; Claim 3). ∡AOX = 2∡APO + ∡POX = ∡XOP (OA = OP; Claim 2, 2∡APX = 2∡OTP). Hence △OAX ≅ △OPX (OA = OP), so XA = XP.
+2∡BCA = 2∡EAC = 2∡LBC = 2∡BLD = 2∡BPD (AD ⟂ BC; inscribed angles in Ω; DL ∥ BC; inscribed angles in ω₁). 2∡IAP = 2∡SAP = 2∡CAP + 2∡DBC = 2∡APB + 2∡BDP = 2∡APX (NS is a diameter; inscribed angles in Ω; inscribed angles in Ω, 2∡BCA = 2∡BPD; PX is tangent to ω₁). ∡BAX = 2∡IAC + ∡CAX = ∡XAC (AI bisects ∠BAC; XA = XP (Claim 4), 2∡IAP = 2∡APX), so ∡BAX = ∡XAC. ∎

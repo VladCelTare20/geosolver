@@ -118,22 +118,33 @@ fn golden_examples_have_the_planned_shape() {
 
     let (_, hp, t) = get("orthocenter_vertex_distance");
     assert!(hp.blocks.last().unwrap().body.iter().any(|s| matches!(s, Sentence::Computation { .. })));
-    assert!(t.contains("= 1"), "{t}");
+    assert!(t.contains("R = OA = OB = OC for its circumradius."), "{t}");
+    assert!(t.contains("law of sines in △"), "{t}");
+    assert!(t.contains("AH = 2·MₐO (AH = 2R·cos A; MₐO = R·cos A). ∎"), "{t}");
+    assert!(!t.contains("|sin"), "{t}");
+    assert!(!hp.blocks.last().unwrap().engine_facts.is_empty());
 
     let (_, hp, t) = get("imo_2004_p1");
     assert!((3..=7).contains(&claims(hp)), "{t}");
+    assert!(t.contains("Let ω₂ be the circle centred at O₂ through C, N, R, P."), "{t}");
     assert!(t.contains("Let F be the foot of the perpendicular from B to AR."), "{t}");
     assert!(t.contains("R, N, F, O are concyclic"), "{t}");
     assert!(t.contains("∠MCN = ½·∠MON = ∠RON"), "{t}");
     assert!(t.contains("R, A, F, P are collinear"), "{t}");
-    assert!(t.contains("gives P, B, C are collinear. ∎"), "{t}");
+    assert!(t.contains("so P, B, C are collinear. ∎"), "{t}");
+    assert!(!t.contains("Angle chasing with"), "{t}");
 
     let (_, hp, t) = get("imo_2023_p2");
     assert!((3..=7).contains(&claims(hp)), "{t}");
-    assert!(t.contains("Hence NB = NC."), "{t}");
+    assert!(t.contains("Let Ω be the circumcircle of triangle ABC, with centre O"), "{t}");
+    assert!(!t.contains("Hence NB = NC."), "{t}");
     assert!(t.contains("T, E, S, O are concyclic"), "{t}");
-    assert!(t.contains("△OAX ≅ △OPX"), "{t}");
-    assert!(t.contains("gives ∡BAX = ∡XAC. ∎"), "{t}");
+    assert!(t.contains("Claim 4. XA = XP."), "{t}");
+    assert!(t.contains("Hence △OAX ≅ △OPX (OA = OP), so XA = XP."), "{t}");
+    assert!(t.contains("so ∡BAX = ∡XAC. ∎"), "{t}");
+    assert!(!t.contains("Angle chasing with"), "{t}");
+    assert!(!t.contains("OA : OX = OP : OX"), "{t}");
+    assert!(!hp.blocks.last().unwrap().engine_facts.is_empty());
 }
 
 #[test]
