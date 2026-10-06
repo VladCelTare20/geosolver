@@ -910,6 +910,7 @@ pub struct Presenter<'w, 'c, 'a> {
     pub as_drawn: bool,
     pub force_undirected: bool,
     pub halve_graph: std::cell::OnceCell<super::route::Graph>,
+    pub ratio_graph: std::cell::OnceCell<super::route::Graph>,
 }
 
 pub fn collapse_key(cx: &Ctx, a: &Atom, h: FactId) -> Option<(AtomKey, Vec<PointId>)> {
@@ -2238,6 +2239,65 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         out
     }
 
+    fn chain_gives_then(&self, s: &Sentence) -> bool {
+        let Sentence::Chain { terms, then: Some(st), .. } = s else { return true };
+        if !matches!(st, Stmt::Cyclic { .. } | Stmt::Coll { .. }) {
+            return true;
+        }
+        let cx = self.w.cx;
+        let (Some((tb, a)), Some((_, b))) = (super::expr::eval(cx.t, &terms[0]), super::expr::eval(cx.t, terms.last().unwrap())) else { return false };
+        let diff = &a - &b;
+        let Some(forms) = super::check::conclusion_forms(cx.t, st) else { return false };
+        forms.iter().any(|(_, x)| super::check::residual_ok(cx, tb, &diff, x, true) || super::check::residual_ok(cx, tb, &diff, &x.negated(), true))
+    }
+
+    fn route_now(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
+        if !matches!(target.table, Table::Angle | Table::Ratio) {
+            return None;
+        }
+        let cx = self.w.cx;
+        let w = self.w;
+        let mut form = target.clone();
+        form.alts.clear();
+        let splits = super::search::route_splits(w, &mut form);
+        let g = if target.table == Table::Angle {
+            self.halve_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, false))
+        } else {
+            self.ratio_graph.get_or_init(|| {
+                let mut g = super::route::Graph::new(cx, &w.atoms, Table::Ratio, false);
+                g.max_vars = 6;
+                g
+            })
+        };
+        let weights: Vec<i64> = w
+            .atoms
+            .iter()
+            .map(|a| if a.table == target.table && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .collect();
+        let spent = std::sync::atomic::AtomicUsize::new(0);
+        let found = g.search(cx, &splits, 3000, i64::MAX, &spent, &weights);
+        if std::env::var_os("HP_ROUTE").is_some() {
+            eprintln!("route_now {:?} {:?}: {} splits, found {:?}", form.table, form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
+        }
+        let p = found?;
+        let s = self.path_sentences(&form, &p, h, then, focus, &[])?;
+        s.iter().all(|x| self.chain_gives_then(x)).then_some(s)
+    }
+
+    fn chain_meets_target(&self, s: &Sentence, target: &Target) -> bool {
+        let Sentence::Chain { terms, then: Some(_), .. } = s else { return true };
+        let t = self.w.cx.t;
+        let (Some((tb, a)), Some((_, b))) = (super::expr::eval(t, &terms[0]), super::expr::eval(t, terms.last().unwrap())) else { return false };
+        if tb != target.table {
+            return false;
+        }
+        let diff = &a - &b;
+        std::iter::once(target).chain(target.alts.iter()).any(|f| {
+            let row = t.exact(f.table, &f.row);
+            super::check::residual_ok(self.w.cx, tb, &diff, &row, true) || super::check::residual_ok(self.w.cx, tb, &diff, &row.negated(), true)
+        })
+    }
+
     fn halved_lemma(&mut self, lhs: &Expr, rhs: &Expr, h: FactId, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let t = cx.t;
@@ -2316,9 +2376,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if s.len() != 1 {
                 return None;
             }
-            let (stmt, scale) = match &s[0] {
-                Sentence::Chain { terms, .. } => {
-                    let (a, b) = (terms[0].clone(), terms[terms.len() - 1].clone());
+            let ends = match &s[0] {
+                Sentence::Chain { terms, .. } => Some((terms[0].clone(), terms[terms.len() - 1].clone())),
+                Sentence::Because { stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }, .. } => Some((lhs.clone(), rhs.clone())),
+                _ => None,
+            };
+            let (stmt, scale) = match ends {
+                Some((a, b)) => {
                     let st = if target.table == Table::Angle { Stmt::EqAngle { lhs: a.clone(), rhs: b.clone() } } else { Stmt::Eq { lhs: a.clone(), rhs: b.clone() } };
                     let (_, ea) = super::expr::eval(self.w.cx.t, &a)?;
                     let (_, eb) = super::expr::eval(self.w.cx.t, &b)?;
@@ -2341,8 +2405,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     }
                     (st, scale)
                 }
-                Sentence::Because { .. } => (stmt, Rat::one()),
-                _ => return None,
+                None if matches!(s[0], Sentence::Because { .. }) => (stmt, Rat::one()),
+                None => return None,
             };
             links += p.links.len();
             let mut pts: Vec<PointId> = super::view::expr_points(&plan.lhs);
@@ -2635,6 +2699,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             as_drawn: false,
             force_undirected: false,
             halve_graph: std::cell::OnceCell::new(),
+            ratio_graph: std::cell::OnceCell::new(),
         }
     }
 
@@ -2722,14 +2787,22 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     self.force_undirected = route.undirected;
                     let r = self.path_sentences(&part.target, route, h, then.clone(), &focus, &[]).map(|s| (s, route.links.len(), false));
                     self.force_undirected = saved;
-                    r
+                    r.filter(|(s, _, _)| s.iter().all(|x| self.chain_meets_target(x, &part.target)))
                 }
                 None => None,
             };
             let (mut s, l, p) = match routed {
                 Some(x) => x,
-                None => self.chain_sentences(&part.target, &part.support, h, then, &focus),
+                None => self.chain_sentences(&part.target, &part.support, h, then.clone(), &focus),
             };
+            let pooled_here = s.iter().any(|x| matches!(x, Sentence::Pooled { .. }));
+            if pooled_here || !s.iter().all(|x| self.chain_gives_then(x)) {
+                if let Some(r) = self.route_now(&part.target, h, then.clone(), &focus) {
+                    if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
+                        s = r;
+                    }
+                }
+            }
             links += l;
             pooled |= p;
             shift_pending(&mut s, out.len());

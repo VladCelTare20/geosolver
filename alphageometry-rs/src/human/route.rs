@@ -30,6 +30,7 @@ pub struct Graph {
     binary: Vec<u32>,
     lambdas: Vec<Rat>,
     shown: RefCell<FxHashMap<LinComb, Option<i64>>>,
+    pub max_vars: usize,
 }
 
 fn integral(c: &LinComb) -> bool {
@@ -66,6 +67,18 @@ pub fn directed_shape(cx: &Ctx, table: Table, c: &LinComb) -> Option<i64> {
     }
 }
 
+fn wide_ratio_shape(cx: &Ctx, c: &LinComb, max: usize) -> Option<i64> {
+    let lhs: Vec<&(VarId, Rat)> = c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).collect();
+    if !lhs.iter().all(|(_, k)| k.abs() == Rat::one()) || lhs.len() > max {
+        return None;
+    }
+    Some(match lhs.len() {
+        0..=2 => 0,
+        3 | 4 => 9,
+        _ => 30,
+    })
+}
+
 fn undirected_shape(cx: &Ctx, c: &LinComb) -> Option<i64> {
     if c.terms.iter().any(|(v, _)| *v != ANGLE_UNIT && *v < QBASE) || classes(c).len() > 4 {
         return None;
@@ -92,6 +105,7 @@ impl Graph {
             binary: Vec::new(),
             lambdas: Vec::new(),
             shown: RefCell::new(FxHashMap::default()),
+            max_vars: 4,
         };
         for (ai, a) in atoms.iter().enumerate() {
             if a.table != table || a.cost == 0 {
@@ -103,7 +117,7 @@ impl Graph {
                 _ => cx.t.canon_ratio(&a.row),
             };
             let vs = key_vars(cx, table, &q);
-            if vs.is_empty() || vs.len() > 4 {
+            if vs.is_empty() || vs.len() > if table == Table::Ratio { 6 } else { 4 } {
                 continue;
             }
             let k = g.atom.len() as u32;
@@ -147,7 +161,13 @@ impl Graph {
         if let Some(v) = self.shown.borrow().get(c) {
             return *v;
         }
-        let r = if self.undirected { undirected_shape(cx, c) } else { directed_shape(cx, self.table, c) };
+        let r = if self.undirected {
+            undirected_shape(cx, c)
+        } else if self.table == Table::Ratio && self.max_vars > 4 {
+            wide_ratio_shape(cx, c, self.max_vars)
+        } else {
+            directed_shape(cx, self.table, c)
+        };
         self.shown.borrow_mut().insert(c.clone(), r);
         r
     }
@@ -227,7 +247,7 @@ impl Graph {
                         cnt -= 1;
                     }
                 }
-                if cnt > 4 {
+                if cnt > self.max_vars {
                     continue;
                 }
                 let lam = self.lambdas[li].clone();

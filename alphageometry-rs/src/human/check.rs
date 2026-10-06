@@ -408,6 +408,9 @@ impl<'c, 'a> Checker<'c, 'a> {
                 let b = blocks.iter().find(|b| b.id == *block).ok_or("lemma reason cites a missing block")?;
                 let s = b.body.get(*sentence as usize).ok_or("lemma reason cites a missing sentence")?;
                 if !self.establishes(s, stmt) {
+                    if std::env::var_os("HP_DEBUG").is_some() {
+                        eprintln!("lemma {stmt:?} vs sentence {s:?}");
+                    }
                     return Err("lemma reason cites a sentence that does not establish it".into());
                 }
             }
@@ -562,6 +565,9 @@ impl<'c, 'a> Checker<'c, 'a> {
                             ok_all = pts.len() >= 3 && self.stmt_in_span_of_chain(&diff, st);
                         }
                         if !ok_all {
+                            if std::env::var_os("HP_DEBUG").is_some() {
+                                eprintln!("chain endpoints: terms {terms:?} then {st:?}");
+                            }
                             return Err("chain endpoints do not give the stated conclusion".into());
                         }
                     }

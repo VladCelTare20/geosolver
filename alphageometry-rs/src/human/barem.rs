@@ -29,6 +29,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     promote_atoms(cx, &mut ch, hp);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| split_sentence(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| dedupe_restated(cx, blocks, s));
     cut_long(cx, &mut ch, hp);
     lemma_steps(cx, &mut ch, hp);
     prefix_steps(cx, &mut ch, hp);
@@ -1435,4 +1436,72 @@ pub fn chain_count(hp: &HumanProof, cx: &Ctx) -> (usize, usize, usize) {
         }
     }
     (multi, und, dir)
+}
+
+fn dedupe_link(cx: &Ctx, blocks: &[Block], l: &Link) -> Option<Link> {
+    let t = cx.t;
+    let used: BTreeSet<u16> = l.combination.iter().map(|x| x.reason).collect();
+    for &ri in &used {
+        let r = &l.reasons[ri as usize];
+        let Some(rs) = super::claims::reason_stmt(r) else { continue };
+        if !matches!(r, Reason::Atom { key: AtomKey::Radii | AtomKey::Isosceles, from, .. } if from.is_empty()) {
+            continue;
+        }
+        let Some(rrows) = check::reason_rows(t, blocks, r) else { continue };
+        for (si, s2) in l.reasons.iter().enumerate() {
+            if si == ri as usize || super::claims::reason_stmt(s2).is_none_or(|x| !super::claims::same_cong(x, rs)) {
+                continue;
+            }
+            let Some(srows) = check::reason_rows(t, blocks, s2) else { continue };
+            let map: Option<Vec<u16>> = l
+                .combination
+                .iter()
+                .filter(|x| x.reason == ri)
+                .map(|x| {
+                    let row = &rrows.get(x.row as usize)?.1;
+                    srows.iter().position(|(_, y)| y == row || *y == row.negated()).map(|k| k as u16)
+                })
+                .collect();
+            let Some(map) = map else { continue };
+            let mut it = map.into_iter();
+            let mut combination: Vec<Term> = Vec::new();
+            for x in &l.combination {
+                if x.reason == ri {
+                    let k = it.next()?;
+                    let flip = srows[k as usize].1 != rrows[x.row as usize].1;
+                    combination.push(Term { reason: si as u16, row: k, coef: if flip { -x.coef.clone() } else { x.coef.clone() } });
+                } else {
+                    combination.push(x.clone());
+                }
+            }
+            let mut reasons = l.reasons.clone();
+            reasons.remove(ri as usize);
+            for x in combination.iter_mut() {
+                if x.reason > ri {
+                    x.reason -= 1;
+                }
+            }
+            return Some(Link { reasons, combination });
+        }
+    }
+    None
+}
+
+fn dedupe_restated(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
+    let fix = |links: &[Link]| -> Option<Vec<Link>> {
+        let mut out = links.to_vec();
+        let mut changed = false;
+        for l in out.iter_mut() {
+            while let Some(n) = dedupe_link(cx, blocks, l) {
+                *l = n;
+                changed = true;
+            }
+        }
+        changed.then_some(out)
+    };
+    match s {
+        Sentence::Chain { terms, links, then, directed } => Some(Sentence::Chain { terms: terms.clone(), links: fix(links)?, then: then.clone(), directed: *directed }),
+        Sentence::Computation { comp, terms, links } => Some(Sentence::Computation { comp: *comp, terms: terms.clone(), links: fix(links)? }),
+        _ => None,
+    }
 }
