@@ -102,6 +102,8 @@ fn via_cost(w: &Writer, a: &super::atoms::Atom) -> i64 {
 fn kind_cost(a: &super::atoms::Atom) -> i64 {
     match a.key() {
         Some(AtomKey::CentralAngle) => 4,
+        Some(AtomKey::Intercept) if !a.via.is_empty() => 5,
+        Some(AtomKey::Centroid) => -2,
         Some(k) if super::theorems::is_congruence(k) => 10,
         _ => 0,
     }
@@ -235,49 +237,125 @@ pub fn route_node(w: &Writer, f: FactId, total: &BTreeMap<FactId, i64>, graphs: 
     let focus = w.focus_of(f);
     let (obls, exclude) = if f == GOAL { (w.goal_obls(node.extra.first().copied()), node.extra.first().copied()) } else { (w.node_obls(f)?, Some(f)) };
     let weights = route_weights(w, f, h, exclude, &focus, total);
-    let mut best: Option<(i64, &'static str, Part, Vec<FactId>, i64)> = None;
-    let mut forms_tried = 0usize;
-    for o in &obls {
-        if o.targets.len() != 1 || cx.timed_out() {
-            continue;
-        }
-        let t = &o.targets[0];
-        let req = 4 * o.requires.iter().filter(|&&r| !cx.is_hyp(r)).count() as i64;
-        for form in std::iter::once(t).chain(t.alts.iter()) {
-            if !matches!(form.table, Table::Angle | Table::Ratio) || forms_tried >= MAX_FORMS || w.route_spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET {
-                continue;
-            }
-            forms_tried += 1;
-            let mut form = form.clone();
-            form.alts.clear();
-            let splits = route_splits(w, &mut form);
-            let mut found: Vec<Path> = Vec::new();
-            if form.table == Table::Angle {
-                let usplits = undirected_splits(w, &form);
-                let bound = best.as_ref().map(|b| b.0 - req + UNDIRECTED_BONUS + 1).unwrap_or(i64::MAX);
-                let g = graphs.get(w, Table::Angle, true);
-                if let Some(mut p) = g.search(cx, &usplits, route::UNDIRECTED_BUDGET, bound, &w.route_spent, &weights) {
-                    p.weight -= UNDIRECTED_BONUS;
-                    found.push(p);
-                }
-            }
-            let bound = best.as_ref().map(|b| b.0 - req + 1).unwrap_or(i64::MAX).min(found.first().map(|p| p.weight + 1).unwrap_or(i64::MAX));
-            let g = graphs.get(w, form.table, false);
-            if let Some(p) = g.search(cx, &splits, route::BUDGET, bound, &w.route_spent, &weights) {
-                found.push(p);
-            }
-            for p in found {
-                let key = p.weight + req;
-                if best.as_ref().is_none_or(|b| key < b.0) {
-                    let c = route_edge_cost(w, &p, &focus, form.table) + req;
-                    let support = route::support(&p);
-                    best = Some((key, o.label, Part { target: form.clone(), support, route: Some(p) }, o.requires.clone(), c));
-                }
+    if std::env::var_os("HP_ROUTE_EDGES").is_some() {
+        for (i, wt) in weights.iter().enumerate() {
+            let a = &w.atoms[i];
+            let pick = std::env::var("HP_ROUTE_EDGES").ok().is_some_and(|v| v.split(',').any(|x| x == i.to_string()));
+            if pick || (*wt != route::OFF && matches!(a.key(), Some(AtomKey::Centroid | AtomKey::Midline | AtomKey::Intercept))) {
+                eprintln!("node {f} edge {i} {:?} {:?} sources {:?} via {:?} weight {wt}", a.src, a.args, a.sources, a.via);
             }
         }
     }
-    let (_, label, part, req, c) = best?;
-    Some((label, vec![part], c, req))
+    let mut best: Option<(i64, &'static str, Vec<Part>, Vec<FactId>, i64)> = None;
+    for o in &obls {
+        if o.targets.is_empty() || o.targets.len() > 4 || cx.timed_out() {
+            continue;
+        }
+        let req = 4 * o.requires.iter().filter(|&&r| !cx.is_hyp(r)).count() as i64;
+        let mut parts: Vec<Part> = Vec::new();
+        let mut key = req;
+        let mut cost = req;
+        let mut routed = 0;
+        let mut ok = true;
+        for t in &o.targets {
+            let bound = best.as_ref().map(|b| b.0 - key + 1).unwrap_or(i64::MAX);
+            match route_target(w, t, &weights, graphs, &focus, bound) {
+                Some((k, part, c)) => {
+                    key += k;
+                    cost += c;
+                    routed += 1;
+                    parts.push(part);
+                }
+                None if o.targets.len() > 1 => {
+                    let mut got: Option<(Vec<(usize, crate::rational::Rat)>, i64, Target)> = None;
+                    for form in std::iter::once(t).chain(t.alts.iter()) {
+                        if !w.in_admissible_span(form.table, &form.row, h, exclude) {
+                            continue;
+                        }
+                        if let Some((sup, c)) = w.certify(form.table, &form.row, h, &focus, exclude) {
+                            if got.as_ref().is_none_or(|g| c < g.1) {
+                                let mut chosen = form.clone();
+                                chosen.alts.clear();
+                                got = Some((sup, c, chosen));
+                            }
+                        }
+                    }
+                    match got {
+                        Some((sup, c, chosen)) => {
+                            key += c + 4 * sup.len() as i64;
+                            cost += c;
+                            parts.push(Part { target: chosen, support: sup, route: None });
+                        }
+                        None => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                None => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok && routed > 0 && best.as_ref().is_none_or(|b| key < b.0) {
+            best = Some((key, o.label, parts, o.requires.clone(), cost));
+        }
+    }
+    let (_, label, parts, req, c) = best?;
+    Some((label, parts, c, req))
+}
+
+fn route_target(w: &Writer, t: &Target, weights: &[i64], graphs: &Graphs, focus: &BTreeSet<PointId>, bound0: i64) -> Option<(i64, Part, i64)> {
+    let cx = w.cx;
+    let mut best: Option<(i64, Part, i64)> = None;
+    for form in std::iter::once(t).chain(t.alts.iter()).take(MAX_FORMS) {
+        if !matches!(form.table, Table::Angle | Table::Ratio) || w.route_spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET {
+            continue;
+        }
+        let mut form = form.clone();
+        form.alts.clear();
+        let splits = route_splits(w, &mut form);
+        if std::env::var_os("HP_ROUTE").is_some() {
+            for (i, s) in form.splits.iter().enumerate() {
+                let names = |q: PointId| super::text::disp(cx.t.name(q));
+                let nm = super::text::FnNames(&names);
+                eprintln!("  split {i}: {} = {}", super::text::expr(&nm, &s.l), super::text::expr(&nm, &s.r));
+            }
+        }
+        let mut found: Vec<Path> = Vec::new();
+        let cap = best.as_ref().map(|b| b.0).unwrap_or(i64::MAX).min(bound0);
+        if form.table == Table::Angle {
+            let usplits = undirected_splits(w, &form);
+            let g = graphs.get(w, Table::Angle, true);
+            if let Some(mut p) = g.search(cx, &usplits, route::UNDIRECTED_BUDGET, cap.saturating_add(UNDIRECTED_BONUS), &w.route_spent, weights) {
+                p.weight -= UNDIRECTED_BONUS;
+                found.push(p);
+            }
+        }
+        let bound = cap.min(found.first().map(|p| p.weight + 1).unwrap_or(i64::MAX));
+        let g = graphs.get(w, form.table, false);
+        if let Some(p) = g.search(cx, &splits, route::BUDGET, bound, &w.route_spent, weights) {
+            found.push(p);
+        }
+        for p in found {
+            if std::env::var_os("HP_ROUTE").is_some() {
+                let names = |q: PointId| super::text::disp(cx.t.name(q));
+                let nm = super::text::FnNames(&names);
+                eprintln!("  target {} ({:?}, {}): weight {}", super::text::stmt(&nm, &form.stmt), form.table, if p.undirected { "as drawn" } else { "directed" }, p.weight);
+                for g in &p.links {
+                    let a = &w.atoms[g[0].0];
+                    eprintln!("    {:?} {:?} lam {}", a.src, a.args.iter().map(|q| names(*q)).collect::<Vec<_>>(), g[0].1);
+                }
+            }
+            if best.as_ref().is_none_or(|b| p.weight < b.0) {
+                let c = route_edge_cost(w, &p, focus, form.table);
+                let support = route::support(&p);
+                best = Some((p.weight, Part { target: form.clone(), support, route: Some(p) }, c));
+            }
+        }
+    }
+    best
 }
 
 fn needs_route(w: &Writer, parts: &[Part]) -> bool {

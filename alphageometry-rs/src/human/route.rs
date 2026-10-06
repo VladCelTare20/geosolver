@@ -298,6 +298,12 @@ impl Graph {
             let x = sides[k].nodes[u].clone();
             let vs = sides[k].nvars[u].clone();
             self.neighbours(cx, &x, &vs, &mut buf, weights);
+            if std::env::var_os("HP_ROUTE2").is_some() {
+                eprintln!("expand side {k} node {:?} vars {:?} neighbours {}", x, vs, buf.len());
+                for (y, ek, lam) in buf.iter().take(12) {
+                    eprintln!("   -> {:?} via atom {} lam {} shape {:?}", y, self.atom[*ek], lam, self.shape(cx, y));
+                }
+            }
             for (y, ek, lam) in buf.drain(..) {
                 let s = if y == ends[k] || y == ends[other] {
                     0
