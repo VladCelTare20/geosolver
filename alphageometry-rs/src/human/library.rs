@@ -331,11 +331,65 @@ fn lvl(cx: &Ctx, s: &BTreeSet<FactId>) -> u32 {
 }
 
 impl<'c, 'a> Builder<'c, 'a> {
+    pub fn rejustify_identities(&mut self) {
+        let mut updates: Vec<(usize, Vec<usize>)> = Vec::new();
+        for i in 0..self.atoms.len() {
+            let a = &self.atoms[i];
+            let AtomSrc::Human(k) = a.src else { continue };
+            if !matches!(k, AtomKey::SineSupplement | AtomKey::SineComplement) || a.row_idx != 0 || a.avail == NEVER {
+                continue;
+            }
+            let j = self.hyp_justification_at(k, &a.args.clone(), a.avail, true);
+            if !j.is_empty() && j != a.via {
+                updates.push((i, j));
+            }
+        }
+        for (i, via) in updates {
+            let (k, args) = (self.atoms[i].src, self.atoms[i].args.clone());
+            for a in self.atoms.iter_mut().filter(|a| a.src == k && a.args == args) {
+                a.via = via.clone();
+            }
+        }
+    }
+
     fn hyp_justification(&self, key: AtomKey, args: &[PointId]) -> Vec<usize> {
+        self.hyp_justification_at(key, args, NEVER, false)
+    }
+
+    fn hyp_justification_at(&self, key: AtomKey, args: &[PointId], by: FactId, narrow_only: bool) -> Vec<usize> {
         let cx = self.cx;
         let Some(sp) = spec(cx.t, key, args) else { return Vec::new() };
         let Some(row) = sp.hyps.iter().find_map(|h| if let Hyp::EqOrHalf(Table::Angle, r) = h { Some(r.clone()) } else { None }) else { return Vec::new() };
-        let cands: Vec<usize> = (0..self.atoms.len()).filter(|&i| self.atoms[i].table == Table::Angle && self.atoms[i].avail != NEVER && !matches!(self.atoms[i].src, AtomSrc::Human(k) if matches!(k, AtomKey::SineSupplement | AtomKey::SineComplement))).collect();
+        let central = |i: usize| matches!(self.atoms[i].src, AtomSrc::Human(AtomKey::CentralAngle));
+        let matching = |i: usize| {
+            let a = &self.atoms[i];
+            let chord = |p: PointId, q: PointId| (a.args[1] == p && a.args[2] == q) || (a.args[1] == q && a.args[2] == p);
+            a.args.len() >= 4 && args.len() >= 6 && ((a.args[3] == args[3] && chord(args[4], args[5])) || (a.args[3] == args[0] && chord(args[1], args[2])))
+        };
+        let all: Vec<usize> = (0..self.atoms.len()).filter(|&i| self.atoms[i].table == Table::Angle && self.atoms[i].avail != NEVER && (by == NEVER || self.atoms[i].avail <= by) && !matches!(self.atoms[i].src, AtomSrc::Human(k) if matches!(k, AtomKey::SineSupplement | AtomKey::SineComplement))).collect();
+        let engine = |i: usize| matches!(self.atoms[i].src, AtomSrc::Engine(_)) && self.atoms[i].cost > 0;
+        let narrow: Vec<usize> = all.iter().copied().filter(|&i| (!central(i) || matching(i)) && !engine(i)).collect();
+        if std::env::var_os("HP_THM").is_some() {
+            eprintln!("narrow {args:?}: {:?}", narrow.iter().filter(|&&i| self.atoms[i].cost > 0).map(|&i| (format!("{:?}", self.atoms[i].src), self.atoms[i].args.clone())).collect::<Vec<_>>());
+        }
+        let chords: Vec<(PointId, PointId, PointId)> = narrow.iter().filter(|&&i| central(i) && matching(i)).map(|&i| (self.atoms[i].args[0], self.atoms[i].args[1], self.atoms[i].args[2])).collect();
+        let base_iso = |i: usize| {
+            let a = &self.atoms[i];
+            matches!(a.src, AtomSrc::Human(AtomKey::Isosceles)) && a.args.len() == 3 && chords.iter().any(|&(o, p, q)| a.args[0] == o && ((a.args[1] == p && a.args[2] == q) || (a.args[1] == q && a.args[2] == p)))
+        };
+        let tiny: Vec<usize> = narrow.iter().copied().filter(|&i| self.atoms[i].cost == 0 || matches!(self.atoms[i].src, AtomSrc::Hyp(_)) || (central(i) && matching(i)) || base_iso(i)).collect();
+        let passes = if narrow_only { vec![tiny, narrow] } else { vec![tiny, narrow, all] };
+        for cands in passes {
+            let found = self.justify_with(&row, &cands, args);
+            if !found.is_empty() {
+                return found;
+            }
+        }
+        Vec::new()
+    }
+
+    fn justify_with(&self, row: &LinComb, cands: &[usize], args: &[PointId]) -> Vec<usize> {
+        let cx = self.cx;
         let unit = LinComb::singleton(ANGLE_UNIT, Rat::one());
         let mut input: Vec<(u32, &LinComb)> = vec![(0, &unit)];
         let vertex = |i: usize| -> u32 {
@@ -350,14 +404,14 @@ impl<'c, 'a> Builder<'c, 'a> {
             }
         };
         input.extend(cands.iter().map(|&i| (vertex(i), &self.atoms[i].q)));
-        let cands: Vec<usize> = std::iter::once(usize::MAX).chain(cands).collect();
+        let cands: Vec<usize> = std::iter::once(usize::MAX).chain(cands.iter().copied()).collect();
         let mut two = row.clone();
         two.mul_assign_scalar(&Rat::from_int(2));
-        for target in [row, two] {
+        for target in [row.clone(), two] {
             let target = cx.quot.q(&cx.t.exact(Table::Angle, &target));
             let found = super::cert::certify_greedy(&cx.piv[Table::Angle.idx()], &input, &target, &|_| true);
             if std::env::var_os("HP_THM").is_some() {
-                eprintln!("hyp justification {key:?} {args:?}: {:?}", found.as_ref().map(|c| c.iter().map(|(k, l)| (cands[*k], l.clone())).collect::<Vec<_>>()));
+                eprintln!("hyp justification {args:?}: {:?}", found.as_ref().map(|c| c.iter().filter(|(k, _)| cands[*k] != usize::MAX).map(|(k, l)| (cands[*k], format!("{:?}", self.atoms[cands[*k]].src), self.atoms[cands[*k]].args.clone(), l.clone())).collect::<Vec<_>>()));
             }
             if let Some(cert) = found {
                 let cert: Vec<(usize, Rat)> = cert.into_iter().filter(|(k, _)| cands[*k] != usize::MAX && self.atoms[cands[*k]].cost > 0).collect();

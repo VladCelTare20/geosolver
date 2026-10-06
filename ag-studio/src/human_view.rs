@@ -914,6 +914,7 @@ impl Cx<'_> {
             AtomKey::SineSupplement | AtomKey::SineComplement => return (self.stmt(stmt, Ctx::Statement), None),
             AtomKey::Isosceles if args.len() > 3 => return (self.equal_from(args), None),
             AtomKey::Isosceles => ("isosceles", sl(0..3), None),
+            AtomKey::CentralAngle if args.len() == 5 => ("central_angle.reflex", sl(0..4), None),
             AtomKey::CentralAngle => match named(&[g(1), g(2), g(3)], Some(&g(0))) {
                 Some(c) => ("central_angle", vec![c.clone()], Some(c)),
                 None => ("central_angle.bare", sl(0..4), None),

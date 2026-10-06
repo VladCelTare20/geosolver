@@ -454,7 +454,8 @@
         case "radii": { var rc = namedCircle(a.slice(1), g(0)); return rc ? { base: "radii", args: [rc], merge: rc } : a.length > 3 ? { eq: equalFrom(a) } : { stmt: true }; }
         case "isosceles": return a.length > 3 ? { eq: equalFrom(a) } : { base: "isosceles", args: a.slice(0, 3) };
         case "sine_supplement": case "sine_complement": return { stmt: true };
-        case "central_angle": { var cc = namedCircle([g(1), g(2), g(3)], g(0)); return cc ? { base: "central_angle", args: [cc], merge: cc } : { base: "central_angle.bare", args: a.slice(0, 4) }; }
+        case "central_angle": if (a.length === 5) return { base: "central_angle.reflex", args: a.slice(0, 4) };
+        { var cc = namedCircle([g(1), g(2), g(3)], g(0)); return cc ? { base: "central_angle", args: [cc], merge: cc } : { base: "central_angle.bare", args: a.slice(0, 4) }; }
         case "power_of_point": return { base: "power_of_point", args: [g(0), circleRef(a.slice(1, 5), null)] };
         case "midline": return { base: "midline", args: [g(0), g(1), g(4) + g(2) + g(3)] };
         case "orthocentre": return { base: "orthocentre", args: [g(0), g(1) + g(2) + g(3)] };

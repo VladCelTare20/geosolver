@@ -186,7 +186,7 @@ pub fn route_splits(w: &Writer, form: &mut Target) -> Vec<(LinComb, LinComb)> {
     }
 }
 
-fn undirected_splits(w: &Writer, form: &Target) -> Vec<(LinComb, LinComb)> {
+pub fn undirected_splits(w: &Writer, form: &Target) -> Vec<(LinComb, LinComb)> {
     let cx = w.cx;
     let t = cx.t;
     let undirect = |e: &Expr| -> Option<LinComb> {

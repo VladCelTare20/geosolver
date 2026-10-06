@@ -487,6 +487,7 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::Radii | AtomKey::Isosceles if a.len() > 3 => a[1..].iter().map(|p| n.pts(&[a[0], *p])).collect::<Vec<_>>().join(" = "),
         AtomKey::Radii => stmt(n, s),
         AtomKey::Isosceles => format!("{}: triangle {} is isosceles", stmt(n, s), n.pts(&a[0..3])),
+        AtomKey::CentralAngle if a.len() == 5 => format!("inscribed angle ∠{} = 180° − ½∠{}", n.pts(&[a[1], a[3], a[2]]), n.pts(&[a[1], a[0], a[2]])),
         AtomKey::CentralAngle => format!("central angle ∠{} = 2∠{}", n.pts(&[a[1], a[0], a[2]]), n.pts(&[a[1], a[3], a[2]])),
         AtomKey::PowerOfPoint => {
             let _ = s;

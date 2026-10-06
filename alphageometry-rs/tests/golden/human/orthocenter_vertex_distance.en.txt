@@ -6,10 +6,10 @@ Plan: it suffices to show that AH = 2R·cos A and MₐO = R·cos A.
     AB = 2R·sin C    [extended law of sines in △CAB; OA = OC] (1)
 2. We show that AH = 2R·cos A:
     AH = AB·sin∠HBA / sin∠BHA    [law of sines in △BHA]
-       = AB·cos A / sin∠BHA      [∠ABH = A + 90°]
-       = AB·cos A / sin C        [C = ∠AHB]
+       = AB·cos A / sin∠BHA      [∠ABH = A + 90°; BH ⟂ AC]
+       = AB·cos A / sin C        [C = ∠AHB; AH ⟂ BC]
        = 2R·cos A                [by (1)] (2)
 3. We show that MₐO = R·cos A:
     MₐO = R·sin∠MₐBO    [law of sines in △BMₐO; ∠OMₐB = 90°; OA = OB]
-        = R·cos A       [∠OBMₐ = 90° − A; central angle ∠AOB = 2∠ACB; OA = OB: triangle OAB is isosceles] (3)
+        = R·cos A       [∠OBMₐ = 90° − A; central angle ∠BOC = 2∠BAC; OB = OC: triangle OBC is isosceles] (3)
 4. AH = 2R·cos A, by (2) and MₐO = R·cos A, by (3), so AH = 2·MₐO, as required. ∎

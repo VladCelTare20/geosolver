@@ -415,7 +415,10 @@ impl<'c, 'a> Builder<'c, 'a> {
                             self.add_human(AtomKey::Thales, vec![a, b, z, o], 1, s, h);
                         } else if t.orient(a, o, b) != 0 {
                             let (h, s) = merge(&[&ab, &az, &bz]);
-                            self.add_human(AtomKey::CentralAngle, vec![o, a, b, z], 2, s, h);
+                            let inscribed = super::theorems::interior_degrees(t, a, z, b);
+                            let central = super::theorems::interior_degrees(t, a, o, b);
+                            let args = if (inscribed - (180.0 - central / 2.0)).abs() < 1e-6 && (inscribed - central / 2.0).abs() > 1e-6 { vec![o, a, b, z, z] } else { vec![o, a, b, z] };
+                            self.add_human(AtomKey::CentralAngle, args, 2, s, h);
                         }
                     }
                 }
@@ -681,6 +684,7 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
         b.propagate_via(r);
         b.theorems(r);
         b.rejustify();
+        b.rejustify_identities();
     }
     let mut map: Vec<Option<usize>> = Vec::with_capacity(b.atoms.len());
     let mut k = 0;

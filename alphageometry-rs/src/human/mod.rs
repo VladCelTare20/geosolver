@@ -328,7 +328,13 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
             continue;
         }
         used_names.push(name.clone());
-        out.push(SetupLine::Circle { name, through: m.clone(), centre, diameter: None });
+        let g = &cx.goal;
+        let proved: Option<PointId> = match (g.name.as_str(), g.points.as_slice()) {
+            ("cong", [o1, _, o2, k]) if o1 == o2 && Some(*o1) == centre => Some(*k),
+            _ => None,
+        };
+        let through: Vec<PointId> = m.iter().copied().filter(|p| Some(*p) != proved).collect();
+        out.push(SetupLine::Circle { name, through, centre, diameter: None });
     }
     out
 }

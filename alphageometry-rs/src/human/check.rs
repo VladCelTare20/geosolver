@@ -366,6 +366,13 @@ impl<'c, 'a> Checker<'c, 'a> {
         self.proven(h, Table::Angle, &r)
     }
 
+    fn reflex_inscribed(&self, a: &[PointId]) -> bool {
+        let t = self.cx.t;
+        let inscribed = super::theorems::interior_degrees(t, a[1], a[3], a[2]);
+        let central = super::theorems::interior_degrees(t, a[1], a[0], a[2]);
+        (inscribed - (180.0 - central / 2.0)).abs() < 1e-6
+    }
+
     pub fn template(&mut self, h: FactId, key: AtomKey, a: &[PointId]) -> bool {
         match key {
             AtomKey::Inscribed => a.len() >= 4 && self.on_circle(h, a),
@@ -374,7 +381,7 @@ impl<'c, 'a> Checker<'c, 'a> {
             AtomKey::PerpBisector => a.len() == 4 && self.equidistant(h, a[0], &[a[2], a[3]]) && self.equidistant(h, a[1], &[a[2], a[3]]),
             AtomKey::Parallel => a.len() == 6 && self.perp_proven(h, (a[0], a[1]), (a[4], a[5])) && self.perp_proven(h, (a[2], a[3]), (a[4], a[5])),
             AtomKey::Radii | AtomKey::Isosceles => a.len() >= 3 && self.equidistant(h, a[0], &a[1..]),
-            AtomKey::CentralAngle => a.len() == 4 && self.equidistant(h, a[0], &[a[1], a[2], a[3]]),
+            AtomKey::CentralAngle => (a.len() == 4 || (a.len() == 5 && a[4] == a[3] && self.reflex_inscribed(a))) && self.equidistant(h, a[0], &[a[1], a[2], a[3]]),
             AtomKey::PowerOfPoint => {
                 a.len() == 5 && self.on_circle(h, &[a[1], a[2], a[3], a[4]]) && self.on_line(h, &[a[0], a[1], a[2]]) && self.on_line(h, &[a[0], a[3], a[4]])
             }

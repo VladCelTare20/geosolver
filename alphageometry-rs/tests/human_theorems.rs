@@ -28,7 +28,7 @@ impl Fix {
         ns.iter().map(|n| self.id(n)).collect()
     }
     fn ctx(&self) -> Ctx<'_> {
-        let elsewhere = Predicate { name: "elsewhere".into(), points: Vec::new(), constants: Vec::new() };
+        let elsewhere = Predicate { name: self.goal.name.clone(), points: Vec::new(), constants: Vec::new() };
         Ctx::new(&self.trace, &elsewhere, &self.deps, &[], None)
     }
     fn generated(&self, key: AtomKey, args: &[PointId]) -> bool {

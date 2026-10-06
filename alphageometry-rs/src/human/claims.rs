@@ -910,6 +910,7 @@ pub struct Presenter<'w, 'c, 'a> {
     pub as_drawn: bool,
     pub force_undirected: bool,
     pub halve_graph: std::cell::OnceCell<super::route::Graph>,
+    pub drawn_graph: std::cell::OnceCell<super::route::Graph>,
     pub ratio_graph: std::cell::OnceCell<super::route::Graph>,
 }
 
@@ -2283,6 +2284,33 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         s.iter().all(|x| self.chain_gives_then(x)).then_some(s)
     }
 
+    fn route_drawn(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
+        let cx = self.w.cx;
+        let w = self.w;
+        let mut form = target.clone();
+        form.alts.clear();
+        let _ = super::search::route_splits(w, &mut form);
+        let splits = super::search::undirected_splits(w, &form);
+        let g = self.drawn_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true));
+        let weights: Vec<i64> = w
+            .atoms
+            .iter()
+            .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .collect();
+        let spent = std::sync::atomic::AtomicUsize::new(0);
+        let found = g.search(cx, &splits, 1500, i64::MAX, &spent, &weights);
+        if std::env::var_os("HP_ROUTE").is_some() {
+            eprintln!("route_drawn {:?}: {} splits, found {:?}", form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
+        }
+        let p = found?;
+        let saved = self.force_undirected;
+        self.force_undirected = true;
+        let s = self.path_sentences(&form, &p, h, then, focus, &[]);
+        self.force_undirected = saved;
+        let s = s?;
+        (s.iter().all(|x| self.chain_meets_target(x, target) && self.chain_gives_then(x)) && !s.iter().any(multiple_directed)).then_some(s)
+    }
+
     fn chain_meets_target(&self, s: &Sentence, target: &Target) -> bool {
         let Sentence::Chain { terms, then: Some(_), .. } = s else { return true };
         let t = self.w.cx.t;
@@ -2671,6 +2699,10 @@ pub fn atom_stmt(key: AtomKey, a: &[PointId]) -> Stmt {
         AtomKey::PerpBisector => Stmt::Perp { l1: (a[0], a[1]), l2: (a[2], a[3]) },
         AtomKey::Parallel => Stmt::Para { l1: (a[0], a[1]), l2: (a[2], a[3]) },
         AtomKey::Radii | AtomKey::Isosceles => Stmt::Cong { s1: (a[0], a[1]), s2: (a[0], a[2]) },
+        AtomKey::CentralAngle if a.len() == 5 => Stmt::Eq {
+            lhs: Expr::Angle { a: a[1], b: a[3], c: a[2], directed: false },
+            rhs: Expr::Lin { terms: vec![(Rat::one(), Expr::Const { degrees: Rat::from_int(180) }), (Rat::new(-1, 2), Expr::Angle { a: a[1], b: a[0], c: a[2], directed: false })] },
+        },
         AtomKey::CentralAngle => Stmt::Eq {
             lhs: ang(a[1], a[0], a[2]),
             rhs: Expr::Lin { terms: vec![(Rat::from_int(2), ang(a[1], a[3], a[2]))] },
@@ -2698,6 +2730,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             as_drawn: false,
             force_undirected: false,
             halve_graph: std::cell::OnceCell::new(),
+            drawn_graph: std::cell::OnceCell::new(),
             ratio_graph: std::cell::OnceCell::new(),
         }
     }
@@ -2794,6 +2827,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 Some(x) => x,
                 None => self.chain_sentences(&part.target, &part.support, h, then.clone(), &focus),
             };
+            if part.target.table == Table::Angle && s.iter().any(multiple_directed) {
+                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
+                    if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
+                        s = r;
+                    }
+                }
+            }
             let pooled_here = s.iter().any(|x| matches!(x, Sentence::Pooled { .. }));
             if pooled_here || !s.iter().all(|x| self.chain_gives_then(x)) {
                 if let Some(r) = self.route_now(&part.target, h, then.clone(), &focus) {
@@ -3117,6 +3157,14 @@ fn even_expr(e: &Expr) -> bool {
         Expr::Lin { terms } => !terms.is_empty() && terms.iter().all(|(k, x)| matches!(x, Expr::Const { degrees } if degrees.is_zero()) || (k.is_integer() && (k * &Rat::new(1, 2)).is_integer())),
         _ => false,
     }
+}
+
+fn multiple_directed(s: &Sentence) -> bool {
+    let Sentence::Chain { terms, directed: true, .. } = s else { return false };
+    terms.iter().any(|e| match e {
+        Expr::Lin { terms } => terms.iter().any(|(k, x)| matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }) && !k.abs().is_one()),
+        _ => false,
+    })
 }
 
 fn doubled_chain(s: &[Sentence]) -> bool {

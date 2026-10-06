@@ -137,7 +137,8 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("G is the centroid of \u{25b3}ABC, so AG = 2\u{b7}GM."), "{t}");
     assert!(t.contains("= 1 / 2      [AG = 2\u{b7}GM, by (1)]"), "{t}");
     assert!(!t.contains("\u{25b3}ABG \u{223c} \u{25b3}MNG"), "{t}");
-    assert!(t.contains("So O, G, H lie on one line, as required. \u{220e}"), "{t}");
+    assert!(t.contains("\u{25b3}AHG \u{223c} \u{25b3}MOG, by (6), so O, G, H lie on one line, as required. \u{220e}"), "{t}");
+    assert!(!t.contains("counter-clockwise"), "no directed angles:\n{t}");
 
     let (_, hp, t) = get("orthocenter_vertex_distance");
     numbered(hp, t);
@@ -150,6 +151,7 @@ fn golden_examples_have_the_planned_shape() {
     assert!(!t.contains("sin\u{2220}COA") && !t.contains("sin\u{2220}BOA") && !t.contains("sin\u{2220}COB"), "{t}");
     assert!(t.lines().filter(|l| l.trim_start().starts_with('=')).count() <= 5, "{t}");
     assert!(t.contains("so AH = 2\u{b7}M\u{2090}O, as required. \u{220e}"), "{t}");
+    assert!(t.contains("central angle \u{2220}BOC = 2\u{2220}BAC"), "the angle at O on chord BC justifies \u{2220}OBM\u{2090} = 90\u{b0} \u{2212} A:\n{t}");
     assert!(!t.contains("|sin") && !t.contains("R\u{b7}R") && !t.contains("R\u{b2}\u{b7}sin\u{2220}OCB / R"), "{t}");
     let laws = |b: &ddar::human::Block| t.lines().count() > 0 && b.body.iter().all(|s| match s {
         Sentence::Computation { links, .. } => {
@@ -402,7 +404,7 @@ fn checker_rejects_false_atom_instances() {
         l.reasons.push(Reason::Atom { key, stmt: Stmt::Coll { pts: vec![a, b, cc] }, args, from: Vec::new() });
         hp
     };
-    let controls = [(AtomKey::Thales, vec![b, cc, n, o]), (AtomKey::PowerOfPoint, vec![a, b, m, cc, n])];
+    let controls = [(AtomKey::Thales, vec![b, cc, n, o]), (AtomKey::PowerOfPoint, vec![a, b, m, cc, n]), (AtomKey::CentralAngle, vec![o, n, cc, m, m]), (AtomKey::CentralAngle, vec![o, n, cc, b])];
     for (key, args) in controls {
         assert!(verify(&s, &with(key, args.clone())).is_empty(), "true {key:?} {args:?} rejected");
     }
@@ -413,6 +415,9 @@ fn checker_rejects_false_atom_instances() {
         (AtomKey::Midline, vec![o, m, b, a, cc]),
         (AtomKey::PerpBisector, vec![o, r, b, cc]),
         (AtomKey::Radii, vec![r, b, cc]),
+        (AtomKey::CentralAngle, vec![o, n, cc, b, b]),
+        (AtomKey::CentralAngle, vec![o, n, cc, m, b]),
+        (AtomKey::CentralAngle, vec![r, n, cc, m, m]),
     ];
     for (key, args) in false_instances {
         assert!(!verify(&s, &with(key, args.clone())).is_empty(), "false {key:?} {args:?} accepted");

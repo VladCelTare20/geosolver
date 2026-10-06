@@ -1,10 +1,8 @@
 Angles written ∠ are read from the figure.
-∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn.
-Directed angles are needed only in step 7, where the figure-angle form would depend on the configuration.
 Let M be the midpoint of BC.
 Let N be the midpoint of AC.
 
-Plan: it suffices to show that AH ∥ OM and △AHG ∼ △MOG.
+Plan: it suffices to show that △AHG ∼ △MOG.
 
 1. G is the centroid of △ABC, so AG = 2·GM. (1)
 2. OA = OC and NA = NC, so ON is the perpendicular bisector of AC; hence ON ⟂ AC. (2)
@@ -23,7 +21,4 @@ Hence △AHB ∼ △MON. (5)
             = MN / AB    [MN is a midline of △CBA]
             = OM / AH    [△AHB ∼ △MON, by (5)]
 Hence △AHG ∼ △MOG. (6)
-7. We show that O, G, H lie on one line:
-    ∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, by (6)]
-         = 0°           [AH ∥ OM, by (4)]
-So O, G, H lie on one line, as required. ∎
+7. △AHG ∼ △MOG, by (6), so O, G, H lie on one line, as required. ∎

@@ -30,6 +30,8 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| split_sentence(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| dedupe_restated(cx, blocks, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| absorb_by_triangles(cx, blocks, s));
+    per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _, s| redisplay_drawn(cx, blocks, s));
     cut_long(cx, &mut ch, hp);
     lemma_steps(cx, &mut ch, hp);
     prefix_steps(cx, &mut ch, hp);
@@ -212,6 +214,7 @@ pub fn term_score(e: &Expr) -> Option<i64> {
                 return None;
             };
             let positive_const = !konst.is_negative() && !konst.is_zero();
+            let positive_angle = terms.iter().any(|(k, x)| matches!(x, Expr::Angle { .. }) && !k.is_negative());
             for (k, x) in terms {
                 match x {
                     Expr::Const { .. } => {}
@@ -225,7 +228,7 @@ pub fn term_score(e: &Expr) -> Option<i64> {
                             return None;
                         };
                         if k.is_negative() {
-                            s += if positive_const { 1 } else { 4 };
+                            s += if positive_const { 1 } else if positive_angle { 2 } else { 4 };
                         }
                     }
                     _ => return None,
@@ -269,9 +272,15 @@ fn undirected_chain(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], 
             let near_prev = if j > 0 { link_points(&links[j - 1]) } else { Vec::new() };
             let focus: BTreeSet<PointId> = super::view::expr_points(&terms[j]).into_iter().collect();
             let Some(e) = display_node(cx, &cx.quot.q(n), false, &[&near_next, &near_prev], &focus) else {
+                if debug() {
+                    eprintln!("undirected_chain neg {neg} node {j}: no display");
+                }
                 ok = false;
                 break;
             };
+            if debug() {
+                eprintln!("undirected_chain neg {neg} node {j}: {:?} score {:?}", e, term_score(&e));
+            }
             match term_score(&e) {
                 Some(sc) if sc < 4 => score += sc,
                 _ => {
@@ -288,6 +297,127 @@ fn undirected_chain(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], 
     let (_, out, neg) = best?;
     let links: Vec<Link> = if neg { links.iter().cloned().map(negate_link).collect() } else { links.to_vec() };
     Some(Sentence::Chain { terms: out, links, then, directed: false })
+}
+
+fn triangle_claim(blocks: &[Block], r: &Reason) -> bool {
+    match r {
+        Reason::Claim { block, .. } => blocks.iter().any(|b| b.id == *block && matches!(b.stmt, Stmt::Sim { .. } | Stmt::Congruent { .. })),
+        Reason::Fact { stmt, .. } | Reason::Lemma { stmt, .. } => matches!(stmt, Stmt::Sim { .. } | Stmt::Congruent { .. }),
+        _ => false,
+    }
+}
+
+fn single_reason_link(cx: &Ctx, blocks: &[Block], tb: Table, diff: &LinComb, r: &Reason, directed: bool) -> Option<Link> {
+    let rows = check::reason_rows(cx.t, blocks, r)?;
+    let idx: Vec<usize> = (0..rows.len()).filter(|&i| rows[i].0 == tb).collect();
+    if debug() {
+        eprintln!("single_reason_link: tb {:?} diff {:?} q {:?} rows {:?}", tb, diff, cx.quot.q(diff), rows.iter().map(|(t, r)| (t, cx.quot.q(r))).collect::<Vec<_>>());
+    }
+    let one = Rat::one();
+    let mut cands: Vec<Vec<Term>> = Vec::new();
+    for &i in &idx {
+        cands.push(vec![Term { reason: 0, row: i as u16, coef: one.clone() }]);
+    }
+    for (x, &i) in idx.iter().enumerate() {
+        for &j in &idx[x + 1..] {
+            for sj in [one.clone(), -&one] {
+                cands.push(vec![Term { reason: 0, row: i as u16, coef: one.clone() }, Term { reason: 0, row: j as u16, coef: sj }]);
+            }
+        }
+    }
+    for combination in cands {
+        let link = Link { reasons: vec![r.clone()], combination };
+        let Some(sum) = link_sum(cx, blocks, &link, !directed) else { continue };
+        if check::residual_ok(cx, tb, diff, &sum, directed) {
+            return Some(link);
+        }
+        if check::residual_ok(cx, tb, diff, &sum.negated(), directed) {
+            return Some(negate_link(link));
+        }
+    }
+    None
+}
+
+fn absorb_by_triangles(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain { terms, links, then, directed } = s else { return None };
+    if links.len() < 2 {
+        return None;
+    }
+    for i in 0..links.len() - 1 {
+        let (Some((tb, a)), Some((_, b))) = (eval(cx.t, &terms[i]), eval(cx.t, &terms[i + 2])) else { continue };
+        let diff = &a - &b;
+        for r in links[i].reasons.iter().chain(links[i + 1].reasons.iter()) {
+            if debug() {
+                eprintln!("absorb: link {i} reason {:?} triangle {} rows {:?}", r, triangle_claim(blocks, r), check::reason_rows(cx.t, blocks, r).map(|v| v.len()));
+            }
+            if !triangle_claim(blocks, r) {
+                continue;
+            }
+            if let Some(l) = single_reason_link(cx, blocks, tb, &diff, r, *directed) {
+                let mut nt = terms.clone();
+                nt.remove(i + 1);
+                let mut nl = links.clone();
+                nl.splice(i..i + 2, [l]);
+                return Some(Sentence::Chain { terms: nt, links: nl, then: then.clone(), directed: *directed });
+            }
+        }
+    }
+    None
+}
+
+fn chain_score(terms: &[Expr]) -> Option<i64> {
+    terms.iter().map(term_score).sum()
+}
+
+fn redisplay_drawn(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain { terms, links, then, directed: false } = s else { return None };
+    let old = chain_score(terms).unwrap_or(i64::MAX);
+    if old == 0 {
+        return None;
+    }
+    let mut best: Option<(i64, Sentence)> = None;
+    if let Some(n @ Sentence::Chain { .. }) = undirected_chain(cx, blocks, terms, links, then.clone()) {
+        if let Sentence::Chain { terms: nt, .. } = &n {
+            if let Some(sc) = chain_score(nt).filter(|sc| *sc < old) {
+                best = Some((sc, n.clone()));
+            }
+        }
+    }
+    let flipped: Option<Vec<Expr>> = terms.iter().map(supplement).collect();
+    if let Some(ft) = flipped {
+        if let Some(sc) = chain_score(&ft).filter(|sc| *sc < old && best.as_ref().is_none_or(|b| *sc < b.0)) {
+            best = Some((sc, Sentence::Chain { terms: ft, links: links.iter().cloned().map(negate_link).collect(), then: then.clone(), directed: false }));
+        }
+    }
+    best.map(|b| b.1)
+}
+
+fn supplement(e: &Expr) -> Option<Expr> {
+    let one_eighty = Rat::from_int(180);
+    let terms: Vec<(Rat, Expr)> = match e {
+        Expr::Angle { .. } => vec![(Rat::one(), e.clone())],
+        Expr::Const { degrees } => vec![(Rat::one(), Expr::Const { degrees: degrees.clone() })],
+        Expr::Lin { terms } => terms.clone(),
+        _ => return None,
+    };
+    let mut konst = one_eighty.clone();
+    let mut out: Vec<(Rat, Expr)> = Vec::new();
+    for (k, x) in terms {
+        match x {
+            Expr::Const { degrees } => konst = &konst - &(&degrees * &k),
+            Expr::Angle { .. } => out.push((-&k, x)),
+            _ => return None,
+        }
+    }
+    out.sort_by_key(|(k, _)| k.is_negative());
+    if !konst.is_zero() {
+        out.push((Rat::one(), Expr::Const { degrees: konst }));
+    }
+    Some(match out.as_slice() {
+        [(k, x)] if k.is_one() => x.clone(),
+        [(k, Expr::Const { degrees })] if k.is_one() => Expr::Const { degrees: degrees.clone() },
+        _ => Expr::Lin { terms: out },
+    })
 }
 
 pub fn lin_terms(e: &Expr) -> usize {
