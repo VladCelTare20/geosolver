@@ -501,6 +501,8 @@ fn lemmas_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("AUX_LEMMAS").map_or(true, |v| v != "0"))
 }
 
+const ROUND_WIDTH: usize = 12;
+
 /// Share of the budget after which the lemma phase starts, and where it ends.
 const LEMMA_START: f64 = 0.3;
 const LEMMA_END: f64 = 0.75;
@@ -738,8 +740,7 @@ fn search_with(
     drop(warm1);
 
     let max_rounds = env_usize("AUX_ROUNDS", usize::MAX) as u64;
-    let threads = rayon::current_num_threads().max(1);
-    let m = (4 * threads).min(size);
+    let m = ROUND_WIDTH.min(size);
     let r = 48u64;
     let mut round = 0u64;
     let budget = deadline.map(|d| d.saturating_duration_since(t0));
