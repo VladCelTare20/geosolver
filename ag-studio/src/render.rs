@@ -291,7 +291,7 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
         "aconst" => format!("{} = {}\u{b0}", g(0), g(1)),
         "rconst" => format!("{} : {} = {}", g(0), g(1), g(2)),
         "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", g(0), g(1)),
-        "contri" => format!("\u{25b3}{} \u{2245} \u{25b3}{}", g(0), g(1)),
+        "contri" => format!("\u{25b3}{} {} \u{25b3}{}", g(0), if lang == Lang::Ro { '\u{2261}' } else { '\u{2245}' }, g(1)),
         "eqdist" => a.join(" = "),
         "points" => a.join(", "),
         _ => a.join(" "),
@@ -1598,13 +1598,16 @@ mod tests {
             report_from_json(&v, Lang::Ro, false)
         };
         let imo = report("imo-2004-p1");
-        for c in ['\u{2222}', '\u{2261}', '\u{27c2}', '\u{2221}'] {
+        for c in ['\u{2222}', '\u{27c2}', '\u{2221}', '\u{2225}'] {
             assert!(imo.contains(c), "{c} is missing from the report");
         }
-        assert!(imo.contains("OMR</tspan> \u{2261} \u{25b3}<tspan font-style=\"italic\">ONR"), "congruence stays \u{2261}");
+        let p2 = report("imo-2023-p2");
+        assert!(p2.contains("OAX</tspan> \u{2261} \u{25b3}<tspan font-style=\"italic\">OPX"), "congruence is \u{2261} in Romanian");
+        assert!(!p2.contains('\u{2245}'), "no \u{2245} in the Romanian report");
         assert!(imo.contains("\u{2222}<tspan font-style=\"italic\">"), "the vertex names after \u{2222} are set as names");
         assert!(!imo.contains('\u{2245}') && !imo.contains('\u{22a5}'), "no look-alike substitutes");
         let ortho = report("orthocenter-reflection");
-        assert!(ortho.contains('\u{2225}') && !ortho.contains('\u{2016}'), "parallel stays \u{2225}");
+        assert!(ortho.contains('\u{27c2}') && !ortho.contains('\u{22a5}'), "perpendicular stays \u{27c2}");
+        assert!(!imo.contains('\u{2016}'), "parallel stays \u{2225}");
     }
 }

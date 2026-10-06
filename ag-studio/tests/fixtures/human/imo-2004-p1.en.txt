@@ -19,9 +19,9 @@ So F, N, B, A are concyclic. (2)
 
 6. We show that R, N, F, O are concyclic:
 
-∠RFN = ∠MBN    [F, N, B, A concyclic, by (2)]
-     = 180° − ½·∠MON    [central angle ∠MON = 2∠MBN]
-     = 180° − ∠RON    [OR bisects ∠MON]
+∠NFA = ∠NBA    [F, N, B, A concyclic, by (2)]
+     = ½·∠NOM    [inscribed angle ∠MBN = 180° − ½∠MON]
+     = ∠NOR    [OR bisects ∠MON]
 
 So R, N, F, O are concyclic. (6)
 

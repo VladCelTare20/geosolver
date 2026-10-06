@@ -16,6 +16,6 @@ AH = AB·sin∠HBA / sin∠BHA    [law of sines in △BHA]
 3. We show that MaO = R·cos A:
 
 MaO = R·sin∠MaBO    [law of sines in △BMaO; ∠OMaB = 90°; OA = OB]
-    = R·cos A    [∠OBMa = 90° − A; central angle ∠AOB = 2∠ACB; OA = OB] (3)
+    = R·cos A    [∠OBMa = 90° − A; central angle ∠BOC = 2∠BAC; OB = OC] (3)
 
 4. AH = 2R·cos A, by (2) and MaO = R·cos A, by (3), so AH : MaO = 2, as required. ∎

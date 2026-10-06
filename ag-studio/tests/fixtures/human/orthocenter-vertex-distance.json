@@ -1394,15 +1394,15 @@
                     "key": "central_angle",
                     "args": [
                       "O",
-                      "A",
                       "B",
-                      "C"
+                      "C",
+                      "A"
                     ],
                     "stmt": {
                       "kind": "eq",
                       "args": [
-                        "∡AOB",
-                        "2∡ACB"
+                        "∡BOC",
+                        "2∡BAC"
                       ],
                       "points": [
                         "A",
@@ -1418,18 +1418,18 @@
                     "key": "isosceles",
                     "args": [
                       "O",
-                      "A",
-                      "B"
+                      "B",
+                      "C"
                     ],
                     "stmt": {
                       "kind": "cong",
                       "args": [
-                        "OA",
-                        "OB"
+                        "OB",
+                        "OC"
                       ],
                       "points": [
-                        "A",
                         "B",
+                        "C",
                         "O"
                       ]
                     },

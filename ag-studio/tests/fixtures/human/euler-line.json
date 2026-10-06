@@ -596,15 +596,6 @@
         "kind": "figure_angles"
       },
       {
-        "kind": "directed_angles"
-      },
-      {
-        "kind": "directed_steps",
-        "steps": [
-          7
-        ]
-      },
-      {
         "kind": "helper",
         "point": "M",
         "meaning": {
@@ -1462,7 +1453,6 @@
             "kind": "chain",
             "terms": [
               "∡OGH",
-              "∡(OM, AH)",
               "0°"
             ],
             "links": [
@@ -1489,36 +1479,12 @@
                 "combination": [
                   {
                     "reason": 0,
-                    "row": 1,
-                    "coef": "1"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "para",
-                    "args": [
-                      "AH",
-                      "OM"
-                    ],
-                    "points": [
-                      "A",
-                      "O",
-                      "M",
-                      "H"
-                    ],
-                    "step": null,
-                    "block": 4,
-                    "because": [],
-                    "lemma": true,
-                    "sentence": 0
-                  }
-                ],
-                "combination": [
+                    "row": 0,
+                    "coef": "-1"
+                  },
                   {
                     "reason": 0,
-                    "row": 0,
+                    "row": 1,
                     "coef": "1"
                   }
                 ]
@@ -1565,7 +1531,6 @@
       }
     ],
     "plan": [
-      4,
       6
     ],
     "goal": {
@@ -1582,16 +1547,16 @@
       "blocks": 7,
       "claims": 1,
       "sentences": 11,
-      "chain_links": 12,
+      "chain_links": 11,
       "chains": 5,
       "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 303,
-      "lines_en": 27,
-      "citations": 17,
+      "words_en": 225,
+      "lines_en": 22,
+      "citations": 16,
       "aux_shown": 0,
-      "human_cost": 71,
+      "human_cost": 66,
       "reproved": 3,
       "silent": 9,
       "pruned": 5,
@@ -1604,7 +1569,7 @@
       "steps": 7,
       "multi_fact_links": 0,
       "undirected_chains": 3,
-      "directed_chains": 1
+      "directed_chains": 0
     }
   }
 }

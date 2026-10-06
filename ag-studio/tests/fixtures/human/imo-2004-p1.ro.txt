@@ -19,9 +19,9 @@ Deci punctele F, N, B, A sunt conciclice. (2)
 
 6. Arătăm că punctele R, N, F, O sunt conciclice:
 
-∢RFN = ∢MBN    [F, N, B, A conciclice, din (2)]
-     = 180° − ½·∢MON    [unghiul la centru ∢MON = 2∢MBN]
-     = 180° − ∢RON    [OR este bisectoarea ∢MON]
+∢NFA = ∢NBA    [F, N, B, A conciclice, din (2)]
+     = ½·∢NOM    [unghiul înscris ∢MBN = 180° − ½∢MON]
+     = ∢NOR    [OR este bisectoarea ∢MON]
 
 Deci punctele R, N, F, O sunt conciclice. (6)
 

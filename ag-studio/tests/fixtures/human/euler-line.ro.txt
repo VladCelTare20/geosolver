@@ -1,6 +1,6 @@
-Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pasul 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
+Unghiurile notate ∢ sunt citite din figură. Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
 
-Ideea: este suficient să arătăm că AH ∥ OM și △AHG ∼ △MOG.
+Ideea: este suficient să arătăm că △AHG ∼ △MOG.
 
 1. G este centrul de greutate al triunghiului ABC ⇒ AG : GM = 2. (1)
 
@@ -30,9 +30,4 @@ MG / AG = 1 / 2    [AG : GM = 2, din (1)]
 
 Deci △AHG ∼ △MOG. (6)
 
-7. Arătăm că punctele O, G, H sunt coliniare:
-
-∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, din (6)]
-     = 0°    [AH ∥ OM, din (4)]
-
-Deci punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎
+7. △AHG ∼ △MOG, din (6) ⇒ punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎

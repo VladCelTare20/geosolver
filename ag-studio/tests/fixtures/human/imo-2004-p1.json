@@ -1659,10 +1659,10 @@
           {
             "kind": "chain",
             "terms": [
-              "∠RFN",
-              "∠MBN",
-              "180° − ½·∠MON",
-              "180° − ∠RON"
+              "∠NFA",
+              "∠NBA",
+              "½·∠NOM",
+              "∠NOR"
             ],
             "links": [
               {
@@ -1678,7 +1678,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   }
                 ]
               },
@@ -1691,13 +1691,14 @@
                       "O",
                       "M",
                       "N",
+                      "B",
                       "B"
                     ],
                     "stmt": {
                       "kind": "eq",
                       "args": [
-                        "∡MON",
-                        "2∡MBN"
+                        "∠MBN",
+                        "180° − ½·∠MON"
                       ],
                       "points": [
                         "B",
@@ -1713,7 +1714,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1/2"
+                    "coef": "1/2"
                   }
                 ]
               },
@@ -1741,7 +1742,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1/2"
+                    "coef": "1/2"
                   }
                 ]
               }
@@ -2188,7 +2189,7 @@
       "pure_chains": 4,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 386,
+      "words_en": 384,
       "lines_en": 28,
       "citations": 22,
       "aux_shown": 1,

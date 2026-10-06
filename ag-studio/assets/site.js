@@ -101,9 +101,9 @@
     return esc(tok);
   }
 
-  var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "∠": "sr.angle", "∢": "sr.angle", "∡": "sr.dangle" };
+  var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "≡": "sr.cong", "∠": "sr.angle", "∢": "sr.angle", "∡": "sr.dangle" };
   function spoken(html) {
-    return html.replace(/[⟂∥△∼≅∠∢∡]/g, function (c) {
+    return html.replace(/[⟂∥△∼≅≡∠∢∡]/g, function (c) {
       return '<span aria-hidden="true">' + c + '</span><span class="sr-only">' + esc(t(SPOKEN[c])) + "</span>";
     });
   }
@@ -138,7 +138,7 @@
       case "aconst": return g(0) + " = " + g(1) + "°";
       case "rconst": return g(0) + " : " + g(1) + " = " + g(2);
       case "simtri": return "△" + g(0) + " ∼ △" + g(1);
-      case "contri": return "△" + g(0) + " ≅ △" + g(1);
+      case "contri": return "△" + g(0) + (lang() === "ro" ? " ≡ △" : " ≅ △") + g(1);
       case "eqdist": return a.join(" = ");
       case "points": return a.join(", ");
       case "prose": return math(localNum(((lang() === "ro" && f.ro) || f.args || [])[0]), true);
