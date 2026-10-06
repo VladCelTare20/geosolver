@@ -2994,7 +2994,7 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
 /// allocation, `deduction_closure`'s O(n^3) search, and `compile`'s up-to-400
 /// re-sampling attempts all bounded well short of a memory/CPU exhaustion DoS
 /// from a crafted `.geo` program (see `Ddar::new_with_slack`, `engine.rs:194`).
-const MAX_POINTS: usize = 100;
+const MAX_POINTS: usize = crate::lowlevel::MAX_POINTS;
 
 /// Total point count declared across a parsed program — shared by every
 /// public entry point (`compile`, `build_instances`, `build_sampled_figure`) so

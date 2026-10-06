@@ -2474,6 +2474,50 @@ mod tests {
         assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
     }
 
+    #[tokio::test]
+    async fn oversized_low_level_input_is_rejected_before_the_engine_allocates() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "tobi").await;
+        let pts: Vec<String> = (0..420).map(|i| format!("p{i}@{}_{} = ", (i % 21) as f64 * 0.37, (i / 21) as f64 * 0.41)).collect();
+        let input = format!("{} ? cong p0 p1 p0 p2", pts.join("; "));
+        assert!(input.len() < 16384);
+        let start = std::time::Instant::now();
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "{:?}", start.elapsed());
+        assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
+        assert_eq!(body["diagnosis"]["key"], "too_many_points", "{body:?}");
+    }
+
+    #[tokio::test]
+    async fn malformed_low_level_input_gets_a_located_compile_error() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "ugo").await;
+        let cases = [
+            ("a@0_0 b@1_0 c@0_1 = foo a b ? coll a b c", "unknown_relation", 21),
+            ("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@2_2 = ? para a b", "arity", 41),
+            ("a@0_0 = ; b@1_0 = ; c@0_1 = coll a b c ? perp a b a c", "hyp_false", 29),
+            ("a@NaN_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c", "bad_coord", 1),
+        ];
+        for (input, key, col) in cases {
+            for best in [false, true] {
+                let (st, _, body) = call(
+                    &state,
+                    "POST",
+                    "/api/solve",
+                    Some(&cookie),
+                    serde_json::json!({"input": input, "best": best, "budget_secs": 3}),
+                )
+                .await;
+                assert_eq!(st, StatusCode::BAD_REQUEST, "{input}: {body:?}");
+                assert_eq!(body["code"], "compile", "{input}: {body:?}");
+                assert_eq!(body["diagnosis"]["key"], key, "{input}: {body:?}");
+                assert_eq!(body["diagnosis"]["line"], 1, "{input}: {body:?}");
+                assert_eq!(body["diagnosis"]["col"], col, "{input}: {body:?}");
+                assert!(!body["detail"].as_str().unwrap_or("").contains("panicked"), "{input}: {body:?}");
+            }
+        }
+    }
+
     /// Firing several adversarial and several valid solves concurrently must
     /// not let one request's failure affect another's success — each request
     /// gets its own `spawn_blocking` task and its own response.

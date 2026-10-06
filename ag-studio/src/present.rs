@@ -3470,6 +3470,14 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "unknown_relation"
     } else if starts("bad number") {
         "bad_number"
+    } else if starts("too many points") {
+        "too_many_points"
+    } else if starts("bad coordinate") {
+        "bad_coord"
+    } else if starts("malformed relation") {
+        "malformed"
+    } else if starts("hypothesis `") && msg.ends_with("does not hold at the given coordinates") {
+        "hyp_false"
     } else if starts("could not build") || msg == "no attempt" {
         "degenerate"
     } else if starts("empty program") {
@@ -3633,7 +3641,7 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     }
     let by_name = matches!(
         key,
-        "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "unknown_shape" | "arity" | "arity_min" | "redefined" | "bad_number"
+        "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "unknown_shape" | "arity" | "arity_min" | "redefined" | "bad_number" | "bad_coord" | "malformed" | "hyp_false"
     );
     d.token = if let Some((f, _, _)) = &arity {
         Some(f.clone())
@@ -3646,7 +3654,7 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     let code_of = |l: &str| l.split('#').next().unwrap_or("").to_string();
     let goal_line = || lines.iter().rposition(|l| code_of(l).trim_start().starts_with("prove"));
     let line_idx: Option<usize> = match key {
-        "degenerate" | "empty" | "no_goal" | "other" => None,
+        "degenerate" | "empty" | "no_goal" | "other" | "too_many_points" => None,
         "multiple_goals" => {
             let goals: Vec<usize> = lines
                 .iter()

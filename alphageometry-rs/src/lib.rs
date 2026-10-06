@@ -32,6 +32,7 @@ pub(crate) mod fingerprint;
 pub mod geo;
 pub mod human;
 pub mod lincomb;
+pub mod lowlevel;
 pub mod metric;
 pub mod numerics;
 pub mod predicate;

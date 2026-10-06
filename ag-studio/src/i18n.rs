@@ -192,6 +192,10 @@ fn en(key: &str) -> &'static str {
         "compile.point_one" => "“point:” defines exactly one point.",
         "compile.other" => "The program could not be compiled.",
         "compile.multiple_goals" => "Only one goal is allowed. Remove or comment out the extra prove line.",
+        "compile.too_many_points" => "The problem has too many points: GeoSolver supports at most 100 in one problem.",
+        "compile.bad_coord" => "The point “{tok}” needs finite coordinates, at most a million in size.",
+        "compile.malformed" => "“{tok}” has the wrong number of points or numbers for that relation.",
+        "compile.hyp_false" => "The hypothesis “{tok}” does not hold at the given coordinates, so the figure contradicts the problem. Correct the coordinates or the hypothesis.",
         // export report
         "report.verdict.proved" => "Proved",
         "report.verdict.refuted" => "The statement is false",
@@ -616,6 +620,10 @@ fn ro(key: &str) -> &'static str {
         "compile.point_one" => "„point:” definește exact un punct.",
         "compile.other" => "Programul nu a putut fi compilat.",
         "compile.multiple_goals" => "Este permisă o singură concluzie. Șterge rândul prove în plus sau transformă-\u{2060}l în comentariu.",
+        "compile.too_many_points" => "Problema are prea multe puncte: GeoSolver acceptă cel mult 100 într-o problemă.",
+        "compile.bad_coord" => "Punctul „{tok}” trebuie să aibă coordonate finite, cel mult un milion în valoare absolută.",
+        "compile.malformed" => "„{tok}” are un număr greșit de puncte sau de numere pentru această relație.",
+        "compile.hyp_false" => "Ipoteza „{tok}” nu este adevărată în coordonatele date, deci figura contrazice problema. Corectează coordonatele sau ipoteza.",
         // export report
         "report.verdict.proved" => "Demonstrat",
         "report.verdict.refuted" => "Afirmația este falsă",
