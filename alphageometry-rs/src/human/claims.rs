@@ -2287,28 +2287,45 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     fn route_drawn(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let w = self.w;
-        let mut form = target.clone();
-        form.alts.clear();
-        let _ = super::search::route_splits(w, &mut form);
-        let splits = super::search::undirected_splits(w, &form);
-        let g = self.drawn_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true));
         let weights: Vec<i64> = w
             .atoms
             .iter()
             .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
-        let found = g.search(cx, &splits, 1500, i64::MAX, &spent, &weights);
-        if std::env::var_os("HP_ROUTE").is_some() {
-            eprintln!("route_drawn {:?}: {} splits, found {:?}", form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
+        let degenerate = LinComb::singleton(crate::elimination::ANGLE_UNIT, Rat::new(1, 3));
+        let mut forms: Vec<Target> = std::iter::once(target.clone()).chain(target.alts.iter().cloned()).collect();
+        if let Stmt::Coll { pts } = &target.stmt {
+            if let Some((ts, _)) = super::classify::coll_targets(cx, pts, None) {
+                for t in ts {
+                    forms.extend(t.alts.iter().cloned());
+                    forms.push(t);
+                }
+            }
         }
-        let p = found?;
-        let saved = self.force_undirected;
-        self.force_undirected = true;
-        let s = self.path_sentences(&form, &p, h, then, focus, &[]);
-        self.force_undirected = saved;
-        let s = s?;
-        (s.iter().all(|x| self.chain_meets_target(x, target) && self.chain_gives_then(x)) && !s.iter().any(multiple_directed)).then_some(s)
+        for f in &forms {
+            let mut form = f.clone();
+            form.alts.clear();
+            let _ = super::search::route_splits(w, &mut form);
+            let splits: Vec<(LinComb, LinComb)> = super::search::undirected_splits(w, &form).into_iter().filter(|(l, r)| !(l.is_zero() && *r == degenerate)).collect();
+            if splits.is_empty() {
+                continue;
+            }
+            let found = self.drawn_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true)).search(cx, &splits, 2500, i64::MAX, &spent, &weights);
+            if std::env::var_os("HP_ROUTE").is_some() {
+                eprintln!("route_drawn {:?}: {} splits, found {:?}", form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
+            }
+            let Some(p) = found else { continue };
+            let saved = self.force_undirected;
+            self.force_undirected = true;
+            let s = self.path_sentences(&form, &p, h, then.clone(), focus, &[]);
+            self.force_undirected = saved;
+            let Some(s) = s else { continue };
+            if s.iter().all(|x| self.chain_meets_target(x, target) && self.chain_gives_then(x)) && !s.iter().any(multiple_directed) {
+                return Some(s);
+            }
+        }
+        None
     }
 
     fn chain_meets_target(&self, s: &Sentence, target: &Target) -> bool {
@@ -2837,6 +2854,22 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let pooled_here = s.iter().any(|x| matches!(x, Sentence::Pooled { .. }));
             if pooled_here || !s.iter().all(|x| self.chain_gives_then(x)) {
                 if let Some(r) = self.route_now(&part.target, h, then.clone(), &focus) {
+                    if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
+                        s = r;
+                    }
+                }
+            }
+            if part.target.table == Table::Angle && s.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
+                let saved = self.force_undirected;
+                self.force_undirected = true;
+                let (r, _, _) = self.chain_sentences(&part.target, &part.support, h, then.clone(), &focus);
+                self.force_undirected = saved;
+                if std::env::var_os("HP_ROUTE").is_some() {
+                    eprintln!("drawn chain for pooled part: pooled {}", r.iter().any(|x| matches!(x, Sentence::Pooled { .. })));
+                }
+                if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) && r.iter().all(|x| self.chain_gives_then(x)) {
+                    s = r;
+                } else if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
                     if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
                         s = r;
                     }

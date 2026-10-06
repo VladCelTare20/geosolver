@@ -31,6 +31,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| dedupe_restated(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| absorb_by_triangles(cx, blocks, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| restated_line_fact(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _, s| redisplay_drawn(cx, blocks, s));
     cut_long(cx, &mut ch, hp);
     lemma_steps(cx, &mut ch, hp);
@@ -365,8 +366,26 @@ fn absorb_by_triangles(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sente
     None
 }
 
+fn restated_line_fact(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain { terms, links, then: Some(st @ (Stmt::Para { .. } | Stmt::Perp { .. })), .. } = s else { return None };
+    let ([_, Expr::Const { degrees }], [l]) = (terms.as_slice(), links.as_slice()) else { return None };
+    if !degrees.is_zero() && *degrees != Rat::from_int(90) {
+        return None;
+    }
+    let [r] = l.reasons.as_slice() else { return None };
+    let rs = super::claims::reason_stmt(r)?;
+    let rows = check::stmt_targets(cx.t, st)?;
+    let rrows = check::stmt_targets(cx.t, rs)?;
+    let same = rows.len() == 1 && rrows.len() == 1 && (cx.quot.q(&cx.t.exact(Table::Angle, &rows[0].1)) == cx.quot.q(&cx.t.exact(Table::Angle, &rrows[0].1)) || cx.quot.q(&cx.t.exact(Table::Angle, &rows[0].1)) == cx.quot.q(&cx.t.exact(Table::Angle, &rrows[0].1)).negated());
+    if !same {
+        return None;
+    }
+    let _ = blocks;
+    Some(Sentence::Because { stmt: st.clone(), reasons: l.reasons.clone(), combination: l.combination.clone() })
+}
+
 fn chain_score(terms: &[Expr]) -> Option<i64> {
-    terms.iter().map(term_score).sum()
+    terms.iter().map(|e| term_score(e).filter(|s| *s < 4)).sum()
 }
 
 fn redisplay_drawn(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
