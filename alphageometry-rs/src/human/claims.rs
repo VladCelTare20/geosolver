@@ -959,17 +959,107 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
     }
 
+    fn radii_groups(&self, support: &[(usize, Rat)], h: FactId) -> BTreeMap<usize, (Reason, u16, Rat)> {
+        let cx = self.w.cx;
+        let t = cx.t;
+        let mut by_centre: BTreeMap<(AtomKey, PointId), Vec<(usize, PointId, PointId, Vec<u16>)>> = BTreeMap::new();
+        for (i, _) in support {
+            let a = &self.w.atoms[*i];
+            if a.cost == 0 {
+                continue;
+            }
+            let entry = match a.src {
+                AtomSrc::Hyp(f) if a.table == Table::Ratio => {
+                    let Stmt::Cong { s1, s2 } = fact_stmt(cx, f) else { continue };
+                    let shared: Vec<PointId> = [s1.0, s1.1].into_iter().filter(|p| *p == s2.0 || *p == s2.1).collect();
+                    let [o] = shared[..] else { continue };
+                    let p = if s1.0 == o { s1.1 } else { s1.0 };
+                    let q = if s2.0 == o { s2.1 } else { s2.0 };
+                    (AtomKey::Radii, o, p, q, Vec::new())
+                }
+                AtomSrc::Human(k @ (AtomKey::Radii | AtomKey::Isosceles)) if a.args.len() == 3 => {
+                    let Reason::Atom { from, .. } = self.atom_reason(a, h, false).0 else { continue };
+                    (k, a.args[0], a.args[1], a.args[2], from)
+                }
+                _ => continue,
+            };
+            let (k, o, p, q, from) = entry;
+            if p == q {
+                continue;
+            }
+            let v = by_centre.entry((k, o)).or_default();
+            if !v.iter().any(|x| x.0 == *i) {
+                v.push((*i, p, q, from));
+            }
+        }
+        let mut out = BTreeMap::new();
+        for ((k, o), members) in by_centre {
+            if members.len() < 2 {
+                continue;
+            }
+            let mut pts: Vec<PointId> = members.iter().flat_map(|m| [m.1, m.2]).collect();
+            pts.sort_unstable();
+            pts.dedup();
+            let mut args = vec![o];
+            args.extend(pts);
+            let n = args.len();
+            let mut found: Vec<(usize, u16, Rat)> = Vec::new();
+            let mut from: Vec<u16> = Vec::new();
+            for (i, p, q, f) in &members {
+                let (Some(ip), Some(iq)) = (args.iter().position(|x| x == p), args.iter().position(|x| x == q)) else { continue };
+                let (lo, hi) = (ip.min(iq), ip.max(iq));
+                let Some(rows) = super::check::check_rows(t, k, &[o, args[lo], args[hi]]) else { continue };
+                let Some((_, r)) = rows.first() else { continue };
+                let mut idx = 0u16;
+                for x in 1..n {
+                    for y in x + 1..n {
+                        if (x, y) == (lo, hi) {
+                            let row = &self.w.atoms[*i].row;
+                            let mut neg = r.clone();
+                            neg.mul_assign_scalar(&Rat::from_int(-1));
+                            if row == r {
+                                found.push((*i, idx, Rat::one()));
+                                from.extend(f.iter().copied());
+                            } else if *row == neg {
+                                found.push((*i, idx, Rat::from_int(-1)));
+                                from.extend(f.iter().copied());
+                            }
+                        }
+                        idx += 1;
+                    }
+                }
+            }
+            if found.len() < 2 {
+                continue;
+            }
+            from.sort_unstable();
+            from.dedup();
+            let reason = Reason::Atom { key: k, stmt: Stmt::Cong { s1: (o, args[1]), s2: (o, args[2]) }, args: args.clone(), from };
+            for (i, row, s) in found {
+                out.insert(i, (reason.clone(), row, s));
+            }
+        }
+        out
+    }
+
     fn reasons_for(&self, support: &[(usize, Rat)], h: FactId, collapse: bool) -> (Vec<Reason>, Vec<Term>) {
         let cx = self.w.cx;
         let mut reasons: Vec<Reason> = Vec::new();
         let mut terms: Vec<Term> = Vec::new();
         let mut extra: Vec<Reason> = Vec::new();
+        let merged = if collapse { self.radii_groups(support, h) } else { BTreeMap::new() };
         for (i, lam) in support {
             let a = &self.w.atoms[*i];
             if a.cost == 0 {
                 continue;
             }
-            let (r, row) = self.atom_reason(a, h, collapse);
+            let (r, row, coef) = match merged.get(i) {
+                Some((r, row, sign)) => (r.clone(), *row, lam * sign),
+                None => {
+                    let (r, row) = self.atom_reason(a, h, collapse);
+                    (r, row, lam.clone())
+                }
+            };
             let pos = match reasons.iter().position(|x| *x == r) {
                 Some(p) => p,
                 None => {
@@ -977,7 +1067,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     reasons.len() - 1
                 }
             };
-            terms.push(Term { reason: pos as u16, row, coef: lam.clone() });
+            terms.push(Term { reason: pos as u16, row, coef });
             if let AtomSrc::Human(_) = a.src {
                 for s in &a.sources {
                     if let Some(r) = self.inline.get(&cx.displayable(*s)) {
@@ -1379,10 +1469,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         None
     }
 
-    fn group_reasons(&self, group: &[(usize, Rat)], h: FactId, lem: &[LemmaRef]) -> (Vec<Reason>, Vec<Term>) {
+    fn group_reasons(&self, group: &[(usize, Rat)], h: FactId, lem: &[LemmaRef], collapse: bool) -> (Vec<Reason>, Vec<Term>) {
         let base = self.w.atoms.len();
         let atoms: Vec<(usize, Rat)> = group.iter().filter(|(i, _)| *i < base).cloned().collect();
-        let (mut rs, mut cs) = self.reasons_for(&atoms, h, false);
+        let (mut rs, mut cs) = self.reasons_for(&atoms, h, collapse);
         for (i, lam) in group.iter().filter(|(i, _)| *i >= base) {
             let lr = &lem[*i - base];
             rs.push(Reason::Lemma { stmt: lr.stmt.clone(), block: PENDING_BLOCK, sentence: lr.sentence as u16 });
@@ -1435,12 +1525,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         subsets.push(vec![a, b, c]);
                         for d in c + 1..n {
                             subsets.push(vec![a, b, c, d]);
-                            if n <= 10 {
-                                for e in d + 1..n {
-                                    subsets.push(vec![a, b, c, d, e]);
-                                }
-                            }
                         }
+                    }
+                }
+            }
+            if n <= 10 {
+                for m in 0u32..(1 << n) {
+                    let k = m.count_ones() as usize;
+                    if k >= 5 && k < n {
+                        subsets.push((0..n).filter(|&x| m & (1 << x) != 0).collect());
                     }
                 }
             }
@@ -1494,6 +1587,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         continue;
                     }
                     let Some(scale) = self.lemma_scale(table, &ea, &ee, &s) else { continue };
+                    if members.len() > 3 && self.cited(&members.iter().map(|&k| all[k].clone()).collect::<Vec<_>>(), h) > MAX_POOLED {
+                        continue;
+                    }
                     let size = if table == Table::Angle { 0 } else { 2 * (a.terms.len() + end.terms.len()) as i64 };
                     let cost = 3 * (expr_badness(&ea) + expr_badness(&ee)) + size - 4 * members.len() as i64;
                     if best.as_ref().is_none_or(|b| cost < b.0) {
@@ -1506,7 +1602,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
             let Some((_, members, sum, ea, ee, scale)) = best else { break };
             let group: Vec<(usize, Rat)> = members.iter().map(|&k| (all[k].0, all[k].1.clone())).collect();
-            let (reasons, combination) = self.group_reasons(&group, h, refs);
+            let (reasons, combination) = self.group_reasons(&group, h, refs, true);
             let stmt = if table == Table::Angle { Stmt::EqAngle { lhs: ea.clone(), rhs: ee.clone() } } else { Stmt::Eq { lhs: ea.clone(), rhs: ee.clone() } };
             let mut pts: Vec<PointId> = super::view::expr_points(&ea);
             pts.extend(super::view::expr_points(&ee));
@@ -1876,7 +1972,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut sentences = Vec::new();
         let mut links: Vec<Link> = Vec::new();
         for g in &p.links {
-            let (rs, cs) = self.group_reasons(g, h, lem);
+            let (rs, cs) = self.group_reasons(g, h, lem, false);
             links.push(Link { reasons: rs, combination: cs });
         }
         if half_at.is_none() && links.len() > LONG_CHAIN {
