@@ -539,8 +539,10 @@ fn redisplay_drawn(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence>
         }
     }
     let flipped: Option<Vec<Expr>> = terms.iter().map(supplement).collect();
+    let plain_ends = |ts: &[Expr]| usize::from(matches!(ts.first(), Some(Expr::Angle { .. }))) + usize::from(matches!(ts.last(), Some(Expr::Angle { .. })));
     if let Some(ft) = flipped {
-        if let Some(sc) = chain_score(&ft).filter(|sc| *sc < old && best.as_ref().is_none_or(|b| *sc < b.0)) {
+        let better_ends = plain_ends(&ft) > plain_ends(terms);
+        if let Some(sc) = chain_score(&ft).filter(|sc| (*sc < old || (*sc == old && better_ends)) && best.as_ref().is_none_or(|b| *sc < b.0)) {
             best = Some((sc, Sentence::Chain { terms: ft, links: links.iter().cloned().map(negate_link).collect(), then: then.clone(), directed: false }));
         }
     }

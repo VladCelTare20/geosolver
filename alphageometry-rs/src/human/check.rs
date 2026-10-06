@@ -214,6 +214,7 @@ pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
             residual_ok(cx, tb, &(&a - &b), &(&x - &y), directed)
         }
         Sentence::Because { stmt, .. } | Sentence::Pooled { stmt, .. } => stmt == st,
+        Sentence::Chain { then: Some(t2), .. } if matches!(st, Stmt::Coll { .. } | Stmt::Para { .. } | Stmt::Perp { .. }) => t2 == st,
         Sentence::Computation { terms, .. } => {
             let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
             terms.first() == Some(lhs) && terms.last() == Some(rhs)

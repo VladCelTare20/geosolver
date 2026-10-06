@@ -1,6 +1,6 @@
-Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5, 7 and 8, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
 
-Plan: it suffices to show that XA = XP and ∡IAP = ∡APX.
+Plan: it suffices to show that A, I, X are collinear.
 
 1. We show that NB = NC:
 
@@ -55,20 +55,23 @@ So T, P, E, D are concyclic. (5)
 
 Radii of Ω, so △OAX ≅ △OPX. Hence XA = XP. (6)
 
-7. We show that ∡IAP = ∡APX:
+7. We show that A, I, X are collinear:
 
-∡IAP = ∡NBP    [inscribed angles in Ω]
-     = ∡DBP + 90°    [NS is a diameter of Ω]
-     = ∡DLP + 90°    [P, L, D, B on ω₁]
-     = ∡(BC, LP) + 90°    [DL ∥ BC]
-     = ∡(AD, LP)    [AD ⟂ BC]
-     = ∡AEB + ∡BPX    [PX is tangent to ω₁ (tangent–chord angle)]
-     = ∡APX    [inscribed angles in Ω] (7)
+∡IAX = ∡SAX + 90°    [NS is a diameter of Ω]
+     = ∡PAX + ∡XBP + 90°    [inscribed angles in Ω]
+     = ∡PAX + ∡DPX + 90°    [PX is tangent to ω₁ (tangent–chord angle)]
+     = ∡DPA + 90°    [XA = XP: triangle XAP is isosceles, by (6)]
+     = ∡BEA + ∡DPB + 90°    [inscribed angles in Ω]
+     = ∡LDA + 90°    [inscribed angles in ω₁]
+     = ∡(BC, AD) + 90°    [DL ∥ BC]
+     = 0°    [AD ⟂ BC]
+
+So A, I, X are collinear. (7)
 
 8. We show that AX bisects ∠BAC:
 
-∡BAX = 2∡IAC + ∡CAX    [AI bisects ∠BAC]
-     = ∡XAC + 2∡IAP + 2∡XPA    [XA = XP: triangle XAP is isosceles, by (6)]
-     = ∡XAC    [by (7)]
+180° − ∠BAX = ∠BAI    [A, I, X collinear, by (7)]
+            = ∠IAC    [AI bisects ∠BAC]
+            = 180° − ∠XAC    [A, I, X collinear, by (7)]
 
-Hence AX bisects ∠BAC, as required. ∎
+So AX bisects ∠BAC, as required. ∎

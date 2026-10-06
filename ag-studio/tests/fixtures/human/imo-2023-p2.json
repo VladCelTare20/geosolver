@@ -1299,8 +1299,7 @@
         "kind": "directed_steps",
         "steps": [
           5,
-          7,
-          8
+          7
         ]
       },
       {
@@ -2616,15 +2615,15 @@
         "kind": "step",
         "n": null,
         "stmt": {
-          "kind": "eqangle",
+          "kind": "coll",
           "args": [
-            "∡IAP",
-            "∡APX"
+            "A",
+            "I",
+            "X"
           ],
           "points": [
             "A",
             "I",
-            "P",
             "X"
           ]
         },
@@ -2632,16 +2631,51 @@
           {
             "kind": "chain",
             "terms": [
-              "∡IAP",
-              "∡NBP",
-              "∡DBP + 90°",
-              "∡DLP + 90°",
-              "∡(BC, LP) + 90°",
-              "∡(AD, LP)",
-              "∡AEB + ∡BPX",
-              "∡APX"
+              "∡IAX",
+              "∡SAX + 90°",
+              "∡PAX + ∡XBP + 90°",
+              "∡PAX + ∡DPX + 90°",
+              "∡DPA + 90°",
+              "∡BEA + ∡DPB + 90°",
+              "∡LDA + 90°",
+              "∡(BC, AD) + 90°",
+              "0°"
             ],
             "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "thales",
+                    "args": [
+                      "N",
+                      "S",
+                      "A",
+                      "O"
+                    ],
+                    "stmt": {
+                      "kind": "aconst",
+                      "args": [
+                        "∠NAS",
+                        "90"
+                      ],
+                      "points": [
+                        "A",
+                        "N",
+                        "S"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
               {
                 "reasons": [
                   {
@@ -2650,7 +2684,7 @@
                     "args": [
                       "A",
                       "B",
-                      "N",
+                      "S",
                       "P"
                     ],
                     "stmt": {
@@ -2658,13 +2692,13 @@
                       "args": [
                         "A",
                         "B",
-                        "N",
+                        "S",
                         "P"
                       ],
                       "points": [
                         "A",
                         "B",
-                        "N",
+                        "S",
                         "P"
                       ]
                     },
@@ -2684,26 +2718,28 @@
                 "reasons": [
                   {
                     "kind": "atom",
-                    "key": "thales",
+                    "key": "tangent_chord",
                     "args": [
-                      "N",
-                      "S",
+                      "P",
+                      "X",
                       "B",
-                      "O"
+                      "D",
+                      "O₁"
                     ],
                     "stmt": {
-                      "kind": "aconst",
+                      "kind": "tangent",
                       "args": [
-                        "∠NBS",
-                        "90"
+                        "PX",
+                        "P",
+                        "O₁"
                       ],
                       "points": [
-                        "B",
-                        "N",
-                        "S"
+                        "P",
+                        "X"
                       ]
                     },
-                    "from": []
+                    "from": [],
+                    "circle": "ω₁"
                   }
                 ],
                 "combination": [
@@ -2717,22 +2753,28 @@
               {
                 "reasons": [
                   {
-                    "kind": "cyclic",
+                    "kind": "atom",
+                    "key": "isosceles",
                     "args": [
-                      "P",
-                      "L",
-                      "D",
-                      "B"
-                    ],
-                    "points": [
-                      "B",
-                      "D",
-                      "L",
+                      "X",
+                      "A",
                       "P"
                     ],
-                    "step": 17,
-                    "block": null,
-                    "because": []
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "XA",
+                        "XP"
+                      ],
+                      "points": [
+                        "A",
+                        "P",
+                        "X"
+                      ]
+                    },
+                    "from": [
+                      6
+                    ]
                   }
                 ],
                 "combination": [
@@ -2740,6 +2782,82 @@
                     "reason": 0,
                     "row": 0,
                     "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "inscribed",
+                    "args": [
+                      "A",
+                      "B",
+                      "E",
+                      "P"
+                    ],
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "A",
+                        "B",
+                        "E",
+                        "P"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "E",
+                        "P"
+                      ]
+                    },
+                    "from": [],
+                    "circle": "Ω"
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "inscribed",
+                    "args": [
+                      "B",
+                      "D",
+                      "L",
+                      "P"
+                    ],
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "B",
+                        "D",
+                        "L",
+                        "P"
+                      ],
+                      "points": [
+                        "B",
+                        "D",
+                        "L",
+                        "P"
+                      ]
+                    },
+                    "from": [],
+                    "circle": "ω₁"
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
                   }
                 ]
               },
@@ -2798,83 +2916,21 @@
                     "coef": "1"
                   }
                 ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "tangent_chord",
-                    "args": [
-                      "P",
-                      "X",
-                      "B",
-                      "L",
-                      "O₁"
-                    ],
-                    "stmt": {
-                      "kind": "tangent",
-                      "args": [
-                        "PX",
-                        "P",
-                        "O₁"
-                      ],
-                      "points": [
-                        "P",
-                        "X"
-                      ]
-                    },
-                    "from": [],
-                    "circle": "ω₁"
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "inscribed",
-                    "args": [
-                      "A",
-                      "B",
-                      "E",
-                      "P"
-                    ],
-                    "stmt": {
-                      "kind": "cyclic",
-                      "args": [
-                        "A",
-                        "B",
-                        "E",
-                        "P"
-                      ],
-                      "points": [
-                        "A",
-                        "B",
-                        "E",
-                        "P"
-                      ]
-                    },
-                    "from": [],
-                    "circle": "Ω"
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1"
-                  }
-                ]
               }
             ],
-            "then": null,
+            "then": {
+              "kind": "coll",
+              "args": [
+                "A",
+                "I",
+                "X"
+              ],
+              "points": [
+                "A",
+                "I",
+                "X"
+              ]
+            },
             "directed": true
           }
         ],
@@ -2921,12 +2977,41 @@
           {
             "kind": "chain",
             "terms": [
-              "∡BAX",
-              "2∡IAC + ∡CAX",
-              "∡XAC + 2∡IAP + 2∡XPA",
-              "∡XAC"
+              "180° − ∠BAX",
+              "∠BAI",
+              "∠IAC",
+              "180° − ∠XAC"
             ],
             "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "coll",
+                    "args": [
+                      "A",
+                      "I",
+                      "X"
+                    ],
+                    "points": [
+                      "A",
+                      "I",
+                      "X"
+                    ],
+                    "step": null,
+                    "block": 7,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
               {
                 "reasons": [
                   {
@@ -2958,50 +3043,15 @@
               {
                 "reasons": [
                   {
-                    "kind": "atom",
-                    "key": "isosceles",
+                    "kind": "coll",
                     "args": [
-                      "X",
                       "A",
-                      "P"
-                    ],
-                    "stmt": {
-                      "kind": "cong",
-                      "args": [
-                        "XA",
-                        "XP"
-                      ],
-                      "points": [
-                        "A",
-                        "P",
-                        "X"
-                      ]
-                    },
-                    "from": [
-                      6
-                    ]
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "-2"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "eqangle",
-                    "args": [
-                      "∡IAP",
-                      "∡APX"
+                      "I",
+                      "X"
                     ],
                     "points": [
                       "A",
                       "I",
-                      "P",
                       "X"
                     ],
                     "step": null,
@@ -3015,7 +3065,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "2"
+                    "coef": "-1"
                   }
                 ]
               }
@@ -3033,7 +3083,7 @@
                 "X"
               ]
             },
-            "directed": true
+            "directed": false
           }
         ],
         "engine_steps": [
@@ -3051,7 +3101,6 @@
       }
     ],
     "plan": [
-      6,
       7
     ],
     "goal": {
@@ -3072,16 +3121,16 @@
       "blocks": 8,
       "claims": 4,
       "sentences": 11,
-      "chain_links": 36,
+      "chain_links": 37,
       "chains": 7,
       "pure_chains": 4,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 554,
-      "lines_en": 56,
-      "citations": 39,
+      "words_en": 577,
+      "lines_en": 58,
+      "citations": 40,
       "aux_shown": 0,
-      "human_cost": 155,
+      "human_cost": 157,
       "reproved": 4,
       "silent": 24,
       "pruned": 3,
@@ -3090,11 +3139,11 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 1,
-      "theorem_steps": 5,
+      "theorem_steps": 4,
       "steps": 8,
       "multi_fact_links": 1,
-      "undirected_chains": 4,
-      "directed_chains": 3
+      "undirected_chains": 5,
+      "directed_chains": 2
     }
   }
 }
