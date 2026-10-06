@@ -1,13 +1,34 @@
-∡ notează unghiuri orientate modulo 180°. Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
+Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
 
-Afirmația 1. △AHB ∼ △MON.
+Ideea: este suficient să arătăm că △AHG ∼ △MOG.
 
-Demonstrație. ∡HAB = ∡(AH, MN) = ∡OMN (MN este linie mijlocie în △ABC; AH ∥ OM, ambele ⟂ BC). ∡ABH = ∡(MN, BH) = ∡MNO (MN este linie mijlocie în △ABC; BH ∥ ON, ambele ⟂ AC). Deci △AHB ∼ △MON.
+1. OB = OC și MB = MC ⇒ OM este mediatoarea segmentului BC ⇒ OM ⟂ BC. (1)
 
-∡HAG = ∡OMG (AH ∥ OM, ambele ⟂ BC). Din figură, AH / AG = AH·MN / (AB·MG) = MO / MG (teorema lui Thales, AB ∥ MN, MN este linie mijlocie în △ABC; Afirmația 1). Deci △AHG ∼ △MOG.
+2. M și N sunt mijloacele segmentelor CB și CA ⇒ MN este linie mijlocie în △CBA ⇒ MN ∥ BA. (2)
 
-∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG]
+3. AH ⟂ BC și OM ⟂ BC ⇒ AH ∥ OM. (3)
+
+4. Arătăm că △AHB ∼ △MON:
+
+∡HAB = ∡(AH, MN)    [MN ∥ BA, din (2)]
+     = ∡OMN    [AH ∥ OM, din (3)]
+
+∡ABH = ∡(MN, BH)    [MN ∥ BA, din (2)]
+     = ∡MNO    [BH ∥ ON, ambele ⟂ AC]
+
+Deci △AHB ∼ △MON. (4)
+
+5. AH ∥ OM, din (3) ⇒ ∢HAG = ∢OMG.
+
+AH / AG = AH·MN / (AB·MG)    [teorema lui Thales, AB ∥ MN; MN ∥ BA, din (2)]
+        = MO / MG    [△AHB ∼ △MON, din (4)]
+
+Deci △AHG ∼ △MOG. (5)
+
+6. Arătăm că punctele O, G, H sunt coliniare:
+
+∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, din (5)]
      = ∡OMB + 90°    [AH ⟂ BC]
-     = 0°    [OM este mediatoarea segmentului BC]
+     = 0°    [OM ⟂ BC, din (1)]
 
-deci punctele O, G, H sunt coliniare. ∎
+Deci punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎

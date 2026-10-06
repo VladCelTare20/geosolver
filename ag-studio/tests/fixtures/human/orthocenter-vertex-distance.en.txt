@@ -1,14 +1,50 @@
-Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius. Angles written ∠ are undirected and read as drawn.
+Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius.
 
-AH = 2·BH·cos A·sin B / sin∠COA    [cos A = sin∠ABH (BH ⟂ AC), law of sines in △ABH, sin∠COA = 2·sin∠BAH·cos∠BAH (AH ⟂ BC; central angle ∠AOC = 2∠ABC), cos∠BAH = sin B (AH ⟂ BC)]
-   = 2·AC·BH·sin A·cos A / (BC·sin∠COA)    [law of sines in △ABC]
-   = 2R·BH·sin A·cos A / (BC·sin∠OCA)    [law of sines in △ACO]
-   = 2R·cos A    [law of sines in △BCH, sin A = sin∠CHB (BH ⟂ AC; CH ⟂ AB, the altitudes concur), sin∠ACO = sin∠BCH (OA = OC; central angle ∠AOC = 2∠ABC; CH ⟂ AB, the altitudes concur)]
+Plan: it suffices to show that AH = 2R·cos A and MaO = R·cos A.
 
-MaO = R·sin∠BOA·sin∠OCB / (2·sin C·sin∠OAB)    [∠OMaB = 90° (OMa is the perpendicular bisector of BC), OA = OB, law of sines in △BOMa, sin∠BCO = sin∠MaBO (OB = OC), cos C = sin∠OAB (central angle ∠AOB = 2∠ACB; OA = OB), sin∠BOA = 2·sin C·cos C (central angle ∠AOB = 2∠ACB)]
-    = AB·sin∠OBA·sin∠OCB / (2·sin C·sin∠OAB)    [law of sines in △ABO]
-    = BC·sin∠OBA·sin∠OCB / (2·sin A·sin∠OAB)    [law of sines in △ABC]
-    = BC·sin∠OCB / (2·sin A)    [law of sines in △ABO]
-    = R·cos A    [law of sines in △BCO, sin∠COB = 2·sin A·cos A (central angle ∠BOC = 2∠BAC)]
+1. The altitudes of △ABC meet at H, so CH ⟂ AB. (1)
 
-AH : MaO = 2 (AH = 2R·cos A and MaO = R·cos A, shown above). ∎
+2. OB = OC and MaB = MaC, so OMa is the perpendicular bisector of BC; hence OMa ⟂ BC. (2)
+
+3. We show that AC = 2R·sin B:
+
+AC = AB·sin B / sin C    [law of sines in △ABC]
+   = 2·AB·sin B·cos C / sin∠BOA    [sin∠BOA = 2·sin C·cos C (central angle ∠AOB = 2∠ACB)]
+   = 2·AB·sin B·sin∠OAB / sin∠BOA    [cos C = sin∠OAB (central angle ∠AOB = 2∠ACB; OA = OB: triangle OAB is isosceles)]
+   = 2·AB·sin B·sin∠OBA / sin∠BOA    [law of sines in △ABO; OA = OB]
+   = 2R·sin B    [law of sines in △ABO] (3)
+
+4. We show that BH = 2R·sin∠HCB:
+
+BH = BC·sin∠HCB / sin∠CHB    [law of sines in △BCH]
+   = BC·sin∠HCB / sin A    [sin A = sin∠CHB (BH ⟂ AC; CH ⟂ AB, by (1))]
+   = AC·sin∠HCB / sin B    [law of sines in △ABC]
+   = 2R·sin∠HCB    [by (3)] (4)
+
+5. We show that AH = 2R·cos A:
+
+AH = BH·sin∠HBA / sin∠HAB    [law of sines in △ABH]
+   = BH·cos A / sin∠HAB    [cos A = sin∠ABH (BH ⟂ AC)]
+   = 2·BH·cos A·cos∠HAB / sin∠COA    [sin∠COA = 2·sin∠BAH·cos∠BAH (AH ⟂ BC; central angle ∠AOC = 2∠ABC)]
+   = 2·BH·cos A·sin B / sin∠COA    [cos∠BAH = sin B (AH ⟂ BC)]
+   = AC·BH·cos A / (R·sin∠COA)    [by (3)]
+   = BH·cos A / sin∠OCA    [law of sines in △ACO]
+   = BH·cos A / sin∠HCB    [sin∠ACO = sin∠BCH (OA = OC: triangle OAC is isosceles; central angle ∠AOC = 2∠ABC; CH ⟂ AB, by (1))]
+   = 2R·cos A    [by (4)] (5)
+
+6. We show that BC = 2R·sin A:
+
+BC = AC·sin A / sin B    [law of sines in △ABC]
+   = 2R·sin A    [by (3)] (6)
+
+7. We show that MaO = R·cos A:
+
+MaO = BMa·sin∠MaBO / sin∠MaOB    [law of sines in △BOMa]
+    = R·sin∠MaBO / sin∠OMaB    [law of sines in △BOMa]
+    = R·sin∠MaBO    [∠OMaB = 90° (OMa ⟂ BC, by (2))]
+    = R·sin∠OCB    [sin∠BCO = sin∠MaBO (OB = OC: triangle OBC is isosceles); OA = OB]
+    = R²·sin∠COB / BC    [law of sines in △BCO; OA = OB]
+    = R·sin∠COB / (2·sin A)    [by (6)]
+    = R·cos A    [sin∠COB = 2·sin A·cos A (central angle ∠BOC = 2∠BAC)] (7)
+
+8. AH = 2R·cos A, by (5) and MaO = R·cos A, by (7), so AH : MaO = 2, as required. ∎

@@ -600,7 +600,14 @@
       });
       return out;
     }
-    function linkNote(l) { return texts(l.reasons, "n").join("; "); }
+    function linkNote(l) {
+      var rs = l.reasons || [];
+      if (rs.length === 1 && rs[0].lemma && (rs[0].kind === "eq" || rs[0].kind === "eqangle")) {
+        var by1 = byList([rs[0].block]);
+        if (by1) return by1;
+      }
+      return texts(rs, "n").join("; ");
+    }
     function register(rs) {
       links.push(lightOf(rs));
       return links.length - 1;

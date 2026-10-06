@@ -1056,6 +1056,13 @@ impl Cx<'_> {
     }
 
     fn link_note(&self, l: &Link) -> String {
+        if let [Reason::Lemma { stmt, block, .. }] = l.reasons.as_slice() {
+            if stmt.kind == "eq" || stmt.kind == "eqangle" {
+                if let Some(by) = self.by_list(&[*block]) {
+                    return by;
+                }
+            }
+        }
         self.texts(&l.reasons, Ctx::Note).join("; ")
     }
 }
@@ -2118,10 +2125,13 @@ pub mod tests {
             let f = load(name);
             let en = text(&f.human, &f.view, Lang::En);
             for b in &f.human.blocks {
-                if b.kind == BlockKind::Claim {
-                    assert!(en.contains(&format!("Claim {}.", b.n.unwrap())), "{name}: Claim {:?}", b.n);
-                }
+                assert!(en.contains(&format!("{}. ", b.step)), "{name}: step {} is not numbered", b.step);
                 for s in &b.body {
+                    if let Sentence::Chain { terms, links, then: Some(st), .. } = s {
+                        if links.len() == 1 && st.kind == "coll" && terms.last().is_some_and(|t| t == "0\u{b0}") {
+                            continue;
+                        }
+                    }
                     if let Sentence::Chain { terms, .. } | Sentence::Computation { terms, .. } = s {
                         for t in terms {
                             assert!(en.contains(t.as_str()), "{name}: chain term {t:?} missing from\n{en}");
@@ -2233,8 +2243,8 @@ pub mod tests {
         let mut h = one_block(vec![own, used], vec![]);
         h.blocks[0].stmt = cong;
         let t = text(&h, &json!({"points": [], "aux": [], "proof": {"steps": []}}), Lang::En);
-        assert!(!t.contains("\u{25b3}OBF \u{2245} \u{25b3}ONF (\u{25b3}OBF \u{2245} \u{25b3}ONF)") && !t.starts_with("\u{25b3}OBF"), "{t}");
-        assert!(t.contains("FO bisects \u{2220}BFN (\u{25b3}OBF \u{2245} \u{25b3}ONF)"), "{t}");
+        assert!(!t.contains("\u{25b3}OBF \u{2245} \u{25b3}ONF, so \u{25b3}OBF \u{2245} \u{25b3}ONF") && !t.contains("\u{25b3}OBF \u{2245} \u{25b3}ONF (\u{25b3}OBF \u{2245} \u{25b3}ONF)"), "{t}");
+        assert!(t.contains("\u{25b3}OBF \u{2245} \u{25b3}ONF, so FO bisects \u{2220}BFN"), "{t}");
     }
 
     #[test]
@@ -2431,8 +2441,8 @@ pub mod tests {
             "the point such that ABC",
             "the midpoint of arc BC of Ω",
             "antipode of A on Ω",
-            "∡DEG = ∡DFG, shown above",
-            "∡ABX = ∡XCA, shown in the proof of Claim 1",
+            "[∡DEG = ∡DFG]",
+            "∡ABX = ∡XCA, by (1)",
             "QD = QE = QF = QG",
             "radii of Ω",
             "HA = HB = HC",
@@ -2441,13 +2451,13 @@ pub mod tests {
             "D, E, F, G on ω₁",
             "Apply the law of sines in △ABC.",
             "Apply the law of sines in △DEF (DE ⟂ EF).",
-            "[law of sines in △ABC, sin∠AXB = sin C]",
-            "∡EDF = ∡EGF (D, E, F, G on ω₁).",
+            "[law of sines in △ABC; sin∠AXB = sin C]",
+            "D, E, F, G on ω₁, so ∡EDF = ∡EGF.",
         ] {
             assert!(en.contains(want), "{want:?} missing from\n{en}");
         }
         let ro = text(&h, &view, Lang::Ro);
-        for want in ["teorema sinusurilor în △ABC", ", arătată mai sus", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
+        for want in ["teorema sinusurilor în △ABC", "∡ABX = ∡XCA, din (1)", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
             assert!(ro.contains(want), "{want:?} missing from\n{ro}");
         }
         let path = dir().join("synthetic-wording.json");

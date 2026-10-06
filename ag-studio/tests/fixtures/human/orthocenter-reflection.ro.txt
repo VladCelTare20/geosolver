@@ -1,10 +1,14 @@
-∡ notează unghiuri orientate modulo 180°.
+Unghiurile notate ∢ sunt citite din figură.
 
-∡AHK = 0° (AH ∥ HK, ambele ⟂ BC), deci punctele H, A, K sunt coliniare.
+1. BH = BK și CH = CK ⇒ BC este mediatoarea segmentului HK ⇒ BC ⟂ HK. (1)
 
-∡ACB = ∡HBC + 90°    [BH ⟂ AC]
-     = ∡BHK    [BC este mediatoarea segmentului HK]
-     = ∡HKB    [BH = BK]
-     = ∡AKB    [H, A, K coliniare]
+2. AH ∥ HK, ambele ⟂ BC ⇒ punctele H, A, K sunt coliniare. (2)
 
-deci punctele A, B, C, K sunt conciclice. ∎
+3. Arătăm că punctele A, B, C, K sunt conciclice:
+
+∢C = ∢HBC − 90°    [BH ⟂ AC]
+   = ∢BHK    [BC ⟂ HK, din (1)]
+   = ∢HKB    [BH = BK]
+   = ∢AKB    [H, A, K coliniare, din (2)]
+
+Deci punctele A, B, C, K sunt conciclice, ceea ce trebuia demonstrat. ∎

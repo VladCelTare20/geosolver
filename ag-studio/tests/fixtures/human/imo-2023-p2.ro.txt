@@ -1,66 +1,82 @@
-∡ notează unghiuri orientate modulo 180°. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
+Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
 
-Afirmația 1. Punctele T, E, S, O sunt conciclice.
+Ideea: este suficient să arătăm că XA = XP și 2∡IAP = 2∡APX.
 
-Demonstrație.
+1. OB = OC și NB = NC ⇒ ON este mediatoarea segmentului BC ⇒ ON ⟂ BC. (1)
 
-∡STO = ∡SBE + 90°    [OT ⟂ BE]
-     = ∡SNE + 90°    [unghiuri înscrise în Ω]
-     = ∡OSE    [NS este diametru al cercului Ω]
-     = ∡SEO    [unghi la centru în Ω]
+2. Arătăm că punctele T, E, S, O sunt conciclice:
 
-deci punctele T, E, S, O sunt conciclice.
+∢OTS = 90° − ∢EBS    [OT ⟂ BE]
+     = 90° − ∢ENS    [unghiuri înscrise în Ω]
+     = ∢ESO    [NS este diametru al cercului Ω]
+     = ∢OES    [unghi la centru în Ω]
 
-Afirmația 2. Punctele T, P, X, O sunt conciclice.
+Deci punctele T, E, S, O sunt conciclice. (2)
 
-Demonstrație.
+3. Arătăm că punctele T, P, X, O sunt conciclice:
 
-∡TXP = ∡XBP + ∡BDP    [PX tangentă la ω₁]
+∡TXP = ∡XBP + ∡BDP    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
      = 2∡SAP + ∡BPD    [unghiuri înscrise în Ω]
-     = ∡BPD + ∡NOP    [ON = OP, unghiuri înscrise în Ω]
+     = ∡BPD + 2∡ONP    [unghiuri înscrise în Ω]
+     = ∡BPD + ∡NOP    [ON = OP]
      = ∡BLD + ∡NOP    [unghiuri înscrise în ω₁]
      = ∡LBC + ∡NOP    [DL ∥ BC]
-     = ∡(BE, OP) + 90°    [ON este mediatoarea segmentului BC, NB = NC (unghiuri înscrise în Ω; AI este bisectoarea ∠BAC; N, C, B, A pe Ω)]
+     = ∡(BE, OP) + 90°    [ON ⟂ BC, din (1); NB = NC (unghiuri înscrise în Ω; AI este bisectoarea ∢BAC; N, C, B, A pe Ω)]
      = ∡TOP    [OT ⟂ BE]
 
-deci punctele T, P, X, O sunt conciclice.
+Deci punctele T, P, X, O sunt conciclice. (3)
 
-Afirmația 3. Punctele T, P, E, D sunt conciclice.
+4. Arătăm că punctele T, P, E, D sunt conciclice:
 
-Demonstrație.
-
-∡ETD = ∡EON    [Afirmația 1]
-     = ∡(OE, BC) + 90°    [ON este mediatoarea segmentului BC, NB = NC (unghiuri înscrise în Ω; AI este bisectoarea ∠BAC; N, C, B, A pe Ω)]
+∡ETD = ∡EON    [T, E, S, O conciclice, din (2)]
+     = ∡(OE, BC) + 90°    [ON ⟂ BC, din (1); NB = NC (unghiuri înscrise în Ω; AI este bisectoarea ∢BAC; N, C, B, A pe Ω)]
      = ∡(OE, DL) + 90°    [DL ∥ BC]
      = ∡OEB + ∡BPD + 90°    [unghiuri înscrise în ω₁]
      = ∡OEA + ∡APD + 90°    [unghiuri înscrise în Ω]
-     = ∡EPD    [OA = OE, unghi la centru în Ω]
+     = ½·∡EOA + ∡APD + 90°    [OA = OE]
+     = ∡EPD    [unghi la centru în Ω]
 
-deci punctele T, P, E, D sunt conciclice.
+Deci punctele T, P, E, D sunt conciclice. (4)
 
-Afirmația 4. XA = XP.
-
-Demonstrație.
+5. Arătăm că 2∡PSO = 2∡XPD:
 
 2∡PSO = 2∡PNS    [NS este diametru al cercului Ω]
       = 2∡PAS    [unghiuri înscrise în Ω]
       = 2∡PBX    [unghiuri înscrise în Ω]
-      = 2∡XPD    [PX tangentă la ω₁]
+      = 2∡XPD    [PX tangentă la ω₁: unghiul dintre tangentă și coardă] (5)
+
+6. Arătăm că 2∡APX = 2∡OTP:
 
 2∡APX = 2∡AES + 2∡SPX    [unghiuri înscrise în Ω]
-      = 2∡EDP + 2∡OTE    [Afirmația 1, 2∡PSO = 2∡XPD, arătată mai sus]
-      = 2∡OTP    [Afirmația 3]
+      = 2∡ADP + 2∡OSE    [din (5)]
+      = 2∡EDP + 2∡OTE    [T, E, S, O conciclice, din (2)]
+      = 2∡OTP    [T, P, E, D conciclice, din (4)] (6)
 
-∡AOX = 2∡APO + ∡POX = ∡XOP (OA = OP; Afirmația 2, 2∡APX = 2∡OTP, arătată mai sus). △OAX ≅ △OPX (raze în Ω). Deci XA = XP.
+7. Arătăm că XA = XP:
+
+180° − ∢XOA = 2∢OPA + ∢XOP    [OA = OP]
+            = 180° − ∢POX    [T, P, X, O conciclice, din (3); 2∡APX = 2∡OTP, din (6)]
+
+Raze în Ω ⇒ △OAX ≅ △OPX. Deci XA = XP. (7)
+
+8. Arătăm că 2∡BCA = 2∡BPD:
 
 2∡BCA = 2∡EAC    [AD ⟂ BC]
       = 2∡LBC    [unghiuri înscrise în Ω]
       = 2∡BLD    [DL ∥ BC]
-      = 2∡BPD    [unghiuri înscrise în ω₁]
+      = 2∡BPD    [unghiuri înscrise în ω₁] (8)
+
+9. Arătăm că 2∡IAP = 2∡APX:
 
 2∡IAP = 2∡SAP    [NS este diametru al cercului Ω]
       = 2∡CAP + 2∡DBC    [unghiuri înscrise în Ω]
-      = 2∡APB + 2∡BDP    [unghiuri înscrise în Ω, 2∡BCA = 2∡BPD, arătată mai sus]
-      = 2∡APX    [PX tangentă la ω₁]
+      = 2∡PAC + 2∡CBP + 2∡DBP    [unghiuri înscrise în Ω]
+      = 2∡APB + 2∡BDP    [din (8)]
+      = 2∡APX    [PX tangentă la ω₁: unghiul dintre tangentă și coardă] (9)
 
-∡BAX = 2∡IAC + ∡CAX = ∡XAC (AI este bisectoarea ∠BAC; XA = XP (Afirmația 4), 2∡IAP = 2∡APX, arătată mai sus). ∎
+10. Arătăm că AX este bisectoarea unghiului BAC:
+
+∢BAX = ∢IAC + ∢IAX    [AI este bisectoarea ∢BAC]
+     = ∢XAC    [XA = XP: ΔXAP isoscel, din (7); 2∡IAP = 2∡APX, din (9)]
+
+Deci AX este bisectoarea unghiului BAC, ceea ce trebuia demonstrat. ∎

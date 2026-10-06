@@ -1,13 +1,34 @@
-∡ denotes directed angles modulo 180°. Let M be the midpoint of BC. Let N be the midpoint of AC.
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Let M be the midpoint of BC. Let N be the midpoint of AC.
 
-Claim 1. △AHB ∼ △MON.
+Plan: it suffices to show that △AHG ∼ △MOG.
 
-Proof. ∡HAB = ∡(AH, MN) = ∡OMN (MN is a midline of △ABC; AH ∥ OM, both ⟂ BC). ∡ABH = ∡(MN, BH) = ∡MNO (MN is a midline of △ABC; BH ∥ ON, both ⟂ AC). Hence △AHB ∼ △MON.
+1. OB = OC and MB = MC, so OM is the perpendicular bisector of BC; hence OM ⟂ BC. (1)
 
-∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). As drawn, AH / AG = AH·MN / (AB·MG) = MO / MG (intercept theorem, AB ∥ MN, MN is a midline of △ABC; Claim 1). Hence △AHG ∼ △MOG.
+2. M and N are the midpoints of CB and CA, so MN is a midline of △CBA; hence MN ∥ BA. (2)
 
-∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG]
+3. AH ⟂ BC and OM ⟂ BC, so AH ∥ OM. (3)
+
+4. We show that △AHB ∼ △MON:
+
+∡HAB = ∡(AH, MN)    [MN ∥ BA, by (2)]
+     = ∡OMN    [AH ∥ OM, by (3)]
+
+∡ABH = ∡(MN, BH)    [MN ∥ BA, by (2)]
+     = ∡MNO    [BH ∥ ON, both ⟂ AC]
+
+Hence △AHB ∼ △MON. (4)
+
+5. AH ∥ OM, by (3), so ∠HAG = ∠OMG.
+
+AH / AG = AH·MN / (AB·MG)    [intercept theorem, AB ∥ MN; MN ∥ BA, by (2)]
+        = MO / MG    [△AHB ∼ △MON, by (4)]
+
+Hence △AHG ∼ △MOG. (5)
+
+6. We show that O, G, H are collinear:
+
+∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, by (5)]
      = ∡OMB + 90°    [AH ⟂ BC]
-     = 0°    [OM is the perpendicular bisector of BC]
+     = 0°    [OM ⟂ BC, by (1)]
 
-so O, G, H are collinear. ∎
+So O, G, H are collinear, as required. ∎

@@ -28,8 +28,10 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| split_sentence(cx, blocks, bi, s));
     promote_atoms(cx, &mut ch, hp);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| split_sentence(cx, blocks, bi, s));
-    lemma_steps(cx, &mut ch, hp);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
+    cut_long(cx, &mut ch, hp);
+    lemma_steps(cx, &mut ch, hp);
+    prefix_steps(cx, &mut ch, hp);
     if !check::violations_with(&mut ch, hp).is_empty() {
         if std::env::var_os("HP_DEBUG").is_some() {
             eprintln!("barem polish produced violations; keeping the unpolished proof");
@@ -870,6 +872,87 @@ fn remap_ids(hp: &mut HumanProof, f: &dyn Fn(u16) -> u16) {
     }
 }
 
+const MAX_LINKS: usize = 8;
+
+fn sentence_parts(s: &Sentence) -> Option<(&[Expr], &[Link])> {
+    match s {
+        Sentence::Chain { terms, links, .. } | Sentence::Computation { terms, links, .. } => Some((terms, links)),
+        _ => None,
+    }
+}
+
+fn with_parts(s: &Sentence, terms: Vec<Expr>, links: Vec<Link>, keep_then: bool) -> Sentence {
+    match s {
+        Sentence::Chain { then, directed, .. } => Sentence::Chain { terms, links, then: if keep_then { then.clone() } else { None }, directed: *directed },
+        Sentence::Computation { comp, .. } => Sentence::Computation { comp: *comp, terms, links },
+        _ => s.clone(),
+    }
+}
+
+fn cut_at(cx: &Ctx, hp: &HumanProof, bi: usize, si: usize, k: usize, kind: usize) -> Option<HumanProof> {
+    let s = &hp.blocks[bi].body[si];
+    let (terms, links) = sentence_parts(s)?;
+    let (lhs, rhs) = (terms[0].clone(), terms[k].clone());
+    let (tb, _) = eval(cx.t, &lhs)?;
+    let stmt = if tb == Table::Angle && kind % 2 == 0 { Stmt::EqAngle { lhs: lhs.clone(), rhs: rhs.clone() } } else { Stmt::Eq { lhs: lhs.clone(), rhs: rhs.clone() } };
+    let coef = if kind < 2 { Rat::one() } else { Rat::from_int(-1) };
+    let id = hp.blocks[bi].id;
+    let mut out = hp.clone();
+    visit_mut(&mut out, &mut |r| {
+        if let Reason::Lemma { block, sentence, .. } = r {
+            if *block == id && *sentence as usize >= si {
+                *sentence += 1;
+            }
+        }
+    });
+    let first = with_parts(s, terms[..=k].to_vec(), links[..k].to_vec(), false);
+    let mut rest_terms = vec![lhs, rhs];
+    rest_terms.extend(terms[k + 1..].iter().cloned());
+    let mut rest_links = vec![Link { reasons: vec![Reason::Lemma { stmt, block: id, sentence: si as u16 }], combination: vec![Term { reason: 0, row: 0, coef }] }];
+    rest_links.extend(links[k..].iter().cloned());
+    let rest = with_parts(s, rest_terms, rest_links, true);
+    let body = &mut out.blocks[bi].body;
+    body[si] = rest;
+    body.insert(si, first);
+    Some(out)
+}
+
+fn cut_long(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
+    let mut guard = 0;
+    'again: while guard < 20 {
+        guard += 1;
+        if cx.timed_out() {
+            return;
+        }
+        for bi in 0..hp.blocks.len() {
+            if hp.blocks[bi].kind == BlockKind::Raw {
+                continue;
+            }
+            for si in 0..hp.blocks[bi].body.len() {
+                let Some((terms, links)) = sentence_parts(&hp.blocks[bi].body[si]) else { continue };
+                let n = links.len();
+                if n <= MAX_LINKS {
+                    continue;
+                }
+                let mut ks: Vec<usize> = (2..n - 1).collect();
+                ks.sort_by_key(|&k| (k.max(n - k + 1), badness(&terms[k]), k));
+                for k in ks.into_iter().take(4) {
+                    for kind in 0..4 {
+                        let Some(cand) = cut_at(cx, hp, bi, si, k, kind) else { continue };
+                        if check::violations_with(ch, &cand).is_empty() {
+                            *hp = cand;
+                            continue 'again;
+                        } else if debug() {
+                            eprintln!("barem cut rejected at link {k} kind {kind}");
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
+}
+
 fn lemma_steps(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
     let mut tried: BTreeSet<(u16, u16)> = BTreeSet::new();
     loop {
@@ -977,6 +1060,111 @@ fn lemma_out(hp: &HumanProof, bi: usize, si: usize, st: Stmt) -> HumanProof {
     out
 }
 
+fn result_stmt(s: &Sentence) -> Option<Stmt> {
+    match s {
+        Sentence::Because { stmt, .. } | Sentence::Pooled { stmt, .. } => Some(stmt.clone()),
+        Sentence::Theorem { stmt, .. } if !matches!(stmt, Stmt::Formula { .. }) => Some(stmt.clone()),
+        Sentence::Chain { then: Some(st), .. } => Some(st.clone()),
+        _ => None,
+    }
+}
+
+fn cites_fact(ss: &[Sentence], st: &Stmt) -> bool {
+    let mut hit = false;
+    for s in ss {
+        visit(s, &mut |r| {
+            if let Reason::Fact { stmt, block: None, .. } = r {
+                hit |= stmt == st;
+            }
+        });
+    }
+    hit
+}
+
+fn prefix_steps(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
+    let mut tried: BTreeSet<(u16, u16)> = BTreeSet::new();
+    loop {
+        if cx.timed_out() {
+            return;
+        }
+        let cited = lemma_cited(hp);
+        let mut pick: Option<(usize, usize, Stmt)> = None;
+        'outer: for (bi, b) in hp.blocks.iter().enumerate() {
+            if b.kind == BlockKind::Raw || b.body.len() < 2 {
+                continue;
+            }
+            for si in 0..b.body.len() - 1 {
+                let inline = matches!(&b.body[si], Sentence::Because { reasons, combination, stmt } if reasons.is_empty() && combination.is_empty() && cites_fact(&b.body[si + 1..], stmt));
+                if !(cited.contains(&(b.id, si as u16)) || inline) || tried.contains(&(b.id, si as u16)) {
+                    continue;
+                }
+                if let Some(st) = result_stmt(&b.body[si]) {
+                    if st != b.stmt {
+                        pick = Some((bi, si, st));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        let Some((bi, si, st)) = pick else { return };
+        tried.insert((hp.blocks[bi].id, si as u16));
+        let cand = prefix_out(hp, bi, si, st);
+        let v = check::violations_with(ch, &cand);
+        if v.is_empty() {
+            *hp = cand;
+            tried.clear();
+        } else if debug() {
+            eprintln!("barem prefix step rejected: {:?}", v.first().map(|x| &x.detail));
+        }
+    }
+}
+
+fn prefix_out(hp: &HumanProof, bi: usize, j: usize, st: Stmt) -> HumanProof {
+    let old = hp.blocks[bi].id;
+    let mut out = hp.clone();
+    remap_ids(&mut out, &|id| if id >= old { id + 1 } else { id });
+    let parent = old + 1;
+    let head: Vec<Sentence> = out.blocks[bi].body.drain(..=j).collect();
+    for sent in out.blocks[bi].body.iter_mut() {
+        super::claims::sentence_reasons_mut(sent, &mut |r| {
+            if let Reason::Fact { stmt, block, .. } = r {
+                if block.is_none() && *stmt == st {
+                    *block = Some(old);
+                }
+            }
+        });
+    }
+    visit_mut(&mut out, &mut |r| {
+        if let Reason::Lemma { block, sentence, .. } = r {
+            if *block == parent {
+                if *sentence as usize <= j {
+                    *block = old;
+                } else {
+                    *sentence -= (j + 1) as u16;
+                }
+            }
+        }
+    });
+    let p = &out.blocks[bi];
+    let mut points: Vec<PointId> = head.iter().flat_map(super::view::sentence_points).collect();
+    points.sort_unstable();
+    points.dedup();
+    let block = Block {
+        id: old,
+        kind: BlockKind::Step,
+        stmt: st,
+        body: head,
+        engine_facts: p.engine_facts.clone(),
+        points,
+        objects: Vec::new(),
+        step: 0,
+        tag: false,
+        horizon: p.horizon,
+    };
+    out.blocks.insert(bi, block);
+    out
+}
+
 pub fn cited_blocks(b: &Block) -> BTreeSet<u16> {
     let mut out = BTreeSet::new();
     for s in &b.body {
@@ -1012,7 +1200,8 @@ fn plan_worthy(b: &Block) -> bool {
         return false;
     }
     let promoted = matches!(b.body.as_slice(), [Sentence::Because { reasons, .. }] if reasons.len() == 1 && atom_key_args(&reasons[0]).is_some());
-    !promoted && !matches!(b.stmt, Stmt::Formula { .. })
+    let sum = matches!(&b.stmt, Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs } if lin_terms(lhs) + lin_terms(rhs) > 2);
+    !promoted && !sum && !matches!(b.stmt, Stmt::Formula { .. })
 }
 
 pub fn finish(cx: &Ctx, hp: &mut HumanProof) {

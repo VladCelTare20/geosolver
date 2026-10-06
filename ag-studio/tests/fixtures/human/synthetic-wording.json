@@ -930,7 +930,9 @@
           "C",
           "X"
         ],
-        "objects": []
+        "objects": [],
+        "step": 1,
+        "tag": true
       },
       {
         "id": 2,
@@ -1367,9 +1369,17 @@
         ],
         "engine_steps": [],
         "points": [],
-        "objects": []
+        "objects": [],
+        "step": 2,
+        "tag": false
       }
     ],
+    "plan": [
+      1
+    ],
+    "goal": {
+      "kind": "stmt"
+    },
     "metrics": {
       "raw_steps": 0,
       "derived": 0,
@@ -1392,7 +1402,13 @@
       "represented": 0,
       "theorem": 0,
       "fallback_facts": 0,
-      "check_violations": 0
+      "check_violations": 0,
+      "similar_steps": 0,
+      "theorem_steps": 0,
+      "steps": 0,
+      "multi_fact_links": 0,
+      "undirected_chains": 0,
+      "directed_chains": 0
     }
   }
 }

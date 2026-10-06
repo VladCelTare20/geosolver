@@ -1,29 +1,39 @@
-∡ denotes directed angles modulo 180°. Let F be the foot of the perpendicular from B to AR. Angles written ∠ are undirected and read as drawn.
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Let F be the foot of the perpendicular from B to AR.
 
-Claim 1. F, N, B, A are concyclic.
+Plan: it suffices to show that F, N, B, A are concyclic and R, N, F, O are concyclic.
 
-Proof. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC is a diameter), so F, N, B, A are concyclic.
+1. We show that F, N, B, A are concyclic:
 
-Claim 2. FN = BF.
+∠BFA = 90°    [BF ⟂ AR]
+     = ∠BNA    [BC is a diameter]
 
-Proof. ∡FAN = ∡BAF (AR bisects ∠BAC). By equal arcs and chords (Claim 1), FN = BF.
+So F, N, B, A are concyclic. (1)
 
-Claim 3. R, N, F, O are concyclic.
+2. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (1), so FN = BF (equal arcs and chords). (2)
 
-Proof.
+3. By (2), OB = ON and FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (3)
 
-∡RFN = ∡BFN + 90°    [BF ⟂ AR]
-     = 2∡FBN + 90°    [FB = FN (Claim 2)]
-     = 2∡FAN + 90°    [inscribed angles in (ABNF) (Claim 1)]
-     = ∡BAC + 90°    [AR bisects ∠BAC]
-     = ∡MCN    [BC is a diameter]
+4. We show that R, N, F, O are concyclic:
 
-As drawn, ∠MCN = ½·∠MON = ∠RON (central angle ∠MON = 2∠MCN; OR bisects ∠MON), so R, N, F, O are concyclic.
+∠NFA = ∠NFB − 90°    [BF ⟂ AR]
+     = 90° − 2∠NBF    [FB = FN: triangle FBN is isosceles, by (2)]
+     = 90° − 2∠NAF    [inscribed angles in (ABNF), by (1)]
+     = 90° − ∠A    [AR bisects ∠BAC]
+     = ∠NCM    [BC is a diameter]
+
+∠MCN = ½·∠MON    [central angle ∠MON = 2∠MCN]
+     = ∠RON    [OR bisects ∠MON]
+
+So R, N, F, O are concyclic. (4)
+
+5. We show that P lies on the line BC:
 
 ∡BPC = ∡BMR + ∡RPC    [P, R, M, B concyclic]
      = ∡BAC + ∡NRM    [P, R, N, C concyclic]
-     = 2∡BNF + ∡NRM    [Claim 1, AR bisects ∠BAC]
-     = ∡ORM + ∡ORN    [Claim 3, OF is the perpendicular bisector of BN (Claim 2)]
-     = 0°    [△OMR ≅ △ONR (ASA), △ROM ≅ △RON (SAS), OM = ON]
+     = 2∡BAR + ∡NRM    [AR bisects ∠BAC]
+     = 2∡BNF + ∡NRM    [F, N, B, A concyclic, by (1)]
+     = 2∡OFN + ∡NRM    [OF ⟂ BN, by (3)]
+     = ∡ORM + ∡ORN    [R, N, F, O concyclic, by (4)]
+     = 0°    [△OMR ≅ △ONR (ASA); △ROM ≅ △RON (SAS); OM = ON]
 
-so P, B, C are collinear. ∎
+So P lies on the line BC, as required. ∎

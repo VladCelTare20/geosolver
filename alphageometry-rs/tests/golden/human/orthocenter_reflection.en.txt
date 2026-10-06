@@ -1,4 +1,10 @@
-∡ denotes directed angles modulo 180°.
+Angles written ∠ are read from the figure.
 
-∡AHK = 0° (AH ∥ HK, both ⟂ BC), so H, A, K are collinear.
-∡ACB = ∡HBC + 90° = ∡BHK = ∡HKB = ∡AKB (BH ⟂ AC; BC is the perpendicular bisector of HK; BH = BK; K on HA), so A, B, C, K are concyclic. ∎
+1. BH = BK and CH = CK, so BC is the perpendicular bisector of HK; hence BC ⟂ HK. (1)
+2. AH ∥ HK, both ⟂ BC, so H, A, K are collinear. (2)
+3. We show that A, B, C, K lie on one circle:
+    ∠C = ∠HBC − 90°    [BH ⟂ AC]
+       = ∠BHK          [BC ⟂ HK, by (1)]
+       = ∠HKB          [BH = BK: triangle BHK is isosceles]
+       = ∠AKB          [K on HA, by (2)]
+So A, B, C, K lie on one circle, as required. ∎

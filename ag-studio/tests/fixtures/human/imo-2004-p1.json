@@ -1088,6 +1088,9 @@
     "as_drawn": true,
     "setup": [
       {
+        "kind": "figure_angles"
+      },
+      {
         "kind": "directed_angles"
       },
       {
@@ -1138,9 +1141,9 @@
           {
             "kind": "chain",
             "terms": [
-              "∡BFA",
+              "∠BFA",
               "90°",
-              "∡BNA"
+              "∠BNA"
             ],
             "links": [
               {
@@ -1221,7 +1224,7 @@
                 "F"
               ]
             },
-            "directed": true
+            "directed": false
           }
         ],
         "engine_steps": [
@@ -1242,7 +1245,9 @@
               "A"
             ]
           }
-        ]
+        ],
+        "step": 1,
+        "tag": true
       },
       {
         "id": 2,
@@ -1262,46 +1267,43 @@
         },
         "body": [
           {
-            "kind": "because",
-            "stmt": {
-              "kind": "eqangle",
-              "args": [
-                "∡FAN",
-                "∡BAF"
-              ],
-              "points": [
-                "A",
-                "B",
-                "N",
-                "F"
-              ]
-            },
-            "reasons": [
+            "kind": "chain",
+            "terms": [
+              "∠FAC",
+              "∠BAF"
+            ],
+            "links": [
               {
-                "kind": "hyp",
-                "stmt": {
-                  "kind": "bisects",
-                  "args": [
-                    "AR",
-                    "∠BAC"
-                  ],
-                  "points": [
-                    "A",
-                    "B",
-                    "C",
-                    "R"
-                  ]
-                },
-                "step": 7
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "bisects",
+                      "args": [
+                        "AR",
+                        "∠BAC"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "R"
+                      ]
+                    },
+                    "step": 7
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
               }
             ],
-            "combination": [
-              {
-                "reason": 0,
-                "row": 0,
-                "coef": "1"
-              }
-            ]
+            "then": null,
+            "directed": false
           },
           {
             "kind": "theorem",
@@ -1336,10 +1338,95 @@
           "N",
           "F"
         ],
-        "objects": []
+        "objects": [],
+        "step": 2,
+        "tag": true
       },
       {
         "id": 3,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "perp",
+          "args": [
+            "OF",
+            "BN"
+          ],
+          "points": [
+            "B",
+            "O",
+            "N",
+            "F"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "perp",
+              "args": [
+                "OF",
+                "BN"
+              ],
+              "points": [
+                "B",
+                "O",
+                "N",
+                "F"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "perp_bisector",
+                "args": [
+                  "O",
+                  "F",
+                  "B",
+                  "N"
+                ],
+                "stmt": {
+                  "kind": "perp",
+                  "args": [
+                    "OF",
+                    "BN"
+                  ],
+                  "points": [
+                    "B",
+                    "O",
+                    "N",
+                    "F"
+                  ]
+                },
+                "from": [
+                  2
+                ]
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          40
+        ],
+        "points": [
+          "O",
+          "F",
+          "B",
+          "N"
+        ],
+        "objects": [],
+        "step": 3,
+        "tag": true
+      },
+      {
+        "id": 4,
         "kind": "claim",
         "n": 3,
         "stmt": {
@@ -1361,12 +1448,12 @@
           {
             "kind": "chain",
             "terms": [
-              "∡RFN",
-              "∡BFN + 90°",
-              "2∡FBN + 90°",
-              "2∡FAN + 90°",
-              "∡BAC + 90°",
-              "∡MCN"
+              "∠NFA",
+              "∠NFB − 90°",
+              "90° − 2∠NBF",
+              "90° − 2∠NAF",
+              "90° − ∠A",
+              "∠NCM"
             ],
             "links": [
               {
@@ -1393,7 +1480,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   }
                 ]
               },
@@ -1428,7 +1515,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               },
@@ -1467,7 +1554,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "2"
+                    "coef": "-2"
                   }
                 ]
               },
@@ -1495,7 +1582,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   }
                 ]
               },
@@ -1529,13 +1616,13 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   }
                 ]
               }
             ],
             "then": null,
-            "directed": true
+            "directed": false
           },
           {
             "kind": "chain",
@@ -1645,10 +1732,12 @@
               "O"
             ]
           }
-        ]
+        ],
+        "step": 4,
+        "tag": true
       },
       {
-        "id": 4,
+        "id": 5,
         "kind": "conclusion",
         "n": null,
         "stmt": {
@@ -1671,7 +1760,9 @@
               "∡BPC",
               "∡BMR + ∡RPC",
               "∡BAC + ∡NRM",
+              "2∡BAR + ∡NRM",
               "2∡BNF + ∡NRM",
+              "2∡OFN + ∡NRM",
               "∡ORM + ∡ORN",
               "0°"
             ],
@@ -1737,12 +1828,6 @@
               {
                 "reasons": [
                   {
-                    "kind": "claim",
-                    "n": 1,
-                    "block": 1,
-                    "step": 31
-                  },
-                  {
                     "kind": "hyp",
                     "stmt": {
                       "kind": "bisects",
@@ -1764,11 +1849,6 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-2"
-                  },
-                  {
-                    "reason": 1,
-                    "row": 0,
                     "coef": "1"
                   }
                 ]
@@ -1777,35 +1857,9 @@
                 "reasons": [
                   {
                     "kind": "claim",
-                    "n": 3,
-                    "block": 3,
-                    "step": 37
-                  },
-                  {
-                    "kind": "atom",
-                    "key": "perp_bisector",
-                    "args": [
-                      "O",
-                      "F",
-                      "B",
-                      "N"
-                    ],
-                    "stmt": {
-                      "kind": "perp",
-                      "args": [
-                        "OF",
-                        "BN"
-                      ],
-                      "points": [
-                        "B",
-                        "O",
-                        "N",
-                        "F"
-                      ]
-                    },
-                    "from": [
-                      2
-                    ]
+                    "n": 1,
+                    "block": 1,
+                    "step": 31
                   }
                 ],
                 "combination": [
@@ -1813,11 +1867,52 @@
                     "reason": 0,
                     "row": 0,
                     "coef": "-2"
-                  },
+                  }
+                ]
+              },
+              {
+                "reasons": [
                   {
-                    "reason": 1,
+                    "kind": "perp",
+                    "args": [
+                      "OF",
+                      "BN"
+                    ],
+                    "points": [
+                      "B",
+                      "O",
+                      "N",
+                      "F"
+                    ],
+                    "step": null,
+                    "block": 3,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
                     "row": 0,
                     "coef": "2"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "claim",
+                    "n": 3,
+                    "block": 4,
+                    "step": 37
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-2"
                   }
                 ]
               },
@@ -1940,32 +2035,52 @@
               "C"
             ]
           }
-        ]
+        ],
+        "step": 5,
+        "tag": false
       }
     ],
+    "plan": [
+      1,
+      4
+    ],
+    "goal": {
+      "kind": "on_line",
+      "p": "P",
+      "line": [
+        "B",
+        "C"
+      ]
+    },
     "metrics": {
       "raw_steps": 47,
       "derived": 29,
-      "blocks": 4,
+      "blocks": 5,
       "claims": 3,
-      "sentences": 6,
-      "chain_links": 14,
-      "chains": 4,
-      "pure_chains": 4,
+      "sentences": 7,
+      "chain_links": 17,
+      "chains": 5,
+      "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 217,
-      "lines_en": 10,
-      "citations": 20,
+      "words_en": 330,
+      "lines_en": 29,
+      "citations": 21,
       "aux_shown": 1,
-      "human_cost": 77,
+      "human_cost": 89,
       "reproved": 4,
       "silent": 19,
       "pruned": 6,
       "represented": 0,
       "theorem": 0,
       "fallback_facts": 0,
-      "check_violations": 0
+      "check_violations": 0,
+      "similar_steps": 1,
+      "theorem_steps": 4,
+      "steps": 5,
+      "multi_fact_links": 0,
+      "undirected_chains": 4,
+      "directed_chains": 1
     }
   }
 }

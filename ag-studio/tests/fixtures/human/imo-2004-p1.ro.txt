@@ -1,29 +1,39 @@
-∡ notează unghiuri orientate modulo 180°. Fie F piciorul perpendicularei din B pe AR. Unghiurile notate ∠ sunt neorientate și sunt citite din figură.
+Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Fie F piciorul perpendicularei din B pe AR.
 
-Afirmația 1. Punctele F, N, B, A sunt conciclice.
+Ideea: este suficient să arătăm că punctele F, N, B, A sunt conciclice și punctele R, N, F, O sunt conciclice.
 
-Demonstrație. ∡BFA = 90° = ∡BNA (BF ⟂ AR; BC este diametru), deci punctele F, N, B, A sunt conciclice.
+1. Arătăm că punctele F, N, B, A sunt conciclice:
 
-Afirmația 2. FN = BF.
+∢BFA = 90°    [BF ⟂ AR]
+     = ∢BNA    [BC este diametru]
 
-Demonstrație. ∡FAN = ∡BAF (AR este bisectoarea ∠BAC). Din egalitatea arcelor și a coardelor (Afirmația 1), FN = BF.
+Deci punctele F, N, B, A sunt conciclice. (1)
 
-Afirmația 3. Punctele R, N, F, O sunt conciclice.
+2. AR este bisectoarea ∢BAC ⇒ ∢FAC = ∢BAF. F, N, B, A conciclice, din (1) ⇒ FN = BF (egalitatea arcelor și a coardelor). (2)
 
-Demonstrație.
+3. Din (2), OB = ON și FB = FN ⇒ OF este mediatoarea segmentului BN ⇒ OF ⟂ BN. (3)
 
-∡RFN = ∡BFN + 90°    [BF ⟂ AR]
-     = 2∡FBN + 90°    [FB = FN (Afirmația 2)]
-     = 2∡FAN + 90°    [unghiuri înscrise în (ABNF) (Afirmația 1)]
-     = ∡BAC + 90°    [AR este bisectoarea ∠BAC]
-     = ∡MCN    [BC este diametru]
+4. Arătăm că punctele R, N, F, O sunt conciclice:
 
-Din figură, ∠MCN = ½·∠MON = ∠RON (unghiul la centru ∠MON = 2∠MCN; OR este bisectoarea ∠MON), deci punctele R, N, F, O sunt conciclice.
+∢NFA = ∢NFB − 90°    [BF ⟂ AR]
+     = 90° − 2∢NBF    [FB = FN: ΔFBN isoscel, din (2)]
+     = 90° − 2∢NAF    [unghiuri înscrise în (ABNF), din (1)]
+     = 90° − ∢A    [AR este bisectoarea ∢BAC]
+     = ∢NCM    [BC este diametru]
+
+∢MCN = ½·∢MON    [unghiul la centru ∢MON = 2∢MCN]
+     = ∢RON    [OR este bisectoarea ∢MON]
+
+Deci punctele R, N, F, O sunt conciclice. (4)
+
+5. Arătăm că punctul P se află pe dreapta BC:
 
 ∡BPC = ∡BMR + ∡RPC    [P, R, M, B conciclice]
      = ∡BAC + ∡NRM    [P, R, N, C conciclice]
-     = 2∡BNF + ∡NRM    [Afirmația 1, AR este bisectoarea ∠BAC]
-     = ∡ORM + ∡ORN    [Afirmația 3, OF este mediatoarea segmentului BN (Afirmația 2)]
-     = 0°    [△OMR ≡ △ONR (ULU), △ROM ≡ △RON (LUL), OM = ON]
+     = 2∡BAR + ∡NRM    [AR este bisectoarea ∢BAC]
+     = 2∡BNF + ∡NRM    [F, N, B, A conciclice, din (1)]
+     = 2∡OFN + ∡NRM    [OF ⟂ BN, din (3)]
+     = ∡ORM + ∡ORN    [R, N, F, O conciclice, din (4)]
+     = 0°    [△OMR ≡ △ONR (ULU); △ROM ≡ △RON (LUL); OM = ON]
 
-deci punctele P, B, C sunt coliniare. ∎
+Deci punctul P se află pe dreapta BC, ceea ce trebuia demonstrat. ∎

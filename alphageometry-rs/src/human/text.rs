@@ -859,6 +859,15 @@ pub fn goal_text(n: &dyn PointNames, g: &GoalWords, st: Option<&Stmt>) -> String
     }
 }
 
+fn link_reasons(n: &dyn PointNames, l: &Link, claims: &BTreeMap<u16, u16>) -> String {
+    if let [Reason::Lemma { stmt: Stmt::Eq { .. } | Stmt::EqAngle { .. }, block, .. }] = l.reasons.as_slice() {
+        if let Some((k, _)) = step_of(*block).filter(|_| *block != CURRENT.with(|c| c.get())) {
+            return format!("by ({k})");
+        }
+    }
+    reasons_text(n, &l.reasons, claims).join("; ")
+}
+
 fn rows_text(n: &dyn PointNames, terms: &[Expr], links: &[Link], claims: &BTreeMap<u16, u16>) -> String {
     let first = terms.first().map(|t| expr(n, t)).unwrap_or_default();
     let pad: String = " ".repeat(first.chars().count());
@@ -868,7 +877,7 @@ fn rows_text(n: &dyn PointNames, terms: &[Expr], links: &[Link], claims: &BTreeM
         .skip(1)
         .map(|(i, t)| {
             let head = if i == 1 { first.clone() } else { pad.clone() };
-            (format!("{head} = {}", expr(n, t)), reasons_text(n, &links[i - 1].reasons, claims).join("; "))
+            (format!("{head} = {}", expr(n, t)), link_reasons(n, &links[i - 1], claims))
         })
         .collect();
     let w = lines.iter().map(|l| l.0.chars().count()).max().unwrap_or(0);

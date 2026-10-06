@@ -103,48 +103,92 @@ fn golden_examples_have_the_planned_shape() {
         })
         .collect();
     let get = |n: &str| by.iter().find(|x| x.0.name == n).unwrap();
-    let claims = |hp: &HumanProof| hp.blocks.iter().filter(|b| matches!(b.kind, BlockKind::Claim(_))).count();
+    let numbered = |hp: &HumanProof, t: &str| {
+        for (i, b) in hp.blocks.iter().enumerate() {
+            assert_eq!(b.step as usize, i + 1, "steps are numbered in order");
+            assert!(t.contains(&format!("{}. ", i + 1)), "step {} is not printed:\n{t}", i + 1);
+        }
+        for b in &hp.blocks {
+            for s in &b.body {
+                if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } = s {
+                    assert!(links.len() <= 8, "a chain longer than eight links:\n{t}");
+                }
+            }
+        }
+        assert!(!t.contains("Combining") && !t.contains("Angle chasing") && !t.contains("Claim "), "{t}");
+        assert!(t.trim_end().ends_with(", as required. \u{220e}"), "{t}");
+    };
 
     let (_, hp, t) = get("orthocenter_reflection");
-    assert_eq!(claims(hp), 0);
-    assert!(t.contains("so A, B, C, K are concyclic. ∎"), "{t}");
+    numbered(hp, t);
     assert!(t.contains("BC is the perpendicular bisector of HK"), "{t}");
+    assert!(t.contains("so H, A, K are collinear. (2)"), "{t}");
+    assert!(t.contains("Angles written \u{2220} are read from the figure."), "{t}");
+    assert!(!t.contains("counter-clockwise"), "only figure angles are used:\n{t}");
+    assert!(t.contains("So A, B, C, K lie on one circle, as required. \u{220e}"), "{t}");
 
     let (_, hp, t) = get("euler_line");
-    assert_eq!(claims(hp), 1);
+    numbered(hp, t);
     assert!(t.contains("Let M be the midpoint of BC."), "{t}");
-    assert!(t.contains("Claim 1. △AHB ∼ △MON."), "{t}");
-    assert!(t.contains("intercept theorem, AB ∥ MN"), "{t}");
-    assert!(!t.contains("△ABG ∼ △MNG"), "{t}");
-    assert!(t.contains("so O, G, H are collinear. ∎"), "{t}");
+    assert!(t.contains("OM is the perpendicular bisector of BC"), "{t}");
+    assert!(t.contains("MN is a midline of"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHB \u{223c} \u{25b3}MON. (4)"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHG \u{223c} \u{25b3}MOG. (5)"), "{t}");
+    assert!(t.contains("intercept theorem, AB \u{2225} MN"), "{t}");
+    assert!(!t.contains("\u{25b3}ABG \u{223c} \u{25b3}MNG"), "{t}");
+    assert!(t.contains("So O, G, H lie on one line, as required. \u{220e}"), "{t}");
 
     let (_, hp, t) = get("orthocenter_vertex_distance");
-    assert!(hp.blocks.last().unwrap().body.iter().any(|s| matches!(s, Sentence::Computation { .. })));
+    numbered(hp, t);
     assert!(t.contains("R = OA = OB = OC for its circumradius."), "{t}");
-    assert!(t.contains("law of sines in △"), "{t}");
-    assert!(t.contains("AH = 2·MₐO (AH = 2R·cos A; MₐO = R·cos A). ∎"), "{t}");
-    assert!(!t.contains("|sin"), "{t}");
+    assert!(t.contains("Plan: it suffices to show that AH = 2R\u{b7}cos A and M\u{2090}O = R\u{b7}cos A."), "{t}");
+    assert!(t.contains("We show that AH = 2R\u{b7}cos A:"), "{t}");
+    assert!(t.contains("We show that BC = 2R\u{b7}sin A:"), "{t}");
+    assert!(t.contains("law of sines in \u{25b3}ABH"), "{t}");
+    assert!(t.contains("so AH = 2\u{b7}M\u{2090}O, as required. \u{220e}"), "{t}");
+    assert!(!t.contains("|sin") && !t.contains("R\u{b7}R") && !t.contains("R\u{b2}\u{b7}sin\u{2220}OCB / R"), "{t}");
+    let laws = |b: &ddar::human::Block| t.lines().count() > 0 && b.body.iter().all(|s| match s {
+        Sentence::Computation { links, .. } => {
+            let mut tris: Vec<String> = Vec::new();
+            for l in links {
+                for r in &l.reasons {
+                    if let ddar::human::Reason::Fact { stmt: ddar::human::Stmt::Formula { text, pts }, .. } = r {
+                        if text.starts_with("law of sines") {
+                            let mut p = pts.clone();
+                            p.sort_unstable();
+                            tris.push(format!("{p:?}"));
+                        }
+                    }
+                }
+            }
+            tris.sort();
+            tris.dedup();
+            tris.len() <= 3
+        }
+        _ => true,
+    });
+    assert!(hp.blocks.iter().all(laws), "a trigonometric step applies the law of sines in more than three triangles:\n{t}");
     assert!(!hp.blocks.last().unwrap().engine_facts.is_empty());
 
     let (_, hp, t) = get("imo_2004_p1");
-    assert!((3..=7).contains(&claims(hp)), "{t}");
-    assert!(t.contains("Let ω₂ be the circle centred at O₂ through C, N, R, P."), "{t}");
+    numbered(hp, t);
+    assert!(t.contains("Let \u{3c9}\u{2082} be the circle centred at O\u{2082} through C, N, R, P."), "{t}");
     assert!(t.contains("Let F be the foot of the perpendicular from B to AR."), "{t}");
-    assert!(t.contains("R, N, F, O are concyclic"), "{t}");
-    assert!(t.contains("∠MCN = ½·∠MON = ∠RON"), "{t}");
-    assert!(t.contains("R, A, F, P are collinear"), "{t}");
-    assert!(t.contains("so P, B, C are collinear. ∎"), "{t}");
-    assert!(!t.contains("Angle chasing with"), "{t}");
+    assert!(t.contains("OF is the perpendicular bisector of BN"), "{t}");
+    assert!(t.contains("So R, N, F, O are concyclic."), "{t}");
+    assert!(t.contains("\u{2220}MCN = \u{bd}\u{b7}\u{2220}MON"), "{t}");
+    assert!(t.contains("power of the point A"), "{t}");
+    assert!(t.contains("so R, A, F, P are collinear (the radical axis theorem)."), "{t}");
+    assert!(t.contains("So P lies on the line BC, as required. \u{220e}"), "{t}");
 
     let (_, hp, t) = get("imo_2023_p2");
-    assert!((3..=7).contains(&claims(hp)), "{t}");
-    assert!(t.contains("Let Ω be the circumcircle of triangle ABC, with centre O"), "{t}");
+    numbered(hp, t);
+    assert!(t.contains("Let \u{3a9} be the circumcircle of triangle ABC, with centre O"), "{t}");
     assert!(!t.contains("Hence NB = NC."), "{t}");
-    assert!(t.contains("T, E, S, O are concyclic"), "{t}");
-    assert!(t.contains("Claim 4. XA = XP."), "{t}");
-    assert!(t.contains("Hence △OAX ≅ △OPX (OA = OP), so XA = XP."), "{t}");
-    assert!(t.contains("so ∡BAX = ∡XAC. ∎"), "{t}");
-    assert!(!t.contains("Angle chasing with"), "{t}");
+    assert!(t.contains("So T, E, S, O are concyclic."), "{t}");
+    assert!(t.contains("We show that XA = XP:"), "{t}");
+    assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");
+    assert!(t.contains("So AX bisects \u{2220}BAC, as required. \u{220e}"), "{t}");
     assert!(!t.contains("OA : OX = OP : OX"), "{t}");
     assert!(!hp.blocks.last().unwrap().engine_facts.is_empty());
 }
