@@ -13,7 +13,7 @@ const CIRCUMCENTER: &str = "A B C = triangle\nO = circumcenter(A, B, C)\nprove c
 
 fn request(input: &str) -> String {
     serde_json::json!({
-        "input": input, "low_level": false, "light": true, "want_proof": true,
+        "input": input, "kind": "geo", "light": true, "want_proof": true,
         "title": null, "panel": true, "mode": "solve", "secs": 30.0
     })
     .to_string()

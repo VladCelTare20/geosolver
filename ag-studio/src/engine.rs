@@ -34,24 +34,57 @@ use ddar::svg::{render_with, FigureOptions, Theme};
 use ddar::Problem;
 
 /// How to interpret the input program text.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum InputKind {
     /// High-level `.geo` construction language (compiled to a `Problem`).
     Geo,
     /// Low-level AlphaGeometry problem string (`a@x_y b@... = preds ? goal`).
     LowLevel,
+    /// A problem in the AlphaGeometry corpus language (`corpus/*.txt`:
+    /// `a b c = triangle a b c; … ? goal`), optionally after its name line.
+    Corpus,
 }
 
 impl InputKind {
-    /// Guess the input kind: low-level problems pin every point with an `@`
-    /// coordinate; `.geo` programs never do.
+    /// Guess the input kind: a valid low-level string pins every point with an
+    /// `@` coordinate; a corpus problem uses `defs.txt` constructions and a
+    /// `?` goal; anything else is a `.geo` program.
     pub fn detect(input: &str) -> InputKind {
-        if input.contains('@') {
-            InputKind::LowLevel
-        } else {
-            InputKind::Geo
+        let pinned = input.contains('@');
+        if pinned && Problem::parse(input).is_ok() {
+            return InputKind::LowLevel;
+        }
+        match corpus_parts(input) {
+            Some((name, stmt)) if ddar::corpus::parse_problem(&name, &stmt).is_ok() => InputKind::Corpus,
+            Some((_, stmt)) if !pinned && corpus_shaped(&stmt) => InputKind::Corpus,
+            _ if pinned => InputKind::LowLevel,
+            _ => InputKind::Geo,
         }
     }
+}
+
+fn corpus_parts(input: &str) -> Option<(String, String)> {
+    let lines: Vec<&str> = input.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    match lines.as_slice() {
+        [stmt] => Some((String::new(), stmt.to_string())),
+        [name, stmt] if !name.contains(['=', '?', '(']) => Some((name.to_string(), stmt.to_string())),
+        _ => None,
+    }
+}
+
+fn corpus_shaped(stmt: &str) -> bool {
+    !stmt.contains('(')
+        && stmt
+            .split_once('?')
+            .is_some_and(|(body, goal)| body.contains('=') && !goal.trim().is_empty())
+}
+
+fn corpus_translation(input: &str) -> Result<(ddar::corpus::AgProblem, ddar::corpus::Translation), String> {
+    let (name, stmt) = corpus_parts(input).ok_or("corpus problem: expected one statement line")?;
+    let ag = ddar::corpus::parse_problem(&name, &stmt).map_err(|e| format!("corpus problem: {e}"))?;
+    let tr = ddar::corpus::translate(&ag, 1, 200).map_err(|e| format!("corpus problem: {e}"))?;
+    Ok((ag, tr))
 }
 
 /// Options controlling a solve.
@@ -256,6 +289,7 @@ pub fn solve_within(
             let problem = Problem::parse(input).map_err(|e| format!("parse error: {e}"))?;
             deductive_flow(problem, input, None, opts, deadline)
         }
+        InputKind::Corpus => corpus_flow(input, opts, deadline),
         InputKind::Geo => {
             // Metric equations DDAR cannot express (absolute lengths, squares,
             // sums of products, …) get the classical Euclidean prover; plain
@@ -399,7 +433,121 @@ fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), S
             let p = Problem::parse(input).map_err(|e| format!("parse error: {e}"))?;
             Ok((p, None))
         }
+        InputKind::Corpus => {
+            let (_, tr) = corpus_translation(input)?;
+            let [goal] = tr.goals.as_slice() else {
+                return Err(CONJUNCTION.to_string());
+            };
+            let mut p = tr.problem;
+            p.goal = Some(goal.clone());
+            Ok((p, Some(tr.goal_holds)))
+        }
     }
+}
+
+const CONJUNCTION: &str = "conjunctive goal";
+
+fn corpus_flow(input: &str, opts: &SolveOptions, deadline: Option<Instant>) -> Result<Solution, String> {
+    let (ag, tr) = corpus_translation(input)?;
+    if let [goal] = tr.goals.as_slice() {
+        let mut problem = tr.problem.clone();
+        problem.goal = Some(goal.clone());
+        return deductive_flow(problem, input, Some(tr.goal_holds), opts, deadline);
+    }
+    let start = Instant::now();
+    let deadline = deadline.or(Some(start + DEFAULT_SOLVE_TIMEOUT));
+    let base_len = tr.problem.points.len();
+    let mut display = tr.problem.clone();
+    display.goal = whole_goal(&display, &ag.goal);
+    let goal_text = ag.goal.to_string();
+    let n = tr.goals.len();
+    let part_opts = SolveOptions { want_proof: false, ..opts.clone() };
+    let mut current = tr.problem.clone();
+    let mut aux: Vec<String> = Vec::new();
+    for (k, g) in tr.goals.iter().enumerate() {
+        let mut p = current.clone();
+        p.goal = Some(g.clone());
+        let holds = ddar::corpus::pred_holds(&tr.problem, g);
+        let part = deductive_flow(p, input, holds, &part_opts, deadline)?;
+        if !part.proved {
+            let names: Vec<&str> = g.points.iter().map(|&i| tr.problem.point_name(i)).collect();
+            let note = format!("conjunct {} of {n} of `{goal_text}` ({} {}): {}", k + 1, g.name, names.join(" "), part.note);
+            return conjunction_solution(input, opts, &display, &current, base_len, Some(tr.goal_holds), aux, None, part.method, note, start);
+        }
+        aux.extend(part.aux_constructions.iter().cloned());
+        if let Some(f) = part.figure.filter(|f| f.aux_from.is_some()) {
+            current = f.problem;
+        }
+    }
+    current.goal = None;
+    let joint = catch_unwind(AssertUnwindSafe(|| {
+        ddar::quiet_panic::quiet(|| ddar::runner::solve_conjunction_with_proof(&current, &tr.goals, &goal_text))
+    }));
+    let method = if aux.is_empty() { Method::Ddar } else { Method::AuxSearch };
+    let (proof, note) = match joint {
+        Ok(Ok(Some(proof))) if aux.is_empty() => (Some(proof), format!("proved by DDAR (no auxiliary point): all {n} conjuncts of `{goal_text}`")),
+        Ok(Ok(Some(proof))) => (
+            Some(proof),
+            format!("proved with {} auxiliary construction(s): all {n} conjuncts of `{goal_text}`", aux.len()),
+        ),
+        _ => (None, format!("not proved — the {n} conjuncts of `{goal_text}` were proved one at a time but not in one closure")),
+    };
+    conjunction_solution(input, opts, &display, &current, base_len, Some(tr.goal_holds), aux, proof, method, note, start)
+}
+
+fn whole_goal(problem: &Problem, goal: &ddar::corpus::Term) -> Option<ddar::Predicate> {
+    let points = goal
+        .args
+        .iter()
+        .map(|a| problem.points.iter().position(|p| &p.name == a).map(|i| i as ddar::predicate::PointId))
+        .collect::<Option<Vec<_>>>()?;
+    Some(ddar::Predicate { name: goal.name.clone(), points, constants: Vec::new() })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn conjunction_solution(
+    input: &str,
+    opts: &SolveOptions,
+    display: &Problem,
+    augmented: &Problem,
+    base_len: usize,
+    goal_holds: Option<bool>,
+    aux_constructions: Vec<String>,
+    proof: Option<String>,
+    method: Method,
+    note: String,
+    start: Instant,
+) -> Result<Solution, String> {
+    let mut figure_problem = augmented.clone();
+    figure_problem.goal = display.goal.clone();
+    let aux_from = (figure_problem.points.len() > base_len).then_some(base_len);
+    let svg = render_figure(&figure_problem, opts, aux_from)?;
+    let (constructions, goal) = ddar::svg::legend_lines(display);
+    let proved = proof.is_some();
+    let proof_steps = proof.as_deref().map(proof_size).map(|(s, _)| s);
+    let mut sol = Solution {
+        input: input.to_string(),
+        low_level: display.to_ag_string(),
+        proved,
+        status: Status::NotProved,
+        method,
+        proof: if opts.want_proof { proof } else { None },
+        numeric_evidence: None,
+        numeric_samples: None,
+        svg,
+        aux_constructions,
+        constructions,
+        goal,
+        goal_holds_numerically: goal_holds,
+        elapsed_secs: start.elapsed().as_secs_f64(),
+        note,
+        proof_steps,
+        examined: None,
+        figure: Some(FigureSource { problem: figure_problem, aux_from }),
+        human: None,
+    };
+    reconcile(&mut sol, opts.want_proof);
+    Ok(sol)
 }
 
 /// Search, within a wall-clock `budget`, for the **shortest** proof — the one
@@ -440,6 +588,7 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
 
     let (problem, goal_holds) = match to_problem(input, opts.kind) {
         Err(e) if e == METRIC_GOAL => return euclid(opts),
+        Err(e) if e == CONJUNCTION => return solve_within(input, opts, Some(budget)),
         other => other?,
     };
     if opts.kind == InputKind::Geo && problem.goal.as_ref().is_some_and(is_placeholder_goal) {
@@ -1752,6 +1901,136 @@ mod tests {
             examined: None,
             figure: None,
             human: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod corpus_tests {
+    use super::*;
+
+    const IMO_2008_P6: &str = "translated_imo_2008_p6\nx@4.96_-0.13 y@-1.0068968328888160_-1.2534881080682770 z@-2.8402847238575120_-4.9117762734006830 = triangle x y z; o = circle o x y z; w@6.9090049230038776_-1.3884003936987552 = on_circle w o x; a = on_tline a z o z, on_tline a x o x; b = on_tline b z o z, on_tline b w o w; c = on_tline c y o y, on_tline c w o w; d = on_tline d x o x, on_tline d y o y; i1 = incenter i1 a b c; i2 = incenter i2 a c d; f1 = foot f1 i1 a c; f2 = foot f2 i2 a c; q t p s = cc_tangent q t p s i1 f1 i2 f2; k = on_line k q t, on_line k p s ? cong o k o x";
+    const TRAPEZOID: &str = "a b c d = trapezoid a b c d; e = midpoint e d a; f = on_pline f e a b, on_line f b c ? midp f b c";
+
+    fn corpus(file: &str) -> Vec<(String, String)> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../corpus").join(file);
+        ddar::corpus::read_corpus(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn app_compile(input: &str) -> Result<usize, String> {
+        let opts = SolveOptions::default();
+        match InputKind::detect(input) {
+            InputKind::Corpus => {
+                let (_, tr) = corpus_translation(input)?;
+                if !tr.goal_holds {
+                    return Err("goal does not hold on the translated figure".into());
+                }
+                if tr.goals.len() == 1 {
+                    to_problem(input, InputKind::Corpus)?;
+                }
+                render_figure(&tr.problem, &opts, None)?;
+                Ok(tr.goals.len())
+            }
+            kind => {
+                let (p, _) = to_problem(input, kind)?;
+                render_figure(&p, &opts, None)?;
+                Ok(1)
+            }
+        }
+    }
+
+    #[test]
+    fn every_corpus_problem_compiles_through_the_app() {
+        let mut failures = Vec::new();
+        let mut total = 0;
+        for file in ["imo_ag_30.txt", "jgex_ag_231.txt"] {
+            for (name, body) in corpus(file) {
+                total += 1;
+                for input in [body.clone(), format!("{name}\n{body}")] {
+                    assert_eq!(InputKind::detect(&input), InputKind::Corpus, "{name}");
+                    if let Err(e) = app_compile(&input) {
+                        failures.push(format!("{file} {name}: {e}"));
+                    }
+                }
+                let tr = ddar::corpus::translate_text(&name, &body, 1).unwrap();
+                let low = tr.problem.to_ag_string();
+                assert_eq!(InputKind::detect(&low), InputKind::LowLevel, "{name}");
+                if let Err(e) = app_compile(&low) {
+                    failures.push(format!("{file} {name} (low-level): {e}"));
+                }
+            }
+        }
+        assert_eq!(total, 261);
+        assert!(failures.is_empty(), "{} of {total} fail:\n{}", failures.len(), failures.join("\n"));
+    }
+
+    #[test]
+    fn detection_keeps_geo_and_low_level_programs() {
+        assert_eq!(InputKind::detect("A B C = triangle\nprove coll(A, B, C)"), InputKind::Geo);
+        assert_eq!(InputKind::detect("A B C = triangle\n? coll(A, B, C)"), InputKind::Geo);
+        assert_eq!(InputKind::detect("# t\nA B C = triangle\nM = midpoint(A, B)\nprove cong(M, A, M, B)"), InputKind::Geo);
+        assert_eq!(InputKind::detect(TINY_LOW), InputKind::LowLevel);
+        assert_eq!(InputKind::detect("a@0_0 b@1_0 = coll a b ? cong a b"), InputKind::LowLevel);
+        assert_eq!(InputKind::detect(IMO_2008_P6), InputKind::Corpus);
+        assert_eq!(InputKind::detect("a b c = triangle a b c; d = middle d a b ? coll a b d"), InputKind::Corpus);
+        let err = solve_within("a b c = triangle a b c; d = middle d a b ? coll a b d", &SolveOptions { kind: InputKind::Corpus, ..SolveOptions::default() }, Some(Duration::from_secs(5)))
+            .err()
+            .expect("an unknown construction is a compile error");
+        assert!(err.contains("unknown construction `middle`"), "{err}");
+    }
+
+    const TINY_LOW: &str = "a@0_0 b@1_0 c@0_1 = coll a b c ? coll a b c";
+
+    fn corpus_opts() -> SolveOptions {
+        SolveOptions { kind: InputKind::Corpus, ..SolveOptions::default() }
+    }
+
+    #[test]
+    fn imo_2008_p6_corpus_text_is_proved_through_the_app() {
+        let sol = solve_within(IMO_2008_P6, &corpus_opts(), Some(Duration::from_secs(150))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::Proved);
+        assert_eq!(sol.method, Method::AuxSearch);
+        assert!(!sol.aux_constructions.is_empty());
+        assert!(sol.proof.as_deref().is_some_and(|p| p.contains("cong o k o x")), "{:?}", sol.proof);
+    }
+
+    #[test]
+    fn a_conjunctive_corpus_goal_is_proved_only_as_a_whole() {
+        let sol = solve_within(TRAPEZOID, &corpus_opts(), Some(Duration::from_secs(60))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert!(sol.note.contains("all 2 conjuncts of `midp f b c`"), "{}", sol.note);
+        let proof = sol.proof.as_deref().unwrap();
+        assert!(proof.contains("collinear: b f c") && proof.contains("intercept theorem"), "{proof}");
+        assert!(proof.trim_end().ends_with("\u{220e} midp f b c"), "{proof}");
+        assert!(sol.low_level.ends_with("? midp f b c"), "{}", sol.low_level);
+        let view = crate::present::build(&sol);
+        assert_eq!(view.goal.as_ref().map(|g| g.kind), Some("midp"));
+    }
+
+    #[test]
+    fn false_corpus_statements_stay_unproved() {
+        let generic = [
+            "a b c d = trapezoid a b c d; e = midpoint e d a; f = on_line f b c ? midp f b c",
+            "a b c = triangle a b c; d = midpoint d a b; e = on_line e a c ? midp e a c",
+            "a b c = triangle a b c; d = on_line d b c ? simtri a b d a c d",
+            "a b c = triangle a b c; d = midpoint d b c ? cong a d a b",
+        ];
+        for src in generic {
+            let sol = solve_within(src, &corpus_opts(), Some(Duration::from_secs(20))).unwrap();
+            assert!(!sol.proved, "{src}: {}", sol.proof.unwrap_or_default());
+            assert_eq!(sol.status, Status::Refuted, "{src}: {}", sol.note);
+            assert!(sol.proof.is_none());
+        }
+        let special = [
+            "a@0_0 b@2_0 c@0.7_1.9 = triangle a b c; d@1_0 = on_line d a b ? midp d a b",
+            "a@0_0 b@2_0 c@0.7_1.9 = triangle a b c; d@1_0 = on_line d a b ? cong d a d b",
+        ];
+        for src in special {
+            let sol = solve_within(src, &corpus_opts(), Some(Duration::from_secs(6))).unwrap();
+            assert_eq!(sol.goal_holds_numerically, Some(true), "{src}: the pinned figure satisfies the goal");
+            assert!(!sol.proved, "{src}: {}", sol.proof.unwrap_or_default());
+            assert_ne!(sol.status, Status::Proved, "{src}");
         }
     }
 }

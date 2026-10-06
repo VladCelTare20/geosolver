@@ -19,7 +19,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 - `numerics.rs` — f64 geometry oracle.
 - `svg.rs` — figure rendering; all text is XML-escaped here.
 - `quiet_panic.rs` — one process-wide hook, thread-local mute.
-- `runner.rs` — helpers shared by `bin/ddar.rs` and tests; `solve_problem_with_trace` returns the proof text, the `EngineTrace` and the goal's fact deps for the human writer.
+- `runner.rs` — helpers shared by `bin/ddar.rs`, ag-studio and tests; `solve_conjunction_with_proof` proves several goal predicates in one closure and renders one proof of their joint fact closure; `solve_problem_with_trace` returns the proof text, the `EngineTrace` and the goal's fact deps for the human writer.
 - `corpus.rs` — reader for the original AlphaGeometry corpus language (`corpus/*.txt`, constructions from `corpus/defs.txt`) → `Problem`.
 - `bench.rs` — solve-rate benchmark: `solve_one` (DDAR, then aux search, under a deadline) and `run_corpus` (one child process per problem, killed at budget + grace; `RunConfig.child_flag` picks the child mode; `RunConfig.human_stats` makes each child print one `HUMAN\t` metrics line per proved conjunct, collected into `Outcome.human`).
 - `fuzz.rs` — soundness fuzzer: genuinely false variants of corpus problems, each run through DDAR + aux search in its own process; any proof is a soundness bug (exit 2). Run under the bench lock: `flock ~/Projects/geosolver-bench/.bench.lock ddar --fuzz-false corpus/jgex_ag_231.txt --per 8 --budget 10 --jobs 6 --threads 2 --out f.tsv` (cases in `f.tsv.cases.txt`, proofs of any proved case in `f.tsv.proofs/`).

@@ -74,7 +74,7 @@ pub enum Format {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Request {
     pub input: String,
-    pub low_level: bool,
+    pub kind: InputKind,
     pub light: bool,
     pub want_proof: bool,
     pub title: Option<String>,
@@ -105,7 +105,7 @@ impl Request {
     pub fn new(input: &str, opts: &SolveOptions, mode: Mode, limit: Duration) -> Request {
         Request {
             input: input.to_string(),
-            low_level: opts.kind == InputKind::LowLevel,
+            kind: opts.kind,
             light: opts.theme == Theme::Light,
             want_proof: opts.want_proof,
             title: opts.title.clone(),
@@ -123,7 +123,7 @@ impl Request {
 
     fn options(&self) -> SolveOptions {
         SolveOptions {
-            kind: if self.low_level { InputKind::LowLevel } else { InputKind::Geo },
+            kind: self.kind,
             theme: if self.light { Theme::Light } else { Theme::Dark },
             want_proof: self.want_proof,
             title: self.title.clone(),

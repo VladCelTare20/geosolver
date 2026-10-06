@@ -827,6 +827,7 @@ async fn api_me(State(state): State<Shared>, headers: HeaderMap) -> Response {
 fn kind_of(input: &str, kind: &str) -> InputKind {
     match kind {
         "lowlevel" | "low-level" => InputKind::LowLevel,
+        "corpus" => InputKind::Corpus,
         "geo" => InputKind::Geo,
         _ => InputKind::detect(input),
     }
@@ -2253,6 +2254,42 @@ mod tests {
             assert_eq!(st, StatusCode::OK, "{input}: {body:?}");
             assert_eq!(body["status"], "proved", "{input}: {body:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn corpus_problems_solve_through_the_api() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::from_env(0).unwrap();
+        config.db_path = dir.path().join("test.db");
+        config.solve_deadline = Duration::from_secs(100);
+        let state = AppState::new(config).unwrap();
+        let cookie = register_cookie(&state, "corpus1").await;
+        let p6 = include_str!("../../corpus/imo_ag_30.txt")
+            .lines()
+            .skip_while(|l| l.trim() != "translated_imo_2008_p6")
+            .nth(1)
+            .unwrap();
+        let (st, _, body) =
+            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": p6, "record": false})).await;
+        assert_eq!(st, StatusCode::OK, "{body:?}");
+        assert_eq!(body["status"], "proved", "{}", body["note"]);
+        assert_eq!(body["method"], "aux-search");
+        let false_goal = p6.replace("? cong o k o x", "? cong o k o i1");
+        let (st, _, body) =
+            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": false_goal, "record": false})).await;
+        assert_eq!(st, StatusCode::OK, "{body:?}");
+        assert_eq!(body["status"], "refuted", "{}", body["note"]);
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": "a b c = triangle a b c; d = middle d a b ? coll a b d"}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body:?}");
+        assert_eq!(body["code"], "compile", "{body:?}");
+        assert!(body["detail"].as_str().is_some_and(|d| d.contains("unknown construction `middle`")), "{body:?}");
     }
 
     #[tokio::test]

@@ -470,7 +470,7 @@ fn tools_list() -> Value {
                 "type": "object",
                 "properties": {
                     "program": { "type": "string", "description": "The .geo program, ending in a `prove ...` line." },
-                    "kind": { "type": "string", "enum": ["auto", "geo", "lowlevel"], "description": "Input language (default auto-detect)." },
+                    "kind": { "type": "string", "enum": ["auto", "geo", "lowlevel", "corpus"], "description": "Input language (default auto-detect; `corpus` = an AlphaGeometry corpus problem line)." },
                     "theme": { "type": "string", "enum": ["light", "dark"], "description": "Figure colour scheme (default light)." },
                     "title": { "type": "string", "description": "Optional title for the figure." },
                     "best": { "type": "boolean", "description": "Spend a time budget finding the SHORTEST proof (fewest steps; the number of auxiliary constructions does not matter) instead of the first one found." },
@@ -493,7 +493,7 @@ fn tools_list() -> Value {
                     "filename": { "type": "string", "description": "A bare file name (no directories) inside the export directory ($AGSTUDIO_EXPORT_DIR, else $XDG_DATA_HOME/geosolver/exports, else ~/.local/share/geosolver/exports). Its extension must match `format`; it is added if missing. Default: a fresh unique name." },
                     "overwrite": { "type": "boolean", "description": "Replace an existing file of that name (default false)." },
                     "timeout_secs": { "type": "number", "description": "Wall-clock solve limit in seconds (default 60, max 300)." },
-                    "kind": { "type": "string", "enum": ["auto", "geo", "lowlevel"] },
+                    "kind": { "type": "string", "enum": ["auto", "geo", "lowlevel", "corpus"] },
                     "title": { "type": "string" }
                 },
                 "required": ["program"]
@@ -524,6 +524,7 @@ fn opts_from(args: &Value, default_theme: Theme) -> (String, SolveOptions) {
     let kind = match args.get("kind").and_then(Value::as_str) {
         Some("geo") => InputKind::Geo,
         Some("lowlevel") | Some("low-level") => InputKind::LowLevel,
+        Some("corpus") => InputKind::Corpus,
         _ => InputKind::detect(&program),
     };
     let theme = match args.get("theme").and_then(Value::as_str) {
