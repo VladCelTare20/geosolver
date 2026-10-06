@@ -626,7 +626,7 @@ pub fn display_node(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]
     best.map(|b| b.1)
 }
 
-fn with_const(cx: &Ctx, mut terms: Vec<(Rat, Expr)>, node: &LinComb, directed: bool) -> Option<Expr> {
+pub fn with_const(cx: &Ctx, mut terms: Vec<(Rat, Expr)>, node: &LinComb, directed: bool) -> Option<Expr> {
     let (_, raw) = super::expr::eval(cx.t, &Expr::Lin { terms: terms.clone() })?;
     let rest = LinComb::combine(node, &cx.quot.q(&raw), &Rat::from_int(-1));
     if rest.terms.iter().any(|(v, _)| *v != ANGLE_UNIT) {

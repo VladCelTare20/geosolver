@@ -167,6 +167,61 @@ pub fn stmt_targets(t: &EngineTrace, s: &Stmt) -> Option<Vec<(Table, LinComb)>> 
     })
 }
 
+pub fn reason_rows(t: &EngineTrace, blocks: &[Block], r: &Reason) -> Option<Vec<(Table, LinComb)>> {
+    match r {
+        Reason::Hyp { fact, .. } => Some(rows_of_fact(t, *fact)),
+        Reason::Fact { fact, .. } => Some(rows_of_fact(t, *fact)),
+        Reason::Claim { block, fact, .. } => {
+            let b = blocks.iter().find(|b| b.id == *block)?;
+            if !b.engine_facts.contains(fact) {
+                return None;
+            }
+            Some(rows_of_fact(t, *fact))
+        }
+        Reason::Atom { key, args, .. } => check_rows(t, *key, args),
+        Reason::Engine { fact } => Some(rows_of_fact(t, *fact)),
+        Reason::Lemma { stmt, .. } => Some(stmt_targets(t, stmt)?.into_iter().map(|(tb, row)| (tb, exact(t, tb, row))).collect()),
+    }
+}
+
+pub fn residual_ok(cx: &Ctx, tb: Table, diff: &LinComb, sum: &LinComb, directed: bool) -> bool {
+    let d = &diff.clone() - sum;
+    if tb == Table::Angle {
+        let q = cx.quot.q(&d);
+        if q.terms.iter().any(|(v, _)| *v != ANGLE_UNIT) {
+            return false;
+        }
+        let c = q.get(ANGLE_UNIT);
+        if directed {
+            c.is_integer()
+        } else {
+            c.is_zero()
+        }
+    } else if tb == Table::Ratio {
+        cx.t.canon_ratio(&d).is_zero()
+    } else {
+        d.is_zero()
+    }
+}
+
+pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
+    let t = cx.t;
+    match s {
+        Sentence::Chain { terms, directed, then: None, .. } => {
+            let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
+            let (Some((tb, a)), Some((_, b)), Some((_, x)), Some((_, y))) = (eval(t, &terms[0]), eval(t, terms.last().unwrap()), eval(t, lhs), eval(t, rhs)) else { return false };
+            let directed = *directed && is_directed(&terms[0]) && is_directed(terms.last().unwrap());
+            residual_ok(cx, tb, &(&a - &b), &(&x - &y), directed)
+        }
+        Sentence::Because { stmt, .. } | Sentence::Pooled { stmt, .. } => stmt == st,
+        Sentence::Computation { terms, .. } => {
+            let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
+            terms.first() == Some(lhs) && terms.last() == Some(rhs)
+        }
+        _ => false,
+    }
+}
+
 pub fn conclusion_forms(t: &EngineTrace, s: &Stmt) -> Option<Vec<(Table, LinComb)>> {
     match s {
         Stmt::Coll { pts } => {
@@ -330,39 +385,11 @@ impl<'c, 'a> Checker<'c, 'a> {
     }
 
     fn reason_rows(&mut self, blocks: &[Block], r: &Reason) -> Option<Vec<(Table, LinComb)>> {
-        let t = self.cx.t;
-        match r {
-            Reason::Hyp { fact, .. } => Some(rows_of_fact(t, *fact)),
-            Reason::Fact { fact, .. } => Some(rows_of_fact(t, *fact)),
-            Reason::Claim { block, fact, .. } => {
-                let b = blocks.iter().find(|b| b.id == *block)?;
-                if !b.engine_facts.contains(fact) {
-                    return None;
-                }
-                Some(rows_of_fact(t, *fact))
-            }
-            Reason::Atom { key, args, .. } => check_rows(t, *key, args),
-            Reason::Engine { fact } => Some(rows_of_fact(t, *fact)),
-            Reason::Lemma { stmt, .. } => Some(stmt_targets(t, stmt)?.into_iter().map(|(tb, row)| (tb, exact(t, tb, row))).collect()),
-        }
+        reason_rows(self.cx.t, blocks, r)
     }
 
     fn establishes(&self, s: &Sentence, st: &Stmt) -> bool {
-        let t = self.cx.t;
-        match s {
-            Sentence::Chain { terms, directed, then: None, .. } => {
-                let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
-                let (Some((tb, a)), Some((_, b)), Some((_, x)), Some((_, y))) = (eval(t, &terms[0]), eval(t, terms.last().unwrap()), eval(t, lhs), eval(t, rhs)) else { return false };
-                let directed = *directed && is_directed(&terms[0]) && is_directed(terms.last().unwrap());
-                self.residual_ok(tb, &(&a - &b), &(&x - &y), directed)
-            }
-            Sentence::Because { stmt, .. } | Sentence::Pooled { stmt, .. } => stmt == st,
-            Sentence::Computation { terms, .. } => {
-                let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
-                terms.first() == Some(lhs) && terms.last() == Some(rhs)
-            }
-            _ => false,
-        }
+        establishes(self.cx, s, st)
     }
 
     fn reason_ok(&mut self, blocks: &[Block], cur: u16, sidx: usize, h: FactId, r: &Reason) -> Result<(), String> {
@@ -434,7 +461,7 @@ impl<'c, 'a> Checker<'c, 'a> {
         Ok(())
     }
 
-    fn combo(&mut self, blocks: &[Block], h: FactId, reasons: &[Reason], terms: &[Term]) -> Option<(Table, LinComb)> {
+    fn combo(&mut self, blocks: &[Block], h: FactId, reasons: &[Reason], terms: &[Term], exact_rows: bool) -> Option<(Table, LinComb)> {
         let mut out = LinComb::zero();
         let mut tb = Table::Angle;
         let mut cache: BTreeMap<u16, Vec<(Table, LinComb)>> = BTreeMap::new();
@@ -453,37 +480,21 @@ impl<'c, 'a> Checker<'c, 'a> {
                 return None;
             }
             tb = t;
+            let row = if exact_rows { exact(self.cx.t, t, row) } else { row };
             out.iadd_mul(&row, &term.coef);
         }
         Some((tb, out))
     }
 
     fn residual_ok(&self, tb: Table, diff: &LinComb, sum: &LinComb, directed: bool) -> bool {
-        let cx = self.cx;
-        let d = &diff.clone() - sum;
-        if tb == Table::Angle {
-            let q = cx.quot.q(&d);
-            if q.terms.iter().any(|(v, _)| *v != ANGLE_UNIT) {
-                return false;
-            }
-            let c = q.get(ANGLE_UNIT);
-            if directed {
-                c.is_integer()
-            } else {
-                c.is_zero()
-            }
-        } else if tb == Table::Ratio {
-            cx.t.canon_ratio(&d).is_zero()
-        } else {
-            d.is_zero()
-        }
+        residual_ok(self.cx, tb, diff, sum, directed)
     }
 
     fn link_ok(&mut self, blocks: &[Block], h: FactId, a: &Expr, b: &Expr, link: &Link, directed: bool) -> Result<(), String> {
         let t = self.cx.t;
         let (tb, ea) = eval(t, a).ok_or("term does not evaluate")?;
         let (_, eb) = eval(t, b).ok_or("term does not evaluate")?;
-        let (_, sum) = self.combo(blocks, h, &link.reasons, &link.combination).ok_or("link combination does not resolve, or uses an atom row outside the engine span")?;
+        let (_, sum) = self.combo(blocks, h, &link.reasons, &link.combination, !directed).ok_or("link combination does not resolve, or uses an atom row outside the engine span")?;
         if link.combination.is_empty() {
             return Err("link without a combination".into());
         }
@@ -548,7 +559,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                 }
                 if !combination.is_empty() {
                     let targets = conclusion_forms(t, stmt).ok_or("pooled statement has no algebraic form")?;
-                    let (tb, sum) = self.combo(blocks, h, reasons, combination).ok_or("pooled combination does not resolve, or uses an atom row outside the engine span")?;
+                    let (tb, sum) = self.combo(blocks, h, reasons, combination, false).ok_or("pooled combination does not resolve, or uses an atom row outside the engine span")?;
                     let ok = targets.iter().any(|(t2, x)| *t2 == tb && (self.residual_ok(tb, x, &sum, true) || self.residual_ok(tb, &x.negated(), &sum, true)));
                     if !ok {
                         let q: Vec<String> = targets.iter().map(|(_, x)| format!("{:?}", self.cx.quot.q(&(&x.clone() - &sum)))).collect();
@@ -612,11 +623,12 @@ impl<'c, 'a> Checker<'c, 'a> {
         }
         if let Some(targets) = stmt_targets(t, &b.stmt) {
             let h = b.engine_facts.iter().map(|f| f + 1).max().unwrap_or(0).max(b.horizon + 1).max(if b.kind == BlockKind::Conclusion { cx.closure.last().map(|x| x + 1).unwrap_or(0) } else { 0 });
+            let by_body = b.kind != BlockKind::Conclusion && b.body.iter().any(|s| establishes(cx, s, &b.stmt) && !matches!(s, Sentence::Because { combination, .. } if combination.is_empty()));
             for (tb, row) in targets {
                 if !t.holds(tb, &row) && !t.holds(tb, &row.negated()) {
                     return Err("block statement does not hold in the figure".into());
                 }
-                if !self.proven(h, tb, &row) {
+                if !by_body && !self.proven(h, tb, &row) {
                     return Err("block statement is not a consequence of the engine facts it re-presents".into());
                 }
             }
@@ -641,7 +653,51 @@ fn same_angle(a: Option<&Expr>, b: Option<&Expr>) -> bool {
 }
 
 pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
-    let mut ch = Checker::new(cx);
+    let mut out = violations_with(&mut Checker::new(cx), hp);
+    out.extend(layout_violations(cx, hp));
+    out
+}
+
+pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+    let mut out = Vec::new();
+    let mut bad = |block: u16, detail: String| out.push(Violation { block, rule: "I6", detail });
+    for (i, b) in hp.blocks.iter().enumerate() {
+        if b.step as usize != i + 1 {
+            bad(b.id, format!("block {} is numbered {} at position {}", b.id, b.step, i + 1));
+        }
+    }
+    let Some(goal) = &hp.goal else {
+        if !hp.plan.is_empty() || hp.blocks.iter().any(|b| b.tag) {
+            bad(0, "relation tags or a plan without the finished layout".into());
+        }
+        return out;
+    };
+    if *goal != super::barem::goal_words(cx) {
+        bad(0, "the conclusion's wording does not match the goal".into());
+    }
+    let mut cited: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    for b in &hp.blocks {
+        cited.extend(super::barem::cited_blocks(b).into_iter().filter(|&x| x < b.id));
+    }
+    for b in &hp.blocks {
+        let want = cited.contains(&b.id) && b.kind != BlockKind::Conclusion;
+        if b.tag != want {
+            bad(b.id, format!("block {} is {}tagged but is {}cited later", b.id, if b.tag { "" } else { "not " }, if want { "" } else { "not " }));
+        }
+    }
+    if let Some(c) = hp.blocks.last() {
+        let direct = super::barem::cited_blocks(c);
+        for p in &hp.plan {
+            if !direct.contains(p) {
+                bad(c.id, format!("the plan names block {p}, which the conclusion does not use"));
+            }
+        }
+    }
+    out
+}
+
+pub fn violations_with(ch: &mut Checker, hp: &HumanProof) -> Vec<Violation> {
+    let cx = ch.cx;
     let mut out = Vec::new();
     let blocks = hp.blocks.clone();
     for (i, b) in blocks.iter().enumerate() {
@@ -702,7 +758,7 @@ pub fn check(cx: &Ctx, hp: &mut HumanProof, strict: bool) -> usize {
     if strict {
         panic!("human proof checker: {:?}", first);
     }
-    let mut v = first.clone();
+    let mut v: Vec<Violation> = first.iter().filter(|x| x.rule != "I6").cloned().collect();
     for _ in 0..32 {
         if v.is_empty() {
             break;
@@ -729,7 +785,10 @@ pub fn check(cx: &Ctx, hp: &mut HumanProof, strict: bool) -> usize {
         if !demoted.is_empty() {
             uncite(hp, &demoted);
         }
-        v = violations(cx, hp);
+        v = violations_with(&mut Checker::new(cx), hp);
+    }
+    if hp.goal.is_some() {
+        super::barem::finish(cx, hp);
     }
     first.len()
 }

@@ -540,6 +540,9 @@ impl<'c, 'a> Builder<'c, 'a> {
                 AtomSrc::Human(AtomKey::PerpBisector) => {
                     out.push(((a.args[0], a.args[1]), (a.args[2], a.args[3]), a.avail, a.sources.clone()));
                 }
+                AtomSrc::Human(AtomKey::Thales) => {
+                    out.push(((a.args[2], a.args[0]), (a.args[2], a.args[1]), a.avail, a.sources.clone()));
+                }
                 _ => {}
             }
         }

@@ -19,13 +19,26 @@ pub struct HumanProof {
     pub setup: Vec<SetupLine>,
     pub blocks: Vec<Block>,
     pub as_drawn: bool,
+    pub plan: Vec<u16>,
+    pub goal: Option<GoalWords>,
     pub metrics: Metrics,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GoalWords {
+    OnLine { p: PointId, line: Line },
+    Collinear { pts: Vec<PointId> },
+    Concyclic { pts: Vec<PointId> },
+    Bisects { line: Line, angle: Tri },
+    Stmt,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SetupLine {
     DirectedAngles,
+    FigureAngles,
     Circle { name: String, through: Vec<PointId>, centre: Option<PointId>, diameter: Option<Line> },
     Aux { point: PointId, aux_index: usize, wording: Option<super::aux::AuxWording> },
     Helper { point: PointId, meaning: HelperMeaning },
@@ -51,6 +64,8 @@ pub struct Block {
     pub engine_facts: Vec<FactId>,
     pub points: Vec<PointId>,
     pub objects: Vec<ObjRef>,
+    pub step: u16,
+    pub tag: bool,
     #[serde(skip)]
     pub horizon: FactId,
 }
@@ -418,6 +433,10 @@ pub struct Metrics {
     pub similar_steps: usize,
     pub theorem_steps: usize,
     pub library: bool,
+    pub steps: usize,
+    pub multi_fact_links: usize,
+    pub undirected_chains: usize,
+    pub directed_chains: usize,
     #[serde(skip)]
     pub timed_out: bool,
     #[serde(skip)]

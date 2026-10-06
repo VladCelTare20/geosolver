@@ -1,5 +1,6 @@
 pub mod atoms;
 pub mod aux;
+pub mod barem;
 pub mod cert;
 pub mod chain;
 pub mod check;
@@ -44,6 +45,8 @@ pub fn unavailable(raw_steps: usize) -> HumanProof {
         setup: Vec::new(),
         blocks: Vec::new(),
         as_drawn: false,
+        plan: Vec::new(),
+        goal: None,
         metrics: Metrics { raw_steps, ..Metrics::default() },
     }
 }
@@ -168,7 +171,7 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     claims::drop_self_reasons(&mut blocks);
     let as_drawn = p.as_drawn;
     let setup = setup_lines(&cx, &blocks);
-    let mut hp = HumanProof { version: 1, available: true, setup, blocks, as_drawn, metrics: Metrics::default() };
+    let mut hp = HumanProof { version: 1, available: true, setup, blocks, as_drawn, plan: Vec::new(), goal: None, metrics: Metrics::default() };
     let violations = check::check(&cx, &mut hp, opts.strict);
     tick("check");
     hp.metrics.check_violations = violations;
@@ -177,6 +180,8 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
         u.metrics.check_violations = violations;
         return Some(u);
     }
+    barem::polish(&cx, &mut hp);
+    tick("barem");
     fill_metrics(&cx, &w, &mut hp);
     hp.metrics.timed_out = cx.timed_out();
     Some(hp)
@@ -435,7 +440,13 @@ pub fn shape_counts(blocks: &[Block]) -> (usize, usize) {
 }
 
 fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
+    let (multi, und, dir) = barem::chain_count(hp, cx);
+    let steps = hp.blocks.len();
     let m = &mut hp.metrics;
+    m.steps = steps;
+    m.multi_fact_links = multi;
+    m.undirected_chains = und;
+    m.directed_chains = dir;
     m.raw_steps = cx.closure.len();
     m.derived = cx.closure.iter().filter(|&&f| !matches!(cx.class[f as usize], ctx::FactClass::Hyp)).count();
     m.blocks = hp.blocks.len();
@@ -460,6 +471,7 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
         }
     }
     m.aux_shown = hp.setup.iter().filter(|s| matches!(s, SetupLine::Aux { .. })).count();
+
     let (sim, thm) = shape_counts(&hp.blocks);
     m.similar_steps = sim;
     m.theorem_steps = thm;

@@ -2428,7 +2428,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         body.push(Sentence::Because { stmt: stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
                     }
                     let objects = objects_of(&stmt);
-                    self.blocks.push(Block { id, kind, stmt, body, engine_facts: facts, points, objects, horizon });
+                    self.blocks.push(Block { id, kind, stmt, body, engine_facts: facts, points, objects, step: id, tag: false, horizon });
                     self.block_of.insert(f, id);
                     self.allowed.insert(f);
                     let _ = (links, pooled);
@@ -2458,7 +2458,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
         let stmt = goal.stmt.clone();
         let objects = objects_of(&stmt);
-        self.blocks.push(Block { id, kind: BlockKind::Conclusion, stmt, body: all, engine_facts: facts, points, objects, horizon: goal.horizon });
+        self.blocks.push(Block { id, kind: BlockKind::Conclusion, stmt, body: all, engine_facts: facts, points, objects, step: id, tag: false, horizon: goal.horizon });
     }
 }
 
@@ -2480,6 +2480,8 @@ pub fn raw_block(cx: &Ctx, id: u16, f: FactId, horizon: FactId) -> Block {
         engine_facts: vec![f],
         points: fact_points(cx, f),
         objects: Vec::new(),
+        step: id,
+        tag: false,
         horizon,
     }
 }

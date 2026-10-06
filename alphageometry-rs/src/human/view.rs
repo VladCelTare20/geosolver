@@ -38,6 +38,10 @@ pub fn stmt_points(s: &Stmt) -> Vec<PointId> {
     }
 }
 
+pub fn reason_points_pub(r: &Reason, out: &mut Vec<PointId>) {
+    reason_points(r, out)
+}
+
 fn reason_points(r: &Reason, out: &mut Vec<PointId>) {
     match r {
         Reason::Hyp { stmt, .. } | Reason::Lemma { stmt, .. } => out.extend(stmt_points(stmt)),
@@ -229,6 +233,7 @@ pub fn sentence(nm: &Namer, s: &Sentence) -> Value {
 pub fn setup(nm: &Namer, s: &SetupLine) -> Value {
     match s {
         SetupLine::DirectedAngles => json!({"kind": "directed_angles"}),
+        SetupLine::FigureAngles => json!({"kind": "figure_angles"}),
         SetupLine::Notation { triangle, circumcentre } => json!({
             "kind": "notation",
             "triangle": names_of(nm, &[triangle.0, triangle.1, triangle.2]),
@@ -281,12 +286,24 @@ pub fn block(nm: &Namer, b: &Block) -> Value {
         "stmt": stmt(nm, &b.stmt),
         "body": b.body.iter().map(|s| sentence(nm, s)).collect::<Vec<_>>(),
         "engine_steps": steps,
+        "step": b.step,
+        "tag": b.tag,
         "points": names_of(nm, &b.points),
         "objects": b.objects.iter().map(|o| match o {
             ObjRef::Circle { through } => json!({"circle": names_of(nm, through)}),
             ObjRef::Line { through } => json!({"line": names_of(nm, through)}),
         }).collect::<Vec<_>>(),
     })
+}
+
+pub fn goal(nm: &Namer, g: &GoalWords) -> Value {
+    match g {
+        GoalWords::OnLine { p, line } => json!({"kind": "on_line", "p": (nm.name)(*p), "line": [(nm.name)(line.0), (nm.name)(line.1)]}),
+        GoalWords::Collinear { pts } => json!({"kind": "collinear", "pts": names_of(nm, pts)}),
+        GoalWords::Concyclic { pts } => json!({"kind": "concyclic", "pts": names_of(nm, pts)}),
+        GoalWords::Bisects { line, angle } => json!({"kind": "bisects", "line": [(nm.name)(line.0), (nm.name)(line.1)], "angle": names_of(nm, &[angle.0, angle.1, angle.2])}),
+        GoalWords::Stmt => json!({"kind": "stmt"}),
+    }
 }
 
 pub fn to_json(hp: &HumanProof, nm: &Namer) -> Value {
@@ -302,6 +319,8 @@ fn to_json_inner(hp: &HumanProof, nm: &Namer) -> Value {
         "as_drawn": hp.as_drawn,
         "setup": hp.setup.iter().map(|s| setup(nm, s)).collect::<Vec<_>>(),
         "blocks": hp.blocks.iter().map(|b| block(nm, b)).collect::<Vec<_>>(),
+        "plan": hp.plan,
+        "goal": hp.goal.as_ref().map(|g| goal(nm, g)),
         "metrics": serde_json::to_value(&hp.metrics).unwrap_or(Value::Null),
     })
 }

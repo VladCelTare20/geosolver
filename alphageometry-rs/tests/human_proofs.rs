@@ -219,11 +219,24 @@ fn checker_rejects_corrupted_proofs() {
         if let Reason::Atom { args, .. } = r {
             args.reverse();
         }
-        if let Reason::Hyp { stmt, .. } = r {
+        if let Reason::Hyp { stmt, .. } | Reason::Lemma { stmt, .. } = r {
             *stmt = Stmt::Coll { pts: vec![0, 1, 2] };
         }
     }
     assert!(!verify(&s, &m).is_empty(), "altered reasons accepted");
+
+    let mut m = base.clone();
+    let tagged = m.blocks.iter().position(|b| b.tag).expect("a cited step");
+    m.blocks[tagged].tag = false;
+    assert!(!verify(&s, &m).is_empty(), "a cited step without its relation tag accepted");
+
+    let mut m = base.clone();
+    m.blocks[0].step = 7;
+    assert!(!verify(&s, &m).is_empty(), "misnumbered step accepted");
+
+    let mut m = base.clone();
+    m.goal = Some(ddar::human::GoalWords::Concyclic { pts: vec![0, 1, 2, 3] });
+    assert!(!verify(&s, &m).is_empty(), "a conclusion worded as another goal accepted");
 
     let mut m = base.clone();
     let last = m.blocks.last_mut().unwrap();
