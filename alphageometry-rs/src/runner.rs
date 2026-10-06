@@ -59,6 +59,36 @@ pub fn solve_problem_with_proof(problem: &Problem) -> Result<Option<String>, Str
     }))
 }
 
+/// Prove every predicate of `goals` in one closure of `problem` (its own goal
+/// is ignored) and render one numbered proof of them all, headed `goal_text`.
+pub fn solve_conjunction_with_proof(
+    problem: &Problem,
+    goals: &[crate::predicate::Predicate],
+    goal_text: &str,
+) -> Result<Option<String>, String> {
+    if goals.is_empty() {
+        return Err("problem has no goal".to_string());
+    }
+    let mut ddar = Ddar::new_tracked(&problem.points);
+    for pred in &problem.preds {
+        ddar.force_pred(pred);
+    }
+    ddar.deduction_closure();
+    let mut deps = Vec::new();
+    for goal in goals {
+        if ddar.check_pred_deps(goal).is_none() {
+            trig_fallback(&mut ddar, goal);
+        }
+        match ddar.check_pred_deps(goal) {
+            Some(d) => deps.extend(d),
+            None => return Ok(None),
+        }
+    }
+    deps.sort_unstable();
+    deps.dedup();
+    Ok(Some(ddar.proof_report(&deps, goal_text)))
+}
+
 pub fn solve_problem_with_trace(
     problem: &Problem,
 ) -> Result<Option<(String, crate::human::EngineTrace, Vec<crate::proof::FactId>)>, String> {
