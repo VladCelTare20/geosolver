@@ -1297,8 +1297,8 @@
       {
         "kind": "directed_steps",
         "steps": [
-          4,
-          6
+          5,
+          7
         ]
       },
       {
@@ -1332,6 +1332,161 @@
     "blocks": [
       {
         "id": 1,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "cong",
+          "args": [
+            "NB",
+            "NC"
+          ],
+          "points": [
+            "B",
+            "C",
+            "N"
+          ]
+        },
+        "body": [
+          {
+            "kind": "chain",
+            "terms": [
+              "∠NBC",
+              "∠NAC",
+              "∠BAN",
+              "∠BCN"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "inscribed",
+                    "args": [
+                      "A",
+                      "B",
+                      "C",
+                      "N"
+                    ],
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "A",
+                        "B",
+                        "C",
+                        "N"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "N"
+                      ]
+                    },
+                    "from": [],
+                    "circle": "Ω"
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "bisects",
+                      "args": [
+                        "AI",
+                        "∠BAC"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "I"
+                      ]
+                    },
+                    "step": 3
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "cyclic",
+                    "args": [
+                      "N",
+                      "C",
+                      "B",
+                      "A"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "N"
+                    ],
+                    "step": 6,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              }
+            ],
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "cong",
+              "args": [
+                "NB",
+                "NC"
+              ],
+              "points": [
+                "B",
+                "C",
+                "N"
+              ]
+            },
+            "reasons": [],
+            "combination": []
+          }
+        ],
+        "engine_steps": [
+          32
+        ],
+        "points": [
+          "B",
+          "C",
+          "N"
+        ],
+        "objects": [],
+        "step": 1,
+        "tag": true
+      },
+      {
+        "id": 2,
         "kind": "step",
         "n": null,
         "stmt": {
@@ -1386,7 +1541,9 @@
                     "N"
                   ]
                 },
-                "from": []
+                "from": [
+                  1
+                ]
               }
             ],
             "combination": [
@@ -1408,11 +1565,11 @@
           "C"
         ],
         "objects": [],
-        "step": 1,
+        "step": 2,
         "tag": true
       },
       {
-        "id": 2,
+        "id": 3,
         "kind": "claim",
         "n": 1,
         "stmt": {
@@ -1614,11 +1771,11 @@
             ]
           }
         ],
-        "step": 2,
+        "step": 3,
         "tag": true
       },
       {
-        "id": 3,
+        "id": 4,
         "kind": "claim",
         "n": 2,
         "stmt": {
@@ -1758,88 +1915,10 @@
                       "N"
                     ],
                     "step": null,
-                    "block": 1,
+                    "block": 2,
                     "because": [],
                     "lemma": true,
                     "sentence": 0
-                  },
-                  {
-                    "kind": "cong",
-                    "args": [
-                      "NB",
-                      "NC"
-                    ],
-                    "points": [
-                      "B",
-                      "C",
-                      "N"
-                    ],
-                    "step": 32,
-                    "block": null,
-                    "because": [
-                      {
-                        "kind": "atom",
-                        "key": "inscribed",
-                        "args": [
-                          "A",
-                          "B",
-                          "C",
-                          "N"
-                        ],
-                        "stmt": {
-                          "kind": "cyclic",
-                          "args": [
-                            "A",
-                            "B",
-                            "C",
-                            "N"
-                          ],
-                          "points": [
-                            "A",
-                            "B",
-                            "C",
-                            "N"
-                          ]
-                        },
-                        "from": [],
-                        "circle": "Ω"
-                      },
-                      {
-                        "kind": "hyp",
-                        "stmt": {
-                          "kind": "bisects",
-                          "args": [
-                            "AI",
-                            "∠BAC"
-                          ],
-                          "points": [
-                            "A",
-                            "B",
-                            "C",
-                            "I"
-                          ]
-                        },
-                        "step": 3
-                      },
-                      {
-                        "kind": "cyclic",
-                        "args": [
-                          "N",
-                          "C",
-                          "B",
-                          "A"
-                        ],
-                        "points": [
-                          "A",
-                          "B",
-                          "C",
-                          "N"
-                        ],
-                        "step": 6,
-                        "block": null,
-                        "because": []
-                      }
-                    ]
                   }
                 ],
                 "combination": [
@@ -1960,11 +2039,11 @@
             ]
           }
         ],
-        "step": 3,
+        "step": 4,
         "tag": true
       },
       {
-        "id": 4,
+        "id": 5,
         "kind": "claim",
         "n": 3,
         "stmt": {
@@ -2000,7 +2079,7 @@
                   {
                     "kind": "claim",
                     "n": 1,
-                    "block": 2,
+                    "block": 3,
                     "step": 43
                   }
                 ],
@@ -2027,88 +2106,10 @@
                       "N"
                     ],
                     "step": null,
-                    "block": 1,
+                    "block": 2,
                     "because": [],
                     "lemma": true,
                     "sentence": 0
-                  },
-                  {
-                    "kind": "cong",
-                    "args": [
-                      "NB",
-                      "NC"
-                    ],
-                    "points": [
-                      "B",
-                      "C",
-                      "N"
-                    ],
-                    "step": 32,
-                    "block": null,
-                    "because": [
-                      {
-                        "kind": "atom",
-                        "key": "inscribed",
-                        "args": [
-                          "A",
-                          "B",
-                          "C",
-                          "N"
-                        ],
-                        "stmt": {
-                          "kind": "cyclic",
-                          "args": [
-                            "A",
-                            "B",
-                            "C",
-                            "N"
-                          ],
-                          "points": [
-                            "A",
-                            "B",
-                            "C",
-                            "N"
-                          ]
-                        },
-                        "from": [],
-                        "circle": "Ω"
-                      },
-                      {
-                        "kind": "hyp",
-                        "stmt": {
-                          "kind": "bisects",
-                          "args": [
-                            "AI",
-                            "∠BAC"
-                          ],
-                          "points": [
-                            "A",
-                            "B",
-                            "C",
-                            "I"
-                          ]
-                        },
-                        "step": 3
-                      },
-                      {
-                        "kind": "cyclic",
-                        "args": [
-                          "N",
-                          "C",
-                          "B",
-                          "A"
-                        ],
-                        "points": [
-                          "A",
-                          "B",
-                          "C",
-                          "N"
-                        ],
-                        "step": 6,
-                        "block": null,
-                        "because": []
-                      }
-                    ]
                   }
                 ],
                 "combination": [
@@ -2323,11 +2324,11 @@
             ]
           }
         ],
-        "step": 4,
+        "step": 5,
         "tag": true
       },
       {
-        "id": 5,
+        "id": 6,
         "kind": "claim",
         "n": 4,
         "stmt": {
@@ -2358,7 +2359,7 @@
                   {
                     "kind": "claim",
                     "n": 2,
-                    "block": 3,
+                    "block": 4,
                     "step": 44
                   }
                 ],
@@ -2410,7 +2411,7 @@
                   {
                     "kind": "claim",
                     "n": 3,
-                    "block": 4,
+                    "block": 5,
                     "step": 45
                   }
                 ],
@@ -2427,7 +2428,7 @@
                   {
                     "kind": "claim",
                     "n": 2,
-                    "block": 3,
+                    "block": 4,
                     "step": 44
                   }
                 ],
@@ -2512,11 +2513,11 @@
           "X"
         ],
         "objects": [],
-        "step": 5,
+        "step": 6,
         "tag": true
       },
       {
-        "id": 6,
+        "id": 7,
         "kind": "step",
         "n": null,
         "stmt": {
@@ -2801,11 +2802,11 @@
           "X"
         ],
         "objects": [],
-        "step": 6,
+        "step": 7,
         "tag": true
       },
       {
-        "id": 7,
+        "id": 8,
         "kind": "conclusion",
         "n": null,
         "stmt": {
@@ -2881,7 +2882,7 @@
                       ]
                     },
                     "from": [
-                      5
+                      6
                     ]
                   },
                   {
@@ -2897,7 +2898,7 @@
                       "X"
                     ],
                     "step": null,
-                    "block": 6,
+                    "block": 7,
                     "because": [],
                     "lemma": true,
                     "sentence": 0
@@ -2943,13 +2944,13 @@
           "X"
         ],
         "objects": [],
-        "step": 7,
+        "step": 8,
         "tag": false
       }
     ],
     "plan": [
-      5,
-      6
+      6,
+      7
     ],
     "goal": {
       "kind": "bisects",
@@ -2966,19 +2967,19 @@
     "metrics": {
       "raw_steps": 54,
       "derived": 31,
-      "blocks": 7,
+      "blocks": 8,
       "claims": 4,
-      "sentences": 9,
-      "chain_links": 29,
-      "chains": 6,
-      "pure_chains": 4,
+      "sentences": 11,
+      "chain_links": 32,
+      "chains": 7,
+      "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 516,
-      "lines_en": 47,
-      "citations": 35,
+      "words_en": 531,
+      "lines_en": 52,
+      "citations": 36,
       "aux_shown": 0,
-      "human_cost": 134,
+      "human_cost": 144,
       "reproved": 4,
       "silent": 24,
       "pruned": 3,
@@ -2988,9 +2989,9 @@
       "check_violations": 0,
       "similar_steps": 1,
       "theorem_steps": 5,
-      "steps": 7,
+      "steps": 8,
       "multi_fact_links": 2,
-      "undirected_chains": 4,
+      "undirected_chains": 5,
       "directed_chains": 2
     }
   }

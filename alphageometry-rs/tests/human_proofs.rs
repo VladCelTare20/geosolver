@@ -192,7 +192,8 @@ fn golden_examples_have_the_planned_shape() {
     let (_, hp, t) = get("imo_2023_p2");
     numbered(hp, t);
     assert!(t.contains("Let \u{3a9} be the circumcircle of triangle ABC, with centre O"), "{t}");
-    assert!(!t.contains("Hence NB = NC."), "{t}");
+    assert!(t.contains("1. We show that NB = NC:") && t.contains("Hence NB = NC. (1)"), "NB = NC is used twice, so it is its own step:\n{t}");
+    assert!(!t.contains("NB = NC (inscribed angles"), "{t}");
     assert!(t.contains("So T, E, S, O are concyclic."), "{t}");
     assert!(t.contains("We show that XA = XP:"), "{t}");
     assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");

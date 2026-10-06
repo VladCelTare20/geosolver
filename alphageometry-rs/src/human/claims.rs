@@ -829,7 +829,7 @@ impl<'c, 'a> Writer<'c, 'a> {
                         }
                     }
                     Kind::Isosceles | Kind::Length => {
-                        if size <= 3 {
+                        if size <= 3 && u <= 1 {
                             Role::Inline
                         } else {
                             Role::Step
