@@ -189,6 +189,20 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Whether the database takes a write: an immediate transaction that rewrites
+/// the schema version and rolls back, so nothing changes.
+pub fn write_probe(conn: &mut Connection) -> rusqlite::Result<()> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let v: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    tx.execute_batch(&format!("PRAGMA user_version = {v}"))?;
+    tx.rollback()
+}
+
+/// Fold the write-ahead log into the main file and truncate it (on shutdown).
+pub fn checkpoint(conn: &Connection) -> rusqlite::Result<()> {
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+}
+
 /// The 32-byte server secret `name`, stored as `fresh` on first use. A row of
 /// the wrong length is replaced (logged), which revokes whatever it signed.
 pub fn server_secret(conn: &Connection, name: &str, fresh: [u8; 32]) -> rusqlite::Result<[u8; 32]> {

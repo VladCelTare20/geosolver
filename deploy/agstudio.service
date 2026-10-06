@@ -22,6 +22,13 @@ Environment=AGSTUDIO_DB=/var/lib/agstudio/agstudio.db
 UMask=0077
 Restart=on-failure
 RestartSec=3
+# SIGTERM only the server: it drains solves in flight (AGSTUDIO_SHUTDOWN_GRACE_SECS,
+# 70 s) and its workers exit on their own once it is gone. The default
+# KillMode=control-group would SIGTERM every worker at once.
+KillMode=mixed
+TimeoutStopSec=90
+# A kernel OOM kill of one solve worker fails that solve, not the service.
+OOMPolicy=continue
 
 # Run as a dedicated, unprivileged, dynamically-allocated user.
 DynamicUser=yes

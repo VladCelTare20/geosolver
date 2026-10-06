@@ -1845,10 +1845,10 @@ mod tests {
         }
     }
 
-    fn ptolemy_program(extra: usize, factor: &str) -> String {
+    fn ptolemy_program(extra: usize, point: &str, factor: &str) -> String {
         let mut src = String::from("A B C = triangle\nD = reflect(C, perp_bisector(A, B))\n");
         for i in 0..extra {
-            src.push_str(&format!("P{i} = free\n"));
+            src.push_str(&format!("P{i} = {point}\n"));
         }
         src.push_str(&format!("prove dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {factor}dist(A,D)*dist(B,C)\n"));
         src
@@ -1857,7 +1857,7 @@ mod tests {
     #[test]
     fn a_metric_solve_answers_inside_its_deadline_with_its_figure_and_method() {
         let t = Instant::now();
-        let sol = solve_within(&ptolemy_program(89, ""), &SolveOptions::default(), Some(Duration::from_secs(6))).unwrap();
+        let sol = solve_within(&ptolemy_program(25, "on_circum(A, B, C)", ""), &SolveOptions::default(), Some(Duration::from_secs(6))).unwrap();
         let took = t.elapsed();
         assert!(took < Duration::from_secs(6) + crate::worker::GRACE, "{took:?}");
         assert!(!sol.proved);
@@ -1866,12 +1866,12 @@ mod tests {
         assert!(sol.note.contains("time limit"), "{}", sol.note);
         assert_eq!(crate::present::classify_note(&sol).key, "time_limit");
         let t = Instant::now();
-        let sol = solve_within(&ptolemy_program(89, "2*"), &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
+        let sol = solve_within(&ptolemy_program(89, "free", "2*"), &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
         assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
         assert!(!sol.proved);
         assert_eq!(sol.status, Status::Refuted, "{}", sol.note);
         assert_eq!(sol.method, Method::Euclidean);
-        assert_eq!(routed_method(&ptolemy_program(1, ""), InputKind::Geo), Method::Euclidean);
+        assert_eq!(routed_method(&ptolemy_program(1, "free", ""), InputKind::Geo), Method::Euclidean);
         assert_eq!(routed_method(BUTTERFLY, InputKind::Geo), Method::Ddar);
     }
 

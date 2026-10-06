@@ -426,6 +426,34 @@ fn mem_limit_bytes() -> Option<u64> {
     (mb > 0).then(|| mb.saturating_mul(1 << 20))
 }
 
+fn cgroup_memory_max() -> Option<u64> {
+    let own = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    let path = own.lines().find_map(|l| l.strip_prefix("0::"))?.trim();
+    let max = std::fs::read_to_string(format!("/sys/fs/cgroup{path}/memory.max")).ok()?;
+    max.trim().parse().ok()
+}
+
+fn memory_overcommit(worker_cap: Option<u64>, slots: usize, cgroup_max: Option<u64>) -> Option<String> {
+    let (cap, max) = (worker_cap?, cgroup_max?);
+    let fits = max.saturating_mul(9) / 10 / slots.max(1) as u64;
+    (cap.saturating_mul(slots as u64) > max.saturating_mul(9) / 10).then(|| {
+        format!(
+            "{slots} solve workers × {} MB can exceed this service's memory limit of {} MB, so a burst of \
+             large solves could get the whole service OOM-killed. Set AGSTUDIO_WORKER_MEM_MB to at most {} \
+             or lower AGSTUDIO_MAX_CONCURRENT.",
+            cap >> 20,
+            max >> 20,
+            fits >> 20
+        )
+    })
+}
+
+/// A startup warning when `slots` workers at their memory cap could exceed the
+/// memory limit of the cgroup the server runs in.
+pub fn memory_warning(slots: usize) -> Option<String> {
+    memory_overcommit(mem_limit_bytes(), slots, cgroup_memory_max())
+}
+
 /// CPU seconds a worker may burn: every solver thread busy for the whole hard
 /// limit, plus slack. A backstop behind the wall-clock kill, never the bound.
 fn cpu_limit_secs(hard: Duration) -> u64 {
@@ -658,6 +686,9 @@ pub(crate) mod tests {
     /// the production binary has no code path that reads them.
     /// `HANG <pidfile>`: write the pid, then sleep forever.
     pub const HANG: &str = "__agstudio_test_hang__";
+    /// `SLEEP <ms>` on the first line (a `.geo` comment): sleep, then solve the
+    /// program normally.
+    pub const SLEEP: &str = "# __agstudio_test_sleep__ ";
     /// `LIMITS <file>`: write `/proc/self/limits`, the nice value and the
     /// process group, then answer normally.
     const LIMITS: &str = "__agstudio_test_limits__";
@@ -668,6 +699,10 @@ pub(crate) mod tests {
         "A B C = triangle\nO = circumcenter(A, B, C)\nprove cong(O, A, O, B)";
 
     pub(super) fn hooks(input: &str) {
+        if let Some(rest) = input.strip_prefix(SLEEP) {
+            let ms = rest.split_whitespace().next().and_then(|t| t.parse().ok()).unwrap_or(0);
+            std::thread::sleep(Duration::from_millis(ms));
+        }
         if let Some(path) = input.strip_prefix(HANG) {
             write_pid(path.trim());
             loop {
@@ -864,6 +899,16 @@ pub(crate) mod tests {
         assert!(text.contains("dumpable=0"), "a crash must not reach the coredump handler: {text}");
         let field = |k: &str| text.lines().find_map(|l| l.strip_prefix(k)).unwrap().to_string();
         assert_eq!(field("pgrp="), field("pid="), "the worker must lead its own process group");
+    }
+
+    #[test]
+    fn workers_that_could_outgrow_the_service_memory_limit_are_warned_about() {
+        let mb = |n: u64| n << 20;
+        let warning = memory_overcommit(Some(mb(2048)), 4, Some(mb(6144))).expect("4 × 2048 MB > 6 GB");
+        assert!(warning.contains("at most 1382"), "{warning}");
+        assert!(memory_overcommit(Some(mb(1382)), 4, Some(mb(6144))).is_none());
+        assert!(memory_overcommit(Some(mb(2048)), 4, None).is_none(), "no cgroup limit, nothing to exceed");
+        assert!(memory_overcommit(None, 4, Some(mb(6144))).is_none(), "uncapped workers: the cgroup is the only cap");
     }
 
     #[tokio::test]

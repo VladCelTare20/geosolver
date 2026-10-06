@@ -1226,17 +1226,30 @@ fn proof_steps_cite_the_rows_that_normalised_them() {
         .is_none());
 }
 
-fn ptolemy_with_free_points(extra: usize, goal_factor: &str) -> (String, String) {
+fn ptolemy_with(extra: usize, point: &str, goal_factor: &str) -> (String, String) {
     let mut cons = String::from("A B C = triangle\nD = reflect(C, perp_bisector(A, B))\n");
     for i in 0..extra {
-        cons.push_str(&format!("P{i} = free\n"));
+        cons.push_str(&format!("P{i} = {point}\n"));
     }
     (cons, format!("dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {goal_factor}dist(A,D)*dist(B,C)"))
 }
 
+fn ptolemy_with_free_points(extra: usize, goal_factor: &str) -> (String, String) {
+    ptolemy_with(extra, "free", goal_factor)
+}
+
+#[test]
+fn points_no_hypothesis_mentions_do_not_slow_the_metric_provers() {
+    let (cons, goal) = ptolemy_with_free_points(89, "");
+    let t = std::time::Instant::now();
+    let r = bounded(60, move || metric::solve(&cons, &goal, metric::DEFAULT_SAMPLES));
+    assert!(r.is_ok(), "{r:?}");
+    assert!(t.elapsed() < Duration::from_secs(20), "{:?}", t.elapsed());
+}
+
 #[test]
 fn metric_provers_stop_at_their_deadline_and_never_prove_past_it() {
-    let (cons, goal) = ptolemy_with_free_points(89, "");
+    let (cons, goal) = ptolemy_with(25, "on_circum(A, B, C)", "");
     let t = std::time::Instant::now();
     let r = bounded(60, move || {
         metric::solve_until(&cons, &goal, metric::DEFAULT_SAMPLES, Some(std::time::Instant::now() + Duration::from_secs(2)))

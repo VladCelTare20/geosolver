@@ -1574,16 +1574,10 @@ impl Figure {
             }
             v
         };
-        let mut seen: BTreeSet<([PointId; 3], [PointId; 3])> = BTreeSet::new();
         for i in 0..tris.len() {
+            crate::budget::check();
             for j in (i + 1)..tris.len() {
-                let (t1, t2) = (tris[i], tris[j]);
-                let mut key = [t1, t2];
-                key.sort();
-                if !seen.insert((key[0], key[1])) {
-                    continue;
-                }
-                self.psim(t1, t2);
+                self.psim(tris[i], tris[j]);
             }
         }
     }
@@ -2493,8 +2487,20 @@ fn angle_copy(i: &[Vec2], pts: [PointId; 6], sgn: f64) -> Option<Vec2> {
 /// the numeric detections: a similarity or parallelism must hold in every
 /// one, so a rule fires only on a construction-general fact, never a
 /// single-instance coincidence.
+#[cfg(test)]
 fn sampled_instances(cons_src: &str) -> Result<(SampledFigure, Vec<Vec<Vec2>>), String> {
-    let sampled = crate::geo::build_sampled_figure(cons_src)?;
+    sampled_instances_for(cons_src, None)
+}
+
+fn sampled_instances_for(cons_src: &str, goal: Option<[&MExpr; 2]>) -> Result<(SampledFigure, Vec<Vec<Vec2>>), String> {
+    let mut sampled = crate::geo::build_sampled_figure(cons_src)?;
+    if let Some(sides) = goal {
+        let mut keep = std::collections::BTreeSet::new();
+        for e in sides {
+            crate::synthetic::collect_points(e, &mut keep);
+        }
+        sampled = sampled.without_idle_points(&keep);
+    }
     let mut insts: Vec<Vec<Vec2>> = vec![sampled.coords.clone()];
     if let Ok(more) = crate::geo::build_instances(cons_src, 4) {
         let names = &sampled.names;
@@ -2516,7 +2522,7 @@ fn sampled_instances(cons_src: &str) -> Result<(SampledFigure, Vec<Vec<Vec2>>), 
 /// Attempt a classical Euclidean proof of a **multiplicative** length goal.
 pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let (lhs, rhs) = crate::metric::parse_equation(goal)?;
-    let (sampled, insts) = sampled_instances(cons_src)?;
+    let (sampled, insts) = sampled_instances_for(cons_src, Some([&lhs, &rhs]))?;
 
     let mut fig = Figure::gather(&sampled, insts.clone());
     fig.apply();

@@ -2009,7 +2009,7 @@ fn collect_segments(e: &MExpr, fig: &Figure, out: &mut Vec<Atom>) {
 }
 
 /// Collect the point names appearing in a metric expression.
-fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
+pub(crate) fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
     match e {
         MExpr::Dist(a, b) => {
             out.insert(a.clone());
@@ -2041,11 +2041,10 @@ fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
 /// theorems rather than citing a high-level theorem that would *be* the goal.
 pub fn prove_euclidean(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let (lhs, rhs) = crate::metric::parse_equation(goal)?;
-    let sampled = crate::geo::build_sampled_figure(cons_src)?;
-
     let mut names: BTreeSet<String> = BTreeSet::new();
     collect_points(&lhs, &mut names);
     collect_points(&rhs, &mut names);
+    let sampled = crate::geo::build_sampled_figure(cons_src)?.without_idle_points(&names);
 
     for use_aux in [false, true] {
         let mut fig = Figure::gather(&sampled);

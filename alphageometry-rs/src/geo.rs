@@ -3215,6 +3215,52 @@ pub struct SampledFigure {
     pub metric_hyps: Vec<(MExpr, MExpr)>,
 }
 
+impl SampledFigure {
+    /// The figure without the points that no hypothesis, length constraint or
+    /// metric hypothesis mentions and that are not in `keep` (the goal's
+    /// points): nothing can be derived about them, so no proof uses them.
+    pub fn without_idle_points(self, keep: &std::collections::BTreeSet<String>) -> SampledFigure {
+        let mut named = keep.clone();
+        for (l, r) in &self.metric_hyps {
+            crate::synthetic::collect_points(l, &mut named);
+            crate::synthetic::collect_points(r, &mut named);
+        }
+        let mut used: Vec<bool> = self.names.iter().map(|n| named.contains(n)).collect();
+        for p in &self.preds {
+            for &i in &p.points {
+                used[i as usize] = true;
+            }
+        }
+        for &(a, b, _) in &self.scale {
+            used[a as usize] = true;
+            used[b as usize] = true;
+        }
+        if used.iter().all(|&u| u) {
+            return self;
+        }
+        let mut remap: Vec<Option<PointId>> = vec![None; used.len()];
+        let mut next = 0;
+        for (i, &u) in used.iter().enumerate() {
+            if u {
+                remap[i] = Some(next);
+                next += 1;
+            }
+        }
+        let at = |i: PointId| remap[i as usize].expect("a mentioned point is kept");
+        SampledFigure {
+            names: self.names.iter().zip(&used).filter(|(_, &u)| u).map(|(n, _)| n.clone()).collect(),
+            coords: self.coords.iter().zip(&used).filter(|(_, &u)| u).map(|(c, _)| *c).collect(),
+            preds: self
+                .preds
+                .into_iter()
+                .map(|p| Predicate { points: p.points.iter().map(|&i| at(i)).collect(), ..p })
+                .collect(),
+            scale: self.scale.iter().map(|&(a, b, v)| (at(a), at(b), v)).collect(),
+            metric_hyps: self.metric_hyps,
+        }
+    }
+}
+
 /// Build one generic valid instance of a coordinate-free construction. Mirrors
 /// the instance search in [`compile`] (tries seeds until a non-degenerate
 /// figure is found).
