@@ -48,3 +48,4 @@ libc = "0.2"
 # `ServiceExt::oneshot` (behind the `util` feature) drives the router in tests
 # without binding a socket.
 tower = { version = "0.5.3", features = ["util"] }
+ttf-parser = "0.25"

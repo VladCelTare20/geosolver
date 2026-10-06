@@ -20,3 +20,17 @@ static instances of the woff2 files above made with fontTools
 like ∠ with fontTools pens). They are renamed because they are modified
 versions (OFL §3, Bitstream Vera terms) and are used only by the server-side
 renderer.
+
+So that the reports print exactly the characters the web app shows, with no
+look-alike substitution, both families also carry ∢ (U+2222, the Romanian
+undirected-angle sign), ≡ (U+2261, the Romanian congruence sign) and ⟂
+(U+27C2), and "GeoSolver Sans" carries ∡ and ∩ too. All of them come from
+DejaVu Sans (Bitstream Vera / DejaVu licence; DejaVu has no U+27C2, so ⟂ is
+its ⊥ outline encoded at U+27C2 as its own glyph, so PDF text extraction
+returns ⟂). They were drawn with fontTools pens (`DecomposingRecordingPen` →
+`TransformPen` → `RoundingPen` → `TTGlyphPen`), scaled by the unitsPerEm ratio
+(1 for Inter, 1000/2048 for STIX Two), exactly as ∠ was, with DejaVu's advance
+widths and side bearings scaled the same way. ∡ and ∩ in "GeoSolver Math" were
+redrawn the same way at the same time; the earlier copies had their outlines
+shifted 85 units left of ∠'s. ∥ (U+2225) was already in all five fonts.
+Family and style names are unchanged.
