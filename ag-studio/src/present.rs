@@ -2814,6 +2814,17 @@ pub struct View {
     pub as_drawn: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub human: Option<crate::human_view::HumanView>,
+    /// GIVEN in the human proof's terms, when it differs from `given`
+    /// (a line helper replaced by the named point on its line).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_proof: Option<Vec<Fact>>,
+    /// Helper points the human proof never names: drawn and listed only
+    /// beside the full derivation.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub proof_hidden: Vec<String>,
+    /// The figure without `proof_hidden`, shown beside the human proof.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub svg_proof: String,
 }
 
 /// An anonymous point the compiler adds to stand for `bisector(…)`: `x` with
@@ -2896,14 +2907,16 @@ fn line_helpers(p: &Problem) -> Vec<(u32, u32, u32)> {
 /// `p` with every helper in `hide` replaced by its named point on the same
 /// line, and the collinearities that only placed it dropped; the helper itself
 /// keeps its slot (ids stay valid) with no coordinates, so it is not drawn.
-fn without_helpers(p: &Problem, hide: &[(u32, u32)], keep_lines: bool) -> Problem {
+fn without_helpers(p: &Problem, hide: &[(u32, u32)], quiet: &[u32], keep_lines: bool) -> Problem {
     let mut out = p.clone();
-    for &(x, _) in hide {
+    for x in hide.iter().map(|h| h.0).chain(quiet.iter().copied()) {
         if let Some(pt) = out.points.get_mut(x as usize) {
             pt.value.x = f64::NAN;
             pt.value.y = f64::NAN;
         }
     }
+    let at = |i: u32| p.points.get(i as usize).map_or((f64::NAN, f64::NAN), |q| (q.value.x, q.value.y));
+    let mut rims: Vec<(u32, f64, Vec<u32>)> = Vec::new();
     let mut preds: Vec<Predicate> = Vec::new();
     for q in &p.preds {
         let mut q = q.clone();
@@ -2912,14 +2925,44 @@ fn without_helpers(p: &Problem, hide: &[(u32, u32)], keep_lines: bool) -> Proble
                 *v = r;
             }
         }
-        if q.name == "coll" {
+        if q.points.iter().any(|v| quiet.contains(v)) {
+            match q.name.as_str() {
+                "coll" | "cyclic" => q.points.retain(|v| !quiet.contains(v)),
+                "cong" if q.points.len() == 4 => {
+                    if let Some((c, a, b)) = cong_center3(&q.points).filter(|&(c, a, b)| quiet.contains(&c) && !quiet.contains(&a) && !quiet.contains(&b)) {
+                        let r = (at(a).0 - at(c).0).hypot(at(a).1 - at(c).1);
+                        let k = rims.iter().position(|(cc, rr, _)| *cc == c && (rr - r).abs() <= 1e-6 * r.max(1.0));
+                        let rim = match k {
+                            Some(k) => &mut rims[k].2,
+                            None => {
+                                rims.push((c, r, Vec::new()));
+                                &mut rims.last_mut().expect("just pushed").2
+                            }
+                        };
+                        for x in [a, b] {
+                            if !rim.contains(&x) {
+                                rim.push(x);
+                            }
+                        }
+                    }
+                    continue;
+                }
+                _ => continue,
+            }
+        }
+        if q.name == "coll" || q.name == "cyclic" {
             let mut d: Vec<u32> = Vec::new();
             for &v in &q.points {
                 if !d.contains(&v) {
                     d.push(v);
                 }
             }
-            if d.len() < if keep_lines { 2 } else { 3 } {
+            let least = match (q.name.as_str(), keep_lines) {
+                ("cyclic", _) => 3,
+                (_, true) => 2,
+                _ => 3,
+            };
+            if d.len() < least {
                 continue;
             }
         }
@@ -2927,8 +2970,49 @@ fn without_helpers(p: &Problem, hide: &[(u32, u32)], keep_lines: bool) -> Proble
             preds.push(q);
         }
     }
+    for (_, _, rim) in rims.into_iter().filter(|r| r.2.len() >= 3) {
+        preds.push(Predicate { name: "cyclic".into(), points: rim, constants: Vec::new() });
+    }
     out.preds = preds;
     out
+}
+
+/// Every point name `value` writes (point lists, statements, setup lines),
+/// read by splitting each capital run into the figure's `known` names.
+fn names_written(value: &serde_json::Value, known: &[String], out: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::String(s) => {
+            let mut run = String::new();
+            let mut flush = |run: &mut String| {
+                let mut rest = run.as_str();
+                let mut parts: Vec<&String> = Vec::new();
+                while !rest.is_empty() {
+                    let Some(n) = known.iter().filter(|n| !n.is_empty() && rest.starts_with(n.as_str())).max_by_key(|n| n.len()) else { break };
+                    parts.push(n);
+                    rest = &rest[n.len()..];
+                }
+                if rest.is_empty() {
+                    out.extend(parts.into_iter().cloned());
+                }
+                run.clear();
+            };
+            for c in s.chars() {
+                let starts = c.is_uppercase() || c == 'ω';
+                if (run.is_empty() && starts) || (!run.is_empty() && (c.is_alphabetic() || matches!(c, '₀'..='₉' | '′' | '″'))) {
+                    run.push(c);
+                } else {
+                    flush(&mut run);
+                    if starts {
+                        run.push(c);
+                    }
+                }
+            }
+            flush(&mut run);
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|x| names_written(x, known, out)),
+        serde_json::Value::Object(o) => o.values().for_each(|x| names_written(x, known, out)),
+        _ => {}
+    }
 }
 
 pub fn build(sol: &Solution) -> View {
@@ -3006,56 +3090,82 @@ fn build_with(sol: &Solution, draw: bool) -> View {
     }
     let helpers = bisector_helpers(&orig);
     let helper_name = |x: u32| names.get(orig.point_name(x));
-    let needed = |d: &str| cited.contains(d) || aux.iter().any(|a| a.text.contains(d) || a.args.iter().any(|s| s.contains(d)));
+    let aux_words: Vec<String> = aux.iter().flat_map(|a| std::iter::once(a.text.clone()).chain(a.args.iter().cloned())).collect();
+    let in_aux = |d: &str| aux_words.iter().any(|s| s.contains(d));
+    let needed = |d: &str| cited.contains(d) || in_aux(d);
     let hidden: Vec<(String, String)> = helpers
         .iter()
         .filter(|h| !needed(&helper_name(h.x)))
         .filter_map(|h| h.on.map(|r| (orig.point_name(h.x).to_string(), orig.point_name(r).to_string())))
         .collect();
-    let ids_in = |p: &Problem| -> Vec<(u32, u32)> {
+    let known: Vec<String> = fig.points.iter().map(|p| names.get(&p.name)).collect();
+    let in_human: Option<HashSet<String>> = human.as_ref().map(|h| {
+        let mut s = HashSet::new();
+        names_written(&serde_json::to_value(h).unwrap_or_default(), &known, &mut s);
+        s
+    });
+    let proof_names = |d: &str| in_human.as_ref().is_some_and(|s| s.contains(d)) || in_aux(d);
+    let mut proof_subst: Vec<(String, String)> = Vec::new();
+    if in_human.is_some() {
+        let lines = helpers.iter().filter_map(|h| Some((h.x, h.on?))).chain(line_aliases.iter().map(|&(x, _, on)| (x, on)));
+        for (x, on) in lines {
+            let raw = orig.point_name(x).to_string();
+            if !proof_names(&helper_name(x)) && !hidden.iter().chain(&proof_subst).any(|(h, _)| *h == raw) {
+                proof_subst.push((raw, orig.point_name(on).to_string()));
+            }
+        }
+    }
+    let ids_of = |p: &Problem, list: &[&(String, String)]| -> Vec<(u32, u32)> {
         let id = |raw: &str| p.points.iter().position(|q| q.name == raw).map(|i| i as u32);
-        hidden.iter().filter_map(|(x, r)| Some((id(x)?, id(r)?))).collect()
+        list.iter().filter_map(|(x, r)| Some((id(x)?, id(r)?))).collect()
     };
-    let given_src = without_helpers(&orig, &ids_in(&orig), false);
-    let defined: Vec<&Predicate> = helpers
-        .iter()
-        .filter(|h| !hidden.iter().any(|(x, _)| x == orig.point_name(h.x)))
-        .map(|h| &orig.preds[h.pred])
-        .collect();
+    let ids_in = |p: &Problem| ids_of(p, &hidden.iter().collect::<Vec<_>>());
+    let stated: Vec<&(String, String)> = hidden.iter().chain(&proof_subst).collect();
     let hidden_names: Vec<String> = hidden.iter().map(|(x, _)| names.get(x)).collect();
     points.retain(|p| !hidden_names.contains(&p.name));
 
     // Given: the original hypotheses (never the search's aux facts), minus the
     // placeholder `XY = XY` the compiler emits for fixed lengths — those are
     // restated from the program as `XY = 6`.
-    let mut given: Vec<Fact> = Vec::new();
-    let twin = twins(&given_src);
-    let own: Vec<Fact> = given_src.preds.iter().filter(|p| !p.points.iter().any(|i| twin.contains_key(i))).map(|p| fact_of_pred(&given_src, &names, p)).collect();
-    for pred in &given_src.preds {
-        if is_tautology(pred) {
-            continue;
-        }
-        let f = if defined.iter().any(|d| d.name == pred.name && d.points == pred.points) {
-            let n = |i: u32| names.get(given_src.point_name(i));
-            let s = &pred.points;
-            Fact::new("bisector", vec![n(s[3]), pretty_angle(&n, s[0], s[1], s[6], s[7])], vec![n(s[3]), n(s[1]), n(s[0]), n(s[7])])
-        } else {
-            let mut shown = pred.clone();
-            if pred.points.iter().any(|i| twin.contains_key(i)) {
-                let moved = Predicate { points: pred.points.iter().map(|i| *twin.get(i).unwrap_or(i)).collect(), ..pred.clone() };
-                if own.contains(&fact_of_pred(&given_src, &names, &moved)) {
-                    continue;
-                }
-                if pred.points.iter().filter_map(|i| twin.get(i)).all(|j| !pred.points.contains(j)) {
-                    shown = moved;
-                }
+    let stated_facts = |stated: &[&(String, String)]| -> Vec<Fact> {
+        let given_src = without_helpers(&orig, &ids_of(&orig, stated), &[], false);
+        let defined: Vec<&Predicate> = helpers
+            .iter()
+            .filter(|h| !stated.iter().any(|(x, _)| x == orig.point_name(h.x)))
+            .map(|h| &orig.preds[h.pred])
+            .collect();
+        let mut given: Vec<Fact> = Vec::new();
+        let twin = twins(&given_src);
+        let own: Vec<Fact> = given_src.preds.iter().filter(|p| !p.points.iter().any(|i| twin.contains_key(i))).map(|p| fact_of_pred(&given_src, &names, p)).collect();
+        for pred in &given_src.preds {
+            if is_tautology(pred) {
+                continue;
             }
-            fact_of_pred(&given_src, &names, &shown)
-        };
-        if !given.contains(&f) {
-            given.push(f);
+            let f = if defined.iter().any(|d| d.name == pred.name && d.points == pred.points) {
+                let n = |i: u32| names.get(given_src.point_name(i));
+                let s = &pred.points;
+                Fact::new("bisector", vec![n(s[3]), pretty_angle(&n, s[0], s[1], s[6], s[7])], vec![n(s[3]), n(s[1]), n(s[0]), n(s[7])])
+            } else {
+                let mut shown = pred.clone();
+                if pred.points.iter().any(|i| twin.contains_key(i)) {
+                    let moved = Predicate { points: pred.points.iter().map(|i| *twin.get(i).unwrap_or(i)).collect(), ..pred.clone() };
+                    if own.contains(&fact_of_pred(&given_src, &names, &moved)) {
+                        continue;
+                    }
+                    if pred.points.iter().filter_map(|i| twin.get(i)).all(|j| !pred.points.contains(j)) {
+                        shown = moved;
+                    }
+                }
+                fact_of_pred(&given_src, &names, &shown)
+            };
+            if !given.contains(&f) {
+                given.push(f);
+            }
         }
-    }
+        given
+    };
+    let mut given = stated_facts(&hidden.iter().collect::<Vec<_>>());
+    let mut given_proof: Option<Vec<Fact>> = (!proof_subst.is_empty()).then(|| stated_facts(&stated));
     let assumed: Vec<Fact> = source_assumes(&sol.input)
         .iter()
         .map(|a| Fact::new("formula", vec![pretty_metric(a, &names)], names.disp_all(&names.mentioned(a, false))))
@@ -3068,31 +3178,38 @@ fn build_with(sol: &Solution, draw: bool) -> View {
         .collect();
     let mut as_written: Vec<(Fact, Fact)> = Vec::new();
     if !assumed.is_empty() && !engine_only.is_empty() {
-        given.retain(|f| !engine_only.contains(f));
         for (k, f) in engine_only.iter().enumerate() {
             let user = if engine_only.len() == assumed.len() { assumed.get(k) } else { (assumed.len() == 1).then(|| &assumed[0]) };
             if let Some(u) = user {
                 as_written.push((f.clone(), u.clone()));
             }
         }
-        for f in &assumed {
-            if !given.contains(f) {
-                given.push(f.clone());
+    }
+    let mut from_source: Vec<Fact> = Vec::new();
+    for (a, b, v) in source_lengths(&sol.input) {
+        let seg = format!("{}{}", names.get(&a), names.get(&b));
+        from_source.push(Fact::new("length", vec![seg, v], vec![names.get(&a), names.get(&b)]));
+    }
+    for c in source_point_metrics(&sol.input) {
+        from_source.push(Fact::new("formula", vec![pretty_metric(&c, &names)], names.disp_all(&names.mentioned(&c, false))));
+    }
+    for list in std::iter::once(&mut given).chain(given_proof.as_mut()) {
+        if !assumed.is_empty() && !engine_only.is_empty() {
+            list.retain(|f| !engine_only.contains(f));
+            for f in &assumed {
+                if !list.contains(f) {
+                    list.push(f.clone());
+                }
+            }
+        }
+        for f in &from_source {
+            if !list.contains(f) {
+                list.push(f.clone());
             }
         }
     }
-    for (a, b, v) in source_lengths(&sol.input) {
-        let seg = format!("{}{}", names.get(&a), names.get(&b));
-        let f = Fact::new("length", vec![seg, v], vec![names.get(&a), names.get(&b)]);
-        if !given.contains(&f) {
-            given.push(f);
-        }
-    }
-    for c in source_point_metrics(&sol.input) {
-        let f = Fact::new("formula", vec![pretty_metric(&c, &names)], names.disp_all(&names.mentioned(&c, false)));
-        if !given.contains(&f) {
-            given.push(f);
-        }
+    if given_proof.as_ref() == Some(&given) {
+        given_proof = None;
     }
 
     let goal = match orig.goal.as_ref() {
@@ -3151,14 +3268,44 @@ fn build_with(sol: &Solution, draw: bool) -> View {
         None
     };
     let drawn = redrawn.as_ref().unwrap_or(&fig);
-    let trimmed = (!hidden.is_empty()).then(|| without_helpers(drawn, &ids_in(drawn), true));
+    let trimmed = (!hidden.is_empty()).then(|| without_helpers(drawn, &ids_in(drawn), &[], true));
     let drawn = trimmed.as_ref().unwrap_or(drawn);
     let svg = if !draw || drawn.points.is_empty() {
         String::new()
     } else {
         figure::render(drawn, aux_from, &names, &extras)
     };
+    let mut stated_names: HashSet<String> = given_proof.as_ref().unwrap_or(&given).iter().chain(goal.iter()).flat_map(|f| f.points.iter().cloned()).collect();
+    stated_names.extend(orig.points.iter().filter(|p| !p.name.starts_with('_')).map(|p| names.get(&p.name)));
+    let drawn_twins = twins(drawn);
+    let upto = aux_from.unwrap_or(drawn.points.len()).min(drawn.points.len());
+    let quiet: Vec<u32> = if in_human.is_some() {
+        (0..upto as u32)
+            .filter(|&i| {
+                let raw = drawn.point_name(i);
+                let d = names.get(raw);
+                raw.starts_with('_')
+                    && !drawn_twins.contains_key(&i)
+                    && !hidden.iter().chain(&proof_subst).any(|(x, _)| x == raw)
+                    && drawn.points[i as usize].value.x.is_finite()
+                    && !proof_names(&d)
+                    && !stated_names.contains(&d)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let proof_hidden: Vec<String> = proof_subst.iter().map(|(x, _)| names.get(x)).chain(quiet.iter().map(|&i| names.get(drawn.point_name(i)))).collect();
+    let svg_proof = if !draw || drawn.points.is_empty() || proof_hidden.is_empty() {
+        String::new()
+    } else {
+        let subst = ids_of(drawn, &proof_subst.iter().collect::<Vec<_>>());
+        figure::render(&without_helpers(drawn, &subst, &quiet, true), aux_from, &names, &extras)
+    };
     View {
+        given_proof,
+        proof_hidden,
+        svg_proof,
         as_drawn,
         points,
         given,
@@ -3632,9 +3779,13 @@ pub fn solution_json(sol: &Solution, title: Option<&str>) -> serde_json::Value {
     let view = build(sol);
     let mut v = serde_json::to_value(sol).unwrap_or_default();
     v["svg"] = serde_json::Value::String(view.svg.clone());
+    if !view.svg_proof.is_empty() {
+        v["svg_proof"] = serde_json::Value::String(view.svg_proof.clone());
+    }
     v["view"] = serde_json::to_value(&view).unwrap_or_default();
     if let Some(o) = v["view"].as_object_mut() {
         o.remove("svg");
+        o.remove("svg_proof");
     }
     let title = title.map(str::to_string).or(view.source_title.clone());
     v["title"] = title.map_or(serde_json::Value::Null, serde_json::Value::String);
@@ -3777,6 +3928,45 @@ mod tests {
         assert!(plain.contains(&"P\u{2081} lies on the bisector of \u{2220}BAC".to_string()), "{plain:?}");
         assert!(!plain.contains(&"\u{2220}BAP\u{2081} = \u{2220}P\u{2081}AC".to_string()), "{plain:?}");
         assert!(v.svg.contains(">P\u{2081}<"), "a point the proof cites stays labelled");
+    }
+
+    #[test]
+    fn the_proof_figure_draws_only_points_the_statement_or_the_human_proof_names() {
+        let p1 = "P\u{2081}";
+        let src = "A B C = triangle\nO = midpoint(B, C)\nM = meet(line(A, B), circle(O, B))\n\
+                   N = meet(line(A, C), circle(O, B))\nR = meet(bisector(B, A, C), bisector(M, O, N))\n\
+                   P = meet(circumcircle(B, M, R), circumcircle(C, N, R))\nprove coll(P, B, C)";
+        let (sol, v) = view(src);
+        assert!(v.human.is_some(), "IMO 2004 P1 has a human proof");
+        assert_eq!(v.proof_hidden, vec![p1.to_string(), "P\u{2082}".to_string()]);
+        assert!(v.svg.contains(&format!(">{p1}<")), "the derivation's figure keeps the helper it cites");
+        assert!(!v.svg_proof.is_empty() && !v.svg_proof.contains(&format!(">{p1}<")) && !v.svg_proof.contains(">P\u{2082}<"), "{}", v.svg_proof);
+        assert!(v.svg_proof.contains(">R<") && v.svg_proof.contains(">F<"));
+        let plain: Vec<String> = v.given_proof.as_ref().expect("GIVEN in the proof's terms").iter().map(Fact::plain).collect();
+        assert!(plain.contains(&"\u{2220}BAR = \u{2220}RAC".to_string()) && plain.contains(&"\u{2220}MOR = \u{2220}RON".to_string()), "{plain:?}");
+        assert!(!plain.iter().any(|f| f.contains(p1)), "{plain:?}");
+        assert!(v.helpers.iter().any(|h| h.name == p1 && h.kind == "on_bisector"), "the derivation still defines it");
+        let json = solution_json(&sol, None);
+        assert!(json["svg_proof"].as_str().is_some_and(|s| !s.is_empty()) && json["view"].get("svg_proof").is_none());
+
+        let src = "A B C = triangle\nO = circumcenter(A, B, C)\nT = meet(perp_line(O, line(A, B)), line(A, C))\nprove perp(O, T, A, B)";
+        let (_, v) = view(src);
+        if v.human.is_some() {
+            assert!(v.proof_hidden.iter().all(|n| !v.svg_proof.contains(&format!(">{n}<"))), "{:?}", v.proof_hidden);
+        }
+
+        let (_, v) = view("A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))");
+        assert!(v.proof_hidden.is_empty() && v.svg_proof.is_empty() && v.given_proof.is_none(), "nothing to hide: one figure");
+    }
+
+    #[test]
+    fn names_written_splits_runs_into_figure_names() {
+        let known: Vec<String> = ["A", "B", "P\u{2081}", "Ma", "O\u{2081}", "R"].iter().map(|s| s.to_string()).collect();
+        let mut out = HashSet::new();
+        names_written(&serde_json::json!({"a": "AP\u{2081}", "b": ["∡BAR", "MaB²", "Claim", "R = O\u{2081}A"]}), &known, &mut out);
+        let mut got: Vec<&String> = out.iter().collect();
+        got.sort();
+        assert_eq!(got, ["A", "B", "Ma", "O\u{2081}", "P\u{2081}", "R"]);
     }
 
     #[test]

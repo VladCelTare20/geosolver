@@ -589,6 +589,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .hp-ref:focus-visible, .hp-step:focus-visible, .hp-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .hp-link { border-radius: 3px; }
 .hp-nb, .hp-ref, .m-nb { white-space: nowrap; }
+.m-frac { display: inline-block; max-width: 100%; text-indent: 0; }
 @media (hover: hover) { .hp-link:hover, .hp-note:hover { background: var(--hl-a14); } }
 .hp-link:focus { background: var(--hl-a14); }
 .hp-chain { border-collapse: collapse; margin: 6px 0 6px var(--s3); font-size: 1.03rem; line-height: 1.5; }

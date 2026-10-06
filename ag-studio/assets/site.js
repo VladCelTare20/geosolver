@@ -58,12 +58,37 @@
    * as names, so ordinary words keep their roman type. */
   function math(text, prose) {
     var s = String(text == null ? "" : text);
-    if (!prose) return esc(s).replace(NAME_RE, nameHtml).replace(/((?:sin|cos)?[∠∡△])((?:<i>.*?<\/i>)+)/g, '<span class="m-nb">$1$2</span>').replace(/((?:sin|cos|tan)[²³]?) (<i>.*?<\/i>)/g, '<span class="m-nb">$1 $2</span>');
+    if (!prose) return summands(s).map(fracHtml).join("");
     return s.split(/(\s+|[(),.;:!?—–])/).map(function (tok) {
       if (isNameTok(tok)) return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
       if (/[A-Z]/.test(tok) && /[·/]/.test(tok)) return tok.split(/([·/])/).map(mathPart).join("");
       return mathPart(tok);
     }).join("");
+  }
+  function mathRun(s) {
+    return esc(s).replace(NAME_RE, nameHtml).replace(/((?:sin|cos)?[∠∡△])((?:<i>.*?<\/i>)+)/g, '<span class="m-nb">$1$2</span>').replace(/((?:sin|cos|tan)[²³]?) (<i>.*?<\/i>)/g, '<span class="m-nb">$1 $2</span>');
+  }
+  function fracHtml(x) {
+    var i = x.indexOf(" / ");
+    if (i < 0) return mathRun(x);
+    if (x.length <= FRAC_WHOLE) return '<span class="m-frac">' + mathRun(x) + "</span>";
+    return '<span class="m-frac">' + mathRun(x.slice(0, i + 2)) + '</span> <span class="m-frac">' + mathRun(x.slice(i + 3)) + "</span>";
+  }
+  var FRAC_WHOLE = 22;
+  function summands(s) {
+    var out = [], depth = 0, from = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charAt(i);
+      if (c === "(" || c === "[") depth++;
+      else if (c === ")" || c === "]") depth = Math.max(0, depth - 1);
+      else if (depth === 0 && c === " " && /[+−=<>≤≥]/.test(s.charAt(i + 1)) && s.charAt(i + 2) === " ") {
+        out.push(s.slice(from, i), s.slice(i, i + 3));
+        from = i + 3;
+        i += 2;
+      }
+    }
+    out.push(s.slice(from));
+    return out;
   }
   function isNameTok(tok) {
     return /^[A-ZΩω][A-Z₀-₉′″]*[²³]?$/.test(tok) || /^[A-Z][₀-₉′″]+$/.test(tok) ||
@@ -943,7 +968,7 @@
       html += "</li>";
     });
     html += "</ol>";
-    root.innerHTML = html.replace(/(<a class="hp-(?:ref|step)"[^>]*>[^<]*<\/a>)([,.;:)]+)/g, '<span class="hp-nb">$1$2</span>');
+    root.innerHTML = html.replace(/(<a class="hp-(?:ref|step)"[^>]*>[^<]*<\/a>)((?:<\/span>)*)([,.;:)]+)/g, '<span class="hp-nb">$1$3</span>$2');
     var ol = root.querySelector(".hp-blocks");
     var items = Array.prototype.slice.call(root.querySelectorAll(".hp-block"));
     if (items[0]) items[0].tabIndex = 0;

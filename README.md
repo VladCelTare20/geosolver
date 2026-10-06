@@ -80,7 +80,9 @@ the engine's raw steps instead. If the conclusion itself fails, or the proof
 comes from the classical Euclidean prover (absolute-length goals), there is no
 Proof tab and the numbered step list is shown as before.
 
-The **Full derivation** tab always has every machine-checked step. The chips in
+The figure beside the Proof tab shows only the points the statement and the
+proof name. The **Full derivation** tab always has every machine-checked step,
+and the figure then also shows the engine's own helper points it cites. The chips in
 the Proof tab jump to the steps each block rests on. The PDF report prints the
 human proof, and adds the derivation as an appendix when you tick "Include full
 derivation" in the Export menu. The MCP tool returns the human proof first, then
