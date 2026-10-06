@@ -33,7 +33,7 @@ reports its git commit (`agstudio --version`, `/api/status`).
 
 ### Fixed
 - The debug `cargo test` no longer overflows the stack in the soundness suite
-  and skips the two searches that only fit their time budget in release.
+  and skips the searches that only fit their time budget in release.
 - Documentation: deployment guide rewritten (backup/restore, upgrades and
   rollback, sizing, TLS renewal, AI on a server, NixOS); results tables
   updated; README example image regenerated; examples that used passwords the

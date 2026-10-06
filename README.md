@@ -272,9 +272,10 @@ cargo run --release -p alphageometry-rs --bin ddar -- --bench   # engine speed o
 
 Run the tests in release: that is what ships, and the time-budgeted search
 tests are calibrated for it. A debug `cargo test` also works, with the engine's
-numeric-consistency assertions on, but skips the two longest searches (IMO 2008
-P6 through the app and the corpus-through-the-API test; they are `#[ignore]`d
-in debug builds).
+numeric-consistency assertions on, but skips the ag-studio tests that must find
+a proof within a time budget (IMO 2008 P6, the corpus through the API, the
+butterfly, the corpus search, a conjunctive goal: `#[ignore]`d in debug
+builds). Every FALSE-statement test still runs.
 
 A plain `cargo build --release` targets the host CPU (`.cargo/config.toml`),
 appropriate for a locally-run prover. The Docker image and the Nix package are

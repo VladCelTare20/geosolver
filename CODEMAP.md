@@ -7,7 +7,7 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 
 ## Commands
 - `cargo build --release -p ag-studio` — the `agstudio` binary
-- `RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6` — all tests (~580; the thread caps keep it inside the shared box's budget). Run them in release: debug builds skip the two longest time-budgeted searches
+- `RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6` — all tests (~580; the thread caps keep it inside the shared box's budget). Run them in release: debug builds skip the ag-studio tests that must find a proof within a time budget (FALSE-statement tests always run)
 - `cargo run --release -p alphageometry-rs --bin ddar -- --bench` — must stay 26/26
 - `ddar --corpus corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 --out r.tsv` — honest solve rate on the AG1 corpora (DDAR + aux search, hard per-problem deadline); `--corpus-check` translates only. Keep jobs × threads ≤ 12 on the shared box. `AUX_VERBOSE=1` prints the aux pool and rollout progress; `AUX_LEGACY=1` runs the old aux search.
 - `nix build .#geosolver` (no tests), `nix flake check` (the test suite), `nix develop`; `nixosModules.default` is `nix/module.nix`

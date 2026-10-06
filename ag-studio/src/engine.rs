@@ -1763,6 +1763,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn the_butterfly_theorem_needs_and_gets_an_auxiliary_point() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(BUTTERFLY, &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
@@ -1772,6 +1773,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn the_default_and_best_solves_run_the_corpus_search() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
@@ -2006,6 +2008,7 @@ mod corpus_tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn a_conjunctive_corpus_goal_is_proved_only_as_a_whole() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(TRAPEZOID, &corpus_opts(), Some(Duration::from_secs(60))).unwrap();
