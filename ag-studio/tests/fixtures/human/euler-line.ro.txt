@@ -8,7 +8,7 @@ Afirmația 2. △ABG ∼ △MNG.
 
 Demonstrație. ∡BAG = ∡NMG (MN este linie mijlocie în △ABC). Deci △ABG ∼ △MNG.
 
-∡HAG = ∡OMG (AH ∥ OM, ambele ⟂ BC). Combinarea rapoartelor din Afirmațiile 1 și 2 arată că AH : AG = MO : MG. Deci △AHG ∼ △MOG.
+∡HAG = ∡OMG (AH ∥ OM, ambele ⟂ BC). Din figură, AH / AG = AB·OM / (AG·MN) = MO / MG (Afirmația 1; Afirmația 2). Deci △AHG ∼ △MOG.
 
 ∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG]
      = ∡OMB + 90°    [AH ⟂ BC]

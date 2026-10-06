@@ -137,6 +137,7 @@ button { cursor: pointer; }
 .math { font-family: var(--font-math); font-size: 1.08em; font-variant-numeric: lining-nums; }
 .math i, i.pt { font-family: var(--font-math); font-style: italic; }
 .math i sub, i.pt sub, .hist-title i sub { font-size: 0.72em; font-style: italic; line-height: 0; }
+.m-up { font-style: normal; }
 .mono { font-family: var(--font-mono); }
 .muted { color: var(--text-2); }
 .label { font-size: var(--fs-12); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
@@ -595,7 +596,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .hp-chain .hp-lhs { text-align: right; white-space: nowrap; }
 .hp-chain.lhs-own .hp-lhs-row td { text-align: left; padding-bottom: 0; }
 .hp-chain .hp-eq { padding: 3px 0.45em; text-align: center; }
-.hp-chain .hp-rhs { padding-right: 1.4em; }
+.hp-chain .hp-rhs { padding-right: 1.4em; white-space: nowrap; }
 .hp-chain .hp-why { font-size: 0.86rem; line-height: 1.4; color: var(--text-2); }
 .hp-chain .hp-coef { text-align: right; white-space: nowrap; padding-right: 0.35em; }
 .hp-row { border-radius: var(--r-control); }
@@ -620,7 +621,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
   .hp-chain .hp-lhs:empty { display: none; }
   .hp-chain tr.hp-row { padding: 2px 0 2px 2.2em; text-indent: -1.1em; border-radius: 4px; }
   .hp-chain:not(.lhs-own) tr.hp-row:first-child { padding-left: 1.1em; }
-  .hp-chain .hp-rhs { padding-right: 0; }
+  .hp-chain .hp-rhs { padding-right: 0; white-space: normal; }
   .hp-chain .hp-why { display: none; }
   .hp-chain.show-why .hp-why:not(:empty) { display: block; text-indent: 0; padding: 0 0 2px 0.2em; }
   .hp-row:focus td { background: none; }

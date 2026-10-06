@@ -8,7 +8,7 @@ Claim 2. △ABG ∼ △MNG.
 
 Proof. ∡BAG = ∡NMG (MN is a midline of △ABC). Hence △ABG ∼ △MNG.
 
-∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). Combining the ratios from Claims 1 and 2 shows that AH : AG = MO : MG. Hence △AHG ∼ △MOG.
+∡HAG = ∡OMG (AH ∥ OM, both ⟂ BC). As drawn, AH / AG = AB·OM / (AG·MN) = MO / MG (Claim 1; Claim 2). Hence △AHG ∼ △MOG.
 
 ∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG]
      = ∡OMB + 90°    [AH ⟂ BC]

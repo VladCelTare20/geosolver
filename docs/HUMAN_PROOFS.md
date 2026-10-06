@@ -831,4 +831,13 @@ The IMO solve gate is unchanged: `flock -w 3600 …/.bench.lock ddar --corpus co
 - **No human proof** (`available: false`, Euclidean proofs): today's step list.
 - **MCP** returns the EN human proof first, then the full derivation. **Reports** print it as the PROOF section; the derivation is the optional appendix.
 - **Fixtures** in `ag-studio/tests/fixtures/human/` are real engine output; `HP_BLESS=1` regenerates them when the writer changes.
+- **Second-round fields** (`wf/human-proofs-release`). ag-studio renders every §13.4 addition in EN and RO, from keys, in `human_view.rs:doc` and `site.js:hpDoc`:
+  - `notation` is "Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius".
+  - Aux `wording` keys map to the app's `aux.*` templates; `hp.aux.parallelogram`/`hp.aux.arc_midpoint` override two of them, and `aux.centroid`, `aux.antipode_on`, `aux.incircle_touch`, `aux.excircle_touch` were added. Circle arguments use the setup circle names.
+  - Lemma reasons read "∡RAB = ∡NFO + 90°, shown above".
+  - Cyclic reasons on a named circle read "P, R, N, C on ω₂".
+  - Equal radii from one centre merge into "OB = OM = ON".
+  - "law of sines in △ABH" is translated.
+  - English uses "center" throughout, as the rest of the app does.
+  - Helper aliasing (`AP₁` → `AR`) stays in ag-studio: the engine's `dehelper` covers ⟂/∥ statements only, and ag-studio names helpers P₁, P₂.
 

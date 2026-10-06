@@ -599,7 +599,7 @@ impl Typeset<'_> {
             return None;
         }
         let mut rest = tok;
-        if rest.is_empty() || !rest.starts_with(|c: char| c.is_uppercase()) {
+        if rest.is_empty() || !rest.starts_with(|c: char| c.is_uppercase() || c == 'ω') {
             return None;
         }
         let mut out = Vec::new();
@@ -691,6 +691,13 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32, deriv
                 if !point_names.iter().any(|n| n == p) {
                     point_names.push(p.to_string());
                 }
+            }
+        }
+    }
+    if let Some(h) = crate::human_view::of_view(view) {
+        for n in h.math_names() {
+            if !point_names.contains(&n) {
+                point_names.push(n);
             }
         }
     }

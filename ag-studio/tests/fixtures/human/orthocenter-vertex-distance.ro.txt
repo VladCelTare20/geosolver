@@ -1,11 +1,14 @@
-Unghiurile notate ∠ sunt neorientate și sunt citite din figură.
+Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris. Unghiurile notate ∠ sunt neorientate și sunt citite din figură.
 
-AH / (2·MaO) = AH / (2·AO·sin∠OCB)    [sinusul lui 90°: |sin ∠(MaO,MaB)| = 1 (OMa este mediatoarea segmentului BC), OA = OB, teorema sinusurilor: în △BOMa, MaB / |sin ∠(OB,OMa)| = OB / |sin ∠(MaO,MaB)|, teorema sinusurilor: în △BOMa, OMa / |sin ∠(BMa,BO)| = BMa / |sin ∠(OB,OMa)|, unghiurile egale sau suplementare au sinusuri egale: |sin ∠(CB,CO)| = |sin ∠(BMa,BO)| (OB = OC), unghiurile egale sau suplementare au sinusuri egale: |sin(∠(OB,OC))| = |sin ∠(OC,OB)|]
-             = AH·BC / (4·AO·BO·sin∠CAB·sin∠HBA)    [teorema sinusurilor: în △BCO, OB / |sin ∠(CB,CO)| = CB / |sin ∠(OC,OB)|, formula unghiului dublu: x = ∠(AB,AC), 2x ≡ ±∠(OC,OB): |sin x|·|sin(x + 90°)| = |sin 2x| / 2 (unghiul la centru ∠BOC = 2∠BAC), unghiurile egale sau suplementare au sinusuri egale: |sin(∠(AB,AC))| = |sin ∠(AC,AB)|, unghiurile egale sau suplementare au sinusuri egale: |sin(∠(AB,AC) + 90°)| = |sin ∠(BA,BH)| (BH ⟂ AC)]
-             = BC·BH·sin∠CBA / (2·AO·BO·sin∠CAB·sin∠COA)    [teorema sinusurilor: în △ABH, BH / |sin ∠(AH,AB)| = AH / |sin ∠(BA,BH)|, unghiurile egale sau suplementare au sinusuri egale: |sin(∠(AB,AH))| = |sin ∠(AH,AB)|, formula unghiului dublu: x = ∠(AB,AH), 2x ≡ ±∠(OC,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2 (AH ⟂ BC; unghiul la centru ∠AOC = 2∠ABC), unghiurile egale sau suplementare au sinusuri egale: |sin(∠(OA,OC))| = |sin ∠(OC,OA)|, unghiurile egale sau suplementare au sinusuri egale: |sin(∠(AB,AH) + 90°)| = |sin ∠(BA,BC)| (AH ⟂ BC)]
-             = BC·BH·sin∠CBA / (2·AC·BO·sin∠CAB·sin∠OCA)    [teorema sinusurilor: în △ACO, OA / |sin ∠(CA,CO)| = CA / |sin ∠(OC,OA)|]
-             = AB·BH·sin∠CAB / (2·BC·BO·sin∠BCA·sin∠OCA)    [teorema sinusurilor: în △ABC, BC / |sin ∠(AC,AB)| = AC / |sin ∠(BA,BC)|, teorema sinusurilor: în △ABC, CA / |sin ∠(BA,BC)| = BA / |sin ∠(CB,CA)|, unghiurile egale sau suplementare au sinusuri egale: |sin(∠(CB,CA))| = |sin ∠(CB,CA)|]
-             = AB·sin∠OAB / (BO·sin∠BOA)    [teorema sinusurilor: în △BCH, HB / |sin ∠(CB,CH)| = CB / |sin ∠(HC,HB)|, unghiurile egale sau suplementare au sinusuri egale: |sin ∠(AC,AB)| = |sin ∠(HC,HB)| (BH ⟂ AC; CH ⟂ AB, înălțimile sunt concurente), unghiurile egale sau suplementare au sinusuri egale: |sin ∠(CA,CO)| = |sin ∠(CB,CH)| (OA = OC; unghiul la centru ∠AOC = 2∠ABC; CH ⟂ AB, înălțimile sunt concurente), formula unghiului dublu: x = ∠(CB,CA), 2x ≡ ±∠(OB,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2 (unghiul la centru ∠AOB = 2∠ACB), unghiurile egale sau suplementare au sinusuri egale: |sin(∠(OB,OA))| = |sin ∠(OB,OA)|, unghiurile egale sau suplementare au sinusuri egale: |sin(∠(CB,CA) + 90°)| = |sin ∠(AO,AB)| (unghiul la centru ∠AOB = 2∠ACB; OA = OB)]
-             = 1    [teorema sinusurilor: în △ABO, BO / |sin ∠(AO,AB)| = AO / |sin ∠(BA,BO)|, teorema sinusurilor: în △ABO, OA / |sin ∠(BA,BO)| = BA / |sin ∠(OB,OA)|]
+AH = 2·BH·cos A·sin B / sin∠COA    [cos A = sin∠ABH (BH ⟂ AC), teorema sinusurilor în △ABH, sin∠COA = 2·sin∠BAH·cos∠BAH (AH ⟂ BC; unghiul la centru ∠AOC = 2∠ABC), cos∠BAH = sin B (AH ⟂ BC)]
+   = 2·AC·BH·sin A·cos A / (BC·sin∠COA)    [teorema sinusurilor în △ABC]
+   = 2R·BH·sin A·cos A / (BC·sin∠OCA)    [teorema sinusurilor în △ACO]
+   = 2R·cos A    [teorema sinusurilor în △BCH, sin A = sin∠CHB (BH ⟂ AC; CH ⟂ AB, înălțimile sunt concurente), sin∠ACO = sin∠BCH (OA = OC; unghiul la centru ∠AOC = 2∠ABC; CH ⟂ AB, înălțimile sunt concurente)]
 
-∎
+MaO = R·sin∠BOA·sin∠OCB / (2·sin C·sin∠OAB)    [∠OMaB = 90° (OMa este mediatoarea segmentului BC), OA = OB, teorema sinusurilor în △BOMa, sin∠BCO = sin∠MaBO (OB = OC), cos C = sin∠OAB (unghiul la centru ∠AOB = 2∠ACB; OA = OB), sin∠BOA = 2·sin C·cos C (unghiul la centru ∠AOB = 2∠ACB)]
+    = AB·sin∠OBA·sin∠OCB / (2·sin C·sin∠OAB)    [teorema sinusurilor în △ABO]
+    = BC·sin∠OBA·sin∠OCB / (2·sin A·sin∠OAB)    [teorema sinusurilor în △ABC]
+    = BC·sin∠OCB / (2·sin A)    [teorema sinusurilor în △ABO]
+    = R·cos A    [teorema sinusurilor în △BCO, sin∠COB = 2·sin A·cos A (unghiul la centru ∠BOC = 2∠BAC)]
+
+AH : MaO = 2 (AH = 2R·cos A și MaO = R·cos A, arătate mai sus). ∎

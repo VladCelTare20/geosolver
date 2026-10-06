@@ -918,7 +918,17 @@
   "human": {
     "version": 1,
     "as_drawn": true,
-    "setup": [],
+    "setup": [
+      {
+        "kind": "notation",
+        "triangle": [
+          "A",
+          "B",
+          "C"
+        ],
+        "circumcentre": "O"
+      }
+    ],
     "blocks": [
       {
         "id": 1,
@@ -943,261 +953,20 @@
             "kind": "computation",
             "comp": "trig",
             "terms": [
-              "AH / (2·MaO)",
-              "AH / (2·AO·sin∠OCB)",
-              "AH·BC / (4·AO·BO·sin∠CAB·sin∠HBA)",
-              "BC·BH·sin∠CBA / (2·AO·BO·sin∠CAB·sin∠COA)",
-              "BC·BH·sin∠CBA / (2·AC·BO·sin∠CAB·sin∠OCA)",
-              "AB·BH·sin∠CAB / (2·BC·BO·sin∠BCA·sin∠OCA)",
-              "AB·sin∠OAB / (BO·sin∠BOA)",
-              "1"
+              "AH",
+              "2·BH·cos A·sin B / sin∠COA",
+              "2·AC·BH·sin A·cos A / (BC·sin∠COA)",
+              "2R·BH·sin A·cos A / (BC·sin∠OCA)",
+              "2R·cos A"
             ],
             "links": [
               {
                 "reasons": [
                   {
-                    "kind": "formula",
+                    "kind": "eq",
                     "args": [
-                      "sine of 90°: |sin ∠(MaO,MaB)| = 1"
-                    ],
-                    "points": [
-                      "B",
-                      "O",
-                      "Ma"
-                    ],
-                    "step": 38,
-                    "block": null,
-                    "because": [
-                      {
-                        "kind": "atom",
-                        "key": "perp_bisector",
-                        "args": [
-                          "O",
-                          "Ma",
-                          "B",
-                          "C"
-                        ],
-                        "stmt": {
-                          "kind": "perp",
-                          "args": [
-                            "OMa",
-                            "BC"
-                          ],
-                          "points": [
-                            "B",
-                            "C",
-                            "O",
-                            "Ma"
-                          ]
-                        },
-                        "from": []
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "hyp",
-                    "stmt": {
-                      "kind": "cong",
-                      "args": [
-                        "OA",
-                        "OB"
-                      ],
-                      "points": [
-                        "A",
-                        "B",
-                        "O"
-                      ]
-                    },
-                    "step": 1
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "law of sines: in △BOMa, MaB / |sin ∠(OB,OMa)| = OB / |sin ∠(MaO,MaB)|"
-                    ],
-                    "points": [
-                      "B",
-                      "O",
-                      "Ma"
-                    ],
-                    "step": 37,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "law of sines: in △BOMa, OMa / |sin ∠(BMa,BO)| = BMa / |sin ∠(OB,OMa)|"
-                    ],
-                    "points": [
-                      "B",
-                      "O",
-                      "Ma"
-                    ],
-                    "step": 36,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "equal or supplementary angles have equal sines: |sin ∠(CB,CO)| = |sin ∠(BMa,BO)|"
-                    ],
-                    "points": [
-                      "B",
-                      "C",
-                      "O",
-                      "Ma"
-                    ],
-                    "step": 41,
-                    "block": null,
-                    "because": [
-                      {
-                        "kind": "atom",
-                        "key": "isosceles",
-                        "args": [
-                          "O",
-                          "B",
-                          "C"
-                        ],
-                        "stmt": {
-                          "kind": "cong",
-                          "args": [
-                            "OB",
-                            "OC"
-                          ],
-                          "points": [
-                            "B",
-                            "C",
-                            "O"
-                          ]
-                        },
-                        "from": []
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(OB,OC))| = |sin ∠(OC,OB)|"
-                    ],
-                    "points": [
-                      "B",
-                      "C",
-                      "O"
-                    ],
-                    "step": 16,
-                    "block": null,
-                    "because": []
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1"
-                  },
-                  {
-                    "reason": 1,
-                    "row": 0,
-                    "coef": "1"
-                  },
-                  {
-                    "reason": 2,
-                    "row": 0,
-                    "coef": "-1"
-                  },
-                  {
-                    "reason": 3,
-                    "row": 0,
-                    "coef": "-1"
-                  },
-                  {
-                    "reason": 4,
-                    "row": 0,
-                    "coef": "1"
-                  },
-                  {
-                    "reason": 5,
-                    "row": 0,
-                    "coef": "1"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "law of sines: in △BCO, OB / |sin ∠(CB,CO)| = CB / |sin ∠(OC,OB)|"
-                    ],
-                    "points": [
-                      "B",
-                      "C",
-                      "O"
-                    ],
-                    "step": 34,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "double-angle formula: x = ∠(AB,AC), 2x ≡ ±∠(OC,OB): |sin x|·|sin(x + 90°)| = |sin 2x| / 2"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "C",
-                      "O"
-                    ],
-                    "step": 19,
-                    "block": null,
-                    "because": [
-                      {
-                        "kind": "atom",
-                        "key": "central_angle",
-                        "args": [
-                          "O",
-                          "B",
-                          "C",
-                          "A"
-                        ],
-                        "stmt": {
-                          "kind": "eq",
-                          "args": [
-                            "∡BOC",
-                            "2∡BAC"
-                          ],
-                          "points": [
-                            "A",
-                            "B",
-                            "C",
-                            "O"
-                          ]
-                        },
-                        "from": []
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(AB,AC))| = |sin ∠(AC,AB)|"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "C"
-                    ],
-                    "step": 17,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(AB,AC) + 90°)| = |sin ∠(BA,BH)|"
+                      "cos A",
+                      "sin∠ABH"
                     ],
                     "points": [
                       "A",
@@ -1226,37 +995,11 @@
                         "step": 4
                       }
                     ]
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1"
                   },
-                  {
-                    "reason": 1,
-                    "row": 0,
-                    "coef": "1"
-                  },
-                  {
-                    "reason": 2,
-                    "row": 0,
-                    "coef": "-1"
-                  },
-                  {
-                    "reason": 3,
-                    "row": 0,
-                    "coef": "-1"
-                  }
-                ]
-              },
-              {
-                "reasons": [
                   {
                     "kind": "formula",
                     "args": [
-                      "law of sines: in △ABH, BH / |sin ∠(AH,AB)| = AH / |sin ∠(BA,BH)|"
+                      "law of sines in △ABH"
                     ],
                     "points": [
                       "A",
@@ -1268,23 +1011,10 @@
                     "because": []
                   },
                   {
-                    "kind": "formula",
+                    "kind": "eq",
                     "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(AB,AH))| = |sin ∠(AH,AB)|"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "H"
-                    ],
-                    "step": 21,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "double-angle formula: x = ∠(AB,AH), 2x ≡ ±∠(OC,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2"
+                      "sin∠COA",
+                      "2·sin∠BAH·cos∠BAH"
                     ],
                     "points": [
                       "A",
@@ -1340,23 +1070,10 @@
                     ]
                   },
                   {
-                    "kind": "formula",
+                    "kind": "eq",
                     "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(OA,OC))| = |sin ∠(OC,OA)|"
-                    ],
-                    "points": [
-                      "A",
-                      "C",
-                      "O"
-                    ],
-                    "step": 20,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(AB,AH) + 90°)| = |sin ∠(BA,BC)|"
+                      "cos∠BAH",
+                      "sin B"
                     ],
                     "points": [
                       "A",
@@ -1396,7 +1113,7 @@
                   {
                     "reason": 1,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   },
                   {
                     "reason": 2,
@@ -1405,11 +1122,6 @@
                   },
                   {
                     "reason": 3,
-                    "row": 0,
-                    "coef": "-1"
-                  },
-                  {
-                    "reason": 4,
                     "row": 0,
                     "coef": "1"
                   }
@@ -1420,7 +1132,32 @@
                   {
                     "kind": "formula",
                     "args": [
-                      "law of sines: in △ACO, OA / |sin ∠(CA,CO)| = CA / |sin ∠(OC,OA)|"
+                      "law of sines in △ABC"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "step": 28,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ACO"
                     ],
                     "points": [
                       "A",
@@ -1445,70 +1182,7 @@
                   {
                     "kind": "formula",
                     "args": [
-                      "law of sines: in △ABC, BC / |sin ∠(AC,AB)| = AC / |sin ∠(BA,BC)|"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "C"
-                    ],
-                    "step": 28,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "law of sines: in △ABC, CA / |sin ∠(BA,BC)| = BA / |sin ∠(CB,CA)|"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "C"
-                    ],
-                    "step": 29,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(CB,CA))| = |sin ∠(CB,CA)|"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "C"
-                    ],
-                    "step": 25,
-                    "block": null,
-                    "because": []
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "2"
-                  },
-                  {
-                    "reason": 1,
-                    "row": 0,
-                    "coef": "1"
-                  },
-                  {
-                    "reason": 2,
-                    "row": 0,
-                    "coef": "1"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "law of sines: in △BCH, HB / |sin ∠(CB,CH)| = CB / |sin ∠(HC,HB)|"
+                      "law of sines in △BCH"
                     ],
                     "points": [
                       "B",
@@ -1520,9 +1194,10 @@
                     "because": []
                   },
                   {
-                    "kind": "formula",
+                    "kind": "eq",
                     "args": [
-                      "equal or supplementary angles have equal sines: |sin ∠(AC,AB)| = |sin ∠(HC,HB)|"
+                      "sin A",
+                      "sin∠CHB"
                     ],
                     "points": [
                       "A",
@@ -1577,9 +1252,10 @@
                     ]
                   },
                   {
-                    "kind": "formula",
+                    "kind": "eq",
                     "args": [
-                      "equal or supplementary angles have equal sines: |sin ∠(CA,CO)| = |sin ∠(CB,CH)|"
+                      "sin∠ACO",
+                      "sin∠BCH"
                     ],
                     "points": [
                       "A",
@@ -1662,38 +1338,156 @@
                         "from": []
                       }
                     ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
                   },
                   {
-                    "kind": "formula",
+                    "reason": 1,
+                    "row": 0,
+                    "coef": "1"
+                  },
+                  {
+                    "reason": 2,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "computation",
+            "comp": "trig",
+            "terms": [
+              "MaO",
+              "R·sin∠BOA·sin∠OCB / (2·sin C·sin∠OAB)",
+              "AB·sin∠OBA·sin∠OCB / (2·sin C·sin∠OAB)",
+              "BC·sin∠OBA·sin∠OCB / (2·sin A·sin∠OAB)",
+              "BC·sin∠OCB / (2·sin A)",
+              "R·cos A"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "aconst",
                     "args": [
-                      "double-angle formula: x = ∠(CB,CA), 2x ≡ ±∠(OB,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2"
+                      "∠OMaB",
+                      "90"
                     ],
                     "points": [
-                      "A",
                       "B",
-                      "C",
-                      "O"
+                      "O",
+                      "Ma"
                     ],
-                    "step": 27,
+                    "step": 38,
                     "block": null,
                     "because": [
                       {
                         "kind": "atom",
-                        "key": "central_angle",
+                        "key": "perp_bisector",
                         "args": [
                           "O",
-                          "A",
+                          "Ma",
                           "B",
                           "C"
                         ],
                         "stmt": {
-                          "kind": "eq",
+                          "kind": "perp",
                           "args": [
-                            "∡AOB",
-                            "2∡ACB"
+                            "OMa",
+                            "BC"
                           ],
                           "points": [
-                            "A",
+                            "B",
+                            "C",
+                            "O",
+                            "Ma"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "OA",
+                        "OB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "O"
+                      ]
+                    },
+                    "step": 1
+                  },
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △BOMa"
+                    ],
+                    "points": [
+                      "B",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 37,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △BOMa"
+                    ],
+                    "points": [
+                      "B",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 36,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠BCO",
+                      "sin∠MaBO"
+                    ],
+                    "points": [
+                      "B",
+                      "C",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 41,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "isosceles",
+                        "args": [
+                          "O",
+                          "B",
+                          "C"
+                        ],
+                        "stmt": {
+                          "kind": "cong",
+                          "args": [
+                            "OB",
+                            "OC"
+                          ],
+                          "points": [
                             "B",
                             "C",
                             "O"
@@ -1704,23 +1498,10 @@
                     ]
                   },
                   {
-                    "kind": "formula",
+                    "kind": "eq",
                     "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(OB,OA))| = |sin ∠(OB,OA)|"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "O"
-                    ],
-                    "step": 24,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "equal or supplementary angles have equal sines: |sin(∠(CB,CA) + 90°)| = |sin ∠(AO,AB)|"
+                      "cos C",
+                      "sin∠OAB"
                     ],
                     "points": [
                       "A",
@@ -1778,28 +1559,69 @@
                         "from": []
                       }
                     ]
+                  },
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠BOA",
+                      "2·sin C·cos C"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": 27,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "central_angle",
+                        "args": [
+                          "O",
+                          "A",
+                          "B",
+                          "C"
+                        ],
+                        "stmt": {
+                          "kind": "eq",
+                          "args": [
+                            "∡AOB",
+                            "2∡ACB"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
                   }
                 ],
                 "combination": [
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   },
                   {
                     "reason": 1,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   },
                   {
                     "reason": 2,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   },
                   {
                     "reason": 3,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   },
                   {
                     "reason": 4,
@@ -1808,6 +1630,11 @@
                   },
                   {
                     "reason": 5,
+                    "row": 0,
+                    "coef": "-1"
+                  },
+                  {
+                    "reason": 6,
                     "row": 0,
                     "coef": "1"
                   }
@@ -1818,21 +1645,7 @@
                   {
                     "kind": "formula",
                     "args": [
-                      "law of sines: in △ABO, BO / |sin ∠(AO,AB)| = AO / |sin ∠(BA,BO)|"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "O"
-                    ],
-                    "step": 30,
-                    "block": null,
-                    "because": []
-                  },
-                  {
-                    "kind": "formula",
-                    "args": [
-                      "law of sines: in △ABO, OA / |sin ∠(BA,BO)| = BA / |sin ∠(OB,OA)|"
+                      "law of sines in △ABO"
                     ],
                     "points": [
                       "A",
@@ -1842,6 +1655,141 @@
                     "step": 31,
                     "block": null,
                     "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABC"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "step": 29,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABC"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "step": 28,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  },
+                  {
+                    "reason": 1,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABO"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "O"
+                    ],
+                    "step": 30,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △BCO"
+                    ],
+                    "points": [
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": 34,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠COB",
+                      "2·sin A·cos A"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": 19,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "central_angle",
+                        "args": [
+                          "O",
+                          "B",
+                          "C",
+                          "A"
+                        ],
+                        "stmt": {
+                          "kind": "eq",
+                          "args": [
+                            "∡BOC",
+                            "2∡BAC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
                   }
                 ],
                 "combination": [
@@ -1858,9 +1806,99 @@
                 ]
               }
             ]
+          },
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "rconst",
+              "args": [
+                "AH",
+                "MaO",
+                "2"
+              ],
+              "points": [
+                "A",
+                "O",
+                "H",
+                "Ma"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "eq",
+                "args": [
+                  "AH",
+                  "2R·cos A"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "C",
+                  "O",
+                  "H"
+                ],
+                "step": null,
+                "block": 1,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "eq",
+                "args": [
+                  "MaO",
+                  "R·cos A"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "C",
+                  "O",
+                  "Ma"
+                ],
+                "step": null,
+                "block": 1,
+                "because": [],
+                "lemma": true,
+                "sentence": 1
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              },
+              {
+                "reason": 1,
+                "row": 0,
+                "coef": "-1"
+              }
+            ]
           }
         ],
-        "engine_steps": [],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
         "points": [
           "A",
           "O",
@@ -1875,19 +1913,19 @@
       "derived": 36,
       "blocks": 1,
       "claims": 0,
-      "sentences": 1,
-      "chain_links": 7,
+      "sentences": 3,
+      "chain_links": 9,
       "chains": 0,
       "pure_chains": 0,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 437,
-      "lines_en": 9,
-      "citations": 27,
+      "words_en": 230,
+      "lines_en": 11,
+      "citations": 24,
       "aux_shown": 0,
-      "human_cost": 32,
-      "reproved": 26,
-      "silent": 6,
+      "human_cost": 30,
+      "reproved": 20,
+      "silent": 12,
       "pruned": 4,
       "represented": 0,
       "theorem": 0,

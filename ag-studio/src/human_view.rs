@@ -63,11 +63,32 @@ pub enum SetupLine {
     Aux {
         point: String,
         aux_index: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wording: Option<AuxWording>,
     },
     Helper {
         point: String,
         meaning: HelperMeaning,
     },
+    Notation {
+        triangle: [String; 3],
+        #[serde(default)]
+        circumcentre: Option<String>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AuxWording {
+    pub key: String,
+    #[serde(default)]
+    pub args: Vec<AuxArg>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AuxArg {
+    pub key: String,
+    #[serde(default)]
+    pub pts: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -75,6 +96,8 @@ pub enum SetupLine {
 pub enum HelperMeaning {
     Midpoint { of: [String; 2] },
     Reflection { of: String, line: [String; 2] },
+    Perp { through: String, to: [String; 2] },
+    Para { through: String, to: [String; 2] },
     Point,
 }
 
@@ -189,9 +212,10 @@ pub struct Term {
 pub enum Reason {
     Hyp { stmt: Stmt, step: Option<usize> },
     Claim { n: u16, block: u16, step: Option<usize> },
-    Atom { key: AtomKey, args: Vec<String>, stmt: Stmt, from: Vec<u16> },
+    Atom { key: AtomKey, args: Vec<String>, stmt: Stmt, from: Vec<u16>, circle: Option<String> },
     Fact { stmt: Stmt, step: Option<usize>, block: Option<u16>, because: Vec<Reason> },
     Engine { step: Option<usize> },
+    Lemma { stmt: Stmt, block: u16, sentence: u16 },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -215,6 +239,8 @@ enum TaggedReason {
         stmt: Stmt,
         #[serde(default)]
         from: Vec<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        circle: Option<String>,
     },
     Engine {
         #[serde(default)]
@@ -232,6 +258,10 @@ struct FactReason {
     block: Option<u16>,
     #[serde(default)]
     because: Vec<Reason>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    lemma: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sentence: Option<u16>,
 }
 
 const TAGGED: [&str; 4] = ["hyp", "claim", "atom", "engine"];
@@ -241,9 +271,10 @@ impl Serialize for Reason {
         match self.clone() {
             Reason::Hyp { stmt, step } => TaggedReason::Hyp { stmt, step }.serialize(s),
             Reason::Claim { n, block, step } => TaggedReason::Claim { n, block, step }.serialize(s),
-            Reason::Atom { key, args, stmt, from } => TaggedReason::Atom { key, args, stmt, from }.serialize(s),
+            Reason::Atom { key, args, stmt, from, circle } => TaggedReason::Atom { key, args, stmt, from, circle }.serialize(s),
             Reason::Engine { step } => TaggedReason::Engine { step }.serialize(s),
-            Reason::Fact { stmt, step, block, because } => FactReason { stmt, step, block, because }.serialize(s),
+            Reason::Fact { stmt, step, block, because } => FactReason { stmt, step, block, because, lemma: false, sentence: None }.serialize(s),
+            Reason::Lemma { stmt, block, sentence } => FactReason { stmt, step: None, block: Some(block), because: vec![], lemma: true, sentence: Some(sentence) }.serialize(s),
         }
     }
 }
@@ -257,12 +288,15 @@ impl<'de> Deserialize<'de> for Reason {
             Ok(match TaggedReason::deserialize(v).map_err(D::Error::custom)? {
                 TaggedReason::Hyp { stmt, step } => Reason::Hyp { stmt, step },
                 TaggedReason::Claim { n, block, step } => Reason::Claim { n, block, step },
-                TaggedReason::Atom { key, args, stmt, from } => Reason::Atom { key, args, stmt, from },
+                TaggedReason::Atom { key, args, stmt, from, circle } => Reason::Atom { key, args, stmt, from, circle },
                 TaggedReason::Engine { step } => Reason::Engine { step },
             })
         } else {
             let f = FactReason::deserialize(v).map_err(D::Error::custom)?;
-            Ok(Reason::Fact { stmt: f.stmt, step: f.step, block: f.block, because: f.because })
+            Ok(match (f.lemma, f.block, f.sentence) {
+                (true, Some(block), Some(sentence)) => Reason::Lemma { stmt: f.stmt, block, sentence },
+                _ => Reason::Fact { stmt: f.stmt, step: f.step, block: f.block, because: f.because },
+            })
         }
     }
 }
@@ -388,7 +422,17 @@ fn reason_of(nm: &Naming, r: &eng::Reason) -> Reason {
     match r {
         eng::Reason::Hyp { stmt, fact } => Reason::Hyp { stmt: hyp_stmt(nm, stmt), step: (nm.step)(*fact) },
         eng::Reason::Claim { n, block, fact } => Reason::Claim { n: *n, block: *block, step: (nm.step)(*fact) },
-        eng::Reason::Atom { key, stmt, args, from } => Reason::Atom { key: AtomKey::of(*key), args: names(nm, args), stmt: leaf_stmt(nm, stmt), from: from.clone() },
+        eng::Reason::Atom { key, stmt, args, from } => Reason::Atom {
+            key: AtomKey::of(*key),
+            args: names(nm, args),
+            stmt: leaf_stmt(nm, stmt),
+            from: from.clone(),
+            circle: match key {
+                eng::AtomKey::Inscribed => eng::text::circle_name(args),
+                eng::AtomKey::TangentChord => args.get(4).and_then(|&o| eng::text::circle_by_centre(o)),
+                _ => None,
+            },
+        },
         eng::Reason::Fact { stmt, fact, block, because } => Reason::Fact {
             stmt: leaf_stmt(nm, stmt),
             step: (nm.step)(*fact),
@@ -396,6 +440,7 @@ fn reason_of(nm: &Naming, r: &eng::Reason) -> Reason {
             because: because.iter().map(|b| reason_of(nm, b)).collect(),
         },
         eng::Reason::Engine { fact } => Reason::Engine { step: (nm.step)(*fact) },
+        eng::Reason::Lemma { stmt, block, sentence } => Reason::Lemma { stmt: leaf_stmt(nm, stmt), block: *block, sentence: *sentence },
     }
 }
 
@@ -454,12 +499,19 @@ fn setup_of(nm: &Naming, s: &eng::SetupLine) -> SetupLine {
             centre: centre.map(p),
             diameter: diameter.map(|d| [p(d.0), p(d.1)]),
         },
-        eng::SetupLine::Aux { point, aux_index } => SetupLine::Aux { point: p(*point), aux_index: *aux_index },
+        eng::SetupLine::Aux { point, aux_index, wording } => SetupLine::Aux {
+            point: p(*point),
+            aux_index: *aux_index,
+            wording: wording.as_ref().map(|w| AuxWording { key: w.key.to_string(), args: w.args.iter().map(|a| AuxArg { key: a.key.to_string(), pts: names(nm, &a.pts) }).collect() }),
+        },
+        eng::SetupLine::Notation { triangle, circumcentre } => SetupLine::Notation { triangle: [p(triangle.0), p(triangle.1), p(triangle.2)], circumcentre: circumcentre.map(p) },
         eng::SetupLine::Helper { point, meaning } => SetupLine::Helper {
             point: p(*point),
             meaning: match meaning {
                 eng::HelperMeaning::Midpoint { of } => HelperMeaning::Midpoint { of: [p(of.0), p(of.1)] },
                 eng::HelperMeaning::Reflection { of, line } => HelperMeaning::Reflection { of: p(*of), line: [p(line.0), p(line.1)] },
+                eng::HelperMeaning::Perp { through, to } => HelperMeaning::Perp { through: p(*through), to: [p(to.0), p(to.1)] },
+                eng::HelperMeaning::Para { through, to } => HelperMeaning::Para { through: p(*through), to: [p(to.0), p(to.1)] },
                 eng::HelperMeaning::Point => HelperMeaning::Point,
             },
         },
@@ -512,13 +564,29 @@ pub fn from_engine(hp: &eng::HumanProof, nm: &Naming) -> Option<HumanView> {
     if !hp.available || hp.blocks.last().is_none_or(|b| b.kind != eng::BlockKind::Conclusion) {
         return None;
     }
-    Some(HumanView {
-        version: hp.version,
-        as_drawn: hp.as_drawn,
-        setup: hp.setup.iter().map(|s| setup_of(nm, s)).collect(),
-        blocks: hp.blocks.iter().map(|b| block_of(nm, b)).collect(),
-        metrics: serde_json::to_value(&hp.metrics).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+    eng::text::with_notation(&hp.setup, || {
+        Some(HumanView {
+            version: hp.version,
+            as_drawn: hp.as_drawn,
+            setup: hp.setup.iter().map(|s| setup_of(nm, s)).collect(),
+            blocks: hp.blocks.iter().map(|b| block_of(nm, b)).collect(),
+            metrics: serde_json::to_value(&hp.metrics).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        })
     })
+}
+
+impl HumanView {
+    pub fn math_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for s in &self.setup {
+            match s {
+                SetupLine::Circle { name, .. } if !name.is_empty() && !name.starts_with('(') => out.push(name.clone()),
+                SetupLine::Notation { circumcentre: Some(_), .. } => out.push("R".into()),
+                _ => {}
+            }
+        }
+        out
+    }
 }
 
 pub fn of_view(view: &Value) -> Option<HumanView> {
@@ -585,6 +653,7 @@ struct Cx<'a> {
     h: &'a HumanView,
     view: &'a Value,
     lang: Lang,
+    cur: std::cell::Cell<u16>,
 }
 
 fn circle_display(name: &str, through: &[String]) -> String {
@@ -665,7 +734,17 @@ impl Cx<'_> {
         self.h.blocks.iter().find(|b| b.id == id && b.kind == BlockKind::Claim).and_then(|b| b.n)
     }
 
+    fn rule_name(&self, r: &str) -> String {
+        match self.lang {
+            Lang::En => i18n::prose_en(r),
+            Lang::Ro => i18n::theorem_ro(r).map(str::to_string).unwrap_or_else(|| i18n::prose_ro(r)),
+        }
+    }
+
     fn formula(&self, text: &str) -> String {
+        if let Some((name, tri)) = formula_in_triangle(text) {
+            return self.tf("hp.formula.in", &[("rule", self.rule_name(name)), ("tri", tri.to_string())]);
+        }
         let (rule, body) = match text.split_once(": ") {
             Some((r, b)) if !r.contains('=') => (Some(r), b),
             _ => (None, text),
@@ -687,6 +766,13 @@ impl Cx<'_> {
 
     fn stmt(&self, s: &Stmt, ctx: Ctx) -> String {
         let a = |i: usize| s.args.get(i).cloned().unwrap_or_default();
+        if s.kind == "cyclic" && ctx != Ctx::Statement {
+            if let Some(name) = self.named_circle(&s.args, None).filter(|n| !n.starts_with('(')) {
+                if let Some(t) = first_of(self.lang, &context_keys("hp.fact.cyclic_on", ctx)) {
+                    return fill(t, &[("pts", s.args.join(", ")), ("circle", name)]);
+                }
+            }
+        }
         let vars: Option<Vec<(&str, String)>> = match s.kind.as_str() {
             "coll" | "cyclic" => Some(vec![("pts", s.args.join(", "))]),
             "bisects" => Some(vec![("line", a(0)), ("angle", a(1))]),
@@ -710,26 +796,32 @@ impl Cx<'_> {
         render::fact_text(&serde_json::to_value(s).unwrap_or_default(), self.lang)
     }
 
-    fn atom(&self, key: AtomKey, args: &[String], stmt: &Stmt, ctx: Ctx) -> (String, Option<String>) {
+    fn equal_from(&self, args: &[String]) -> String {
+        args.iter().skip(1).map(|p| format!("{}{p}", args[0])).collect::<Vec<_>>().join(" = ")
+    }
+
+    fn atom(&self, key: AtomKey, args: &[String], stmt: &Stmt, circle: Option<&str>, ctx: Ctx) -> (String, Option<String>) {
         let g = |i: usize| args.get(i).cloned().unwrap_or_default();
         let sl = |r: std::ops::Range<usize>| args.get(r).map(|x| x.to_vec()).unwrap_or_default();
         let named = |pts: &[String], c: Option<&str>| self.named_circle(pts, c);
         let (base, shown, merge): (&str, Vec<String>, Option<String>) = match key {
             AtomKey::Inscribed => {
-                let c = self.circle_ref(args, None);
+                let c = circle.map(str::to_string).unwrap_or_else(|| self.circle_ref(args, None));
                 ("inscribed", vec![c.clone()], Some(c))
             }
             AtomKey::Thales => match named(&[g(0), g(1), g(2)], Some(&g(3))) {
                 Some(c) => ("thales", vec![g(0), g(1), c], None),
                 None => ("thales.bare", vec![g(0), g(1)], None),
             },
-            AtomKey::TangentChord => ("tangent_chord", vec![g(0), g(1), self.circle_ref(&[g(0), g(2), g(3)], Some(&g(4)))], None),
+            AtomKey::TangentChord => ("tangent_chord", vec![g(0), g(1), circle.map(str::to_string).unwrap_or_else(|| self.circle_ref(&[g(0), g(2), g(3)], Some(&g(4))))], None),
             AtomKey::PerpBisector => ("perp_bisector", sl(0..4), None),
             AtomKey::Parallel => ("parallel", vec![g(4), g(5)], None),
-            AtomKey::Radii => match named(&[g(1), g(2)], Some(&g(0))) {
+            AtomKey::Radii => match named(&args[1.min(args.len())..], Some(&g(0))) {
                 Some(c) => ("radii", vec![c.clone()], Some(c)),
+                None if args.len() > 3 => return (self.equal_from(args), None),
                 None => return (self.stmt(stmt, Ctx::Statement), None),
             },
+            AtomKey::Isosceles if args.len() > 3 => return (self.equal_from(args), None),
             AtomKey::Isosceles => ("isosceles", sl(0..3), None),
             AtomKey::CentralAngle => match named(&[g(1), g(2), g(3)], Some(&g(0))) {
                 Some(c) => ("central_angle", vec![c.clone()], Some(c)),
@@ -745,6 +837,15 @@ impl Cx<'_> {
         };
         let t = first_of(self.lang, &context_keys(&format!("hp.atom.{base}"), ctx)).unwrap_or("");
         (fill_args(t, &shown), merge.map(|m| format!("{}|{m}", key.key())))
+    }
+
+    fn equal_lengths_centre(&self, key: AtomKey, args: &[String], from: &[u16]) -> Option<String> {
+        let unnamed = match key {
+            AtomKey::Radii => self.named_circle(&args[1.min(args.len())..], args.first().map(String::as_str)).is_none(),
+            AtomKey::Isosceles => true,
+            _ => false,
+        };
+        (unnamed && from.is_empty() && args.len() >= 3).then(|| args[0].clone())
     }
 
     fn atom_merged(&self, key: AtomKey, circles: &[String], ctx: Ctx) -> String {
@@ -781,8 +882,8 @@ impl Cx<'_> {
                 }
             }
             Reason::Claim { n, .. } => self.claims_label(&[*n]),
-            Reason::Atom { key, args, stmt, from } => {
-                let (mut text, _) = self.atom(*key, args, stmt, ctx);
+            Reason::Atom { key, args, stmt, from, circle } => {
+                let (mut text, _) = self.atom(*key, args, stmt, circle.as_deref(), ctx);
                 if matches!(key, AtomKey::Parallel | AtomKey::Orthocentre) && ctx == Ctx::Note {
                     text = format!("{}, {text}", self.stmt(stmt, ctx));
                 }
@@ -793,6 +894,13 @@ impl Cx<'_> {
                 text
             }
             Reason::Engine { step } => self.tf("hp.step_ref", &[("n", step.map(|s| s.to_string()).unwrap_or_default())]),
+            Reason::Lemma { stmt, block, .. } => {
+                let st = self.stmt(stmt, Ctx::Statement);
+                match self.claim_of_block(*block).filter(|_| *block != self.cur.get()) {
+                    Some(n) => self.tf("hp.lemma.claim", &[("stmt", st), ("claim", self.claims_label(&[n]))]),
+                    None => self.tf("hp.lemma", &[("stmt", st)]),
+                }
+            }
         }
     }
 
@@ -826,11 +934,48 @@ impl Cx<'_> {
             if skip_claims && matches!(r, Reason::Claim { .. }) {
                 continue;
             }
-            if let Reason::Atom { key, args, stmt, from } = r {
+            if let Reason::Lemma { stmt, block, .. } = r {
+                if *block == self.cur.get() || self.claim_of_block(*block).is_none() {
+                    let st = self.stmt(stmt, Ctx::Statement);
+                    match groups.iter_mut().find(|g| g.0 == "lemma") {
+                        Some((_, at, list, _)) => {
+                            if !list.contains(&st) {
+                                list.push(st);
+                            }
+                            out[*at] = self.tf(if list.len() > 1 { "hp.lemma.many" } else { "hp.lemma" }, &[("stmt", join_list(list, self.lang))]);
+                        }
+                        None => {
+                            groups.push(("lemma".into(), out.len(), vec![st.clone()], AtomKey::Inscribed));
+                            out.push(self.tf("hp.lemma", &[("stmt", st)]));
+                        }
+                    }
+                    continue;
+                }
+            }
+            if let Reason::Atom { key, args, stmt, from, circle } = r {
                 if facts.iter().any(|s| same_stmt(s, stmt)) {
                     continue;
                 }
-                let (_, merge) = self.atom(*key, args, stmt, ctx);
+                if let Some(centre) = self.equal_lengths_centre(*key, args, from) {
+                    let group = format!("={centre}");
+                    match groups.iter_mut().find(|g| g.0 == group) {
+                        Some((_, at, pts, _)) => {
+                            for p in &args[1..] {
+                                if !pts.contains(p) {
+                                    pts.push(p.clone());
+                                }
+                            }
+                            out[*at] = self.equal_from(pts);
+                        }
+                        None => {
+                            let pts = args.to_vec();
+                            groups.push((group, out.len(), pts.clone(), *key));
+                            out.push(self.equal_from(&pts));
+                        }
+                    }
+                    continue;
+                }
+                let (_, merge) = self.atom(*key, args, stmt, circle.as_deref(), ctx);
                 if let (Some(m), true) = (merge, from.is_empty()) {
                     let (group, circle) = m.split_once('|').map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or_default();
                     match groups.iter_mut().find(|g| g.0 == group) {
@@ -904,6 +1049,16 @@ pub fn same_stmt(a: &Stmt, b: &Stmt) -> bool {
     norm(a) == norm(b)
 }
 
+fn formula_in_triangle(text: &str) -> Option<(&str, &str)> {
+    let (name, tri) = text.split_once(" in \u{25b3}")?;
+    (!name.contains([':', '=']) && !tri.contains(' ')).then_some((name, tri))
+}
+
+pub fn restates_chain(terms: &[String], then: &Stmt) -> bool {
+    let (Some(first), Some(last)) = (terms.first(), terms.last()) else { return false };
+    matches!(then.kind.as_str(), "eqangle" | "cong" | "eq") && then.args.len() == 2 && ((then.args[0] == *first && then.args[1] == *last) || (then.args[0] == *last && then.args[1] == *first))
+}
+
 pub fn inline_chain(terms: &[String], links: &[Link]) -> bool {
     links.len() <= 2 && terms.iter().map(|t| t.chars().count() + 3).sum::<usize>() <= 44
 }
@@ -961,6 +1116,11 @@ impl Cx<'_> {
         self.tf(key, &[("pts", pts.join(", ")), ("name", name.to_string())])
     }
 
+    fn main_triangle(&self) -> Option<Vec<String>> {
+        let pts: Vec<String> = self.view["points"].as_array()?.iter().take(3).filter_map(|p| p["name"].as_str().map(str::to_string)).collect();
+        (pts.len() == 3).then_some(pts)
+    }
+
     fn circles_sentence(&self, circles: &[CircleLine]) -> Option<String> {
         let mut clauses: Vec<String> = Vec::new();
         let mut by_points: Vec<(String, Vec<String>, Option<String>)> = Vec::new();
@@ -981,12 +1141,14 @@ impl Cx<'_> {
                 let extra: Vec<String> = through.iter().filter(|p| !in_name.contains(p)).cloned().collect();
                 by_points.push((shown, extra, (*centre).clone()));
             } else {
-                let first: Vec<String> = through.iter().take(3).cloned().collect();
-                let mut s = self.tf("hp.setup.circle", &[("name", shown.clone()), ("pts", first.concat())]);
+                let tri = self.main_triangle().filter(|t| t.iter().all(|p| through.contains(p)));
+                let first: Vec<String> = tri.clone().unwrap_or_else(|| through.iter().take(3).cloned().collect());
+                let key = if tri.is_some() { "hp.setup.circumcircle" } else { "hp.setup.circle" };
+                let mut s = self.tf(key, &[("name", shown.clone()), ("pts", first.concat())]);
                 if let Some(c) = centre {
                     s.push_str(&self.tf("hp.setup.centre", &[("c", c.clone())]));
                 }
-                let others: Vec<String> = through.iter().skip(3).cloned().collect();
+                let others: Vec<String> = through.iter().filter(|p| !first.contains(p)).cloned().collect();
                 if !others.is_empty() {
                     s.push_str(&self.on_clause(&others, &shown));
                 }
@@ -1017,43 +1179,95 @@ impl Cx<'_> {
         (!clauses.is_empty()).then(|| clauses.join(" "))
     }
 
+    fn notation_line(&self, triangle: &[String; 3], circumcentre: Option<&str>) -> String {
+        let vars = vec![("a", triangle[0].clone()), ("b", triangle[1].clone()), ("c", triangle[2].clone()), ("tri", triangle.concat())];
+        match circumcentre {
+            Some(o) => {
+                let r = triangle.iter().map(|v| format!("{o}{v}")).collect::<Vec<_>>().join(" = ");
+                self.tf("hp.setup.notation_r", &[vars, vec![("R", "R".to_string()), ("r", r)]].concat())
+            }
+            None => self.tf("hp.setup.notation", &vars),
+        }
+    }
+
+    fn wording_arg(&self, a: &AuxArg, flat: bool) -> Vec<String> {
+        let p = |i: usize| a.pts.get(i).cloned().unwrap_or_default();
+        let from = |i: usize| a.pts.get(i..).unwrap_or_default().concat();
+        let fill = |key: &str, args: &[String]| fill_args(self.t(key), args);
+        match a.key.as_str() {
+            "point" => vec![p(0)],
+            "segment" | "triangle" if flat => a.pts.clone(),
+            "segment" | "triangle" | "line" => vec![a.pts.concat()],
+            "aux.line.para" | "aux.line.perp" => vec![fill(&a.key, &[p(0), from(1)])],
+            "aux.line.tangent_at" => vec![fill(&a.key, &[p(0), p(1)])],
+            "aux.line.isogonal" if a.pts.len() == 5 => vec![fill(&a.key, &[a.pts[..2].concat(), from(2)])],
+            "aux.circumcircle" => vec![self.named_circle(&a.pts, None).unwrap_or_else(|| if a.pts.len() == 3 { fill("aux.circumcircle", &a.pts) } else { format!("({})", a.pts.concat()) })],
+            "aux.circle" => vec![self.named_circle(a.pts.get(1..).unwrap_or_default(), Some(&p(0))).unwrap_or_else(|| fill("aux.circle", &[p(0), p(1)]))],
+            _ => vec![a.pts.concat()],
+        }
+    }
+
+    fn wording_def(&self, point: &str, w: &AuxWording) -> Option<String> {
+        let suffix = w.key.strip_prefix("aux.")?;
+        let flat = matches!(suffix, "midpoint" | "circumcenter" | "orthocenter" | "incenter" | "centroid" | "excenter" | "excenter_any" | "parallelogram" | "arc_midpoint");
+        let mut args: Vec<String> = w.args.iter().flat_map(|a| self.wording_arg(a, flat)).collect();
+        let mut key = format!("aux.{suffix}");
+        match suffix {
+            "excenter" if args.len() == 4 => {
+                let side: String = args[..3].iter().filter(|v| **v != args[3]).cloned().collect();
+                args.push(side);
+            }
+            "intersect2" if w.args.first().is_some_and(|a| a.key != "line") => key = "aux.intersect2_shape".into(),
+            _ => {}
+        }
+        let template = first_of(self.lang, &[format!("hp.{key}"), key])?;
+        let text = fill_args(template, &args).replace("{p}", point);
+        (!text.contains('{')).then_some(text)
+    }
+
+    fn aux_line(&self, point: &str, aux_index: usize, wording: Option<&AuxWording>) -> Option<String> {
+        let view = view_aux(self.view, "aux", |i, _| i == aux_index);
+        let def = match wording.and_then(|w| self.wording_def(point, w)) {
+            Some(d) => match view.and_then(|a| a["same"].as_str()) {
+                Some(same) => d + &self.tf("aux.same", &[("p", same.to_string())]),
+                None => d,
+            },
+            None => render::aux_text(view?, self.lang),
+        };
+        Some(self.let_line(point, &def))
+    }
+
     fn setup_lines(&self) -> Vec<String> {
         let mut out = Vec::new();
-        let circles: Vec<CircleLine> = self
-            .h
-            .setup
-            .iter()
-            .filter_map(|l| match l {
-                SetupLine::Circle { name, through, centre, diameter } => Some((name, through, centre, diameter)),
-                _ => None,
-            })
-            .collect();
-        let mut circles_done = false;
-        for line in &self.h.setup {
-            let s = match line {
-                SetupLine::DirectedAngles => self.t("hp.setup.directed").to_string(),
-                SetupLine::Circle { .. } if circles_done => continue,
+        let setup = &self.h.setup;
+        let mut i = 0;
+        while i < setup.len() {
+            let s = match &setup[i] {
+                SetupLine::DirectedAngles => Some(self.t("hp.setup.directed").to_string()),
+                SetupLine::Notation { triangle, circumcentre } => Some(self.notation_line(triangle, circumcentre.as_deref())),
                 SetupLine::Circle { .. } => {
-                    circles_done = true;
-                    match self.circles_sentence(&circles) {
-                        Some(s) => s,
-                        None => continue,
+                    let later: Vec<&String> = setup[i..].iter().filter_map(|l| if let SetupLine::Aux { point, .. } = l { Some(point) } else { None }).collect();
+                    let mut run: Vec<(String, Vec<String>, Option<String>, Option<[String; 2]>)> = Vec::new();
+                    while let Some(SetupLine::Circle { name, through, centre, diameter }) = setup.get(i) {
+                        let kept: Vec<String> = through.iter().filter(|p| !later.contains(p)).cloned().collect();
+                        run.push((name.clone(), if kept.len() >= 3 { kept } else { through.clone() }, centre.clone(), diameter.clone()));
+                        i += 1;
                     }
+                    i -= 1;
+                    let lines: Vec<CircleLine> = run.iter().map(|(n, t, c, d)| (n, t, c, d)).collect();
+                    self.circles_sentence(&lines)
                 }
-                SetupLine::Aux { point, aux_index } => match view_aux(self.view, "aux", |i, _| i == *aux_index) {
-                    Some(a) => self.let_line(point, &render::aux_text(a, self.lang)),
-                    None => continue,
-                },
+                SetupLine::Aux { point, aux_index, wording } => self.aux_line(point, *aux_index, wording.as_ref()),
                 SetupLine::Helper { point, meaning } => match meaning {
-                    HelperMeaning::Midpoint { of } => self.let_line(point, &self.tf("hp.helper.midpoint", &[("seg", of.concat())])),
-                    HelperMeaning::Reflection { of, line } => self.let_line(point, &self.tf("hp.helper.reflection", &[("p", of.clone()), ("line", line.concat())])),
-                    HelperMeaning::Point => match view_aux(self.view, "helpers", |_, a| a["name"].as_str() == Some(point.as_str())) {
-                        Some(a) => self.let_line(point, &render::aux_text(a, self.lang)),
-                        None => continue,
-                    },
+                    HelperMeaning::Midpoint { of } => Some(self.let_line(point, &self.tf("hp.helper.midpoint", &[("seg", of.concat())]))),
+                    HelperMeaning::Reflection { of, line } => Some(self.let_line(point, &self.tf("hp.helper.reflection", &[("p", of.clone()), ("line", line.concat())]))),
+                    HelperMeaning::Perp { through, to } => Some(self.let_line(point, &self.tf("hp.helper.perp", &[("p", through.clone()), ("line", to.concat())]))),
+                    HelperMeaning::Para { through, to } => Some(self.let_line(point, &self.tf("hp.helper.para", &[("p", through.clone()), ("line", to.concat())]))),
+                    HelperMeaning::Point => view_aux(self.view, "helpers", |_, a| a["name"].as_str() == Some(point.as_str())).map(|a| self.let_line(point, &render::aux_text(a, self.lang))),
                 },
             };
-            out.push(s);
+            out.extend(s);
+            i += 1;
         }
         out
     }
@@ -1106,7 +1320,7 @@ impl Cx<'_> {
         };
         match s {
             Sentence::Chain { terms, links, then, directed } => {
-                let so = then.as_ref().map(|t| self.stmt(t, Ctx::Statement));
+                let so = then.as_ref().filter(|t| !restates_chain(terms, t)).map(|t| self.stmt(t, Ctx::Statement));
                 let as_drawn = !directed;
                 if inline_chain(terms, links) {
                     let notes: Vec<String> = links.iter().map(|l| self.link_note(l)).filter(|n| !n.is_empty()).collect();
@@ -1145,7 +1359,15 @@ impl Cx<'_> {
             Sentence::Theorem { key, stmt, reasons } => {
                 let thm = self.t(&format!("hp.thm.{}", key.key())).to_string();
                 let rs = self.texts(reasons, Ctx::Note, false);
-                let text = if stmt.kind == "formula" {
+                let in_tri = (stmt.kind == "formula").then(|| stmt.args.first().and_then(|a| formula_in_triangle(a))).flatten();
+                let text = if let Some((_, tri)) = in_tri {
+                    let tri = format!("\u{25b3}{tri}");
+                    if rs.is_empty() {
+                        self.tf("hp.apply_in", &[("thm", thm), ("tri", tri)])
+                    } else {
+                        self.tf("hp.apply_in_with", &[("thm", thm), ("reasons", rs.join("; ")), ("tri", tri)])
+                    }
+                } else if stmt.kind == "formula" {
                     let f = self.stmt(stmt, Ctx::Statement);
                     let rest = f.split_once(": ").map(|x| x.1.to_string()).unwrap_or(f);
                     if rs.is_empty() {
@@ -1213,10 +1435,11 @@ fn merge_text(parts: Vec<Part>) -> Vec<Part> {
 }
 
 pub fn doc(h: &HumanView, view: &Value, lang: Lang) -> Doc {
-    let cx = Cx { h, view, lang };
+    let cx = Cx { h, view, lang, cur: std::cell::Cell::new(0) };
     let claims = h.blocks.iter().filter(|b| b.kind == BlockKind::Claim).count();
     let mut blocks = Vec::new();
     for b in &h.blocks {
+        cx.cur.set(b.id);
         let mut parts = Vec::new();
         for (i, s) in b.body.iter().enumerate() {
             let lead = (i == 0 && b.kind == BlockKind::Conclusion && claims > 0 && matches!(s, Sentence::Pooled { .. })).then(|| cx.t("hp.finally"));
@@ -1408,6 +1631,7 @@ fn walk_reason(r: &mut eng::Reason, f: &mut dyn FnMut(Use, &mut PointId)) {
             walk_stmt(stmt, f);
             because.iter_mut().for_each(|b| walk_reason(b, f));
         }
+        eng::Reason::Lemma { stmt, .. } => walk_stmt(stmt, f),
         eng::Reason::Claim { .. } | eng::Reason::Engine { .. } => {}
     }
 }
@@ -1454,7 +1678,28 @@ fn walk_proof(hp: &mut eng::HumanProof, f: &mut dyn FnMut(Use, &mut PointId)) {
                     f(Use::Fixed, c);
                 }
             }
-            eng::SetupLine::Aux { point, .. } => f(Use::Fixed, point),
+            eng::SetupLine::Aux { point, wording, .. } => {
+                f(Use::Fixed, point);
+                for a in wording.iter_mut().flat_map(|w| w.args.iter_mut()) {
+                    if a.key == "line" && a.pts.len() == 2 {
+                        let (p, q) = (a.pts[0], a.pts[1]);
+                        f(Use::Line(q), &mut a.pts[0]);
+                        f(Use::Line(p), &mut a.pts[1]);
+                    } else {
+                        a.pts.iter_mut().for_each(|p| f(Use::Fixed, p));
+                    }
+                }
+            }
+            eng::SetupLine::Notation { triangle, circumcentre } => {
+                walk_tri(triangle, f);
+                if let Some(c) = circumcentre {
+                    f(Use::Fixed, c);
+                }
+            }
+            eng::SetupLine::Helper { meaning: eng::HelperMeaning::Perp { through, to } | eng::HelperMeaning::Para { through, to }, .. } => {
+                f(Use::Fixed, through);
+                walk_line(to, f);
+            }
             eng::SetupLine::Helper { .. } | eng::SetupLine::DirectedAngles => {}
         }
     }
@@ -1496,7 +1741,7 @@ fn dedup_colls(hp: &mut eng::HumanProof) {
     }
     fn reason(r: &mut eng::Reason) {
         match r {
-            eng::Reason::Hyp { stmt: s, .. } | eng::Reason::Atom { stmt: s, .. } => stmt(s),
+            eng::Reason::Hyp { stmt: s, .. } | eng::Reason::Atom { stmt: s, .. } | eng::Reason::Lemma { stmt: s, .. } => stmt(s),
             eng::Reason::Fact { stmt: s, because, .. } => {
                 stmt(s);
                 because.iter_mut().for_each(reason);
@@ -1792,7 +2037,7 @@ pub mod tests {
 
     fn sample_atom(key: AtomKey) -> Reason {
         let args: Vec<String> = ["A", "B", "C", "D", "E", "F"].iter().map(|s| s.to_string()).collect();
-        Reason::Atom { key, args, stmt: atom_stmt(), from: vec![] }
+        Reason::Atom { key, args, stmt: atom_stmt(), from: vec![], circle: None }
     }
 
     fn one_block(body: Vec<Sentence>, setup: Vec<SetupLine>) -> HumanView {
@@ -1852,7 +2097,7 @@ pub mod tests {
         let h = one_block(vec![], vec![c("(BMR)", &["B", "M", "R", "P"], "O\u{2081}"), c("(CNR)", &["C", "N", "R", "P"], "O\u{2082}")]);
         let view = json!({"points": [], "aux": [], "proof": {"steps": []}});
         let d = doc(&h, &view, Lang::En);
-        assert_eq!(d.setup, vec!["P lies on (BMR) and (CNR), with centres O\u{2081} and O\u{2082} respectively.".to_string()]);
+        assert_eq!(d.setup, vec!["P lies on (BMR) and (CNR), with centers O\u{2081} and O\u{2082} respectively.".to_string()]);
         let ro = doc(&h, &view, Lang::Ro);
         assert_eq!(ro.setup, vec!["P se află pe (BMR) și (CNR), cu centrele O\u{2081} și O\u{2082}, respectiv.".to_string()]);
     }
@@ -1899,6 +2144,243 @@ pub mod tests {
             }
             assert!(plain.contains(&i18n::t(Lang::En, "report.proof").to_uppercase()), "{name}: without a human proof the report is as before");
             assert!(!plain.contains(&i18n::t(Lang::En, "report.hp.derivation").to_uppercase()));
+        }
+    }
+
+
+    fn st(kind: &str, args: &[&str], points: &[&str]) -> Stmt {
+        Stmt { kind: kind.into(), args: args.iter().map(|s| s.to_string()).collect(), points: points.iter().map(|s| s.to_string()).collect() }
+    }
+
+    fn strs(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn arg(key: &str, pts: &[&str]) -> AuxArg {
+        AuxArg { key: key.into(), pts: strs(pts) }
+    }
+
+    fn aux_samples() -> Vec<(&'static str, Vec<AuxArg>)> {
+        vec![
+            ("aux.midpoint", vec![arg("segment", &["B", "C"])]),
+            ("aux.foot", vec![arg("point", &["A"]), arg("line", &["B", "C"])]),
+            ("aux.reflect", vec![arg("point", &["H"]), arg("line", &["B", "C"])]),
+            ("aux.reflect", vec![arg("point", &["A"]), arg("point", &["O"])]),
+            ("aux.circumcenter", vec![arg("triangle", &["A", "B", "H"])]),
+            ("aux.orthocenter", vec![arg("triangle", &["A", "B", "C"])]),
+            ("aux.incenter", vec![arg("triangle", &["A", "B", "C"])]),
+            ("aux.excenter", vec![arg("triangle", &["A", "B", "C"]), arg("point", &["A"])]),
+            ("aux.excenter_any", vec![arg("triangle", &["A", "B", "C"])]),
+            ("aux.centroid", vec![arg("triangle", &["A", "B", "C"])]),
+            ("aux.bisector_foot", vec![arg("point", &["A"]), arg("triangle", &["A", "B", "C"])]),
+            ("aux.antipode_on", vec![arg("point", &["A"]), arg("aux.circumcircle", &["A", "B", "C"])]),
+            ("aux.antipode_on", vec![arg("point", &["D"]), arg("aux.circumcircle", &["D", "E", "F"])]),
+            ("aux.parallelogram", vec![arg("triangle", &["A", "B", "C"])]),
+            ("aux.incircle_touch", vec![arg("point", &["A"]), arg("triangle", &["A", "B", "C"])]),
+            ("aux.excircle_touch", vec![arg("point", &["A"]), arg("triangle", &["A", "B", "C"])]),
+            ("aux.spiral_center", vec![arg("segment", &["A", "B"]), arg("segment", &["C", "D"])]),
+            ("aux.isogonal", vec![arg("point", &["P"]), arg("triangle", &["A", "B", "C"])]),
+            ("aux.inverse", vec![arg("point", &["P"]), arg("aux.circle", &["O", "A"])]),
+            ("aux.pole", vec![arg("line", &["B", "C"]), arg("aux.circumcircle", &["A", "B", "C"])]),
+            ("aux.tangent", vec![arg("point", &["P"]), arg("aux.circle", &["Q", "D"])]),
+            ("aux.arc_midpoint", vec![arg("segment", &["B", "C"]), arg("aux.circumcircle", &["A", "B", "C"])]),
+            ("aux.harmonic", vec![arg("point", &["D"]), arg("point", &["B"]), arg("point", &["C"])]),
+            ("aux.intersect", vec![arg("aux.line.para", &["D", "B", "C"]), arg("line", &["A", "B"])]),
+            ("aux.intersect", vec![arg("aux.line.perp", &["H", "A", "C"]), arg("aux.line.tangent_at", &["A", "O"])]),
+            ("aux.intersect", vec![arg("aux.line.isogonal", &["A", "P", "B", "A", "C"]), arg("line", &["B", "C"])]),
+            ("aux.intersect2", vec![arg("line", &["A", "D"]), arg("aux.circumcircle", &["A", "B", "C"]), arg("point", &["A"])]),
+            ("aux.intersect2", vec![arg("aux.circumcircle", &["A", "B", "C"]), arg("aux.circle", &["Q", "D"]), arg("point", &["D"])]),
+        ]
+    }
+
+    fn synthetic() -> (HumanView, Value) {
+        let letters = ["A", "B", "C", "D", "E", "F", "G", "H", "O", "Q", "P", "X", "Y", "Z", "U", "V", "W", "K", "L", "M", "N", "S", "T"];
+        let view = json!({"points": letters.iter().map(|n| json!({"name": n, "aux": false})).collect::<Vec<_>>(), "aux": [], "helpers": [], "proof": {"style": "ddar", "steps": []}});
+        let names = ["X", "Y", "Z", "W", "L", "M", "N", "T"];
+        let mut setup = vec![
+            SetupLine::DirectedAngles,
+            SetupLine::Notation { triangle: ["A".into(), "B".into(), "C".into()], circumcentre: Some("O".into()) },
+            SetupLine::Notation { triangle: ["D".into(), "E".into(), "F".into()], circumcentre: None },
+            SetupLine::Circle { name: "Ω".into(), through: strs(&["A", "B", "C", "S"]), centre: Some("O".into()), diameter: None },
+            SetupLine::Circle { name: "ω₁".into(), through: strs(&["D", "E", "F", "G"]), centre: None, diameter: None },
+            SetupLine::Helper { point: "U".into(), meaning: HelperMeaning::Perp { through: "A".into(), to: ["B".into(), "C".into()] } },
+            SetupLine::Helper { point: "V".into(), meaning: HelperMeaning::Para { through: "D".into(), to: ["E".into(), "F".into()] } },
+        ];
+        for (i, (key, args)) in aux_samples().into_iter().enumerate() {
+            setup.push(SetupLine::Aux { point: names[i % names.len()].into(), aux_index: i, wording: Some(AuxWording { key: key.into(), args }) });
+        }
+        let lemma_stmt = st("eqangle", &["∡ABX", "∡XCA"], &["A", "B", "C", "X"]);
+        let atom = |key: AtomKey, args: &[&str], s: Stmt, circle: Option<&str>| Reason::Atom { key, args: strs(args), stmt: s, from: vec![], circle: circle.map(str::to_string) };
+        let claim = Block {
+            id: 1,
+            kind: BlockKind::Claim,
+            n: Some(1),
+            stmt: lemma_stmt.clone(),
+            body: vec![Sentence::Chain {
+                terms: strs(&["∡ABX", "∡ACX", "∡XCA"]),
+                links: vec![
+                    Link { reasons: vec![atom(AtomKey::Inscribed, &["A", "B", "C", "X"], st("eqangle", &["∡ABX", "∡ACX"], &["A", "B", "C", "X"]), Some("Ω"))], combination: vec![] },
+                    Link { reasons: vec![Reason::Hyp { stmt: st("cyclic", &["A", "B", "C", "X"], &["A", "B", "C", "X"]), step: None }], combination: vec![] },
+                ],
+                then: Some(lemma_stmt.clone()),
+                directed: true,
+            }],
+            engine_steps: vec![],
+            points: strs(&["A", "B", "C", "X"]),
+            objects: vec![],
+        };
+        let radii = st("cong", &["QD", "QE"], &["D", "E", "Q"]);
+        let body = vec![
+            Sentence::Chain {
+                terms: strs(&["∡DEG", "∡DFG", "∡QDE + 90°"]),
+                links: vec![
+                    Link { reasons: vec![Reason::Lemma { stmt: st("eqangle", &["∡DEG", "∡DFG"], &["D", "E", "F", "G"]), block: 2, sentence: 1 }], combination: vec![] },
+                    Link {
+                        reasons: vec![
+                            atom(AtomKey::Radii, &["Q", "D", "E", "F", "G"], radii.clone(), None),
+                            atom(AtomKey::Radii, &["O", "A", "B", "C"], st("cong", &["OA", "OB"], &["A", "B", "O"]), None),
+                            atom(AtomKey::Isosceles, &["H", "A", "B", "C"], st("cong", &["HA", "HB"], &["A", "B", "H"]), None),
+                            atom(AtomKey::Isosceles, &["K", "A", "B"], st("cong", &["KA", "KB"], &["A", "B", "K"]), None),
+                            atom(AtomKey::Radii, &["K", "A", "C"], st("cong", &["KA", "KC"], &["A", "C", "K"]), None),
+                            atom(AtomKey::TangentChord, &["A", "Y", "B", "C", "O"], st("eqangle", &["∡YAB", "∡ACB"], &["A", "B", "C", "Y"]), Some("Ω")),
+                        ],
+                        combination: vec![],
+                    },
+                ],
+                then: Some(st("eqangle", &["∡DEG", "∡QDE + 90°"], &["D", "E", "G", "Q"])),
+                directed: true,
+            },
+            Sentence::Because { stmt: st("eqangle", &["∡DEG", "∡DFG"], &["D", "E", "F", "G"]), reasons: vec![Reason::Hyp { stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]), step: None }], combination: vec![] },
+            Sentence::Because { stmt: st("perp", &["AB", "CX"], &["A", "B", "C", "X"]), reasons: vec![Reason::Lemma { stmt: lemma_stmt.clone(), block: 1, sentence: 0 }, Reason::Claim { n: 1, block: 1, step: None }], combination: vec![] },
+            Sentence::Theorem { key: TheoremKey::LawOfSines, stmt: st("formula", &["law of sines in △ABC"], &["A", "B", "C"]), reasons: vec![] },
+            Sentence::Theorem { key: TheoremKey::LawOfSines, stmt: st("formula", &["law of sines in △DEF"], &["D", "E", "F"]), reasons: vec![Reason::Hyp { stmt: st("perp", &["DE", "EF"], &["D", "E", "F"]), step: None }] },
+            Sentence::Computation {
+                comp: CompKind::Trig,
+                terms: strs(&["AB", "2R·sin C"]),
+                links: vec![Link { reasons: vec![Reason::Fact { stmt: st("formula", &["law of sines in △ABC"], &["A", "B", "C"]), step: None, block: None, because: vec![] }, Reason::Fact { stmt: st("eq", &["sin∠AXB", "sin C"], &["A", "B", "C", "X"]), step: None, block: None, because: vec![] }], combination: vec![] }],
+            },
+            Sentence::Chain {
+                terms: strs(&["∡EDF", "∡EGF"]),
+                links: vec![Link { reasons: vec![Reason::Hyp { stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]), step: None }], combination: vec![] }],
+                then: Some(st("eqangle", &["∡EGF", "∡EDF"], &["D", "E", "F", "G"])),
+                directed: true,
+            },
+        ];
+        let conclusion = Block { id: 2, kind: BlockKind::Conclusion, n: None, stmt: st("perp", &["AB", "CX"], &["A", "B", "C", "X"]), body, engine_steps: vec![], points: vec![], objects: vec![] };
+        (HumanView { version: 1, as_drawn: false, setup, blocks: vec![claim, conclusion], metrics: Metrics::default() }, view)
+    }
+
+    #[test]
+    fn every_q2_field_reads_as_words_in_both_languages() {
+        let (h, view) = synthetic();
+        let covered: BTreeSet<&str> = aux_samples().iter().map(|s| s.0).collect();
+        for k in ddar::human::aux::KEYS.iter().chain(["aux.intersect2"].iter()) {
+            assert!(covered.contains(k), "{k}: the engine emits this wording key; add a sample");
+        }
+        let cx_lines = |lang: Lang| doc(&h, &view, lang).setup;
+        for lang in [Lang::En, Lang::Ro] {
+            let setup = cx_lines(lang);
+            let aux = aux_samples().len();
+            assert_eq!(setup.len(), 1 + 2 + 1 + 2 + aux, "{lang:?}: a setup line was dropped:\n{}", setup.join("\n"));
+            let t = text(&h, &view, lang);
+            for raw in ["aux.", "{", "(", "intersect(", "circumcircle(", "_"] {
+                let found = if raw == "(" { t.contains("foot(") || t.contains("midpoint(") || t.contains("circle(") } else { t.contains(raw) };
+                assert!(!found, "{lang:?}: raw syntax {raw:?} in\n{t}");
+            }
+            for want in ["Ω", "ω₁"] {
+                assert!(t.contains(want), "{lang:?}: {want} missing from\n{t}");
+            }
+            if lang == Lang::Ro {
+                let padded = format!(" {t} ");
+                for w in ENGLISH.iter().chain([" above", "Write ", " point other", "law of sines", "midpoint", "foot of", "antipode", "parallelogram"].iter()) {
+                    assert!(!padded.contains(w), "English {w:?} left in\n{t}");
+                }
+            }
+        }
+        let en = text(&h, &view, Lang::En);
+        for want in [
+            "Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius.",
+            "Write D, E, F for the angles of triangle DEF.",
+            "Let Ω be the circumcircle of triangle ABC, with center O; S lies on Ω. Let ω₁ be the circle (DEF); G lies on ω₁.",
+            "Let U be a point other than A on the perpendicular from A to BC.",
+            "Let V be a point other than D on the parallel to EF through D.",
+            "the point such that ABC",
+            "the midpoint of arc BC of Ω",
+            "antipode of A on Ω",
+            "∡DEG = ∡DFG, shown above",
+            "∡ABX = ∡XCA, shown in the proof of Claim 1",
+            "QD = QE = QF = QG",
+            "radii of Ω",
+            "HA = HB = HC",
+            "KA = KB = KC",
+            "tangent to Ω",
+            "D, E, F, G on ω₁",
+            "Apply the law of sines in △ABC.",
+            "Apply the law of sines in △DEF (DE ⟂ EF).",
+            "[law of sines in △ABC, sin∠AXB = sin C]",
+            "∡EDF = ∡EGF (D, E, F, G on ω₁).",
+        ] {
+            assert!(en.contains(want), "{want:?} missing from\n{en}");
+        }
+        let ro = text(&h, &view, Lang::Ro);
+        for want in ["teorema sinusurilor în △ABC", ", arătată mai sus", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
+            assert!(ro.contains(want), "{want:?} missing from\n{ro}");
+        }
+        let path = dir().join("synthetic-wording.json");
+        if std::env::var_os("HP_BLESS").is_some() {
+            let out = Fixture { name: "synthetic-wording".into(), program: String::new(), best_secs: None, view: view.clone(), human: h.clone() };
+            std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&out).unwrap())).unwrap();
+            for lang in [Lang::En, Lang::Ro] {
+                std::fs::write(dir().join(format!("synthetic-wording.{}.txt", lang.code())), format!("{}\n", text(&h, &view, lang))).unwrap();
+            }
+        }
+        let f = load("synthetic-wording");
+        assert_eq!(f.human, h, "{}: HP_BLESS=1 rewrites it", path.display());
+        for lang in [Lang::En, Lang::Ro] {
+            let want = std::fs::read_to_string(dir().join(format!("synthetic-wording.{}.txt", lang.code()))).unwrap();
+            assert_eq!(norm(&text(&f.human, &f.view, lang)), norm(&want), "synthetic-wording ({})", lang.code());
+        }
+    }
+
+    #[test]
+    fn lemma_reasons_and_new_setup_lines_round_trip() {
+        let (h, _) = synthetic();
+        let v = serde_json::to_value(&h).unwrap();
+        let back: HumanView = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(back, h);
+        let raw = serde_json::to_string(&v).unwrap();
+        assert!(raw.contains("\"lemma\":true") && raw.contains("\"sentence\":1") && raw.contains("\"kind\":\"notation\"") && raw.contains("\"wording\":{"), "{raw}");
+        let fact: Reason = serde_json::from_value(json!({"kind": "cong", "args": ["AB", "CD"], "points": ["A", "B", "C", "D"], "step": 3, "block": null, "because": []})).unwrap();
+        assert!(matches!(fact, Reason::Fact { step: Some(3), .. }), "a plain fact reason stays a fact");
+    }
+
+    fn js_values(js: &str, key: &str) -> Vec<String> {
+        let probe = format!("\"{key}\": ");
+        js.match_indices(&probe)
+            .filter_map(|(i, _)| {
+                let rest = &js[i + probe.len()..];
+                let mut de = serde_json::Deserializer::from_str(rest).into_iter::<String>();
+                de.next().and_then(Result::ok)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_proof_wording_key_is_romanian_in_romanian_and_the_same_in_both_catalogues() {
+        let rs = include_str!("i18n.rs");
+        let js = include_str!("../assets/i18n.js");
+        let mut keys: BTreeSet<String> = rs.split('"').filter(|s| s.starts_with("hp.") && !s.contains(' ')).map(str::to_string).collect();
+        for k in ddar::human::aux::KEYS.iter().chain(["aux.intersect2", "aux.intersect2_shape", "aux.same", "aux.circumcircle", "aux.circle", "aux.line.para", "aux.line.perp", "aux.line.tangent_at", "aux.line.isogonal"].iter()) {
+            keys.insert(k.to_string());
+        }
+        for k in &keys {
+            let (en, ro) = (i18n::t(Lang::En, k), i18n::t(Lang::Ro, k));
+            assert!(has(Lang::En, k) && has(Lang::Ro, k), "{k}: missing from a server catalogue");
+            let padded = format!(" {ro} ");
+            for w in ENGLISH.iter().filter(|w| !["respect", "centre"].contains(*w)).chain([" above", "Write ", "point other", "midpoint", "foot of", "antipode", "parallelogram", " center", "circumcircle", "intersection", "respect to", "respectively"].iter()) {
+                assert!(!padded.contains(w), "{k}: English {w:?} in the Romanian text {ro:?}");
+            }
+            assert_eq!(js_values(js, k), vec![en.to_string(), ro.to_string()], "{k}: i18n.js must carry the same EN and RO text as i18n.rs");
         }
     }
 

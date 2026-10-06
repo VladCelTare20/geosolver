@@ -1,4 +1,4 @@
-∡ denotes directed angles modulo 180°. Let F be the foot of the perpendicular from B to AR. Angles written ∠ are undirected and read as drawn.
+∡ denotes directed angles modulo 180°. Let ω₂ be the circle (CNR), with center O₂; P lies on ω₂. Let F be the foot of the perpendicular from B to AR. Angles written ∠ are undirected and read as drawn.
 
 Claim 1. F, N, B, A are concyclic.
 
@@ -22,6 +22,15 @@ As drawn, ∠MCN = ½·∠MON = ∠RON (central angle ∠MON = 2∠MCN; OR bisec
 
 Claim 4. A, F, R, P are collinear.
 
-Proof. AB·AM = AC·AN (power of A with respect to (BMCN)). By the radical axis theorem (P, R, M, B concyclic; P, R, N, C concyclic; A, B, M collinear; A, N, C collinear), A, F, R, P are collinear.
+Proof. AB·AM = AC·AN (power of A with respect to (BMCN)). By the radical axis theorem (P, R, M, B concyclic; P, R, N, C on ω₂; A, B, M collinear; A, N, C collinear), A, F, R, P are collinear.
 
-Finally, angle chasing with Claims 1, 3 and 4, the inscribed angles in (BCMN), the diameter BC, OR bisecting ∠MON, the perpendicular bisector OF of BN (Claim 2), P, R, N, C concyclic, OB = OM and OB = ON shows that P, B, C are collinear. ∎
+∡RAB = ∡FNB = ∡NFO + 90° (Claim 1; OF is the perpendicular bisector of BN (Claim 2)).
+
+∡PCB = ∡ARP + ∡PCB    [Claim 4]
+     = ∡NCB + ∡ARN    [P, R, N, C on ω₂]
+     = ∡MBO + ∡(CN, OR) + 90°    [Claim 3, ∡RAB = ∡NFO + 90°, shown above]
+     = ∡CNB + 90°    [OR bisects ∠MON, OB = OM = ON]
+     = ∡CMB + 90°    [inscribed angles in (BCMN)]
+     = 0°    [BC is a diameter]
+
+so P, B, C are collinear. ∎

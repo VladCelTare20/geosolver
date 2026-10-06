@@ -60,6 +60,33 @@ shown as *Not proven — holds numerically* (evidence, not a proof), or as
 `status`: `"proved"`, `"holds-numerically"`, `"refuted"` or `"not-proved"`,
 with `proved: true` only for `"proved"`.
 
+### Human-style proofs
+
+A proved deductive result opens on the **Proof** tab: the proof written the way
+a solution is written by hand, in English or Romanian. It names the circles it
+uses (Ω, ω₁, …) and introduces auxiliary points in words ("Let F be the foot of
+the perpendicular from B to AR"). The body is a few numbered **Claims** with
+short proofs, then the conclusion. Angle chases are written as **chains**
+(`∡RFN = ∡BFN + 90° = 2∡FBN + 90° = …`), with the reason for each link beside
+it: an inscribed angle, a diameter, a hypothesis, an earlier claim, or an
+equality shown above.
+
+This text is a rewriting of the engine's own derivation; it does not come from a
+language model. Every claim, chain link and computation is **re-verified exactly**
+against the engine's derivation before it is shown. That means an exact rational
+combination of the facts it cites, checked by an independent checker in
+`alphageometry-rs/src/human/check.rs`. A block that fails the check is shown as
+the engine's raw steps instead. If the conclusion itself fails, or the proof
+comes from the classical Euclidean prover (absolute-length goals), there is no
+Proof tab and the numbered step list is shown as before.
+
+The **Full derivation** tab always has every machine-checked step. The chips in
+the Proof tab jump to the steps each block rests on. The PDF report prints the
+human proof, and adds the derivation as an appendix when you tick "Include full
+derivation" in the Export menu. The MCP tool returns the human proof first, then
+the full derivation. The design and the data model are in
+[`docs/HUMAN_PROOFS.md`](docs/HUMAN_PROOFS.md).
+
 ---
 
 ## Quick start

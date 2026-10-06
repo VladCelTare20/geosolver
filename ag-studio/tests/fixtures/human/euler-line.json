@@ -1016,49 +1016,50 @@
             ]
           },
           {
-            "kind": "pooled",
-            "stmt": {
-              "kind": "eqratio",
-              "args": [
-                "AH",
-                "AG",
-                "MO",
-                "MG"
-              ],
-              "points": [
-                "A",
-                "O",
-                "M",
-                "G",
-                "H"
-              ]
-            },
-            "reasons": [
+            "kind": "chain",
+            "terms": [
+              "AH / AG",
+              "AB·OM / (AG·MN)",
+              "MO / MG"
+            ],
+            "links": [
               {
-                "kind": "claim",
-                "n": 1,
-                "block": 1,
-                "step": 19
+                "reasons": [
+                  {
+                    "kind": "claim",
+                    "n": 1,
+                    "block": 1,
+                    "step": 19
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 2,
+                    "coef": "-1"
+                  }
+                ]
               },
               {
-                "kind": "claim",
-                "n": 2,
-                "block": 2,
-                "step": 20
+                "reasons": [
+                  {
+                    "kind": "claim",
+                    "n": 2,
+                    "block": 2,
+                    "step": 20
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 2,
+                    "coef": "-1"
+                  }
+                ]
               }
             ],
-            "combination": [
-              {
-                "reason": 0,
-                "row": 2,
-                "coef": "-1"
-              },
-              {
-                "reason": 1,
-                "row": 2,
-                "coef": "-1"
-              }
-            ]
+            "then": null,
+            "directed": false
           },
           {
             "kind": "because",
@@ -1224,16 +1225,16 @@
       "blocks": 3,
       "claims": 2,
       "sentences": 9,
-      "chain_links": 7,
-      "chains": 3,
-      "pure_chains": 3,
-      "pooled": 1,
+      "chain_links": 9,
+      "chains": 4,
+      "pure_chains": 4,
+      "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 135,
+      "words_en": 139,
       "lines_en": 8,
       "citations": 11,
       "aux_shown": 0,
-      "human_cost": 65,
+      "human_cost": 63,
       "reproved": 4,
       "silent": 9,
       "pruned": 4,
