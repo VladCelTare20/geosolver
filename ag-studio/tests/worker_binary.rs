@@ -86,9 +86,14 @@ impl Drop for Server {
 }
 
 fn free_port() -> u16 {
-    (18800..18850)
-        .find(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok())
-        .expect("no free port in 18800-18849")
+    static NEXT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(18800);
+    loop {
+        let p = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(p < 18850, "no free port in 18800-18849");
+        if std::net::TcpListener::bind(("127.0.0.1", p)).is_ok() {
+            return p;
+        }
+    }
 }
 
 fn http(port: u16, method: &str, path: &str, cookie: Option<&str>, body: Option<&str>) -> (u16, String, String) {
