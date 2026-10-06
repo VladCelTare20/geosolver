@@ -913,11 +913,44 @@ After the claims are chosen, the re-certification with claims as cheap atoms kee
 | words (EN) | 12814 | 11836 | 22320 | 19641 |
 | HumanCost (sum) | 5385 | 4416 | 9250 | 6775 |
 | fallback blocks | 7 | 1 | 13 | 2 |
-| writer time median / p95 / max | TIME_BEFORE | TIME_AFTER | | |
+| writer time median / p95 / max | 12 / 90 / 389 ms | 38 / 445 / 744 ms | | |
 
-TIME_NOTE
+Writer time is the `micros` column of `--human-stats`, measured sequentially (one problem at a time, both binaries, under the bench lock; other sessions kept the load average at 5–14). The library pipeline runs after the base writer, so its cost adds to it: 2.4 s against 0.9 s summed over the 30 problems. No proof reached the 2 s deadline in either run.
 
-IMO_TABLE
+**Per IMO problem** (before → after; the congruence column counts inline `congruent_*` criteria of the after proof):
+
+| problem | similar-triangle steps | + inline congruence criteria | theorem applications | claims | chain links | pooled | words | HumanCost |
+|---|---|---|---|---|---|---|---|---|
+| 2000_p1 | 6 → 5 | 0 | 7 → 7 | 5 → 4 | 30 → 35 | 0 → 0 | 380 → 361 | 165 → 154 |
+| 2000_p6 | 7 → 5 | 1 | 1 → 4 | 6 → 5 | 50 → 58 | 0 → 0 | 535 → 624 | 227 → 224 |
+| 2002_p2a | 1 → 1 | 0 | 3 → 3 | 1 → 1 | 12 → 10 | 0 → 0 | 125 → 115 | 44 → 41 |
+| 2002_p2b | 0 → 0 | 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 17 → 17 | 4 → 4 |
+| 2003_p4 | 5 → 5 | 0 | 2 → 2 | 3 → 3 | 13 → 13 | 0 → 0 | 273 → 273 | 108 → 108 |
+| 2004_p1 | 0 → 0 | 0 | 6 → 6 | 4 → 4 | 19 → 19 | 0 → 0 | 305 → 305 | 112 → 112 |
+| 2004_p5 | 1 → 1 | 0 | 0 → 0 | 2 → 2 | 7 → 7 | 0 → 0 | 123 → 123 | 58 → 58 |
+| 2005_p5 | 3 → 3 | 2 | 0 → 1 | 4 → 3 | 13 → 9 | 0 → 0 | 185 → 196 | 96 → 82 |
+| 2007_p4 | 9 → 5 | 3 | 3 → 3 | 6 → 2 | 50 → 43 | 0 → 0 | 566 → 468 | 232 → 150 |
+| 2008_p1a | 8 → 7 | 1 | 28 → 34 | 7 → 7 | 36 → 32 | 0 → 0 | 973 → 995 | 303 → 291 |
+| 2008_p1b | 7 → 6 | 0 | 28 → 34 | 7 → 7 | 36 → 32 | 0 → 0 | 954 → 974 | 296 → 284 |
+| 2008_p6 | 15 → 7 | 0 | 2 → 9 | 7 → 7 | 90 → 89 | 0 → 0 | 1073 → 1011 | 555 → 341 |
+| 2009_p2 | 7 → 5 | 4 | 3 → 5 | 7 → 6 | 25 → 22 | 0 → 0 | 311 → 306 | 175 → 153 |
+| 2010_p2 | 3 → 3 | 0 | 1 → 1 | 4 → 4 | 12 → 11 | 0 → 0 | 237 → 229 | 101 → 100 |
+| 2010_p4 | 4 → 4 | 0 | 3 → 4 | 1 → 0 | 3 → 3 | 0 → 0 | 95 → 96 | 45 → 35 |
+| 2011_p6 | 6 → 6 | 0 | 3 → 3 | 7 → 7 | 71 → 71 | 1 → 1 | 817 → 817 | 301 → 301 |
+| 2012_p1 | 9 → 0 | 2 | 6 → 10 | 7 → 3 | 43 → 20 | 0 → 0 | 568 → 313 | 250 → 81 |
+| 2012_p5 | 6 → 0 | 0 | 18 → 15 | 7 → 7 | 20 → 0 | 0 → 0 | 530 → 310 | 220 → 135 |
+| 2013_p4 | 7 → 5 | 0 | 2 → 4 | 5 → 3 | 21 → 22 | 0 → 0 | 245 → 243 | 150 → 122 |
+| 2014_p4 | 3 → 3 | 0 | 0 → 0 | 3 → 3 | 8 → 8 | 0 → 0 | 118 → 118 | 74 → 74 |
+| 2015_p3 | 11 → 7 | 2 | 5 → 11 | 7 → 7 | 88 → 82 | 4 → 3 | 1014 → 1013 | 434 → 399 |
+| 2015_p4 | 3 → 0 | 0 | 0 → 0 | 3 → 0 | 5 → 1 | 0 → 0 | 185 → 152 | 63 → 12 |
+| 2016_p1 | 6 → 3 | 0 | 4 → 1 | 7 → 7 | 51 → 38 | 0 → 0 | 600 → 434 | 238 → 196 |
+| 2017_p4 | 5 → 3 | 0 | 1 → 2 | 3 → 1 | 26 → 15 | 1 → 0 | 329 → 181 | 149 → 71 |
+| 2018_p1 | 1 → 1 | 0 | 3 → 3 | 4 → 4 | 6 → 6 | 0 → 0 | 180 → 180 | 105 → 105 |
+| 2019_p2 | 0 → 0 | 0 | 0 → 3 | 4 → 4 | 21 → 15 | 0 → 0 | 253 → 227 | 100 → 93 |
+| 2019_p6 | 12 → 8 | 3 | 3 → 9 | 7 → 7 | 83 → 64 | 0 → 0 | 844 → 814 | 344 → 284 |
+| 2020_p1 | 1 → 1 | 0 | 1 → 1 | 5 → 5 | 23 → 23 | 1 → 1 | 334 → 334 | 149 → 149 |
+| 2021_p3 | 5 → 5 | 0 | 1 → 2 | 7 → 7 | 39 → 38 | 0 → 0 | 512 → 526 | 222 → 219 |
+| 2022_p4 | 3 → 2 | 1 | 0 → 0 | 2 → 1 | 11 → 5 | 0 → 0 | 133 → 81 | 65 → 38 |
 
 **Known weaknesses.**
 - Two JGEX proofs got slightly longer by HumanCost (M010-26 8 → 11, E037-25 9 → 13): the score's similarity penalty preferred four intercept-theorem links, or three "as drawn" converses, to two congruences.
