@@ -65,11 +65,18 @@ with `proved: true` only for `"proved"`.
 A proved deductive result opens on the **Proof** tab: the proof written the way
 a solution is written by hand, in English or Romanian. It names the circles it
 uses (Ω, ω₁, …) and introduces auxiliary points in words ("Let F be the foot of
-the perpendicular from B to AR"). The body is a few numbered **Claims** with
-short proofs, then the conclusion. Angle chases are written as **chains**
-(`∡RFN = ∡BFN + 90° = 2∡FBN + 90° = …`), with the reason for each link beside
-it: an inscribed angle, a diameter, a hypothesis, an earlier claim, or an
-equality shown above.
+the perpendicular from B to AR"). It is laid out like a marking-scheme (barem)
+solution of the Romanian national evaluation or an olympiad: a notation line, a
+one-line **plan** ("it suffices to show that …"), then **numbered steps**. Each
+step applies one named theorem (perpendicular bisector, midline, Thales,
+power of a point, radical axis, law of sines, …) or is one chain of equalities
+with **one fact per link** and the reason beside it
+(`∠BFA = 90° [BF ⟂ AR] = ∠BNA [BC is a diameter]`). A step that a later step
+uses is tagged (k) and cited "by (k)"; the last step restates the goal in the
+problem's words ("…, as required. ∎"). Angles written ∠ are read from the
+figure; directed angles ∡ are used only where a chain must not depend on the
+drawing, and are then defined in words. Trigonometric proofs go through
+lemmas of the form `BC = 2R·sin A`, one law of sines per step.
 
 This text is a rewriting of the engine's own derivation; it does not come from a
 language model. Every claim, chain link and computation is **re-verified exactly**

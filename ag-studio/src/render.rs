@@ -171,7 +171,7 @@ fn escape_xml(s: &str) -> String {
 
 /// Map the few math glyphs the bundled font lacks to equivalents it carries.
 fn normalize_glyphs(s: &str) -> String {
-    s.replace('\u{27c2}', "\u{22a5}").replace('\u{2225}', "\u{2016}")
+    s.replace('\u{27c2}', "\u{22a5}").replace('\u{2225}', "\u{2016}").replace('\u{2222}', "\u{2220}").replace('\u{2261}', "\u{2245}")
 }
 
 fn is_operator(tok: &str) -> bool {
