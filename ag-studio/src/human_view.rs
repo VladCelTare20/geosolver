@@ -16,7 +16,21 @@ pub struct HumanView {
     pub setup: Vec<SetupLine>,
     pub blocks: Vec<Block>,
     #[serde(default)]
+    pub plan: Vec<u16>,
+    #[serde(default)]
+    pub goal: Option<Goal>,
+    #[serde(default)]
     pub metrics: Metrics,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Goal {
+    OnLine { p: String, line: [String; 2] },
+    Collinear { pts: Vec<String> },
+    Concyclic { pts: Vec<String> },
+    Bisects { line: [String; 2], angle: [String; 3] },
+    Stmt,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
@@ -44,12 +58,19 @@ pub struct Metrics {
     pub theorem: usize,
     pub fallback_facts: usize,
     pub check_violations: usize,
+    pub similar_steps: usize,
+    pub theorem_steps: usize,
+    pub steps: usize,
+    pub multi_fact_links: usize,
+    pub undirected_chains: usize,
+    pub directed_chains: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SetupLine {
     DirectedAngles,
+    FigureAngles,
     Circle {
         #[serde(default)]
         name: String,
@@ -134,6 +155,10 @@ pub struct Block {
     pub points: Vec<String>,
     #[serde(default)]
     pub objects: Vec<ObjRef>,
+    #[serde(default)]
+    pub step: u16,
+    #[serde(default)]
+    pub tag: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -522,6 +547,7 @@ fn setup_of(nm: &Naming, s: &eng::SetupLine) -> SetupLine {
     let p = |x: PointId| (nm.point)(x);
     match s {
         eng::SetupLine::DirectedAngles => SetupLine::DirectedAngles,
+        eng::SetupLine::FigureAngles => SetupLine::FigureAngles,
         eng::SetupLine::Circle { name, through, centre, diameter } => SetupLine::Circle {
             name: name.clone(),
             through: names(nm, through),
@@ -575,6 +601,19 @@ fn block_of(nm: &Naming, b: &eng::Block) -> Block {
                 eng::ObjRef::Line { through } => ObjRef::Line(names(nm, through)),
             })
             .collect(),
+        step: b.step,
+        tag: b.tag,
+    }
+}
+
+fn goal_of(nm: &Naming, g: &eng::GoalWords) -> Goal {
+    let p = |x: PointId| (nm.point)(x);
+    match g {
+        eng::GoalWords::OnLine { p: x, line } => Goal::OnLine { p: p(*x), line: [p(line.0), p(line.1)] },
+        eng::GoalWords::Collinear { pts } => Goal::Collinear { pts: names(nm, pts) },
+        eng::GoalWords::Concyclic { pts } => Goal::Concyclic { pts: names(nm, pts) },
+        eng::GoalWords::Bisects { line, angle } => Goal::Bisects { line: [p(line.0), p(line.1)], angle: [p(angle.0), p(angle.1), p(angle.2)] },
+        eng::GoalWords::Stmt => Goal::Stmt,
     }
 }
 
@@ -593,12 +632,14 @@ pub fn from_engine(hp: &eng::HumanProof, nm: &Naming) -> Option<HumanView> {
     if !hp.available || hp.blocks.last().is_none_or(|b| b.kind != eng::BlockKind::Conclusion) {
         return None;
     }
-    eng::text::with_notation(&hp.setup, || {
+    eng::text::with_proof(hp, || {
         Some(HumanView {
             version: hp.version,
             as_drawn: hp.as_drawn,
             setup: hp.setup.iter().map(|s| setup_of(nm, s)).collect(),
             blocks: hp.blocks.iter().map(|b| block_of(nm, b)).collect(),
+            plan: hp.plan.clone(),
+            goal: hp.goal.as_ref().map(|g| goal_of(nm, g)),
             metrics: serde_json::to_value(&hp.metrics).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
         })
     })
@@ -729,12 +770,7 @@ impl Cx<'_> {
                 }
             }
             for s in &b.body {
-                let rs: Vec<&Reason> = match s {
-                    Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().flat_map(|l| l.reasons.iter()).collect(),
-                    Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.iter().collect(),
-                    Sentence::Raw { .. } => vec![],
-                };
-                for r in rs {
+                for r in sentence_reasons(s) {
                     if let Reason::Atom { key: AtomKey::Inscribed, args, .. } = r {
                         consider(args);
                     }
@@ -759,8 +795,26 @@ impl Cx<'_> {
         }
     }
 
-    fn claim_of_block(&self, id: u16) -> Option<u16> {
-        self.h.blocks.iter().find(|b| b.id == id && b.kind == BlockKind::Claim).and_then(|b| b.n)
+    fn step_of(&self, block: u16) -> Option<u16> {
+        self.h.blocks.iter().find(|b| b.id == block).map(|b| b.step)
+    }
+
+    fn by(&self, text: String, block: u16) -> String {
+        match self.step_of(block) {
+            Some(k) if block != self.cur.get() => self.tf("hp.by", &[("stmt", text), ("n", k.to_string())]),
+            _ => text,
+        }
+    }
+
+    fn by_list(&self, from: &[u16]) -> Option<String> {
+        let mut ks: Vec<u16> = from.iter().filter(|b| **b != self.cur.get()).filter_map(|b| self.step_of(*b)).collect();
+        ks.sort_unstable();
+        ks.dedup();
+        if ks.is_empty() {
+            return None;
+        }
+        let list: Vec<String> = ks.iter().map(|k| format!("({k})")).collect();
+        Some(self.tf("hp.by_list", &[("list", join_list(&list, self.lang))]))
     }
 
     fn rule_name(&self, r: &str) -> String {
@@ -857,16 +911,23 @@ impl Cx<'_> {
                 None => ("central_angle.bare", sl(0..4), None),
             },
             AtomKey::PowerOfPoint => ("power_of_point", vec![g(0), self.circle_ref(&sl(1..5), None)], None),
-            AtomKey::Midline => {
-                let mut tri = vec![g(4), g(2), g(3)];
-                tri.sort();
-                ("midline", vec![g(0), g(1), tri.concat()], None)
-            }
-            AtomKey::Orthocentre => ("orthocentre", vec![], None),
+            AtomKey::Midline => ("midline", vec![g(0), g(1), [g(4), g(2), g(3)].concat()], None),
+            AtomKey::Orthocentre => ("orthocentre", vec![g(0), [g(1), g(2), g(3)].concat()], None),
             other => (other.key(), args.to_vec(), None),
         };
         let t = first_of(self.lang, &context_keys(&format!("hp.atom.{base}"), ctx)).unwrap_or("");
         (fill_args(t, &shown), merge.map(|m| format!("{}|{m}", key.key())))
+    }
+
+    fn atom_sentence(&self, key: AtomKey, args: &[String], stmt: &Stmt) -> Option<String> {
+        let g = |i: usize| args.get(i).cloned().unwrap_or_default();
+        let shown: Vec<String> = match key {
+            AtomKey::PerpBisector | AtomKey::Orthocentre | AtomKey::Centroid | AtomKey::Midline | AtomKey::Parallel => args.to_vec(),
+            AtomKey::PowerOfPoint => vec![g(0), self.circle_ref(args.get(1..5).unwrap_or_default(), None)],
+            _ => return None,
+        };
+        let t = first_of(self.lang, &[format!("hp.say.{}", key.key())])?;
+        Some(fill_args(t, &shown).replace("{s}", &self.stmt(stmt, Ctx::Statement)))
     }
 
     fn equal_lengths_centre(&self, key: AtomKey, args: &[String], from: &[u16]) -> Option<String> {
@@ -883,27 +944,18 @@ impl Cx<'_> {
         fill_args(t, &[join_list(circles, self.lang)])
     }
 
-    fn from_claims(&self, from: &[u16]) -> Vec<u16> {
-        let mut ns: Vec<u16> = from.iter().filter_map(|b| self.claim_of_block(*b)).collect();
-        ns.sort_unstable();
-        ns.dedup();
-        ns
-    }
-
-    fn claims_label(&self, ns: &[u16]) -> String {
-        if ns.len() == 1 {
-            self.tf("hp.claim_ref", &[("n", ns[0].to_string())])
-        } else {
-            let list: Vec<String> = ns.iter().map(u16::to_string).collect();
-            self.tf("hp.claims_ref", &[("list", join_list(&list, self.lang))])
-        }
+    fn block_stmt(&self, block: u16) -> Option<&Stmt> {
+        self.h.blocks.iter().find(|b| b.id == block).map(|b| &b.stmt)
     }
 
     fn reason(&self, r: &Reason, ctx: Ctx) -> String {
         match r {
             Reason::Hyp { stmt, .. } => self.stmt(stmt, ctx),
-            Reason::Fact { stmt, because, .. } => {
+            Reason::Fact { stmt, because, block, .. } => {
                 let base = self.stmt(stmt, ctx);
+                if let Some(b) = block {
+                    return self.by(base, *b);
+                }
                 let inner: Vec<String> = self.because_texts(stmt, because);
                 if inner.is_empty() {
                     base
@@ -911,26 +963,22 @@ impl Cx<'_> {
                     format!("{base} ({})", inner.join("; "))
                 }
             }
-            Reason::Claim { n, .. } => self.claims_label(&[*n]),
+            Reason::Claim { block, .. } => match self.block_stmt(*block) {
+                Some(st) => self.by(self.stmt(st, Ctx::Note), *block),
+                None => String::new(),
+            },
             Reason::Atom { key, args, stmt, from, circle } => {
                 let (mut text, _) = self.atom(*key, args, stmt, circle.as_deref(), ctx);
-                if matches!(key, AtomKey::Parallel | AtomKey::Orthocentre) && ctx == Ctx::Note {
+                if matches!(key, AtomKey::Parallel) && ctx == Ctx::Note {
                     text = format!("{}, {text}", self.stmt(stmt, ctx));
                 }
-                let ns = self.from_claims(from);
-                if !ns.is_empty() {
-                    text = format!("{text} ({})", self.claims_label(&ns));
+                if let Some(by) = self.by_list(from) {
+                    text = format!("{text}, {by}");
                 }
                 text
             }
             Reason::Engine { step } => self.tf("hp.step_ref", &[("n", step.map(|s| s.to_string()).unwrap_or_default())]),
-            Reason::Lemma { stmt, block, .. } => {
-                let st = self.stmt(stmt, Ctx::Statement);
-                match self.claim_of_block(*block).filter(|_| *block != self.cur.get()) {
-                    Some(n) => self.tf("hp.lemma.claim", &[("stmt", st), ("claim", self.claims_label(&[n]))]),
-                    None => self.tf("hp.lemma", &[("stmt", st)]),
-                }
-            }
+            Reason::Lemma { stmt, block, .. } => self.by(self.stmt(stmt, Ctx::Note), *block),
         }
     }
 
@@ -938,13 +986,10 @@ impl Cx<'_> {
         let mut out: Vec<String> = Vec::new();
         for b in because {
             let t = match b {
-                Reason::Atom { stmt, from, .. } if same_stmt(stmt, own) => {
-                    let ns = self.from_claims(from);
-                    if ns.is_empty() {
-                        continue;
-                    }
-                    self.claims_label(&ns)
-                }
+                Reason::Atom { stmt, from, .. } if same_stmt(stmt, own) => match self.by_list(from) {
+                    Some(by) => by,
+                    None => continue,
+                },
                 Reason::Fact { stmt, because: bb, .. } if same_stmt(stmt, own) && bb.is_empty() => continue,
                 Reason::Hyp { stmt, .. } if same_stmt(stmt, own) => continue,
                 _ => self.reason(b, Ctx::Note),
@@ -956,32 +1001,11 @@ impl Cx<'_> {
         out
     }
 
-    fn texts(&self, rs: &[Reason], ctx: Ctx, skip_claims: bool) -> Vec<String> {
+    fn texts(&self, rs: &[Reason], ctx: Ctx) -> Vec<String> {
         let facts: Vec<&Stmt> = rs.iter().filter_map(|r| if let Reason::Fact { stmt, .. } = r { Some(stmt) } else { None }).collect();
         let mut out: Vec<String> = Vec::new();
         let mut groups: Vec<(String, usize, Vec<String>, AtomKey)> = Vec::new();
         for r in rs {
-            if skip_claims && matches!(r, Reason::Claim { .. }) {
-                continue;
-            }
-            if let Reason::Lemma { stmt, block, .. } = r {
-                if *block == self.cur.get() || self.claim_of_block(*block).is_none() {
-                    let st = self.stmt(stmt, Ctx::Statement);
-                    match groups.iter_mut().find(|g| g.0 == "lemma") {
-                        Some((_, at, list, _)) => {
-                            if !list.contains(&st) {
-                                list.push(st);
-                            }
-                            out[*at] = self.tf(if list.len() > 1 { "hp.lemma.many" } else { "hp.lemma" }, &[("stmt", join_list(list, self.lang))]);
-                        }
-                        None => {
-                            groups.push(("lemma".into(), out.len(), vec![st.clone()], AtomKey::Inscribed));
-                            out.push(self.tf("hp.lemma", &[("stmt", st)]));
-                        }
-                    }
-                    continue;
-                }
-            }
             if let Reason::Atom { key, args, stmt, from, circle } = r {
                 if facts.iter().any(|s| same_stmt(s, stmt)) {
                     continue;
@@ -1024,26 +1048,23 @@ impl Cx<'_> {
                 }
             }
             let t = self.reason(r, ctx);
-            if !out.contains(&t) {
+            if !t.is_empty() && !out.contains(&t) {
                 out.push(t);
             }
         }
         out
     }
 
-    fn reasons_list(&self, rs: &[Reason]) -> String {
-        let mut claims: Vec<u16> = rs.iter().filter_map(|r| if let Reason::Claim { n, .. } = r { Some(*n) } else { None }).collect();
-        claims.sort_unstable();
-        claims.dedup();
-        let mut out = self.texts(rs, Ctx::List, true);
-        if !claims.is_empty() {
-            out.insert(0, self.claims_label(&claims));
-        }
-        join_list(&out, self.lang)
-    }
-
     fn link_note(&self, l: &Link) -> String {
-        self.texts(&l.reasons, Ctx::Note, false).join(", ")
+        self.texts(&l.reasons, Ctx::Note).join("; ")
+    }
+}
+
+fn sentence_reasons(s: &Sentence) -> Vec<&Reason> {
+    match s {
+        Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().flat_map(|l| l.reasons.iter()).collect(),
+        Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.iter().collect(),
+        Sentence::Raw { .. } => vec![],
     }
 }
 
@@ -1089,10 +1110,6 @@ pub fn restates_chain(terms: &[String], then: &Stmt) -> bool {
     matches!(then.kind.as_str(), "eqangle" | "cong" | "eq") && then.args.len() == 2 && ((then.args[0] == *first && then.args[1] == *last) || (then.args[0] == *last && then.args[1] == *first))
 }
 
-pub fn inline_chain(terms: &[String], links: &[Link]) -> bool {
-    links.len() <= 2 && terms.iter().map(|t| t.chars().count() + 3).sum::<usize>() <= 44
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub lhs: String,
@@ -1109,10 +1126,10 @@ pub enum Part {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocBlock {
     pub kind: BlockKind,
-    pub head: Option<String>,
-    pub stmt: Option<String>,
-    pub proof_label: Option<String>,
+    pub num: String,
+    pub lead: Option<String>,
     pub parts: Vec<Part>,
+    pub tag: Option<String>,
     pub end: bool,
     pub steps: Vec<usize>,
 }
@@ -1120,7 +1137,7 @@ pub struct DocBlock {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Doc {
     pub setup: Vec<String>,
-    pub notes: Vec<String>,
+    pub plan: Option<String>,
     pub blocks: Vec<DocBlock>,
 }
 
@@ -1274,6 +1291,7 @@ impl Cx<'_> {
         while i < setup.len() {
             let s = match &setup[i] {
                 SetupLine::DirectedAngles => Some(self.t("hp.setup.directed").to_string()),
+                SetupLine::FigureAngles => Some(self.t("hp.setup.figure").to_string()),
                 SetupLine::Notation { triangle, circumcentre } => Some(self.notation_line(triangle, circumcentre.as_deref())),
                 SetupLine::Circle { .. } => {
                     let later: Vec<&String> = setup[i..].iter().filter_map(|l| if let SetupLine::Aux { point, .. } = l { Some(point) } else { None }).collect();
@@ -1314,8 +1332,26 @@ impl Cx<'_> {
             .collect()
     }
 
-    fn because(&self, own: &Stmt, stmt: &Stmt, reasons: &[Reason]) -> Option<String> {
-        let st = self.stmt(stmt, Ctx::Statement);
+    fn goal_text(&self, own: &Stmt) -> String {
+        let pair = |v: &[String]| v.concat();
+        match &self.h.goal {
+            Some(Goal::OnLine { p, line }) => self.tf("hp.goal.on_line", &[("p", p.clone()), ("line", pair(line))]),
+            Some(Goal::Collinear { pts }) => self.tf("hp.goal.collinear", &[("pts", pts.join(", "))]),
+            Some(Goal::Concyclic { pts }) => self.tf("hp.goal.concyclic", &[("pts", pts.join(", "))]),
+            Some(Goal::Bisects { line, angle }) => self.tf("hp.goal.bisects", &[("line", pair(line)), ("angle", pair(angle))]),
+            _ => self.stmt(own, Ctx::Statement),
+        }
+    }
+
+    fn so_stmt(&self, st: &Stmt, goal: Option<&(Stmt, String)>) -> String {
+        match goal {
+            Some((g, words)) if same_stmt(g, st) => self.tf("hp.required", &[("stmt", words.clone())]),
+            _ => self.stmt(st, Ctx::Statement),
+        }
+    }
+
+    fn because(&self, own: &Stmt, stmt: &Stmt, reasons: &[Reason], goal: Option<&(Stmt, String)>) -> Option<String> {
+        let st = self.so_stmt(stmt, goal);
         if reasons.is_empty() {
             return Some(self.tf("hp.hence", &[("stmt", st)]));
         }
@@ -1323,72 +1359,68 @@ impl Cx<'_> {
             [Reason::Fact { stmt: s2, because, .. }] if same_stmt(s2, stmt) && !because.is_empty() => because,
             _ => reasons,
         };
+        if let [Reason::Atom { key, args, stmt: s2, from, .. }] = inner {
+            if same_stmt(s2, stmt) {
+                if let Some(t) = self.atom_sentence(*key, args, stmt) {
+                    return Some(match self.by_list(from) {
+                        Some(by) => capitalize(&self.tf("hp.say.by", &[("by", by), ("text", t)])),
+                        None => format!("{}.", capitalize(&t)),
+                    });
+                }
+            }
+        }
         let restating = inner.iter().all(|r| match r {
             Reason::Fact { stmt: s2, .. } | Reason::Hyp { stmt: s2, .. } => same_stmt(s2, stmt),
-            Reason::Atom { key: AtomKey::Radii, stmt: s2, from, .. } => same_stmt(s2, stmt) && self.from_claims(from).is_empty(),
+            Reason::Atom { key: AtomKey::Radii, stmt: s2, from, .. } => same_stmt(s2, stmt) && from.is_empty(),
             _ => false,
         });
         if restating {
-            return (!same_stmt(own, stmt)).then(|| format!("{}.", capitalize(&st)));
-        }
-        let rs = self.texts(inner, Ctx::Note, false);
-        Some(if rs.is_empty() { format!("{}.", capitalize(&st)) } else { capitalize(&self.tf("hp.because", &[("stmt", st), ("reasons", rs.join("; "))])) })
-    }
-
-    fn pooled_key(stmt: &Stmt) -> &'static str {
-        match stmt.kind.as_str() {
-            "coll" | "cyclic" | "perp" | "para" | "eqangle" | "aconst" | "bisects" | "tangent" => "hp.pooled.angle",
-            "eq" if stmt.args.iter().any(|a| a.contains('\u{b2}')) => "hp.pooled.length",
-            _ => "hp.pooled.ratio",
-        }
-    }
-
-    fn sentence_parts(&self, own: &Stmt, s: &Sentence, lead: Option<&str>) -> Vec<Part> {
-        let lead = |text: String| match lead {
-            Some(l) => format!("{l}{}", lower_first_word(&text)),
-            None => text,
-        };
-        match s {
-            Sentence::Chain { terms, links, then, directed } => {
-                let so = then.as_ref().filter(|t| !restates_chain(terms, t)).map(|t| self.stmt(t, Ctx::Statement));
-                let as_drawn = !directed;
-                if inline_chain(terms, links) {
-                    let notes: Vec<String> = links.iter().map(|l| self.link_note(l)).filter(|n| !n.is_empty()).collect();
-                    let mut text = terms.join(" = ");
-                    if as_drawn {
-                        text = format!("{}{text}", self.t("hp.as_drawn_lead"));
-                    }
-                    if !notes.is_empty() {
-                        text.push_str(&format!(" ({})", notes.join("; ")));
-                    }
-                    match so {
-                        Some(t) => text.push_str(&self.tf("hp.so_inline", &[("stmt", t)])),
-                        None => text.push('.'),
-                    }
-                    vec![Part::Text(lead(text))]
-                } else {
-                    let mut parts = Vec::new();
-                    if as_drawn {
-                        parts.push(Part::Text(self.t("hp.as_drawn_display").to_string()));
-                    }
-                    parts.push(Part::Rows(self.rows(terms, links)));
-                    if let Some(t) = so {
-                        parts.push(Part::Text(self.tf("hp.so", &[("stmt", t)])));
-                    }
-                    parts
-                }
+            if same_stmt(own, stmt) && goal.is_none() {
+                return None;
             }
-            Sentence::Because { stmt, reasons, .. } => match self.because(own, stmt, reasons) {
-                Some(t) => vec![Part::Text(lead(t))],
+            let by = inner.iter().find_map(|r| match r {
+                Reason::Fact { block: Some(b), .. } if *b != self.cur.get() => Some(*b),
+                _ => None,
+            });
+            return Some(match by {
+                Some(b) => format!("{}.", capitalize(&self.by(st, b))),
+                None => format!("{}.", capitalize(&st)),
+            });
+        }
+        let rs: Vec<String> = self.texts(inner, Ctx::Note).into_iter().filter(|x| *x != st).collect();
+        Some(if rs.is_empty() { format!("{}.", capitalize(&st)) } else { capitalize(&self.tf("hp.because", &[("stmt", st), ("reasons", join_list(&rs, self.lang))])) })
+    }
+
+    fn sentence_parts(&self, own: &Stmt, s: &Sentence, goal: Option<&(Stmt, String)>) -> Vec<Part> {
+        match s {
+            Sentence::Chain { terms, links, then, .. } if links.len() >= 2 => {
+                let mut parts = vec![Part::Rows(self.rows(terms, links))];
+                if let Some(t) = then.as_ref().filter(|t| !restates_chain(terms, t)) {
+                    parts.push(Part::Text(self.tf("hp.so", &[("stmt", self.so_stmt(t, goal))])));
+                }
+                parts
+            }
+            Sentence::Chain { terms, links, then, .. } => {
+                let rs = links.first().map(|l| self.texts(&l.reasons, Ctx::Note)).unwrap_or_default();
+                let zero = terms.last().is_some_and(|t| t == "0\u{b0}");
+                let text = match then {
+                    Some(t) if zero && t.kind == "coll" => self.tf("hp.because", &[("reasons", join_list(&rs, self.lang)), ("stmt", self.so_stmt(t, goal))]),
+                    Some(t) if !restates_chain(terms, t) => self.tf("hp.because_then", &[("reasons", join_list(&rs, self.lang)), ("eq", terms.join(" = ")), ("stmt", self.so_stmt(t, goal))]),
+                    _ => self.tf("hp.because", &[("reasons", join_list(&rs, self.lang)), ("stmt", terms.join(" = "))]),
+                };
+                vec![Part::Text(capitalize(&text))]
+            }
+            Sentence::Because { stmt, reasons, .. } => match self.because(own, stmt, reasons, goal) {
+                Some(t) => vec![Part::Text(t)],
                 None => vec![],
             },
             Sentence::Pooled { stmt, reasons, .. } => {
-                let text = self.tf(Self::pooled_key(stmt), &[("reasons", self.reasons_list(reasons)), ("stmt", self.stmt(stmt, Ctx::Statement))]);
-                vec![Part::Text(lead(capitalize(&text)))]
+                let text = self.tf("hp.pooled", &[("reasons", join_list(&self.texts(reasons, Ctx::List), self.lang)), ("stmt", self.so_stmt(stmt, goal))]);
+                vec![Part::Text(capitalize(&text))]
             }
             Sentence::Theorem { key, stmt, reasons } => {
                 let thm = self.t(&format!("hp.thm.{}", key.key())).to_string();
-                let rs = self.texts(reasons, Ctx::Note, false);
+                let rs = self.texts(reasons, Ctx::Note);
                 let in_tri = (stmt.kind == "formula").then(|| stmt.args.first().and_then(|a| formula_in_triangle(a))).flatten();
                 let text = if let Some((_, tri)) = in_tri {
                     let tri = format!("\u{25b3}{tri}");
@@ -1406,14 +1438,14 @@ impl Cx<'_> {
                         self.tf("hp.apply_with", &[("thm", thm), ("reasons", rs.join("; ")), ("stmt", rest)])
                     }
                 } else {
-                    let st = self.stmt(stmt, Ctx::Statement);
+                    let st = self.so_stmt(stmt, goal);
                     if rs.is_empty() {
                         self.tf("hp.theorem", &[("thm", thm), ("stmt", st)])
                     } else {
-                        self.tf("hp.theorem_with", &[("thm", thm), ("reasons", rs.join("; ")), ("stmt", st)])
+                        self.tf("hp.theorem_with", &[("thm", thm), ("reasons", join_list(&rs, self.lang)), ("stmt", st)])
                     }
                 };
-                vec![Part::Text(lead(capitalize(&text)))]
+                vec![Part::Text(capitalize(&text))]
             }
             Sentence::Computation { terms, links, .. } => vec![Part::Rows(self.rows(terms, links))],
             Sentence::Raw { step, .. } => {
@@ -1422,9 +1454,30 @@ impl Cx<'_> {
                     Some(st) => self.tf("hp.raw", &[("fact", render::fact_text(&st["fact"], self.lang)), ("rule", rule_of(st, self.lang)), ("n", n)]),
                     None => self.tf("hp.step_ref", &[("n", n)]),
                 };
-                vec![Part::Text(lead(capitalize(&text)))]
+                vec![Part::Text(capitalize(&text))]
             }
         }
+    }
+
+    fn lead(&self, b: &Block, goal: Option<&(Stmt, String)>) -> Option<String> {
+        let first = b.body.first()?;
+        let rows = match first {
+            Sentence::Chain { links, .. } => links.len() >= 2,
+            Sentence::Computation { .. } => true,
+            _ => false,
+        };
+        if !rows || b.kind == BlockKind::Raw {
+            return None;
+        }
+        let st = match (goal, first) {
+            (Some((_, words)), _) => words.clone(),
+            (None, Sentence::Chain { then: Some(t), .. }) => self.stmt(t, Ctx::Statement),
+            (None, Sentence::Chain { terms, then: None, .. } | Sentence::Computation { terms, .. }) if b.body.len() == 1 && matches!(b.stmt.kind.as_str(), "eqangle" | "eq") => {
+                format!("{} = {}", terms.first().cloned().unwrap_or_default(), terms.last().cloned().unwrap_or_default())
+            }
+            _ => self.stmt(&b.stmt, Ctx::Statement),
+        };
+        Some(self.tf("hp.we_show", &[("stmt", st)]))
     }
 }
 
@@ -1442,14 +1495,6 @@ fn rule_of(step: &Value, lang: Lang) -> String {
     }
 }
 
-fn lower_first_word(s: &str) -> String {
-    let mut c = s.chars();
-    match (c.next(), s.chars().nth(1)) {
-        (Some(f), Some(g)) if f.is_uppercase() && g.is_lowercase() => f.to_lowercase().chain(c).collect(),
-        _ => s.to_string(),
-    }
-}
-
 fn merge_text(parts: Vec<Part>) -> Vec<Part> {
     let mut out: Vec<Part> = Vec::new();
     for p in parts {
@@ -1464,60 +1509,84 @@ fn merge_text(parts: Vec<Part>) -> Vec<Part> {
     out
 }
 
+fn ro_angles(s: String, lang: Lang) -> String {
+    if lang == Lang::Ro {
+        s.replace('\u{2220}', "\u{2222}")
+    } else {
+        s
+    }
+}
+
+fn ro_part(p: Part, lang: Lang) -> Part {
+    match p {
+        Part::Text(t) => Part::Text(ro_angles(t, lang)),
+        Part::Rows(rows) => Part::Rows(rows.into_iter().map(|r| Row { lhs: ro_angles(r.lhs, lang), rhs: ro_angles(r.rhs, lang), reason: ro_angles(r.reason, lang) }).collect()),
+    }
+}
+
 pub fn doc(h: &HumanView, view: &Value, lang: Lang) -> Doc {
     let cx = Cx { h, view, lang, cur: std::cell::Cell::new(0) };
-    let claims = h.blocks.iter().filter(|b| b.kind == BlockKind::Claim).count();
     let mut blocks = Vec::new();
     for b in &h.blocks {
         cx.cur.set(b.id);
+        let goal = (b.kind == BlockKind::Conclusion).then(|| (b.stmt.clone(), cx.goal_text(&b.stmt)));
         let mut parts = Vec::new();
-        for (i, s) in b.body.iter().enumerate() {
-            let lead = (i == 0 && b.kind == BlockKind::Conclusion && claims > 0 && matches!(s, Sentence::Pooled { .. })).then(|| cx.t("hp.finally"));
-            parts.extend(cx.sentence_parts(&b.stmt, s, lead));
+        for s in &b.body {
+            parts.extend(cx.sentence_parts(&b.stmt, s, goal.as_ref()));
         }
-        let (head, stmt, proof_label) = match b.kind {
-            BlockKind::Claim => (
-                Some(cx.tf("hp.claim", &[("n", b.n.unwrap_or(0).to_string())])),
-                Some(format!("{}.", capitalize(&cx.stmt(&b.stmt, Ctx::Statement)))),
-                Some(cx.t("hp.proof").to_string()),
-            ),
-            _ => (None, None, None),
-        };
-        blocks.push(DocBlock { kind: b.kind, head, stmt, proof_label, parts: merge_text(parts), end: b.kind == BlockKind::Conclusion, steps: b.engine_steps.clone() });
+        if let Some((_, words)) = &goal {
+            let req = cx.tf("hp.required", &[("stmt", words.clone())]);
+            let said = parts.iter().any(|p| matches!(p, Part::Text(t) if t.contains(&req)));
+            if !said {
+                parts.push(Part::Text(cx.tf("hp.hence", &[("stmt", req)])));
+            }
+        }
+        let lead = cx.lead(b, goal.as_ref()).map(|l| ro_angles(l, lang));
+        let parts: Vec<Part> = merge_text(parts).into_iter().map(|p| ro_part(p, lang)).collect();
+        blocks.push(DocBlock {
+            kind: b.kind,
+            num: cx.tf("hp.num", &[("n", b.step.to_string())]),
+            lead,
+            parts,
+            tag: (b.tag && b.kind != BlockKind::Conclusion).then(|| cx.tf("hp.tag", &[("n", b.step.to_string())])),
+            end: b.kind == BlockKind::Conclusion,
+            steps: b.engine_steps.clone(),
+        });
     }
-    let mut notes = Vec::new();
-    if h.as_drawn {
-        notes.push(cx.t("hp.as_drawn").to_string());
-    }
-    Doc { setup: cx.setup_lines(), notes, blocks }
+    cx.cur.set(0);
+    let plan: Vec<String> = h.plan.iter().filter_map(|id| h.blocks.iter().find(|b| b.id == *id)).map(|b| cx.stmt(&b.stmt, Ctx::Statement)).collect();
+    let plan = (!plan.is_empty()).then(|| ro_angles(cx.tf("hp.plan", &[("list", join_list(&plan, lang))]), lang));
+    Doc { setup: cx.setup_lines().into_iter().map(|s| ro_angles(s, lang)).collect(), plan, blocks }
 }
 
 pub fn text(h: &HumanView, view: &Value, lang: Lang) -> String {
     let d = doc(h, view, lang);
     let mut out: Vec<String> = Vec::new();
-    let mut setup = d.setup.clone();
-    setup.extend(d.notes.iter().cloned());
-    if !setup.is_empty() {
-        out.push(setup.join(" "));
+    if !d.setup.is_empty() {
+        out.push(d.setup.join(" "));
+    }
+    if let Some(p) = &d.plan {
+        out.push(p.clone());
     }
     for b in &d.blocks {
         let mut para: Vec<String> = Vec::new();
-        if let (Some(h), Some(s)) = (&b.head, &b.stmt) {
-            out.push(format!("{h} {s}"));
-        }
         let mut first = true;
+        if let Some(l) = &b.lead {
+            para.push(format!("{} {l}", b.num));
+            first = false;
+        }
         for p in &b.parts {
             match p {
                 Part::Text(t) => {
-                    let lead = match (&b.proof_label, first) {
-                        (Some(l), true) => format!("{l} "),
-                        _ => String::new(),
-                    };
-                    para.push(format!("{lead}{t}"));
+                    if first {
+                        para.push(format!("{} {t}", b.num));
+                    } else {
+                        para.push(t.clone());
+                    }
                 }
                 Part::Rows(rows) => {
-                    if let (Some(l), true) = (&b.proof_label, first) {
-                        para.push(l.clone());
+                    if first {
+                        para.push(b.num.clone());
                     }
                     if !para.is_empty() {
                         out.push(para.join(" "));
@@ -1539,6 +1608,15 @@ pub fn text(h: &HumanView, view: &Value, lang: Lang) -> String {
         }
         if b.end {
             para.push("\u{220e}".to_string());
+        }
+        if let Some(t) = &b.tag {
+            if para.is_empty() {
+                if let Some(last) = out.last_mut() {
+                    last.push_str(&format!(" {t}"));
+                }
+            } else {
+                para.push(t.clone());
+            }
         }
         if !para.is_empty() {
             out.push(para.join(" "));
@@ -1730,8 +1808,20 @@ fn walk_proof(hp: &mut eng::HumanProof, f: &mut dyn FnMut(Use, &mut PointId)) {
                 f(Use::Fixed, through);
                 walk_line(to, f);
             }
-            eng::SetupLine::Helper { .. } | eng::SetupLine::DirectedAngles => {}
+            eng::SetupLine::Helper { .. } | eng::SetupLine::DirectedAngles | eng::SetupLine::FigureAngles => {}
         }
+    }
+    match hp.goal.as_mut() {
+        Some(eng::GoalWords::OnLine { p, line }) => {
+            f(Use::Fixed, p);
+            walk_line(line, f);
+        }
+        Some(eng::GoalWords::Collinear { pts } | eng::GoalWords::Concyclic { pts }) => pts.iter_mut().for_each(|p| f(Use::Fixed, p)),
+        Some(eng::GoalWords::Bisects { line, angle }) => {
+            walk_line(line, f);
+            walk_tri(angle, f);
+        }
+        _ => {}
     }
 }
 
@@ -2075,7 +2165,9 @@ pub mod tests {
             version: 1,
             as_drawn: false,
             setup,
-            blocks: vec![Block { id: 1, kind: BlockKind::Conclusion, n: None, stmt: atom_stmt(), body, engine_steps: vec![1], points: vec![], objects: vec![] }],
+            blocks: vec![Block { id: 1, kind: BlockKind::Conclusion, n: None, stmt: atom_stmt(), body, engine_steps: vec![1], points: vec![], objects: vec![], step: 1, tag: false }],
+            plan: vec![],
+            goal: None,
             metrics: Metrics::default(),
         }
     }
@@ -2258,6 +2350,8 @@ pub mod tests {
             engine_steps: vec![],
             points: strs(&["A", "B", "C", "X"]),
             objects: vec![],
+            step: 1,
+            tag: true,
         };
         let radii = st("cong", &["QD", "QE"], &["D", "E", "Q"]);
         let body = vec![
@@ -2296,8 +2390,8 @@ pub mod tests {
                 directed: true,
             },
         ];
-        let conclusion = Block { id: 2, kind: BlockKind::Conclusion, n: None, stmt: st("perp", &["AB", "CX"], &["A", "B", "C", "X"]), body, engine_steps: vec![], points: vec![], objects: vec![] };
-        (HumanView { version: 1, as_drawn: false, setup, blocks: vec![claim, conclusion], metrics: Metrics::default() }, view)
+        let conclusion = Block { id: 2, kind: BlockKind::Conclusion, n: None, stmt: st("perp", &["AB", "CX"], &["A", "B", "C", "X"]), body, engine_steps: vec![], points: vec![], objects: vec![], step: 2, tag: false };
+        (HumanView { version: 1, as_drawn: false, setup, blocks: vec![claim, conclusion], plan: vec![1], goal: Some(Goal::Stmt), metrics: Metrics::default() }, view)
     }
 
     #[test]

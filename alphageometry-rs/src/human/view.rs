@@ -307,7 +307,7 @@ pub fn goal(nm: &Namer, g: &GoalWords) -> Value {
 }
 
 pub fn to_json(hp: &HumanProof, nm: &Namer) -> Value {
-    super::text::with_notation(&hp.setup, || to_json_inner(hp, nm))
+    super::text::with_proof(hp, || to_json_inner(hp, nm))
 }
 
 fn to_json_inner(hp: &HumanProof, nm: &Namer) -> Value {

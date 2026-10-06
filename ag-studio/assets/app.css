@@ -574,16 +574,15 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .hp-block.uses-point { background: var(--hl-a14); }
 .hp-block.flash { animation: flash 1.2s ease-out; }
 .hp-block.is-conclusion { margin-top: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--border); border-radius: 0 0 var(--r-control) var(--r-control); }
-.hp-head { margin: 0 0 2px; max-width: 75ch; }
-.hp-label { font-weight: 700; }
-.hp-stmt { font-weight: 500; }
-.hp-proof { font-style: italic; }
+.hp-plan { margin: 0 0 var(--s3); font-size: 1.05rem; line-height: 1.65; max-width: 75ch; font-style: italic; }
+.hp-num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.hp-tag { white-space: nowrap; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .hp-text { margin: 0 0 4px; max-width: 75ch; }
 .hp-text:last-child { margin-bottom: 0; }
-.hp-drawn { font-style: italic; color: var(--text-2); }
+.hp-lead { margin-bottom: 2px; }
+.hp-end-line { text-align: right; }
 .hp-qed { float: right; margin-left: var(--s3); color: var(--proved); font-weight: 600; }
-.hp-qed-line { text-align: right; }
-.hp-qed-line .hp-qed { float: none; }
+.hp-end-line .hp-qed { float: none; }
 .hp-ref, .hp-step { color: var(--accent); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; border-radius: 3px; }
 @media (hover: hover) { .hp-ref:hover, .hp-step:hover { text-decoration-style: solid; } }
 .hp-ref:focus-visible, .hp-step:focus-visible, .hp-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
@@ -915,7 +914,7 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .card { box-shadow: none; }
   .verdict { animation: none; break-inside: avoid; }
   .verdict, .chip, .fig-viewport, .step.is-conclusion .step-n { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .statement, .figure-panel, .step, .facts li, .hp-chain, .hp-head { break-inside: avoid; }
+  .statement, .figure-panel, .step, .facts li, .hp-chain, .hp-lead { break-inside: avoid; }
   .hp-block.is-active, .hp-row:focus td { background: none; }
   .figure-panel, .has-result .figure-panel { display: block; position: static; }
   .fig-frame, .fig-frame.is-full { position: static; height: auto !important; min-height: 0; max-height: none; border: 1px solid var(--border); border-radius: var(--r-card); padding: 0; }

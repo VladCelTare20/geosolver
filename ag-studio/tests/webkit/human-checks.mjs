@@ -77,7 +77,7 @@ export async function humanProofFlow(page, tag, check, shot, opts = {}) {
     box.remove();
     return { before, after, rows, text };
   });
-  check(pooled.before && pooled.after && pooled.rows === 2 && /Angle chasing with AH ⟂ BC and HK ⟂ BC shows that/.test(pooled.text),
+  check(pooled.before && pooled.after && pooled.rows === 2 && /Combining AH ⟂ BC and HK ⟂ BC, we get/.test(pooled.text),
     `${tag}: "show the computation" expands a pooled sentence into its ${pooled.rows} weighted rows`);
   const f = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth }));
   check(f.sw <= f.vw, `${tag}: the proof tabs fit (${f.sw}/${f.vw})`);
@@ -108,8 +108,8 @@ export async function humanRomanian(page, tag, check, shot) {
   await page.click('#ptab-human');
   await page.waitForTimeout(250);
   const ro = await page.evaluate(() => ({ text: document.getElementById('human').innerText, tab: document.getElementById('ptab-human').textContent.trim(), full: document.getElementById('ptab-steps').textContent.trim() }));
-  const english = [' denotes ', ' are concyclic', ' are collinear', 'Claim ', 'Proof.', ' lies on ', 'Angle chasing'].filter((w) => ro.text.includes(w));
-  check(ro.tab === 'Demonstrație' && ro.full === 'Derivarea completă' && /notează unghiuri orientate/.test(ro.text) && !english.length,
+  const english = [' denotes ', ' are concyclic', ' are collinear', 'Claim ', 'Proof.', ' lies on ', 'Combining', 'We show', 'as required'].filter((w) => ro.text.includes(w));
+  check(ro.tab === 'Demonstrație' && ro.full === 'Derivarea completă' && /trebuie rotită|citite din figură/.test(ro.text) && !english.length,
     `${tag}: RO human proof (tabs "${ro.tab}" | "${ro.full}"; English left: ${english.join(', ') || 'none'})`);
   if (shot) await shot(page, 'ro-human');
 }

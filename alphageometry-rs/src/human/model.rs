@@ -21,6 +21,8 @@ pub struct HumanProof {
     pub as_drawn: bool,
     pub plan: Vec<u16>,
     pub goal: Option<GoalWords>,
+    #[serde(skip)]
+    pub main: Option<Tri>,
     pub metrics: Metrics,
 }
 

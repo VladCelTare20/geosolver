@@ -101,9 +101,9 @@
     return esc(tok);
   }
 
-  var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "∠": "sr.angle", "∡": "sr.dangle" };
+  var SPOKEN = { "⟂": "sr.perp", "∥": "sr.para", "△": "sr.tri", "∼": "sr.sim", "≅": "sr.cong", "∠": "sr.angle", "∢": "sr.angle", "∡": "sr.dangle" };
   function spoken(html) {
-    return html.replace(/[⟂∥△∼≅∠∡]/g, function (c) {
+    return html.replace(/[⟂∥△∼≅∠∢∡]/g, function (c) {
       return '<span aria-hidden="true">' + c + '</span><span class="sr-only">' + esc(t(SPOKEN[c])) + "</span>";
     });
   }
@@ -330,12 +330,12 @@
     var HAS = function (k) { return window.i18n && window.i18n.hasIn ? window.i18n.hasIn(L, k) : !!(window.i18n && window.i18n.has(k)); };
     var SP = plain ? function (x) { return x; } : spoken;
     var links = [];
-    var claims = {}, claimOfBlock = {};
     var steps = (view && view.proof && view.proof.steps) || [];
     var names = ((view && view.points) || []).map(function (p) { return p.name; });
     var setupCircles = (h.setup || []).filter(function (s) { return s.kind === "circle"; });
     var curBlock = null;
-    (h.blocks || []).forEach(function (b) { if (b.kind === "claim" && b.n != null) { claims[b.n] = b; claimOfBlock[b.id] = b.n; } });
+    var blockById = {};
+    (h.blocks || []).forEach(function (b) { blockById[b.id] = b; });
 
     function fillKey(key, vars) {
       var s = esc(T(key));
@@ -350,7 +350,6 @@
       return ctx === "s" ? [base] : ctx === "n" ? [base + ".r", base] : [base + ".np", base + ".r", base];
     }
     function cap(html) { return HP_KEEP.test(html) ? html.charAt(0).toUpperCase() + html.slice(1) : html; }
-    function lowerFirst(html) { return /^[A-ZĂÂÎȘȚ][a-zăâîșțşţ]/.test(html) ? html.charAt(0).toLowerCase() + html.slice(1) : html; }
     function joinList(items) {
       if (items.length < 2) return items.join("");
       return items.slice(0, -1).join(", ") + esc(T("hp.and")) + items[items.length - 1];
@@ -364,14 +363,16 @@
       }
       return null;
     }
+    function sentenceReasons(s) {
+      return s.kind === "chain" || s.kind === "computation" ? [].concat.apply([], (s.links || []).map(function (l) { return l.reasons || []; })) : (s.reasons || []);
+    }
     function seenCircle(pts) {
       var found = null;
       function consider(c) { if (c.length >= 4 && allIn(pts, c) && (!found || c.length < found.length)) found = c; }
       (h.blocks || []).forEach(function (b) {
         (b.objects || []).forEach(function (o) { if (o.circle) consider(o.circle); });
         (b.body || []).forEach(function (s) {
-          var rs = s.kind === "chain" || s.kind === "computation" ? [].concat.apply([], (s.links || []).map(function (l) { return l.reasons || []; })) : (s.reasons || []);
-          rs.forEach(function (r) { if (r.kind === "atom" && r.key === "inscribed") consider(r.args || []); });
+          sentenceReasons(s).forEach(function (r) { if (r.kind === "atom" && r.key === "inscribed") consider(r.args || []); });
         });
       });
       return found ? "(" + found.join("") + ")" : null;
@@ -454,8 +455,8 @@
         case "isosceles": return a.length > 3 ? { eq: equalFrom(a) } : { base: "isosceles", args: a.slice(0, 3) };
         case "central_angle": { var cc = namedCircle([g(1), g(2), g(3)], g(0)); return cc ? { base: "central_angle", args: [cc], merge: cc } : { base: "central_angle.bare", args: a.slice(0, 4) }; }
         case "power_of_point": return { base: "power_of_point", args: [g(0), circleRef(a.slice(1, 5), null)] };
-        case "midline": return { base: "midline", args: [g(0), g(1), [g(4), g(2), g(3)].sort().join("")] };
-        case "orthocentre": return { base: "orthocentre", args: [] };
+        case "midline": return { base: "midline", args: [g(0), g(1), g(4) + g(2) + g(3)] };
+        case "orthocentre": return { base: "orthocentre", args: [g(0), g(1) + g(2) + g(3)] };
       }
       return { base: r.key, args: a };
     }
@@ -476,18 +477,30 @@
       var s = SP(atomTemplate(sh.base, sh.args, ctx));
       return r.key === "isosceles" && !plain ? '<span class="hp-nb">' + s + "</span>" : s;
     }
-    function claimLink(n, text) {
-      if (plain) return text;
-      return '<a class="hp-ref" href="#hp-claim-' + n + '" data-claim="' + n + '" tabindex="-1" aria-label="' + esc(T("hp.claim_go", { n: n })) + '">' + text + "</a>";
+    var SAY = { perp_bisector: 1, orthocentre: 1, centroid: 1, midline: 1, parallel: 1, power_of_point: 1 };
+    function atomSentence(r, st) {
+      if (!SAY[r.key] || !HAS("hp.say." + r.key)) return null;
+      var a = r.args || [];
+      var shown = r.key === "power_of_point" ? [a[0] || "", circleRef(a.slice(1, 5), null)] : a;
+      var s = esc(T("hp.say." + r.key));
+      shown.forEach(function (x, i) { s = s.split("{" + i + "}").join(math(x)); });
+      return SP(s.split("{s}").join(stmtHtml(st, "s")));
     }
-    function claimsLabel(ns) {
-      if (ns.length === 1) return claimLink(ns[0], esc(T("hp.claim_ref", { n: ns[0] })));
-      return fillKey("hp.claims_ref", { list: joinList(ns.map(function (n) { return claimLink(n, String(n)); })) });
+    function stepOf(id) { var b = blockById[id]; return b ? b.step : null; }
+    function refLink(k) {
+      if (plain) return String(k);
+      return '<a class="hp-ref" href="#hp-step-' + k + '" data-ref="' + k + '" tabindex="-1" aria-label="' + esc(T("hp.step_go", { n: k })) + '">' + k + "</a>";
     }
-    function fromClaims(from) {
-      var ns = [];
-      (from || []).forEach(function (b) { var n = claimOfBlock[b]; if (n != null && ns.indexOf(n) < 0) ns.push(n); });
-      return ns.sort(function (x, y) { return x - y; });
+    function by(text, id) {
+      var k = stepOf(id);
+      return k != null && id !== curBlock ? fillKey("hp.by", { stmt: text, n: refLink(k) }) : text;
+    }
+    function byList(from) {
+      var ks = [];
+      (from || []).forEach(function (b) { if (b === curBlock) return; var k = stepOf(b); if (k != null && ks.indexOf(k) < 0) ks.push(k); });
+      ks.sort(function (x, y) { return x - y; });
+      if (!ks.length) return null;
+      return fillKey("hp.by_list", { list: joinList(ks.map(function (k) { return "(" + refLink(k) + ")"; })) });
     }
     function stepLink(n, text) {
       text = text == null ? esc(T("hp.step_ref", { n: n == null ? "" : n })) : text;
@@ -508,7 +521,7 @@
         var s = null;
         if (r.kind === "hyp" || r.kind === "atom") s = r.stmt;
         else if (isFact(r) || (r && r.lemma)) s = r;
-        else if (r.kind === "claim" && claims[r.n]) s = claims[r.n].stmt;
+        else if (r.kind === "claim" && blockById[r.block]) s = blockById[r.block].stmt;
         else if (r.kind === "engine") steps.forEach(function (st) { if (st.n === r.step) s = st.fact; });
         if (s) {
           (s.points || []).forEach(add);
@@ -525,9 +538,8 @@
       (because || []).forEach(function (b) {
         var t;
         if (b.kind === "atom" && hpSame(b.stmt, own)) {
-          var ns = fromClaims(b.from);
-          if (!ns.length) return;
-          t = claimsLabel(ns);
+          t = byList(b.from);
+          if (t == null) return;
         } else if (isFact(b) && hpSame(b, own) && !(b.because || []).length) return;
         else if (b.kind === "hyp" && hpSame(b.stmt, own)) return;
         else t = reasonHtml(b, "n");
@@ -536,40 +548,26 @@
       return out;
     }
     function reasonHtml(r, ctx) {
-      if (r.lemma) {
-        var lst = stmtHtml(r, "s"), ln = claimOfBlock[r.block];
-        return ln != null && r.block !== curBlock ? fillKey("hp.lemma.claim", { stmt: lst, claim: claimsLabel([ln]) }) : fillKey("hp.lemma", { stmt: lst });
-      }
+      if (r.lemma) return by(stmtHtml(r, "n"), r.block);
       if (r.kind === "hyp") return stmtHtml(r.stmt, ctx);
-      if (r.kind === "claim") return claimsLabel([r.n]);
+      if (r.kind === "claim") return blockById[r.block] ? by(stmtHtml(blockById[r.block].stmt, "n"), r.block) : "";
       if (r.kind === "engine") return stepLink(r.step);
       if (r.kind === "atom") {
         var text = atomHtml(r, ctx);
-        if ((r.key === "parallel" || r.key === "orthocentre") && ctx === "n") text = stmtHtml(r.stmt, ctx) + ", " + text;
-        var ns = fromClaims(r.from);
-        if (ns.length) text += " (" + claimsLabel(ns) + ")";
+        if (r.key === "parallel" && ctx === "n") text = stmtHtml(r.stmt, ctx) + ", " + text;
+        var bl = byList(r.from);
+        if (bl != null) text += ", " + bl;
         return text;
       }
       var base = stmtHtml(r, ctx);
+      if (r.block != null) return by(base, r.block);
       var inner = becauseTexts(r, r.because);
       return inner.length ? base + " (" + inner.join("; ") + ")" : base;
     }
-    function texts(rs, ctx, skipClaims) {
+    function texts(rs, ctx) {
       var out = [], groups = {};
       var facts = (rs || []).filter(isFact);
       (rs || []).forEach(function (r) {
-        if (skipClaims && r.kind === "claim") return;
-        if (r.lemma && (r.block === curBlock || claimOfBlock[r.block] == null)) {
-          var lst = stmtHtml(r, "s"), lg = groups[" lemma"];
-          if (lg) {
-            if (lg.list.indexOf(lst) < 0) lg.list.push(lst);
-            out[lg.at] = fillKey(lg.list.length > 1 ? "hp.lemma.many" : "hp.lemma", { stmt: joinList(lg.list) });
-            return;
-          }
-          groups[" lemma"] = { at: out.length, list: [lst] };
-          out.push(fillKey("hp.lemma", { stmt: lst }));
-          return;
-        }
         if (r.kind === "atom") {
           if (facts.some(function (f) { return hpSame(f, r.stmt); })) return;
           var ctr = equalCentre(r);
@@ -598,19 +596,11 @@
           }
         }
         var t = reasonHtml(r, ctx);
-        if (out.indexOf(t) < 0) out.push(t);
+        if (t !== "" && out.indexOf(t) < 0) out.push(t);
       });
       return out;
     }
-    function reasonsList(rs) {
-      var ns = [];
-      (rs || []).forEach(function (r) { if (r.kind === "claim" && ns.indexOf(r.n) < 0) ns.push(r.n); });
-      ns.sort(function (a, b) { return a - b; });
-      var out = texts(rs, "l", true);
-      if (ns.length) out.unshift(claimsLabel(ns));
-      return joinList(out);
-    }
-    function linkNote(l) { return texts(l.reasons, "n", false).join(", "); }
+    function linkNote(l) { return texts(l.reasons, "n").join("; "); }
     function register(rs) {
       links.push(lightOf(rs));
       return links.length - 1;
@@ -619,12 +609,6 @@
       var first = terms[0], last = terms[terms.length - 1], a = then.args || [];
       if (!terms.length || ["eqangle", "cong", "eq"].indexOf(then.kind) < 0 || a.length !== 2) return false;
       return (a[0] === first && a[1] === last) || (a[0] === last && a[1] === first);
-    }
-    function inline(terms, ls) {
-      if (ls.length > 2) return false;
-      var n = 0;
-      terms.forEach(function (x) { n += Array.from(String(x)).length + 3; });
-      return n <= 44;
     }
     function rows(terms, ls) {
       return ls.map(function (l, k) {
@@ -641,57 +625,65 @@
         return { coef: esc(String(c.coef).replace(/^-/, "−")), eq: r ? reasonHtml(r, "s") + (many ? " [" + (c.row + 1) + "]" : "") : "", why: "", id: register(r ? [r] : []) };
       });
     }
-    function because(own, s) {
-      var st = stmtHtml(s.stmt, "s");
+    function goalText(own) {
+      var g = h.goal || {};
+      if (g.kind === "on_line") return fillKey("hp.goal.on_line", { p: math(g.p), line: math((g.line || []).join("")) });
+      if (g.kind === "collinear") return fillKey("hp.goal.collinear", { pts: (g.pts || []).map(function (p) { return math(p); }).join(", ") });
+      if (g.kind === "concyclic") return fillKey("hp.goal.concyclic", { pts: (g.pts || []).map(function (p) { return math(p); }).join(", ") });
+      if (g.kind === "bisects") return SP(fillKey("hp.goal.bisects", { line: math((g.line || []).join("")), angle: math((g.angle || []).join("")) }));
+      return stmtHtml(own, "s");
+    }
+    function soStmt(st, goal) {
+      return goal && hpSame(goal.stmt, st) ? fillKey("hp.required", { stmt: goal.words }) : stmtHtml(st, "s");
+    }
+    function because(own, s, goal) {
+      var st = soStmt(s.stmt, goal);
       var rs = s.reasons || [];
       if (!rs.length) return fillKey("hp.hence", { stmt: st });
       var inner = rs.length === 1 && isFact(rs[0]) && hpSame(rs[0], s.stmt) && (rs[0].because || []).length ? rs[0].because : rs;
+      if (inner.length === 1 && inner[0].kind === "atom" && hpSame(inner[0].stmt, s.stmt)) {
+        var said = atomSentence(inner[0], s.stmt);
+        if (said != null) {
+          var bl = byList(inner[0].from);
+          return bl != null ? cap(fillKey("hp.say.by", { by: bl, text: said })) : cap(said) + ".";
+        }
+      }
       var restating = inner.every(function (r) {
         if (isFact(r)) return hpSame(r, s.stmt);
         if (r.kind === "hyp") return hpSame(r.stmt, s.stmt);
-        if (r.kind === "atom" && r.key === "radii") return hpSame(r.stmt, s.stmt) && !fromClaims(r.from).length;
+        if (r.kind === "atom" && r.key === "radii") return hpSame(r.stmt, s.stmt) && !(r.from || []).length;
         return false;
       });
-      if (restating) return hpSame(own, s.stmt) ? null : cap(st) + ".";
-      var notes = texts(inner, "n", false);
-      return notes.length ? cap(fillKey("hp.because", { stmt: st, reasons: notes.join("; ") })) : cap(st) + ".";
+      if (restating) {
+        if (hpSame(own, s.stmt) && !goal) return null;
+        var from = null;
+        inner.forEach(function (r) { if (from == null && isFact(r) && r.block != null && r.block !== curBlock) from = r.block; });
+        return from != null ? cap(by(st, from)) + "." : cap(st) + ".";
+      }
+      var notes = texts(inner, "n").filter(function (x) { return x !== st; });
+      return notes.length ? cap(fillKey("hp.because", { stmt: st, reasons: joinList(notes) })) : cap(st) + ".";
     }
-    function pooledKey(st) {
-      if (HP_ANGULAR[st.kind]) return "hp.pooled.angle";
-      if (st.kind === "eq" && (st.args || []).some(function (x) { return /²/.test(x); })) return "hp.pooled.length";
-      return "hp.pooled.ratio";
-    }
-    function part(own, s, lead) {
-      var withLead = function (html) { return lead ? esc(lead) + lowerFirst(html) : html; };
+    function part(own, s, goal) {
       var parts = [];
-      if (s.kind === "chain") {
-        var so = s.then && !restatesChain(s.terms || [], s.then) ? stmtHtml(s.then, "s") : null;
-        var drawn = s.directed === false;
-        if (inline(s.terms || [], s.links || [])) {
-          var ids = (s.links || []).map(function (l) { return register(l.reasons); });
-          var html = SP(math(s.terms[0]));
-          (s.links || []).forEach(function (l, k) {
-            var seg = " = " + SP(math(s.terms[k + 1]));
-            html += plain ? seg : '<span class="hp-link" data-l="' + ids[k] + '" tabindex="-1">' + seg + "</span>";
-          });
-          if (drawn) html = esc(T("hp.as_drawn_lead")) + html;
-          var notes = [];
-          (s.links || []).forEach(function (l, k) {
-            var note = linkNote(l);
-            if (note) notes.push(plain ? note : '<span class="hp-note" data-l="' + ids[k] + '">' + note + "</span>");
-          });
-          if (notes.length) html += " (" + notes.join("; ") + ")";
-          html += so ? fillKey("hp.so_inline", { stmt: so }) : ".";
-          parts.push({ text: withLead(html) });
-        } else {
-          parts.push({ rows: rows(s.terms || [], s.links || []), drawn: drawn });
-          if (so) parts.push({ text: fillKey("hp.so", { stmt: so }) });
-        }
+      if (s.kind === "chain" && (s.links || []).length >= 2) {
+        parts.push({ rows: rows(s.terms || [], s.links || []) });
+        if (s.then && !restatesChain(s.terms || [], s.then)) parts.push({ text: fillKey("hp.so", { stmt: soStmt(s.then, goal) }) });
+      } else if (s.kind === "chain") {
+        var l0 = (s.links || [])[0];
+        var rs = l0 ? texts(l0.reasons, "n") : [];
+        var terms = s.terms || [];
+        var zero = terms[terms.length - 1] === "0°";
+        var eq = terms.map(function (x) { return SP(math(x)); }).join(" = ");
+        var text;
+        if (s.then && zero && s.then.kind === "coll") text = fillKey("hp.because", { reasons: joinList(rs), stmt: soStmt(s.then, goal) });
+        else if (s.then && !restatesChain(terms, s.then)) text = fillKey("hp.because_then", { reasons: joinList(rs), eq: eq, stmt: soStmt(s.then, goal) });
+        else text = fillKey("hp.because", { reasons: joinList(rs), stmt: eq });
+        parts.push({ text: cap(text), light: register(l0 ? l0.reasons : []) });
       } else if (s.kind === "because") {
-        var b = because(own, s);
-        if (b != null) parts.push({ text: withLead(b), light: register(s.reasons) });
+        var b = because(own, s, goal);
+        if (b != null) parts.push({ text: b, light: register(s.reasons) });
       } else if (s.kind === "pooled") {
-        var p = { text: withLead(cap(fillKey(pooledKey(s.stmt), { reasons: reasonsList(s.reasons), stmt: stmtHtml(s.stmt, "s") }))), light: register(s.reasons) };
+        var p = { text: cap(fillKey("hp.pooled", { reasons: joinList(texts(s.reasons, "l")), stmt: soStmt(s.stmt, goal) })), light: register(s.reasons) };
         if ((s.combination || []).length) {
           p.compute = computeRows(s);
           p.sum = fillKey("hp.compute.sum", { stmt: stmtHtml(s.stmt, "s") });
@@ -699,31 +691,46 @@
         parts.push(p);
       } else if (s.kind === "theorem") {
         var thm = esc(T("hp.thm." + s.key));
-        var notes2 = texts(s.reasons, "n", false);
-        var text;
+        var notes2 = texts(s.reasons, "n");
+        var text2;
         var ft = s.stmt.kind === "formula" ? inTri(String((s.stmt.args || [])[0] || "")) : null;
         if (ft) {
           var tri = math("△" + ft.tri);
-          text = notes2.length ? fillKey("hp.apply_in_with", { thm: thm, reasons: notes2.join("; "), tri: tri }) : fillKey("hp.apply_in", { thm: thm, tri: tri });
+          text2 = notes2.length ? fillKey("hp.apply_in_with", { thm: thm, reasons: notes2.join("; "), tri: tri }) : fillKey("hp.apply_in", { thm: thm, tri: tri });
         } else if (s.stmt.kind === "formula") {
           var f = formulaText((s.stmt.args || [])[0]);
           var rest = SP(math(f.indexOf(": ") > 0 ? f.slice(f.indexOf(": ") + 2) : f));
-          text = notes2.length ? fillKey("hp.apply_with", { thm: thm, reasons: notes2.join("; "), stmt: rest }) : fillKey("hp.apply", { thm: thm, stmt: rest });
+          text2 = notes2.length ? fillKey("hp.apply_with", { thm: thm, reasons: notes2.join("; "), stmt: rest }) : fillKey("hp.apply", { thm: thm, stmt: rest });
         } else {
-          var st2 = stmtHtml(s.stmt, "s");
-          text = notes2.length ? fillKey("hp.theorem_with", { thm: thm, reasons: notes2.join("; "), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
+          var st2 = soStmt(s.stmt, goal);
+          text2 = notes2.length ? fillKey("hp.theorem_with", { thm: thm, reasons: joinList(notes2), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
         }
-        parts.push({ text: withLead(cap(text)), light: register(s.reasons) });
+        parts.push({ text: cap(text2), light: register(s.reasons) });
       } else if (s.kind === "computation") {
         parts.push({ rows: rows(s.terms || [], s.links || []) });
       } else if (s.kind === "raw") {
         var step = null;
         steps.forEach(function (x) { if (x.n === s.step) step = x; });
         var rt = step ? fillKey("hp.raw", { fact: SP(factHtml(step.fact, T)), rule: esc(ruleLabel(step)), n: stepLink(s.step, String(s.step)) }) : stepLink(s.step);
-        parts.push({ text: withLead(cap(rt)), light: register([{ kind: "engine", step: s.step }]) });
+        parts.push({ text: cap(rt), light: register([{ kind: "engine", step: s.step }]) });
       }
       return parts;
     }
+    function leadOf(b, goal) {
+      var first = (b.body || [])[0];
+      if (!first || b.kind === "raw") return null;
+      var isRows = (first.kind === "chain" && (first.links || []).length >= 2) || first.kind === "computation";
+      if (!isRows) return null;
+      var st;
+      if (goal) st = goal.words;
+      else if (first.kind === "chain" && first.then) st = stmtHtml(first.then, "s");
+      else if ((b.body || []).length === 1 && (b.stmt.kind === "eqangle" || b.stmt.kind === "eq")) {
+        var ts = first.terms || [];
+        st = SP(math(ts[0] || "")) + " = " + SP(math(ts[ts.length - 1] || ""));
+      } else st = stmtHtml(b.stmt, "s");
+      return fillKey("hp.we_show", { stmt: st });
+    }
+    function roAngles(html) { return L === "ro" ? String(html).split("∠").join("∢") : html; }
     function article(def) {
       if (L !== "en" || /^(a|an|the) /.test(def)) return def;
       return "the " + def;
@@ -827,6 +834,7 @@
     for (var li = 0; li < lines.length; li++) {
       var line = lines[li], text = null, cls = "";
       if (line.kind === "directed_angles") { text = SP(esc(T("hp.setup.directed"))); cls = "hp-conv"; }
+      else if (line.kind === "figure_angles") { text = SP(esc(T("hp.setup.figure"))); cls = "hp-conv"; }
       else if (line.kind === "notation") text = notationLine(line);
       else if (line.kind === "circle") {
         var later = lines.slice(li).filter(function (l) { return l.kind === "aux"; }).map(function (l) { return l.point; });
@@ -849,36 +857,49 @@
           if (hp && opts.auxText) text = letLine(line.point, opts.auxText(hp, T));
         }
       }
-      if (text) setup.push({ html: text, cls: cls });
+      if (text) setup.push({ html: roAngles(text), cls: cls });
     }
-    if (h.as_drawn) setup.push({ html: esc(T("hp.as_drawn")), cls: "hp-conv" });
-    var nClaims = (h.blocks || []).filter(function (b) { return b.kind === "claim"; }).length;
     var blocks = (h.blocks || []).map(function (b) {
       curBlock = b.id;
+      var goal = b.kind === "conclusion" ? { stmt: b.stmt, words: goalText(b.stmt) } : null;
       var parts = [];
-      (b.body || []).forEach(function (s, i) {
-        var lead = i === 0 && b.kind === "conclusion" && nClaims > 0 && s.kind === "pooled" ? T("hp.finally") : null;
-        part(b.stmt, s, lead).forEach(function (p) {
-          var last = parts[parts.length - 1];
-          if (p.text != null && !p.compute && last && last.text != null && !last.compute) {
-            last.text += " " + p.text;
-            last.lights = (last.lights || []).concat(p.light != null ? [p.light] : []);
-          } else {
-            if (p.light != null) p.lights = [p.light];
-            parts.push(p);
-          }
-        });
+      (b.body || []).forEach(function (s) {
+        part(b.stmt, s, goal).forEach(function (p) { parts.push(p); });
       });
+      if (goal) {
+        var req = fillKey("hp.required", { stmt: goal.words });
+        var said = parts.some(function (p) { return p.text != null && p.text.indexOf(req) >= 0; });
+        if (!said) parts.push({ text: fillKey("hp.hence", { stmt: req }) });
+      }
+      var merged = [];
+      parts.forEach(function (p) {
+        var last = merged[merged.length - 1];
+        if (p.text != null && !p.compute && last && last.text != null && !last.compute) {
+          last.text += " " + p.text;
+          last.lights = (last.lights || []).concat(p.light != null ? [p.light] : []);
+        } else {
+          if (p.light != null) p.lights = [p.light];
+          merged.push(p);
+        }
+      });
+      merged.forEach(function (p) {
+        if (p.text != null) p.text = roAngles(p.text);
+        if (p.rows) p.rows.forEach(function (r) { r.lhs = roAngles(r.lhs); r.rhs = roAngles(r.rhs); r.why = roAngles(r.why); });
+      });
+      var lead = leadOf(b, goal);
       return {
         b: b,
-        head: b.kind === "claim" ? esc(T("hp.claim", { n: b.n })) : null,
-        stmt: b.kind === "claim" ? cap(stmtHtml(b.stmt, "s")) + "." : null,
-        proof: b.kind === "claim" ? esc(T("hp.proof")) : null,
-        parts: parts,
+        num: esc(T("hp.num", { n: b.step })),
+        lead: lead != null ? roAngles(lead) : null,
+        parts: merged,
+        tag: b.tag && b.kind !== "conclusion" ? esc(T("hp.tag", { n: b.step })) : null,
         end: b.kind === "conclusion",
       };
     });
-    return { setup: setup, blocks: blocks, links: links, T: T };
+    curBlock = null;
+    var planList = (h.plan || []).map(function (id) { return blockById[id]; }).filter(function (b) { return b; }).map(function (b) { return stmtHtml(b.stmt, "s"); });
+    var plan = planList.length ? roAngles(fillKey("hp.plan", { list: joinList(planList) })) : null;
+    return { setup: setup, plan: plan, blocks: blocks, links: links, T: T };
   }
 
   function humanText(h, view, opts) {
@@ -890,23 +911,29 @@
     var tx = function (html) { div.innerHTML = html; return div.textContent; };
     var out = [];
     if (d.setup.length) out.push(d.setup.map(function (s) { return tx(s.html); }).join(" "));
+    if (d.plan) out.push(tx(d.plan));
     d.blocks.forEach(function (b) {
-      if (b.head) out.push(tx(b.head) + " " + tx(b.stmt));
       var para = [], first = true;
+      var num = tx(b.num);
+      if (b.lead != null) { para.push(num + " " + tx(b.lead)); first = false; }
       b.parts.forEach(function (p) {
         if (p.rows) {
-          if (b.proof && first) para.push(tx(b.proof));
+          if (first) para.push(num);
           if (para.length) { out.push(para.join(" ")); para = []; }
           var w = 0;
-          p.rows.forEach(function (r) { w = Math.max(w, tx(r.lhs).length); });
+          p.rows.forEach(function (r) { w = Math.max(w, Array.from(tx(r.lhs)).length); });
           out.push(p.rows.map(function (r) {
             var l = tx(r.lhs);
-            return l + new Array(w - l.length + 1).join(" ") + " = " + tx(r.rhs) + (r.why ? "    [" + tx(r.why) + "]" : "");
+            return l + new Array(w - Array.from(l).length + 1).join(" ") + " = " + tx(r.rhs) + (r.why ? "    [" + tx(r.why) + "]" : "");
           }).join("\n"));
-        } else para.push((b.proof && first ? tx(b.proof) + " " : "") + tx(p.text));
+        } else para.push((first ? num + " " : "") + tx(p.text));
         first = false;
       });
       if (b.end) para.push("∎");
+      if (b.tag != null) {
+        if (!para.length && out.length) out[out.length - 1] += " " + tx(b.tag);
+        else para.push(tx(b.tag));
+      }
       if (para.length) out.push(para.join(" "));
     });
     return out.join("\n\n");
@@ -916,9 +943,9 @@
     hooks = hooks || {};
     var d = hpDoc(h, view, { auxText: hooks.auxText });
     var T = d.T;
-    function rowsHtml(rows, drawn) {
+    function rowsHtml(rows) {
       var lhsLong = rows.length > 0 && rows[0].lhsLen > 12;
-      var html = (drawn ? '<p class="hp-text hp-drawn">' + esc(T("hp.as_drawn_display")) + "</p>" : "") + '<table class="hp-chain' + (lhsLong ? " lhs-own" : "") + '" role="list"><tbody>';
+      var html = '<table class="hp-chain' + (lhsLong ? " lhs-own" : "") + '" role="list"><tbody>';
       rows.forEach(function (r, i) {
         if (i === 0 && lhsLong) html += '<tr class="hp-lhs-row" role="presentation"><td class="hp-lhs math" colspan="4" role="presentation">' + r.lhs + "</td></tr>";
         html += '<tr class="hp-row" role="listitem" data-l="' + r.id + '" tabindex="-1">' +
@@ -934,23 +961,24 @@
     var qed = '<span class="hp-qed" aria-hidden="true">∎</span><span class="sr-only"> ' + esc(T("hp.end")) + "</span>";
     var html = "";
     if (d.setup.length) html += '<p class="hp-setup">' + d.setup.map(function (s) { return '<span class="' + (s.cls || "hp-let") + '">' + s.html + "</span>"; }).join(" ") + "</p>";
+    if (d.plan) html += '<p class="hp-plan">' + d.plan + "</p>";
     html += '<ol class="hp-blocks" role="list">';
     d.blocks.forEach(function (db, bi) {
       var b = db.b;
-      var id = b.kind === "claim" ? "hp-claim-" + b.n : "hp-block-" + b.id;
-      html += '<li class="hp-block is-' + b.kind + '" id="' + id + '" data-b="' + bi + '" tabindex="-1">';
-      if (db.head) html += '<p class="hp-head"><span class="hp-label">' + db.head + "</span> " + '<span class="hp-stmt">' + db.stmt + "</span></p>";
-      else html += '<span class="sr-only">' + esc(T(b.kind === "conclusion" ? "hp.block.conclusion" : "hp.block.step")) + ". </span>";
+      html += '<li class="hp-block is-' + b.kind + '" id="hp-step-' + b.step + '" data-b="' + bi + '" tabindex="-1">';
+      var num = '<span class="hp-num">' + db.num + "</span> ";
+      var tag = db.tag ? ' <span class="hp-tag">' + db.tag + "</span>" : "";
       var first = true;
+      if (db.lead != null) { html += '<p class="hp-text hp-lead">' + num + db.lead + "</p>"; first = false; }
       db.parts.forEach(function (p, pi) {
         var last = pi === db.parts.length - 1;
-        var lead = db.proof && first ? '<em class="hp-proof">' + db.proof + "</em> " : "";
+        var tail = last ? tag + (db.end ? " " + qed : "") : "";
         if (p.rows) {
-          if (lead) html += '<p class="hp-text">' + lead + "</p>";
-          html += rowsHtml(p.rows, p.drawn);
-          if (last && db.end) html += '<p class="hp-text hp-qed-line">' + qed + "</p>";
+          if (first) html += '<p class="hp-text hp-lead">' + num + "</p>";
+          html += rowsHtml(p.rows);
+          if (tail) html += '<p class="hp-text hp-end-line">' + tail + "</p>";
         } else {
-          html += '<p class="hp-text">' + lead + p.text + (last && db.end ? " " + qed : "") + "</p>";
+          html += '<p class="hp-text">' + (first ? num : "") + p.text + tail + "</p>";
           if (p.compute) {
             html += '<button type="button" class="link-btn hp-compute-toggle" aria-expanded="false" tabindex="-1">' + esc(T("hp.compute.show")) + "</button>" +
               '<div class="hp-compute" hidden><table class="hp-chain hp-sum" role="list"><tbody>' +
@@ -1050,7 +1078,7 @@
       var a = e.target.closest(".cite, .hp-step");
       if (a) { e.preventDefault(); if (hooks.jump) hooks.jump(+a.getAttribute("data-step")); return; }
       var r = e.target.closest(".hp-ref");
-      if (r) { e.preventDefault(); var c = root.querySelector("#hp-claim-" + r.getAttribute("data-claim")); if (c) flash(c); return; }
+      if (r) { e.preventDefault(); var c = root.querySelector("#hp-step-" + r.getAttribute("data-ref")); if (c) flash(c); return; }
       var w = e.target.closest(".hp-why-toggle");
       if (w) {
         var tb = w.previousElementSibling, open = w.getAttribute("aria-expanded") !== "true";

@@ -10,6 +10,7 @@ use crate::rational::Rat;
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_GROUPS: usize = 6;
+const MAX_GREEDY: usize = 14;
 const PLAN_MIN_STEPS: usize = 4;
 const PLAN_MAX: usize = 3;
 
@@ -189,35 +190,38 @@ fn negate_link(l: Link) -> Link {
 }
 
 fn term_score(e: &Expr) -> Option<i64> {
-    let deg = |d: &Rat| -> Option<i64> {
-        let ninety = Rat::from_int(90);
-        let one_eighty = Rat::from_int(180);
-        if d.is_zero() {
-            Some(0)
-        } else if d.abs() > one_eighty {
-            None
-        } else if *d == ninety || *d == one_eighty || *d == -&ninety {
-            Some(1)
-        } else {
-            Some(3)
-        }
-    };
+    let ninety = Rat::from_int(90);
+    let one_eighty = Rat::from_int(180);
     match e {
         Expr::Angle { .. } => Some(0),
-        Expr::Const { degrees } => deg(degrees),
+        Expr::Const { degrees } => (*degrees == ninety || *degrees == one_eighty).then_some(1),
         Expr::Lin { terms } => {
             if lin_terms(e) > 2 {
                 return None;
             }
-            let mut s = 0;
+            let konst: Rat = terms.iter().filter_map(|(k, x)| if let Expr::Const { degrees } = x { Some(degrees * k) } else { None }).fold(Rat::zero(), |a, b| &a + &b);
+            let mut s = if konst.is_zero() {
+                0
+            } else if konst == ninety || konst == one_eighty || konst == -&ninety {
+                1
+            } else {
+                return None;
+            };
+            let positive_const = !konst.is_negative() && !konst.is_zero();
             for (k, x) in terms {
                 match x {
-                    Expr::Const { degrees } => s += deg(&(degrees * k))?,
+                    Expr::Const { .. } => {}
                     Expr::Angle { .. } => {
                         let a = k.abs();
-                        s += if a.is_one() { 0 } else if a == Rat::from_int(2) || a == Rat::new(1, 2) { 1 } else { 5 };
+                        s += if a.is_one() {
+                            0
+                        } else if a == Rat::from_int(2) || a == Rat::new(1, 2) {
+                            1
+                        } else {
+                            return None;
+                        };
                         if k.is_negative() {
-                            s += 2;
+                            s += if positive_const { 1 } else { 4 };
                         }
                     }
                     _ => return None,
@@ -397,6 +401,30 @@ fn permutations(n: usize) -> Vec<Vec<usize>> {
     out
 }
 
+fn greedy_orders(cx: &Ctx, tb: Table, start: &LinComb, groups: &[(u16, LinComb)], facts: &[usize], directed: bool, focus: &BTreeSet<PointId>) -> Vec<Vec<usize>> {
+    let mut node = start.clone();
+    let mut left: Vec<usize> = (0..facts.len()).collect();
+    let mut order: Vec<usize> = Vec::new();
+    while left.len() > 1 {
+        let mut best: Option<(i64, usize)> = None;
+        for (li, &k) in left.iter().enumerate() {
+            let next = LinComb::combine(&node, &groups[facts[k]].1, &Rat::from_int(-1));
+            if let Some(e) = display(cx, tb, &next, directed, &[], focus) {
+                let b = badness(&e);
+                if best.is_none_or(|x| b < x.0) {
+                    best = Some((b, li));
+                }
+            }
+        }
+        let Some((_, li)) = best else { return Vec::new() };
+        let k = left.remove(li);
+        node = LinComb::combine(&node, &groups[facts[k]].1, &Rat::from_int(-1));
+        order.push(k);
+    }
+    order.extend(left);
+    vec![order]
+}
+
 fn shows(cx: &Ctx, tb: Table, e: &Expr, node: &LinComb, directed: bool) -> bool {
     let Some((_, v)) = eval(cx.t, e) else { return false };
     check::residual_ok(cx, tb, &v, node, directed)
@@ -495,17 +523,15 @@ fn split_links(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], direc
         }
         let facts: Vec<usize> = (0..groups.len()).filter(|&i| !is_coll_reason(&l.reasons[groups[i].0 as usize])).collect();
         let colls: Vec<usize> = (0..groups.len()).filter(|&i| is_coll_reason(&l.reasons[groups[i].0 as usize])).collect();
-        if debug() && facts.len() > MAX_GROUPS {
-            eprintln!("barem split: {} facts in one link", facts.len());
-        }
-        if facts.len() < 2 || facts.len() > MAX_GROUPS {
+        if facts.len() < 2 || facts.len() > MAX_GREEDY {
             done(&mut out_terms, &mut out_links);
             continue;
         }
         let next_pts = links.get(k + 1).map(link_points).unwrap_or_default();
         let prev_pts = if k > 0 { link_points(&links[k - 1]) } else { Vec::new() };
         let mut best: Option<(i64, Vec<Vec<usize>>, Vec<Expr>)> = None;
-        for perm in permutations(facts.len()) {
+        let orders: Vec<Vec<usize>> = if facts.len() <= MAX_GROUPS { permutations(facts.len()) } else { greedy_orders(cx, tb, &start, &groups, &facts, directed, focus) };
+        for perm in orders {
             for coll_first in [true, false] {
                 let mut parts: Vec<Vec<usize>> = perm.iter().map(|&p| vec![facts[p]]).collect();
                 if !colls.is_empty() {

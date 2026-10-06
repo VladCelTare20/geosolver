@@ -858,41 +858,54 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32, deriv
     if let Some(h) = &human {
         let d = crate::human_view::doc(h, view, lang);
         section(&mut blocks, i18n::t(lang, "report.hp.proof"), d.blocks.len().min(3));
-        let mut setup = d.setup.clone();
-        setup.extend(d.notes.iter().cloned());
-        if !setup.is_empty() {
-            let lines = wrap(&setup.join(" "), cols);
+        if !d.setup.is_empty() {
+            let lines = wrap(&d.setup.join(" "), cols);
+            lines_block(&mut blocks, &lines, INK, 400, false, &ts, 0);
+            blocks.push(Block { h: 6.0, body: String::new(), keep_next: 1 });
+        }
+        if let Some(plan) = &d.plan {
+            let lines = wrap(plan, cols);
             lines_block(&mut blocks, &lines, INK, 400, false, &ts, 0);
             blocks.push(Block { h: 6.0, body: String::new(), keep_next: 1 });
         }
         for (bi, b) in d.blocks.iter().enumerate() {
             let mut first_text = true;
             let n_parts = b.parts.len();
-            if let (Some(head), Some(stmt)) = (&b.head, &b.stmt) {
-                let (svg, h) = hp_paragraph(&format!("{head} {stmt}"), Some((head.as_str(), "font-weight=\"700\"")), cols, &ts);
+            let bold = "font-weight=\"700\"";
+            if let Some(lead) = &b.lead {
+                let (svg, h) = hp_paragraph(&format!("{} {lead}", b.num), Some((b.num.as_str(), bold)), cols, &ts);
                 blocks.push(Block { h, body: svg, keep_next: 1 });
+                first_text = false;
             }
             for (pi, part) in b.parts.iter().enumerate() {
                 let last = pi + 1 == n_parts;
                 let end = if b.end && last { " \u{220e}" } else { "" };
+                let tag = match (&b.tag, last) {
+                    (Some(t), true) => format!(" {t}"),
+                    _ => String::new(),
+                };
                 match part {
                     crate::human_view::Part::Text(t) => {
-                        let lead = b.proof_label.as_deref().filter(|_| first_text);
-                        let text = match lead {
-                            Some(l) => format!("{l} {t}{end}"),
-                            None => format!("{t}{end}"),
+                        let head = Some(b.num.as_str()).filter(|_| first_text);
+                        let text = match head {
+                            Some(l) => format!("{l} {t}{tag}{end}"),
+                            None => format!("{t}{tag}{end}"),
                         };
-                        let (svg, h) = hp_paragraph(&text, lead.map(|l| (l, "font-style=\"italic\"")), cols, &ts);
+                        let (svg, h) = hp_paragraph(&text, head.map(|l| (l, bold)), cols, &ts);
                         blocks.push(Block { h, body: svg, keep_next: usize::from(!last) });
                     }
                     crate::human_view::Part::Rows(rows) => {
-                        let lead = b.proof_label.as_deref().filter(|_| first_text);
-                        let parts = hp_rows(rows, content_w, &ts, lead, rows.len() > SPLIT_CHAINS_FROM);
+                        if first_text {
+                            let (svg, h) = hp_paragraph(&b.num, Some((b.num.as_str(), bold)), cols, &ts);
+                            blocks.push(Block { h, body: svg, keep_next: 1 });
+                        }
+                        let parts = hp_rows(rows, content_w, &ts, None, rows.len() > SPLIT_CHAINS_FROM);
                         let n = parts.len();
                         for (ri, (mut svg, mut h)) in parts.into_iter().enumerate() {
                             let last_row = ri + 1 == n;
-                            if last_row && !end.is_empty() {
-                                svg.push_str(&txt(MARGIN + content_w, h + 8.0, BODY_FS, 600, "#17703a", MATH, "\u{220e}").replace("<text ", "<text text-anchor=\"end\" "));
+                            let mark = format!("{}{}", tag.trim(), end);
+                            if last_row && !mark.trim().is_empty() {
+                                svg.push_str(&txt(MARGIN + content_w, h + 8.0, BODY_FS, 600, "#17703a", MATH, &escape_xml(mark.trim())).replace("<text ", "<text text-anchor=\"end\" "));
                                 h += LEADING;
                             }
                             let keep_next = if last_row { usize::from(!last) } else { usize::from(ri + 2 == n) };

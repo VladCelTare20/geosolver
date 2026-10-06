@@ -47,6 +47,7 @@ pub fn unavailable(raw_steps: usize) -> HumanProof {
         as_drawn: false,
         plan: Vec::new(),
         goal: None,
+        main: None,
         metrics: Metrics { raw_steps, ..Metrics::default() },
     }
 }
@@ -80,7 +81,7 @@ pub fn score(hp: &HumanProof) -> usize {
             _ => 0,
         })
         .sum();
-    hp.metrics.human_cost + 8 * hp.metrics.similar_steps + 2 * crowded
+    hp.metrics.human_cost + 20 * hp.metrics.similar_steps + 2 * crowded
 }
 
 fn guarded(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts, library: bool) -> Option<HumanProof> {
@@ -171,7 +172,7 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     claims::drop_self_reasons(&mut blocks);
     let as_drawn = p.as_drawn;
     let setup = setup_lines(&cx, &blocks);
-    let mut hp = HumanProof { version: 1, available: true, setup, blocks, as_drawn, plan: Vec::new(), goal: None, metrics: Metrics::default() };
+    let mut hp = HumanProof { version: 1, available: true, setup, blocks, as_drawn, plan: Vec::new(), goal: None, main: cx.main_triangle().map(|m| (m[0], m[1], m[2])), metrics: Metrics::default() };
     let violations = check::check(&cx, &mut hp, opts.strict);
     tick("check");
     hp.metrics.check_violations = violations;

@@ -691,9 +691,12 @@ pub struct Rendered {
 }
 
 pub fn render(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], raw_line: &dyn Fn(FactId) -> String) -> Rendered {
-    let main = (t.n >= 3 && t.orient(0, 1, 2) != 0).then_some((0, 1, 2));
-    let old = MAIN.with(|c| c.replace(main));
-    let r = with_notation(&hp.setup, || with_steps(&hp.blocks, || render_inner(t, hp, aux_desc, raw_line)));
+    with_proof(hp, || render_inner(t, hp, aux_desc, raw_line))
+}
+
+pub fn with_proof<R>(hp: &HumanProof, f: impl FnOnce() -> R) -> R {
+    let old = MAIN.with(|c| c.replace(hp.main));
+    let r = with_notation(&hp.setup, || with_steps(&hp.blocks, f));
     MAIN.with(|c| c.set(old));
     r
 }
