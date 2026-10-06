@@ -2,6 +2,15 @@
 resolver = "2"
 members = ["alphageometry-rs", "ag-studio"]
 
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/VladCelTare20/geosolver"
+homepage = "https://github.com/VladCelTare20/geosolver"
+publish = false
+
 # Cargo profiles must be declared at the workspace root once a crate becomes a
 # member (member-level profiles are ignored). These mirror the engine's original
 # release tuning. `panic = "unwind"` (the default) is kept so the auxiliary-point

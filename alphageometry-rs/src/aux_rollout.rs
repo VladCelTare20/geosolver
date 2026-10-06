@@ -367,10 +367,7 @@ impl Search<'_> {
                     None => continue,
                 }
             } else {
-                match self.pool.sample(&mut rng) {
-                    Some(i) => Pick::Base(i as u32),
-                    None => return None,
-                }
+                Pick::Base(self.pool.sample(&mut rng)? as u32)
             };
             if picks.contains(&pick) {
                 continue;

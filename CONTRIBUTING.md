@@ -6,7 +6,7 @@ Before opening one:
 
 ```sh
 cargo fmt --all
-cargo clippy --workspace --all-targets --release
+cargo clippy --workspace --all-targets --release -- -D warnings
 cargo test --workspace --release
 cargo run --release -p alphageometry-rs --bin ddar -- --bench   # must stay 26/26
 ```

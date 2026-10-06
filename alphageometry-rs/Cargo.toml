@@ -1,10 +1,14 @@
 [package]
 name = "alphageometry-rs"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.88"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "A high-performance Rust reimplementation of the AlphaGeometry2 DDAR symbolic geometry engine"
-license = "Apache-2.0"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+publish.workspace = true
 
 [lib]
 name = "ddar"

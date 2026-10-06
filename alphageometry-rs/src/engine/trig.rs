@@ -36,6 +36,8 @@ pub fn eligible_goal(name: &str) -> bool {
     matches!(name, "cong" | "eqratio" | "rconst" | "distmeq")
 }
 
+type VarPair = (VarId, VarId);
+
 #[derive(Clone, Default)]
 pub(crate) struct TrigState {
     enabled: bool,
@@ -50,7 +52,7 @@ pub(crate) struct TrigState {
     pub(super) vref: FxHashMap<Class, ClassRef>,
     vlink_done: FxHashSet<(Class, (VarId, VarId))>,
     mult_done: FxHashSet<(Class, u8)>,
-    conv_done: FxHashSet<((VarId, VarId), (VarId, VarId), Class)>,
+    conv_done: FxHashSet<(VarPair, VarPair, Class)>,
     rows: usize,
     eq_rows: usize,
     pub(crate) rejected: usize,

@@ -66,6 +66,7 @@ enum Tangent {
 }
 
 type Triple = (PointId, PointId, PointId);
+type Centre = (PointId, bool, Vec<FactId>);
 
 /// The main logical engine.
 #[derive(Clone)]
@@ -1155,7 +1156,7 @@ impl Ddar {
         }
         // Pairwise centres of similitude, keyed by the circle pair.
         // (z, internal?, premises)
-        let mut centres: FxHashMap<(usize, usize), Vec<(PointId, bool, Vec<FactId>)>> =
+        let mut centres: FxHashMap<(usize, usize), Vec<Centre>> =
             FxHashMap::default();
         let mut dirs: FxHashMap<(PointId, PointId), Angle> = FxHashMap::default();
         for i in 0..circs.len() {
@@ -1310,20 +1311,6 @@ impl Ddar {
         changed
     }
 
-    /// The angle bisector theorem, both directions (rules r11/r12 of the
-    /// original AlphaGeometry, not derivable by the closure without auxiliary
-    /// constructions):
-    ///
-    /// For `x` on line `bc` and apex `a`:
-    /// * if `ax` bisects the angle at `a` (`2·dir(ax) ≡ dir(ab) + dir(ac)`),
-    ///   then `|xb| / |xc| = |ab| / |ac|`;
-    /// * conversely, if the ratio holds, `ax` bisects the angle.
-    ///
-    /// In directed angles mod π the bisector relation is satisfied by both the
-    /// internal and the external bisector, and the *unsigned* ratio conclusion
-    /// holds in both cases (internal/external division), so both directions
-    /// are sound without a case split.
-
     /// **Radical axis** — the classical DDAR blind spot. If two known circles
     /// share two points U and V, any point X whose powers to the two circles
     /// are *symbolically* equal lies on line UV. The power of X is witnessed
@@ -1475,6 +1462,19 @@ impl Ddar {
         changed
     }
 
+    /// The angle bisector theorem, both directions (rules r11/r12 of the
+    /// original AlphaGeometry, not derivable by the closure without auxiliary
+    /// constructions):
+    ///
+    /// For `x` on line `bc` and apex `a`:
+    /// * if `ax` bisects the angle at `a` (`2·dir(ax) ≡ dir(ab) + dir(ac)`),
+    ///   then `|xb| / |xc| = |ab| / |ac|`;
+    /// * conversely, if the ratio holds, `ax` bisects the angle.
+    ///
+    /// In directed angles mod π the bisector relation is satisfied by both the
+    /// internal and the external bisector, and the *unsigned* ratio conclusion
+    /// holds in both cases (internal/external division), so both directions
+    /// are sound without a case split.
     fn search_bisector_theorem(&mut self, ids: &mut Option<PairIds>) -> bool {
         let mut changed = false;
         let ids = ids.get_or_insert_with(|| self.pair_ids());

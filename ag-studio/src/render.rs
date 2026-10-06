@@ -527,7 +527,7 @@ fn fmt_int(n: u64, lang: Lang) -> String {
     let sep = if lang == Lang::Ro { '.' } else { ',' };
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(sep);
         }
         out.push(c);
@@ -886,7 +886,7 @@ fn report_pages_fit(v: &Value, lang: Lang, paginate: bool, fig_max_h: f32, deriv
                 };
                 match part {
                     crate::human_view::Part::Text(t) => {
-                        let head = Some(b.num.as_str()).filter(|_| first_text);
+                        let head = first_text.then_some(b.num.as_str());
                         let text = match head {
                             Some(l) => format!("{l} {t}{tag}{end}"),
                             None => format!("{t}{tag}{end}"),

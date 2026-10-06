@@ -2406,6 +2406,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn corpus_problems_solve_through_the_api() {
         let _heavy = crate::engine::heavy_search_lock();
         let dir = tempfile::tempdir().unwrap();

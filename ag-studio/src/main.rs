@@ -13,6 +13,7 @@ mod db;
 mod engine;
 mod figure;
 mod gate;
+#[allow(clippy::type_complexity)]
 mod human_view;
 mod i18n;
 mod mcp;

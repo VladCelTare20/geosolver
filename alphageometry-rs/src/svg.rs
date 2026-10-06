@@ -1064,7 +1064,8 @@ pub fn render_with(problem: &Problem, opts: &FigureOptions) -> String {
             y1 = y1.max(v.y);
         }
         let (dx, dy) = (x1 - x0, y1 - y0);
-        if !x0.is_finite() || !(dx > 0.0) && !(dy > 0.0) {
+        let positive = |v: f64| v > 0.0;
+        if !x0.is_finite() || !positive(dx) && !positive(dy) {
             (FIG, FIG)
         } else if dx >= dy {
             (FIG, (FIG * (dy / dx).max(MIN_SIDE)).round())

@@ -1078,7 +1078,7 @@ fn square_ratio_text(r2: f64) -> Option<String> {
         p >= 1.0 && near(p / q as f64, r2)
     })?;
     let p = (r2 * q as f64).round() as u64;
-    let g = (1..=p.min(q)).rev().find(|g| p % g == 0 && q % g == 0).unwrap_or(1);
+    let g = (1..=p.min(q)).rev().find(|&g| p.is_multiple_of(g) && q.is_multiple_of(g)).unwrap_or(1);
     Some(if q / g == 1 { (p / g).to_string() } else { format!("{}/{}", p / g, q / g) })
 }
 

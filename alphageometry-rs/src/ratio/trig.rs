@@ -17,8 +17,10 @@ const MAX_SIN_CERTS: usize = 256;
 const MAX_CLASS_ROWS: usize = 4000;
 const MAX_ROUNDS: usize = 64;
 
+type PrimeExp = (i64, i64, i64);
+
 /// `(degrees, Σ eₚ·ln p = ln sin)` for the tabulated angles. No 15°, 72°, 75°.
-const KNOWN_SINES: &[(i64, &[(i64, i64, i64)])] = &[
+const KNOWN_SINES: &[(i64, &[PrimeExp])] = &[
     (30, &[(2, -1, 1)]),
     (45, &[(2, -1, 2)]),
     (60, &[(3, 1, 2), (2, -1, 1)]),
@@ -720,9 +722,8 @@ impl Figure {
             qi += 1;
             let atoms: BTreeSet<LAtom> = m.iter().filter_map(|k| k.len()).collect();
             for s in atoms {
-                if !equal.contains_key(&s) {
-                    let c = self.congruent_candidates(s);
-                    equal.insert(s, c);
+                if let std::collections::btree_map::Entry::Vacant(slot) = equal.entry(s) {
+                    slot.insert(self.congruent_candidates(s));
                 }
                 for s2 in equal[&s].clone() {
                     let mut m2 = m.clone();

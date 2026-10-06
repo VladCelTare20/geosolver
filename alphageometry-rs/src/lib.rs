@@ -31,6 +31,20 @@ pub mod engine;
 pub mod fuzz;
 pub(crate) mod fingerprint;
 pub mod geo;
+#[allow(
+    clippy::type_complexity,
+    clippy::too_many_arguments,
+    clippy::unnecessary_lazy_evaluations,
+    clippy::map_entry,
+    clippy::manual_is_multiple_of,
+    clippy::question_mark,
+    clippy::ptr_arg,
+    clippy::unnecessary_sort_by,
+    clippy::needless_range_loop,
+    clippy::collapsible_match,
+    clippy::redundant_closure,
+    clippy::only_used_in_recursion
+)]
 pub mod human;
 pub mod lincomb;
 pub mod lowlevel;

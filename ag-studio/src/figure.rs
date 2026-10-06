@@ -54,6 +54,8 @@ struct El {
 }
 
 type RightAngle = (String, Vec<Pt>, Vec<(Pt, Pt, u32, u32)>);
+type MetricPairs = (Vec<(String, String)>, Vec<(String, String, String)>);
+type Circle = (Pt, f64, Vec<u32>, Option<u32>, bool);
 
 struct Frame {
     x0: f64,
@@ -165,7 +167,7 @@ impl Uf {
     }
 }
 
-fn metric_pairs(goal: &str) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
+fn metric_pairs(goal: &str) -> MetricPairs {
     let mut d = Vec::new();
     let mut a = Vec::new();
     for (key, out_angles) in [("dist(", false), ("angle(", true)] {
@@ -498,8 +500,8 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     }
 
     // Circles: cyclic sets, and centres with three or more equidistant points.
-    let mut circles: Vec<(Pt, f64, Vec<u32>, Option<u32>, bool)> = Vec::new();
-    let push_circle = |c: Pt, r: f64, on: Vec<u32>, centre: Option<u32>, aux: bool, circles: &mut Vec<(Pt, f64, Vec<u32>, Option<u32>, bool)>| {
+    let mut circles: Vec<Circle> = Vec::new();
+    let push_circle = |c: Pt, r: f64, on: Vec<u32>, centre: Option<u32>, aux: bool, circles: &mut Vec<Circle>| {
         if !finite(c) || !r.is_finite() || r < 1e-6 || r > max_r {
             return;
         }

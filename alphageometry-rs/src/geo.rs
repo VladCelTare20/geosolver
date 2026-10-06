@@ -896,7 +896,7 @@ fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
 
 /// Decompose a metric expression into a rational linear combination of
 /// distances plus a numeric constant: `Σ cᵢ·|aᵢbᵢ| + k`.
-fn as_dist_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String)>, f64)> {
+fn as_dist_lincomb(e: &MExpr) -> Option<(Vec<DistTerm>, f64)> {
     match e {
         MExpr::Num(v) => Some((Vec::new(), *v)),
         MExpr::Dist(a, b) => Some((vec![(1.0, a.clone(), b.clone())], 0.0)),
@@ -971,7 +971,7 @@ fn as_dist_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<Vec<(Rat, String, String)>
 
 /// Decompose a metric expression into a rational linear combination of
 /// geometric angles plus a constant: `Σ cᵢ·∠(xᵢ yᵢ zᵢ) + k` (degrees).
-fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String, String)>, f64)> {
+fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<AngleTerm<f64>>, f64)> {
     match e {
         MExpr::Num(v) => Some((Vec::new(), *v)),
         MExpr::Angle(a, b, c) => Some((vec![(1.0, a.clone(), b.clone(), c.clone())], 0.0)),
@@ -1015,7 +1015,7 @@ fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String, String)>, f6
 /// Classify `lhs = rhs` as a rational linear combination of geometric angles
 /// equal to a constant (`Σ cᵢ·∠XᵢYᵢZᵢ = K` degrees) — the shape lowered to the
 /// engine's linear `angeq` predicate. `∠XYZ = ∠ZYX`, so mirrored terms merge.
-fn as_angle_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<(Vec<(Rat, String, String, String)>, Rat)> {
+fn as_angle_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<(Vec<AngleTerm<Rat>>, Rat)> {
     let (lt, lk) = as_angle_lincomb(lhs)?;
     let (rt, rk) = as_angle_lincomb(rhs)?;
     let mut terms = lt;
@@ -2533,6 +2533,9 @@ fn solve_constrained(
 // ---------------------------------------------------------------------------
 // Building the whole scene from statements
 // ---------------------------------------------------------------------------
+
+type DistTerm = (f64, String, String);
+type AngleTerm<C> = (C, String, String, String);
 
 /// Result of building one instance: the scene, the (optional) goal predicate,
 /// and every absolute-length constraint `|ab| = v` (from `dist(a,b) = <num>`),

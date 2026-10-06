@@ -37,13 +37,13 @@ mod tests {
     #[test]
     fn a_check_past_the_deadline_stops_the_work_and_nothing_else_does() {
         let d = Instant::now() + Duration::from_millis(30);
-        let mut spins = 0u64;
+        let spins = Cell::new(0u64);
         let r = within(Some(d), || loop {
-            spins += 1;
+            spins.set(spins.get() + 1);
             check();
         });
         assert!(r.is_none());
-        assert!(spins > 0);
+        assert!(spins.get() > 0);
         assert!(Instant::now() >= d);
         assert_eq!(within(None, || 7), Some(7));
         check();

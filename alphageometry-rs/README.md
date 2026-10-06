@@ -376,7 +376,7 @@ that check *every* forced fact is numerically true):
 ```sh
 cargo test                       # unit + integration (26/26) + aux rediscovery
 cargo test --lib rational        # 4000-case property fuzz of Rat vs BigRational
-cargo clippy --all-targets       # lints (clean)
+cargo clippy --workspace --all-targets --release -- -D warnings   # lints (clean)
 ```
 
 ## Architecture
