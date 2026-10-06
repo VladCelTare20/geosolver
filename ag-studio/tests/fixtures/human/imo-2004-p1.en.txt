@@ -1,39 +1,38 @@
-Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Let F be the foot of the perpendicular from B to AR.
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in step 8, where the figure-angle form would depend on the configuration. Let ω₂ be the circle (CNR), with center O₂; P lies on ω₂. Let F be the foot of the perpendicular from B to AR.
 
-Plan: it suffices to show that F, N, B, A are concyclic and R, N, F, O are concyclic.
+Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and A, F, R, P are collinear.
 
-1. We show that F, N, B, A are concyclic:
+1. BC is a diameter, so ∠BNC = 90°. (1)
+
+2. We show that F, N, B, A are concyclic:
 
 ∠BFA = 90°    [BF ⟂ AR]
-     = ∠BNA    [BC is a diameter]
+     = ∠BNA    [∠BNC = 90°, by (1)]
 
-So F, N, B, A are concyclic. (1)
+So F, N, B, A are concyclic. (2)
 
-2. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (1), so FN = BF (equal arcs and chords). (2)
+3. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (2), so FN = BF (equal arcs and chords). (3)
 
-3. By (2), OB = ON and FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (3)
+4. By (3), OB = ON and FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
 
-4. We show that R, N, F, O are concyclic:
+5. NC ⟂ NB, by (1) and OF ⟂ NB, by (4), so NC ∥ OF. (5)
 
-∠NFA = ∠NFB − 90°    [BF ⟂ AR]
-     = 90° − 2∠NBF    [FB = FN: triangle FBN is isosceles, by (2)]
-     = 90° − 2∠NAF    [inscribed angles in (ABNF), by (1)]
-     = 90° − ∠A    [AR bisects ∠BAC]
-     = ∠NCM    [BC is a diameter]
+6. We show that R, N, F, O are concyclic:
 
-∠MCN = ½·∠MON    [central angle ∠MON = 2∠MCN]
-     = ∠RON    [OR bisects ∠MON]
+∠RFN = ∠MBN    [F, N, B, A concyclic, by (2)]
+     = 180° − ½·∠MON    [central angle ∠MON = 2∠MBN]
+     = 180° − ∠RON    [OR bisects ∠MON]
 
-So R, N, F, O are concyclic. (4)
+So R, N, F, O are concyclic. (6)
 
-5. We show that P lies on the line BC:
+7. AB·AM = AC·AN (power of the point A with respect to (BMCN)). P, R, M, B concyclic, P, R, N, C on ω₂, A, B, M collinear and A, N, C collinear, so A, F, R, P are collinear (the radical axis theorem). (7)
 
-∡BPC = ∡BMR + ∡RPC    [P, R, M, B concyclic]
-     = ∡BAC + ∡NRM    [P, R, N, C concyclic]
-     = 2∡BAR + ∡NRM    [AR bisects ∠BAC]
-     = 2∡BNF + ∡NRM    [F, N, B, A concyclic, by (1)]
-     = 2∡OFN + ∡NRM    [OF ⟂ BN, by (3)]
-     = ∡ORM + ∡ORN    [R, N, F, O concyclic, by (4)]
-     = 0°    [△OMR ≅ △ONR (ASA); △ROM ≅ △RON (SAS); OM = ON]
+8. We show that P lies on the line BC:
+
+∡PCB = ∡NCO + ∡PRN    [P, R, N, C on ω₂]
+     = ∡ONC + ∡PRN    [OC = ON]
+     = ∡NOF + ∡PRN    [NC ∥ OF, by (5)]
+     = ∡PRF    [R, N, F, O concyclic, by (6)]
+     = 0°    [A, F, R, P collinear, by (7)]
 
 So P lies on the line BC, as required. ∎

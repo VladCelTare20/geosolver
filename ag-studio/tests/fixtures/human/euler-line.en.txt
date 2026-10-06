@@ -1,34 +1,38 @@
-Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Let M be the midpoint of BC. Let N be the midpoint of AC.
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in step 7, where the figure-angle form would depend on the configuration. Let M be the midpoint of BC. Let N be the midpoint of AC.
 
-Plan: it suffices to show that △AHG ∼ △MOG.
+Plan: it suffices to show that AH ∥ OM and △AHG ∼ △MOG.
 
-1. OB = OC and MB = MC, so OM is the perpendicular bisector of BC; hence OM ⟂ BC. (1)
+1. G is the centroid of △ABC, so AG : GM = 2. (1)
 
-2. M and N are the midpoints of CB and CA, so MN is a midline of △CBA; hence MN ∥ BA. (2)
+2. OA = OC and NA = NC, so ON is the perpendicular bisector of AC; hence ON ⟂ AC. (2)
 
-3. AH ⟂ BC and OM ⟂ BC, so AH ∥ OM. (3)
+3. OB = OC and MB = MC, so OM is the perpendicular bisector of BC; hence OM ⟂ BC. (3)
 
-4. We show that △AHB ∼ △MON:
+4. AH ⟂ BC and OM ⟂ BC, by (3), so AH ∥ OM. (4)
 
-∡HAB = ∡(AH, MN)    [MN ∥ BA, by (2)]
-     = ∡OMN    [AH ∥ OM, by (3)]
+5. We show that △AHB ∼ △MON:
 
-∡ABH = ∡(MN, BH)    [MN ∥ BA, by (2)]
-     = ∡MNO    [BH ∥ ON, both ⟂ AC]
+∠HAB = ∠B − 90°    [AH ⟂ BC]
+     = 90° − ∠BMN    [MN is a midline of △CBA]
+     = ∠OMN    [OM ⟂ BC, by (3)]
 
-Hence △AHB ∼ △MON. (4)
+∠ABH = ∠A + 90°    [BH ⟂ AC]
+     = ∠MNC + 90°    [MN is a midline of △CBA]
+     = ∠MNO    [ON ⟂ AC, by (2)]
 
-5. AH ∥ OM, by (3), so ∠HAG = ∠OMG.
+Hence △AHB ∼ △MON. (5)
 
-AH / AG = AH·MN / (AB·MG)    [intercept theorem, AB ∥ MN; MN ∥ BA, by (2)]
-        = MO / MG    [△AHB ∼ △MON, by (4)]
+6. AH ∥ OM, by (4), so ∠HAG = ∠OMA.
 
-Hence △AHG ∼ △MOG. (5)
+MG / AG = 1 / 2    [AG : GM = 2, by (1)]
+        = MN / AB    [MN is a midline of △CBA]
+        = OM / AH    [△AHB ∼ △MON, by (5)]
 
-6. We show that O, G, H are collinear:
+Hence △AHG ∼ △MOG. (6)
 
-∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, by (5)]
-     = ∡OMB + 90°    [AH ⟂ BC]
-     = 0°    [OM ⟂ BC, by (1)]
+7. We show that O, G, H are collinear:
+
+∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, by (6)]
+     = 0°    [AH ∥ OM, by (4)]
 
 So O, G, H are collinear, as required. ∎

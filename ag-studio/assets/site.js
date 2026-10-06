@@ -644,10 +644,64 @@
     function soStmt(st, goal) {
       return goal && hpSame(goal.stmt, st) ? fillKey("hp.required", { stmt: goal.words }) : stmtHtml(st, "s");
     }
+    function splitNames(text, pts) {
+      var sorted = (pts || []).slice().sort(function (a, b) { return b.length - a.length; });
+      var out = [], rest = text;
+      while (rest.length) {
+        var hit = null;
+        for (var i = 0; i < sorted.length; i++) if (rest.indexOf(sorted[i]) === 0) { hit = sorted[i]; break; }
+        if (hit == null || !hit.length) return null;
+        out.push(hit);
+        rest = rest.slice(hit.length);
+      }
+      return out;
+    }
+    function stmtPerp(st) {
+      if (!st) return null;
+      var a = st.args || [];
+      if (st.kind === "perp" && a.length >= 2) {
+        var x = splitNames(a[0], st.points), y = splitNames(a[1], st.points);
+        return x && y && x.length === 2 && y.length === 2 ? [x, y] : null;
+      }
+      if (st.kind === "aconst" && a.length >= 2 && a[1] === "90") {
+        var n = splitNames(String(a[0]).replace(/^[\u2220\u2221\u2222]/, ""), st.points);
+        return n && n.length === 3 ? [[n[1], n[0]], [n[1], n[2]]] : null;
+      }
+      return null;
+    }
+    function perpLines(r) {
+      if (r.kind === "atom") {
+        var g = r.args || [];
+        if (r.key === "thales" && g.length >= 3) return [[g[2], g[0]], [g[2], g[1]]];
+        if ((r.key === "perp_bisector" || r.key === "orthocentre") && g.length >= 4) return [[g[0], g[1]], [g[2], g[3]]];
+        return null;
+      }
+      if (r.kind === "hyp") return stmtPerp(r.stmt);
+      if (r.kind === "claim" || r.kind === "engine") return null;
+      return stmtPerp(r);
+    }
+    function sameLine(x, l) { return (x[0] === l[0] && x[1] === l[1]) || (x[0] === l[1] && x[1] === l[0]); }
     function because(own, s, goal) {
       var st = soStmt(s.stmt, goal);
       var rs = s.reasons || [];
       if (!rs.length) return fillKey("hp.hence", { stmt: st });
+      if (rs.length > 1 && rs[0].kind === "atom" && rs[0].key === "parallel" && hpSame(rs[0].stmt, s.stmt) && (rs[0].args || []).length >= 6) {
+        var pa = rs[0].args, extras = rs.slice(1);
+        var pparts = [0, 1].map(function (i) {
+          var l = [pa[2 * i], pa[2 * i + 1]], m = [pa[4], pa[5]];
+          var perp = SP(math(l[0] + l[1] + " \u27c2 " + m[0] + m[1]));
+          var hit = null;
+          extras.forEach(function (r) {
+            if (hit) return;
+            var pl = perpLines(r);
+            if (pl && ((sameLine(pl[0], l) && sameLine(pl[1], m)) || (sameLine(pl[0], m) && sameLine(pl[1], l)))) hit = r;
+          });
+          if (hit && !isFact(hit) && hit.kind === "atom") return perp + " (" + reasonHtml(hit, "n") + ")";
+          if (hit && hit.block != null && (hit.lemma || isFact(hit))) return by(perp, hit.block);
+          return perp;
+        });
+        return cap(fillKey("hp.because", { stmt: st, reasons: joinList(pparts) }));
+      }
       var inner = rs.length === 1 && isFact(rs[0]) && hpSame(rs[0], s.stmt) && (rs[0].because || []).length ? rs[0].because : rs;
       if (inner.length === 1 && inner[0].kind === "atom" && hpSame(inner[0].stmt, s.stmt)) {
         var said = atomSentence(inner[0], s.stmt);
@@ -842,6 +896,7 @@
     for (var li = 0; li < lines.length; li++) {
       var line = lines[li], text = null, cls = "";
       if (line.kind === "directed_angles") { text = SP(esc(T("hp.setup.directed"))); cls = "hp-conv"; }
+      else if (line.kind === "directed_steps") { var ds = (line.steps || []).map(String); text = SP(esc(T(ds.length === 1 ? "hp.setup.directed_steps.one" : "hp.setup.directed_steps.many")).split("{steps}").join(joinList(ds))); cls = "hp-conv"; }
       else if (line.kind === "figure_angles") { text = SP(esc(T("hp.setup.figure"))); cls = "hp-conv"; }
       else if (line.kind === "notation") text = notationLine(line);
       else if (line.kind === "circle") {

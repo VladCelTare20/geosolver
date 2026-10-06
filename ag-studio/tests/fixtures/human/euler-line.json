@@ -599,6 +599,12 @@
         "kind": "directed_angles"
       },
       {
+        "kind": "directed_steps",
+        "steps": [
+          7
+        ]
+      },
+      {
         "kind": "helper",
         "point": "M",
         "meaning": {
@@ -624,6 +630,173 @@
     "blocks": [
       {
         "id": 1,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "rconst",
+          "args": [
+            "AG",
+            "GM",
+            "2"
+          ],
+          "points": [
+            "A",
+            "M",
+            "G"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "rconst",
+              "args": [
+                "AG",
+                "GM",
+                "2"
+              ],
+              "points": [
+                "A",
+                "M",
+                "G"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "centroid",
+                "args": [
+                  "G",
+                  "A",
+                  "B",
+                  "C",
+                  "M",
+                  "N"
+                ],
+                "stmt": {
+                  "kind": "rconst",
+                  "args": [
+                    "AG",
+                    "GM",
+                    "2"
+                  ],
+                  "points": [
+                    "A",
+                    "M",
+                    "G"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          22,
+          23
+        ],
+        "points": [
+          "G",
+          "A",
+          "B",
+          "C",
+          "M",
+          "N"
+        ],
+        "objects": [],
+        "step": 1,
+        "tag": true
+      },
+      {
+        "id": 2,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "perp",
+          "args": [
+            "ON",
+            "AC"
+          ],
+          "points": [
+            "A",
+            "C",
+            "O",
+            "N"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "perp",
+              "args": [
+                "ON",
+                "AC"
+              ],
+              "points": [
+                "A",
+                "C",
+                "O",
+                "N"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "perp_bisector",
+                "args": [
+                  "O",
+                  "N",
+                  "A",
+                  "C"
+                ],
+                "stmt": {
+                  "kind": "perp",
+                  "args": [
+                    "ON",
+                    "AC"
+                  ],
+                  "points": [
+                    "A",
+                    "C",
+                    "O",
+                    "N"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          19
+        ],
+        "points": [
+          "O",
+          "N",
+          "A",
+          "C"
+        ],
+        "objects": [],
+        "step": 2,
+        "tag": true
+      },
+      {
+        "id": 3,
         "kind": "step",
         "n": null,
         "stmt": {
@@ -691,8 +864,7 @@
           }
         ],
         "engine_steps": [
-          22,
-          23
+          19
         ],
         "points": [
           "O",
@@ -701,94 +873,11 @@
           "C"
         ],
         "objects": [],
-        "step": 1,
+        "step": 3,
         "tag": true
       },
       {
-        "id": 2,
-        "kind": "step",
-        "n": null,
-        "stmt": {
-          "kind": "para",
-          "args": [
-            "MN",
-            "BA"
-          ],
-          "points": [
-            "A",
-            "B",
-            "M",
-            "N"
-          ]
-        },
-        "body": [
-          {
-            "kind": "because",
-            "stmt": {
-              "kind": "para",
-              "args": [
-                "MN",
-                "BA"
-              ],
-              "points": [
-                "A",
-                "B",
-                "M",
-                "N"
-              ]
-            },
-            "reasons": [
-              {
-                "kind": "atom",
-                "key": "midline",
-                "args": [
-                  "M",
-                  "N",
-                  "B",
-                  "A",
-                  "C"
-                ],
-                "stmt": {
-                  "kind": "para",
-                  "args": [
-                    "MN",
-                    "BA"
-                  ],
-                  "points": [
-                    "A",
-                    "B",
-                    "M",
-                    "N"
-                  ]
-                },
-                "from": []
-              }
-            ],
-            "combination": [
-              {
-                "reason": 0,
-                "row": 0,
-                "coef": "1"
-              }
-            ]
-          }
-        ],
-        "engine_steps": [
-          19
-        ],
-        "points": [
-          "M",
-          "N",
-          "B",
-          "A",
-          "C"
-        ],
-        "objects": [],
-        "step": 2,
-        "tag": true
-      },
-      {
-        "id": 3,
+        "id": 4,
         "kind": "step",
         "n": null,
         "stmt": {
@@ -846,6 +935,24 @@
                   ]
                 },
                 "from": []
+              },
+              {
+                "kind": "perp",
+                "args": [
+                  "OM",
+                  "BC"
+                ],
+                "points": [
+                  "B",
+                  "C",
+                  "O",
+                  "M"
+                ],
+                "step": null,
+                "block": 3,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
               }
             ],
             "combination": [
@@ -858,7 +965,8 @@
           }
         ],
         "engine_steps": [
-          19
+          22,
+          23
         ],
         "points": [
           "A",
@@ -869,11 +977,11 @@
           "C"
         ],
         "objects": [],
-        "step": 3,
+        "step": 4,
         "tag": true
       },
       {
-        "id": 4,
+        "id": 5,
         "kind": "claim",
         "n": 1,
         "stmt": {
@@ -895,30 +1003,30 @@
           {
             "kind": "chain",
             "terms": [
-              "∡HAB",
-              "∡(AH, MN)",
-              "∡OMN"
+              "∠HAB",
+              "∠B − 90°",
+              "90° − ∠BMN",
+              "∠OMN"
             ],
             "links": [
               {
                 "reasons": [
                   {
-                    "kind": "para",
-                    "args": [
-                      "MN",
-                      "BA"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "M",
-                      "N"
-                    ],
-                    "step": null,
-                    "block": 2,
-                    "because": [],
-                    "lemma": true,
-                    "sentence": 0
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "perp",
+                      "args": [
+                        "AH",
+                        "BC"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "H"
+                      ]
+                    },
+                    "step": 9
                   }
                 ],
                 "combination": [
@@ -932,16 +1040,52 @@
               {
                 "reasons": [
                   {
-                    "kind": "para",
+                    "kind": "atom",
+                    "key": "midline",
                     "args": [
-                      "AH",
-                      "OM"
+                      "M",
+                      "N",
+                      "B",
+                      "A",
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "para",
+                      "args": [
+                        "MN",
+                        "BA"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "M",
+                        "N"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "perp",
+                    "args": [
+                      "OM",
+                      "BC"
                     ],
                     "points": [
-                      "A",
+                      "B",
+                      "C",
                       "O",
-                      "M",
-                      "H"
+                      "M"
                     ],
                     "step": null,
                     "block": 3,
@@ -954,41 +1098,41 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               }
             ],
             "then": null,
-            "directed": true
+            "directed": false
           },
           {
             "kind": "chain",
             "terms": [
-              "∡ABH",
-              "∡(MN, BH)",
-              "∡MNO"
+              "∠ABH",
+              "∠A + 90°",
+              "∠MNC + 90°",
+              "∠MNO"
             ],
             "links": [
               {
                 "reasons": [
                   {
-                    "kind": "para",
-                    "args": [
-                      "MN",
-                      "BA"
-                    ],
-                    "points": [
-                      "A",
-                      "B",
-                      "M",
-                      "N"
-                    ],
-                    "step": null,
-                    "block": 2,
-                    "because": [],
-                    "lemma": true,
-                    "sentence": 0
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "perp",
+                      "args": [
+                        "BH",
+                        "AC"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "H"
+                      ]
+                    },
+                    "step": 10
                   }
                 ],
                 "combination": [
@@ -1003,26 +1147,25 @@
                 "reasons": [
                   {
                     "kind": "atom",
-                    "key": "parallel",
+                    "key": "midline",
                     "args": [
-                      "B",
-                      "H",
-                      "O",
+                      "M",
                       "N",
+                      "B",
                       "A",
                       "C"
                     ],
                     "stmt": {
                       "kind": "para",
                       "args": [
-                        "BH",
-                        "ON"
+                        "MN",
+                        "BA"
                       ],
                       "points": [
+                        "A",
                         "B",
-                        "O",
-                        "N",
-                        "H"
+                        "M",
+                        "N"
                       ]
                     },
                     "from": []
@@ -1035,10 +1178,39 @@
                     "coef": "1"
                   }
                 ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "perp",
+                    "args": [
+                      "ON",
+                      "AC"
+                    ],
+                    "points": [
+                      "A",
+                      "C",
+                      "O",
+                      "N"
+                    ],
+                    "step": null,
+                    "block": 2,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
               }
             ],
             "then": null,
-            "directed": true
+            "directed": false
           },
           {
             "kind": "because",
@@ -1073,11 +1245,11 @@
           "H"
         ],
         "objects": [],
-        "step": 4,
+        "step": 5,
         "tag": true
       },
       {
-        "id": 5,
+        "id": 6,
         "kind": "step",
         "n": null,
         "stmt": {
@@ -1099,7 +1271,7 @@
             "kind": "chain",
             "terms": [
               "∠HAG",
-              "∠OMG"
+              "∠OMA"
             ],
             "links": [
               {
@@ -1117,7 +1289,7 @@
                       "H"
                     ],
                     "step": null,
-                    "block": 3,
+                    "block": 4,
                     "because": [],
                     "lemma": true,
                     "sentence": 0
@@ -1138,55 +1310,28 @@
           {
             "kind": "chain",
             "terms": [
-              "AH / AG",
-              "AH·MN / (AB·MG)",
-              "MO / MG"
+              "MG / AG",
+              "1 / 2",
+              "MN / AB",
+              "OM / AH"
             ],
             "links": [
               {
                 "reasons": [
                   {
-                    "kind": "atom",
-                    "key": "intercept",
+                    "kind": "rconst",
                     "args": [
-                      "G",
-                      "A",
-                      "M",
-                      "B",
-                      "N"
-                    ],
-                    "stmt": {
-                      "kind": "eqratio",
-                      "args": [
-                        "GA",
-                        "GM",
-                        "GB",
-                        "GN"
-                      ],
-                      "points": [
-                        "A",
-                        "B",
-                        "M",
-                        "N",
-                        "G"
-                      ]
-                    },
-                    "from": []
-                  },
-                  {
-                    "kind": "para",
-                    "args": [
-                      "MN",
-                      "BA"
+                      "AG",
+                      "GM",
+                      "2"
                     ],
                     "points": [
                       "A",
-                      "B",
                       "M",
-                      "N"
+                      "G"
                     ],
                     "step": null,
-                    "block": 2,
+                    "block": 1,
                     "because": [],
                     "lemma": true,
                     "sentence": 0
@@ -1195,8 +1340,44 @@
                 "combination": [
                   {
                     "reason": 0,
-                    "row": 1,
+                    "row": 0,
                     "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "midline",
+                    "args": [
+                      "M",
+                      "N",
+                      "B",
+                      "A",
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "para",
+                      "args": [
+                        "MN",
+                        "BA"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "M",
+                        "N"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 1,
+                    "coef": "1"
                   }
                 ]
               },
@@ -1205,7 +1386,7 @@
                   {
                     "kind": "claim",
                     "n": 1,
-                    "block": 4,
+                    "block": 5,
                     "step": 19
                   }
                 ],
@@ -1248,6 +1429,7 @@
         "points": [
           "A",
           "B",
+          "C",
           "O",
           "M",
           "N",
@@ -1255,11 +1437,11 @@
           "H"
         ],
         "objects": [],
-        "step": 5,
+        "step": 6,
         "tag": true
       },
       {
-        "id": 6,
+        "id": 7,
         "kind": "conclusion",
         "n": null,
         "stmt": {
@@ -1281,7 +1463,6 @@
             "terms": [
               "∡OGH",
               "∡(OM, AH)",
-              "∡OMB + 90°",
               "0°"
             ],
             "links": [
@@ -1301,7 +1482,7 @@
                       "H"
                     ],
                     "step": 22,
-                    "block": 5,
+                    "block": 6,
                     "because": []
                   }
                 ],
@@ -1316,47 +1497,19 @@
               {
                 "reasons": [
                   {
-                    "kind": "hyp",
-                    "stmt": {
-                      "kind": "perp",
-                      "args": [
-                        "AH",
-                        "BC"
-                      ],
-                      "points": [
-                        "A",
-                        "B",
-                        "C",
-                        "H"
-                      ]
-                    },
-                    "step": 9
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1"
-                  }
-                ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "perp",
+                    "kind": "para",
                     "args": [
-                      "OM",
-                      "BC"
+                      "AH",
+                      "OM"
                     ],
                     "points": [
-                      "B",
-                      "C",
+                      "A",
                       "O",
-                      "M"
+                      "M",
+                      "H"
                     ],
                     "step": null,
-                    "block": 1,
+                    "block": 4,
                     "because": [],
                     "lemma": true,
                     "sentence": 0
@@ -1366,7 +1519,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               }
@@ -1407,12 +1560,13 @@
             ]
           }
         ],
-        "step": 6,
+        "step": 7,
         "tag": false
       }
     ],
     "plan": [
-      5
+      4,
+      6
     ],
     "goal": {
       "kind": "collinear",
@@ -1425,19 +1579,19 @@
     "metrics": {
       "raw_steps": 27,
       "derived": 17,
-      "blocks": 6,
+      "blocks": 7,
       "claims": 1,
-      "sentences": 10,
-      "chain_links": 10,
+      "sentences": 11,
+      "chain_links": 12,
       "chains": 5,
       "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 255,
-      "lines_en": 23,
-      "citations": 14,
+      "words_en": 303,
+      "lines_en": 27,
+      "citations": 17,
       "aux_shown": 0,
-      "human_cost": 63,
+      "human_cost": 71,
       "reproved": 3,
       "silent": 9,
       "pruned": 5,
@@ -1446,11 +1600,11 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 2,
-      "theorem_steps": 3,
-      "steps": 6,
+      "theorem_steps": 4,
+      "steps": 7,
       "multi_fact_links": 0,
-      "undirected_chains": 1,
-      "directed_chains": 3
+      "undirected_chains": 3,
+      "directed_chains": 1
     }
   }
 }

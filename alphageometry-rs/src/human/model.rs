@@ -40,6 +40,7 @@ pub enum GoalWords {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SetupLine {
     DirectedAngles,
+    DirectedSteps { steps: Vec<u16> },
     FigureAngles,
     Circle { name: String, through: Vec<PointId>, centre: Option<PointId>, diameter: Option<Line> },
     Aux { point: PointId, aux_index: usize, wording: Option<super::aux::AuxWording> },

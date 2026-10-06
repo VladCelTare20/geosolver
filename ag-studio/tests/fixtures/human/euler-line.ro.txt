@@ -1,34 +1,38 @@
-Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
+Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pasul 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
 
-Ideea: este suficient să arătăm că △AHG ∼ △MOG.
+Ideea: este suficient să arătăm că AH ∥ OM și △AHG ∼ △MOG.
 
-1. OB = OC și MB = MC ⇒ OM este mediatoarea segmentului BC ⇒ OM ⟂ BC. (1)
+1. G este centrul de greutate al triunghiului ABC ⇒ AG : GM = 2. (1)
 
-2. M și N sunt mijloacele segmentelor CB și CA ⇒ MN este linie mijlocie în △CBA ⇒ MN ∥ BA. (2)
+2. OA = OC și NA = NC ⇒ ON este mediatoarea segmentului AC ⇒ ON ⟂ AC. (2)
 
-3. AH ⟂ BC și OM ⟂ BC ⇒ AH ∥ OM. (3)
+3. OB = OC și MB = MC ⇒ OM este mediatoarea segmentului BC ⇒ OM ⟂ BC. (3)
 
-4. Arătăm că △AHB ∼ △MON:
+4. AH ⟂ BC și OM ⟂ BC, din (3) ⇒ AH ∥ OM. (4)
 
-∡HAB = ∡(AH, MN)    [MN ∥ BA, din (2)]
-     = ∡OMN    [AH ∥ OM, din (3)]
+5. Arătăm că △AHB ∼ △MON:
 
-∡ABH = ∡(MN, BH)    [MN ∥ BA, din (2)]
-     = ∡MNO    [BH ∥ ON, ambele ⟂ AC]
+∢HAB = ∢B − 90°    [AH ⟂ BC]
+     = 90° − ∢BMN    [MN este linie mijlocie în △CBA]
+     = ∢OMN    [OM ⟂ BC, din (3)]
 
-Deci △AHB ∼ △MON. (4)
+∢ABH = ∢A + 90°    [BH ⟂ AC]
+     = ∢MNC + 90°    [MN este linie mijlocie în △CBA]
+     = ∢MNO    [ON ⟂ AC, din (2)]
 
-5. AH ∥ OM, din (3) ⇒ ∢HAG = ∢OMG.
+Deci △AHB ∼ △MON. (5)
 
-AH / AG = AH·MN / (AB·MG)    [teorema lui Thales, AB ∥ MN; MN ∥ BA, din (2)]
-        = MO / MG    [△AHB ∼ △MON, din (4)]
+6. AH ∥ OM, din (4) ⇒ ∢HAG = ∢OMA.
 
-Deci △AHG ∼ △MOG. (5)
+MG / AG = 1 / 2    [AG : GM = 2, din (1)]
+        = MN / AB    [MN este linie mijlocie în △CBA]
+        = OM / AH    [△AHB ∼ △MON, din (5)]
 
-6. Arătăm că punctele O, G, H sunt coliniare:
+Deci △AHG ∼ △MOG. (6)
 
-∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, din (5)]
-     = ∡OMB + 90°    [AH ⟂ BC]
-     = 0°    [OM ⟂ BC, din (1)]
+7. Arătăm că punctele O, G, H sunt coliniare:
+
+∡OGH = ∡(OM, AH)    [△AHG ∼ △MOG, din (6)]
+     = 0°    [AH ∥ OM, din (4)]
 
 Deci punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎

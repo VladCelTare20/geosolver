@@ -276,7 +276,7 @@
           }
         ],
         "engine_steps": [
-          8
+          7
         ],
         "points": [
           "B",
@@ -290,6 +290,105 @@
       },
       {
         "id": 2,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "para",
+          "args": [
+            "AH",
+            "HK"
+          ],
+          "points": [
+            "A",
+            "H",
+            "K"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "para",
+              "args": [
+                "AH",
+                "HK"
+              ],
+              "points": [
+                "A",
+                "H",
+                "K"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "parallel",
+                "args": [
+                  "A",
+                  "H",
+                  "H",
+                  "K",
+                  "B",
+                  "C"
+                ],
+                "stmt": {
+                  "kind": "para",
+                  "args": [
+                    "AH",
+                    "HK"
+                  ],
+                  "points": [
+                    "A",
+                    "H",
+                    "K"
+                  ]
+                },
+                "from": []
+              },
+              {
+                "kind": "perp",
+                "args": [
+                  "BC",
+                  "HK"
+                ],
+                "points": [
+                  "B",
+                  "C",
+                  "H",
+                  "K"
+                ],
+                "step": null,
+                "block": 1,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          7
+        ],
+        "points": [
+          "A",
+          "H",
+          "K",
+          "B",
+          "C"
+        ],
+        "objects": [],
+        "step": 2,
+        "tag": true
+      },
+      {
+        "id": 3,
         "kind": "step",
         "n": null,
         "stmt": {
@@ -316,29 +415,21 @@
               {
                 "reasons": [
                   {
-                    "kind": "atom",
-                    "key": "parallel",
+                    "kind": "para",
                     "args": [
+                      "AH",
+                      "HK"
+                    ],
+                    "points": [
                       "A",
                       "H",
-                      "H",
-                      "K",
-                      "B",
-                      "C"
+                      "K"
                     ],
-                    "stmt": {
-                      "kind": "para",
-                      "args": [
-                        "AH",
-                        "HK"
-                      ],
-                      "points": [
-                        "A",
-                        "H",
-                        "K"
-                      ]
-                    },
-                    "from": []
+                    "step": null,
+                    "block": 2,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
                   }
                 ],
                 "combination": [
@@ -383,11 +474,11 @@
             ]
           }
         ],
-        "step": 2,
+        "step": 3,
         "tag": true
       },
       {
-        "id": 3,
+        "id": 4,
         "kind": "conclusion",
         "n": null,
         "stmt": {
@@ -521,7 +612,7 @@
                       "K"
                     ],
                     "step": 7,
-                    "block": 2,
+                    "block": 3,
                     "because": []
                   }
                 ],
@@ -571,11 +662,13 @@
             ]
           }
         ],
-        "step": 3,
+        "step": 4,
         "tag": false
       }
     ],
-    "plan": [],
+    "plan": [
+      3
+    ],
     "goal": {
       "kind": "concyclic",
       "pts": [
@@ -588,19 +681,19 @@
     "metrics": {
       "raw_steps": 8,
       "derived": 4,
-      "blocks": 3,
+      "blocks": 4,
       "claims": 0,
-      "sentences": 3,
+      "sentences": 4,
       "chain_links": 5,
       "chains": 2,
       "pure_chains": 2,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 98,
-      "lines_en": 9,
-      "citations": 6,
+      "words_en": 123,
+      "lines_en": 11,
+      "citations": 8,
       "aux_shown": 0,
-      "human_cost": 19,
+      "human_cost": 24,
       "reproved": 2,
       "silent": 1,
       "pruned": 1,
@@ -610,7 +703,7 @@
       "check_violations": 0,
       "similar_steps": 0,
       "theorem_steps": 1,
-      "steps": 3,
+      "steps": 4,
       "multi_fact_links": 0,
       "undirected_chains": 1,
       "directed_chains": 0

@@ -70,6 +70,10 @@ pub struct Metrics {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SetupLine {
     DirectedAngles,
+    DirectedSteps {
+        #[serde(default)]
+        steps: Vec<u16>,
+    },
     FigureAngles,
     Circle {
         #[serde(default)]
@@ -549,6 +553,7 @@ fn setup_of(nm: &Naming, s: &eng::SetupLine) -> SetupLine {
     let p = |x: PointId| (nm.point)(x);
     match s {
         eng::SetupLine::DirectedAngles => SetupLine::DirectedAngles,
+        eng::SetupLine::DirectedSteps { steps } => SetupLine::DirectedSteps { steps: steps.clone() },
         eng::SetupLine::FigureAngles => SetupLine::FigureAngles,
         eng::SetupLine::Circle { name, through, centre, diameter } => SetupLine::Circle {
             name: name.clone(),
@@ -1085,6 +1090,52 @@ fn point_set(s: &Stmt) -> Vec<String> {
     p
 }
 
+fn split_names(text: &str, pts: &[String]) -> Option<Vec<String>> {
+    let mut sorted: Vec<&String> = pts.iter().collect();
+    sorted.sort_by_key(|p| std::cmp::Reverse(p.chars().count()));
+    let mut out = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let p = sorted.iter().find(|p| rest.starts_with(p.as_str()))?;
+        out.push(p.to_string());
+        rest = &rest[p.len()..];
+    }
+    Some(out)
+}
+
+fn stmt_perp(st: &Stmt) -> Option<[(String, String); 2]> {
+    let two = |t: &str| -> Option<(String, String)> {
+        match split_names(t, &st.points)?.as_slice() {
+            [a, b] => Some((a.clone(), b.clone())),
+            _ => None,
+        }
+    };
+    match st.kind.as_str() {
+        "perp" if st.args.len() >= 2 => Some([two(&st.args[0])?, two(&st.args[1])?]),
+        "aconst" if st.args.len() >= 2 && st.args[1] == "90" => {
+            let body = st.args[0].trim_start_matches('\u{2220}').trim_start_matches('\u{2221}').trim_start_matches('\u{2222}');
+            match split_names(body, &st.points)?.as_slice() {
+                [a, b, c] => Some([(b.clone(), a.clone()), (b.clone(), c.clone())]),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn perp_lines(r: &Reason) -> Option<[(String, String); 2]> {
+    match r {
+        Reason::Lemma { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Hyp { stmt, .. } => stmt_perp(stmt),
+        Reason::Atom { key: AtomKey::Thales, args, .. } if args.len() >= 3 => Some([(args[2].clone(), args[0].clone()), (args[2].clone(), args[1].clone())]),
+        Reason::Atom { key: AtomKey::PerpBisector | AtomKey::Orthocentre, args, .. } if args.len() >= 4 => Some([(args[0].clone(), args[1].clone()), (args[2].clone(), args[3].clone())]),
+        _ => None,
+    }
+}
+
+fn same_line(a: &(String, String), b: (&str, &str)) -> bool {
+    (a.0 == b.0 && a.1 == b.1) || (a.0 == b.1 && a.1 == b.0)
+}
+
 pub fn same_stmt(a: &Stmt, b: &Stmt) -> bool {
     if a.kind != b.kind || point_set(a) != point_set(b) {
         return false;
@@ -1301,6 +1352,11 @@ impl Cx<'_> {
         while i < setup.len() {
             let s = match &setup[i] {
                 SetupLine::DirectedAngles => Some(self.t("hp.setup.directed").to_string()),
+                SetupLine::DirectedSteps { steps } => {
+                    let s: Vec<String> = steps.iter().map(|k| k.to_string()).collect();
+                    let key = if s.len() == 1 { "hp.setup.directed_steps.one" } else { "hp.setup.directed_steps.many" };
+                    Some(self.t(key).replace("{steps}", &join_list(&s, self.lang)))
+                }
                 SetupLine::FigureAngles => Some(self.t("hp.setup.figure").to_string()),
                 SetupLine::Notation { triangle, circumcentre } => Some(self.notation_line(triangle, circumcentre.as_deref())),
                 SetupLine::Circle { .. } => {
@@ -1364,6 +1420,24 @@ impl Cx<'_> {
         let st = self.so_stmt(stmt, goal);
         if reasons.is_empty() {
             return Some(self.tf("hp.hence", &[("stmt", st)]));
+        }
+        if let [Reason::Atom { key: AtomKey::Parallel, args, stmt: s2, .. }, extras @ ..] = reasons {
+            if same_stmt(s2, stmt) && !extras.is_empty() && args.len() >= 6 {
+                let parts: Vec<String> = (0..2)
+                    .map(|i| {
+                        let l = (args[2 * i].as_str(), args[2 * i + 1].as_str());
+                        let m = (args[4].as_str(), args[5].as_str());
+                        let perp = format!("{}{} \u{27c2} {}{}", l.0, l.1, m.0, m.1);
+                        let hit = extras.iter().find(|r| perp_lines(r).is_some_and(|[x, y]| (same_line(&x, l) && same_line(&y, m)) || (same_line(&x, m) && same_line(&y, l))));
+                        match hit {
+                            Some(Reason::Lemma { block, .. }) | Some(Reason::Fact { block: Some(block), .. }) => self.by(perp, *block),
+                            Some(r @ Reason::Atom { .. }) => format!("{perp} ({})", self.reason(r, Ctx::Note)),
+                            _ => perp,
+                        }
+                    })
+                    .collect();
+                return Some(capitalize(&self.tf("hp.because", &[("stmt", st), ("reasons", join_list(&parts, self.lang))])));
+            }
         }
         let inner: &[Reason] = match reasons {
             [Reason::Fact { stmt: s2, because, .. }] if same_stmt(s2, stmt) && !because.is_empty() => because,
@@ -1818,7 +1892,7 @@ fn walk_proof(hp: &mut eng::HumanProof, f: &mut dyn FnMut(Use, &mut PointId)) {
                 f(Use::Fixed, through);
                 walk_line(to, f);
             }
-            eng::SetupLine::Helper { .. } | eng::SetupLine::DirectedAngles | eng::SetupLine::FigureAngles => {}
+            eng::SetupLine::Helper { .. } | eng::SetupLine::DirectedAngles | eng::SetupLine::DirectedSteps { .. } | eng::SetupLine::FigureAngles => {}
         }
     }
     match hp.goal.as_mut() {

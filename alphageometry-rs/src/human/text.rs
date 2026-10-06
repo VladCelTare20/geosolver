@@ -256,6 +256,7 @@ fn main_vertex(a: PointId, b: PointId, c: PointId) -> bool {
 
 pub fn expr(n: &dyn PointNames, e: &Expr) -> String {
     match e {
+        Expr::Angle { directed: false, .. } if vertex_angle(n, e).is_some() => vertex_angle(n, e).unwrap_or_default(),
         Expr::Angle { a, b, c, directed: false } if main_vertex(*a, *b, *c) => format!("∠{}", n.get(*b)),
         Expr::Angle { a, b, c, directed } => format!("{}{}", if *directed { "∡" } else { "∠" }, n.pts(&[*a, *b, *c])),
         Expr::LineAngle { l1, l2, directed } => format!("{}({}, {})", if *directed { "∡" } else { "∠" }, n.pts(&[l1.0, l1.1]), n.pts(&[l2.0, l2.1])),
@@ -685,6 +686,15 @@ fn shape(tok: &dyn Fn(&str) -> String, s: &str) -> String {
 }
 
 pub const DIRECTED_EN: &str = "∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn.";
+pub fn directed_steps_en(steps: &[u16]) -> String {
+    let s: Vec<String> = steps.iter().map(|k| k.to_string()).collect();
+    match s.as_slice() {
+        [one] => format!("Directed angles are needed only in step {one}, where the figure-angle form would depend on the configuration."),
+        [rest @ .., last] => format!("Directed angles are needed only in steps {} and {last}, where the figure-angle form would depend on the configuration.", rest.join(", ")),
+        [] => String::new(),
+    }
+}
+
 pub const FIGURE_EN: &str = "Angles written ∠ are read from the figure.";
 
 pub struct Rendered {
@@ -709,6 +719,7 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
     for s in &hp.setup {
         match s {
             SetupLine::DirectedAngles => lines.push(DIRECTED_EN.into()),
+            SetupLine::DirectedSteps { steps } => lines.push(directed_steps_en(steps)),
             SetupLine::FigureAngles => lines.push(FIGURE_EN.into()),
             SetupLine::Notation { triangle, circumcentre } => {
                 let tri = n.pts(&[triangle.0, triangle.1, triangle.2]);

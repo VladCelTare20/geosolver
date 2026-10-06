@@ -524,8 +524,9 @@ fn split_links(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], direc
                 None => groups.push((*r, x.clone())),
             }
         }
-        let facts: Vec<usize> = (0..groups.len()).filter(|&i| !is_coll_reason(&l.reasons[groups[i].0 as usize])).collect();
-        let colls: Vec<usize> = (0..groups.len()).filter(|&i| is_coll_reason(&l.reasons[groups[i].0 as usize])).collect();
+        let free = |r: &Reason| is_coll_reason(r) || (tb == Table::Ratio && matches!(r, Reason::Fact { stmt: Stmt::AngleConst { degrees, .. }, .. } | Reason::Hyp { stmt: Stmt::AngleConst { degrees, .. }, .. } if *degrees == Rat::from_int(90)));
+        let facts: Vec<usize> = (0..groups.len()).filter(|&i| !free(&l.reasons[groups[i].0 as usize])).collect();
+        let colls: Vec<usize> = (0..groups.len()).filter(|&i| free(&l.reasons[groups[i].0 as usize])).collect();
         if facts.len() < 2 || facts.len() > MAX_GREEDY {
             done(&mut out_terms, &mut out_links);
             continue;
@@ -1312,7 +1313,11 @@ pub fn cited_blocks(b: &Block) -> BTreeSet<u16> {
 }
 
 fn has_angle_chain(hp: &HumanProof, cx: &Ctx, directed: bool) -> bool {
-    hp.blocks.iter().flat_map(|b| b.body.iter()).any(|s| match s {
+    hp.blocks.iter().any(|b| block_has_angle_chain(b, cx, directed))
+}
+
+fn block_has_angle_chain(b: &Block, cx: &Ctx, directed: bool) -> bool {
+    b.body.iter().any(|s| match s {
         Sentence::Chain { terms, directed: d, .. } => *d == directed && !hides_terms(s) && terms.iter().any(|e| angle_table(cx, e) && super::expr::has_angle(e)),
         Sentence::Pooled { stmt, .. } => directed && matches!(stmt, Stmt::Coll { .. } | Stmt::Cyclic { .. } | Stmt::EqAngle { .. } | Stmt::AngleConst { .. } | Stmt::Para { .. } | Stmt::Perp { .. }),
         _ => false,
@@ -1354,13 +1359,19 @@ pub fn finish(cx: &Ctx, hp: &mut HumanProof) {
     hp.goal = Some(goal_words(cx));
     let directed = has_angle_chain(hp, cx, true);
     let undirected = has_angle_chain(hp, cx, false);
-    hp.setup.retain(|s| !matches!(s, SetupLine::DirectedAngles | SetupLine::FigureAngles));
+    hp.setup.retain(|s| !matches!(s, SetupLine::DirectedAngles | SetupLine::FigureAngles | SetupLine::DirectedSteps { .. }));
     let mut conv: Vec<SetupLine> = Vec::new();
     if undirected {
         conv.push(SetupLine::FigureAngles);
     }
     if directed {
         conv.push(SetupLine::DirectedAngles);
+        if undirected {
+            let steps: Vec<u16> = hp.blocks.iter().filter(|b| block_has_angle_chain(b, cx, true)).map(|b| b.step).collect();
+            if !steps.is_empty() {
+                conv.push(SetupLine::DirectedSteps { steps });
+            }
+        }
     }
     let at = hp.setup.iter().position(|s| !matches!(s, SetupLine::Notation { .. })).unwrap_or(hp.setup.len());
     for (k, c) in conv.into_iter().enumerate() {

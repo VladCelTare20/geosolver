@@ -909,6 +909,7 @@ pub struct Presenter<'w, 'c, 'a> {
     pub allowed: BTreeSet<FactId>,
     pub as_drawn: bool,
     pub force_undirected: bool,
+    pub halve_graph: std::cell::OnceCell<super::route::Graph>,
 }
 
 pub fn collapse_key(cx: &Ctx, a: &Atom, h: FactId) -> Option<(AtomKey, Vec<PointId>)> {
@@ -1810,6 +1811,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
     fn computation(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, ext: &[(LinComb, LemmaRef)]) -> Option<Sentence> {
+        let mut s = self.computation_raw(target, support, h, ext)?;
+        merge_right_angle_links(&mut s);
+        Some(s)
+    }
+
+    fn computation_raw(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, ext: &[(LinComb, LemmaRef)]) -> Option<Sentence> {
         let cx = self.w.cx;
         let split = target.splits.first()?;
         let canon = |c: &LinComb| cx.t.canon_ratio(c);
@@ -2231,6 +2238,45 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         out
     }
 
+    fn halved_lemma(&mut self, lhs: &Expr, rhs: &Expr, h: FactId, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
+        let cx = self.w.cx;
+        let t = cx.t;
+        let (hl, hr0) = (halve_expr(lhs)?, halve_expr(rhs)?);
+        let (_, lraw) = super::expr::eval(t, &hl)?;
+        let (_, rraw0) = super::expr::eval(t, &hr0)?;
+        let hr = if t.holds(Table::Angle, &(&lraw - &rraw0)) {
+            hr0
+        } else {
+            let mut terms = match hr0 {
+                Expr::Lin { terms } => terms,
+                x => vec![(Rat::one(), x)],
+            };
+            terms.push((Rat::one(), Expr::Const { degrees: Rat::from_int(90) }));
+            Expr::Lin { terms }
+        };
+        let (_, rraw) = super::expr::eval(t, &hr)?;
+        if !t.holds(Table::Angle, &(&lraw - &rraw)) {
+            return None;
+        }
+        let row = cx.quot.q(&(&lraw - &rraw));
+        let fake = Target { table: Table::Angle, row, splits: vec![super::classify::Split { l: hl.clone(), r: hr.clone(), lraw: lraw.clone(), rraw: rraw.clone() }], stmt: Stmt::EqAngle { lhs: hl, rhs: hr }, alts: Vec::new() };
+        let splits = fix_exact(cx, &fake, &[(cx.quot.q(&lraw), cx.quot.q(&rraw))]);
+        let w = self.w;
+        let g = self.halve_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, false));
+        let weights: Vec<i64> = w
+            .atoms
+            .iter()
+            .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .collect();
+        let spent = std::sync::atomic::AtomicUsize::new(0);
+        let p = g.search(cx, &splits, 3000, i64::MAX, &spent, &weights)?;
+        if p.nodes.iter().any(|x| classes(x).iter().all(|(_, k)| k.numer_i64().is_some_and(|n| n % 2 == 0)) && !classes(x).is_empty()) {
+            return None;
+        }
+        let s = self.path_sentences(&fake, &p, h, None, focus, &[])?;
+        (!doubled_chain(&s)).then_some(s)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn lemma_build(
         &mut self,
@@ -2254,6 +2300,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let fake = Target { table: target.table, row: plan.sum.clone(), splits: vec![super::classify::Split { l: plan.lhs.clone(), r: plan.rhs.clone(), lraw, rraw }], stmt: stmt.clone(), alts: Vec::new() };
             let p = path_from_groups(0, &plan.start, &plan.items, &plan.groups);
             let mut s = self.path_sentences(&fake, &p, h, None, focus, &refs)?;
+            if target.table == Table::Angle && doubled_chain(&s) {
+                if let Some(s2) = self.halved_lemma(&plan.lhs, &plan.rhs, h, focus) {
+                    s = s2;
+                }
+            }
             if target.table == Table::Ratio {
                 s.iter_mut().for_each(flip_reciprocal_chain);
             }
@@ -2311,6 +2362,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         if let Some(s) = self.path_sentences(target, &p, h, then.clone(), focus, &refs) {
                             links += p.links.len();
                             out.extend(s);
+                            prune_lemmas(&mut out);
                             return Some((out, links));
                         }
                     }
@@ -2331,12 +2383,14 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             } else {
                 out.push(Sentence::Pooled { stmt, reasons, combination });
             }
+            prune_lemmas(&mut out);
             return Some((out, links + 1));
         }
         let p = path_from_groups(si, l, reduced, groups);
         let s = self.path_sentences(target, &p, h, then, focus, &refs)?;
         links += p.links.len();
         out.extend(s);
+        prune_lemmas(&mut out);
         Some((out, links))
     }
 
@@ -2575,6 +2629,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             allowed: BTreeSet::new(),
             as_drawn: false,
             force_undirected: false,
+            halve_graph: std::cell::OnceCell::new(),
         }
     }
 
@@ -2977,5 +3032,52 @@ fn prune_lemmas(out: &mut Vec<Sentence>) {
                 }
             });
         }
+    }
+}
+
+fn even_expr(e: &Expr) -> bool {
+    match e {
+        Expr::Lin { terms } => !terms.is_empty() && terms.iter().all(|(k, x)| matches!(x, Expr::Const { degrees } if degrees.is_zero()) || (k.is_integer() && (k * &Rat::new(1, 2)).is_integer())),
+        _ => false,
+    }
+}
+
+fn doubled_chain(s: &[Sentence]) -> bool {
+    matches!(s, [Sentence::Chain { terms, directed: true, .. }] if terms.iter().all(even_expr))
+}
+
+fn halve_expr(e: &Expr) -> Option<Expr> {
+    if !even_expr(e) {
+        return None;
+    }
+    let Expr::Lin { terms } = e else { return None };
+    let half = Rat::new(1, 2);
+    let out: Vec<(Rat, Expr)> = terms.iter().filter(|(_, x)| !matches!(x, Expr::Const { .. })).map(|(k, x)| (k * &half, x.clone())).collect();
+    match out.as_slice() {
+        [(k, x)] if k.is_one() => Some(x.clone()),
+        [] => None,
+        _ => Some(Expr::Lin { terms: out }),
+    }
+}
+
+fn right_angle_only(l: &Link) -> bool {
+    matches!(l.reasons.as_slice(), [Reason::Fact { stmt: Stmt::AngleConst { degrees, .. }, .. } | Reason::Hyp { stmt: Stmt::AngleConst { degrees, .. }, .. }] if *degrees == Rat::from_int(90))
+}
+
+fn merge_right_angle_links(s: &mut Sentence) {
+    let Sentence::Computation { terms, links, .. } = s else { return };
+    let mut k = 0;
+    while k < links.len() {
+        if links.len() >= 2 && right_angle_only(&links[k]) {
+            let (a, b) = if k + 1 < links.len() { (k, k + 1) } else { (k - 1, k) };
+            let second = links.remove(b);
+            let first = &mut links[a];
+            let base = first.reasons.len() as u16;
+            first.reasons.extend(second.reasons);
+            first.combination.extend(second.combination.into_iter().map(|t| Term { reason: t.reason + base, row: t.row, coef: t.coef }));
+            terms.remove(a + 1);
+            continue;
+        }
+        k += 1;
     }
 }
