@@ -331,6 +331,47 @@ fn lvl(cx: &Ctx, s: &BTreeSet<FactId>) -> u32 {
 }
 
 impl<'c, 'a> Builder<'c, 'a> {
+    fn hyp_justification(&self, key: AtomKey, args: &[PointId]) -> Vec<usize> {
+        let cx = self.cx;
+        let Some(sp) = spec(cx.t, key, args) else { return Vec::new() };
+        let Some(row) = sp.hyps.iter().find_map(|h| if let Hyp::EqOrHalf(Table::Angle, r) = h { Some(r.clone()) } else { None }) else { return Vec::new() };
+        let cands: Vec<usize> = (0..self.atoms.len()).filter(|&i| self.atoms[i].table == Table::Angle && self.atoms[i].avail != NEVER && !matches!(self.atoms[i].src, AtomSrc::Human(k) if matches!(k, AtomKey::SineSupplement | AtomKey::SineComplement))).collect();
+        let unit = LinComb::singleton(ANGLE_UNIT, Rat::one());
+        let mut input: Vec<(u32, &LinComb)> = vec![(0, &unit)];
+        let vertex = |i: usize| -> u32 {
+            let a = &self.atoms[i];
+            match a.src {
+                AtomSrc::Hyp(_) => 1,
+                AtomSrc::Human(AtomKey::CentralAngle) if a.args.len() >= 4 && (a.args[3] == args[0] || a.args[3] == args[3]) => 2,
+                AtomSrc::Human(AtomKey::CentralAngle) => 6 + a.cost,
+                AtomSrc::Human(_) => 3 + a.cost,
+                _ if a.cost == 0 => 0,
+                _ => 5 + a.cost,
+            }
+        };
+        input.extend(cands.iter().map(|&i| (vertex(i), &self.atoms[i].q)));
+        let cands: Vec<usize> = std::iter::once(usize::MAX).chain(cands).collect();
+        let mut two = row.clone();
+        two.mul_assign_scalar(&Rat::from_int(2));
+        for target in [row, two] {
+            let target = cx.quot.q(&cx.t.exact(Table::Angle, &target));
+            let found = super::cert::certify_greedy(&cx.piv[Table::Angle.idx()], &input, &target, &|_| true);
+            if std::env::var_os("HP_THM").is_some() {
+                eprintln!("hyp justification {key:?} {args:?}: {:?}", found.as_ref().map(|c| c.iter().map(|(k, l)| (cands[*k], l.clone())).collect::<Vec<_>>()));
+            }
+            if let Some(cert) = found {
+                let cert: Vec<(usize, Rat)> = cert.into_iter().filter(|(k, _)| cands[*k] != usize::MAX && self.atoms[cands[*k]].cost > 0).collect();
+                if cert.len() <= 3 {
+                    let mut v: Vec<usize> = cert.into_iter().map(|(k, _)| cands[k]).collect();
+                    v.sort_unstable();
+                    v.dedup();
+                    return v;
+                }
+            }
+        }
+        Vec::new()
+    }
+
     pub fn theorems(&mut self, radii_from: usize) -> usize {
         let cx = self.cx;
         let t = cx.t;
@@ -468,9 +509,15 @@ impl<'c, 'a> Builder<'c, 'a> {
             if std::env::var_os("HP_THM").is_some() {
                 eprintln!("theorem atom {key:?} {args:?} avail {} sources {:?} via {:?}", acc.avail, acc.sources, acc.via);
             }
+            let mut via = acc.via;
+            if matches!(key, AtomKey::SineSupplement | AtomKey::SineComplement) {
+                let j = self.hyp_justification(key, &args);
+                if !j.is_empty() || via.is_empty() {
+                    via = j;
+                }
+            }
             let from = self.atoms.len();
             self.push(AtomSrc::Human(key), args, rows, cost(key), acc.sources, acc.avail, acc.avail);
-            let mut via = acc.via;
             via.sort_unstable();
             for a in &mut self.atoms[from..] {
                 a.via = via.clone();

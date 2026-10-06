@@ -2,7 +2,7 @@ Angles written ∠ are read from the figure.
 
 1. BH = BK and CH = CK, so BC is the perpendicular bisector of HK; hence BC ⟂ HK. (1)
 
-2. AH ∥ HK, both ⟂ BC, so H, A, K are collinear. (2)
+2. AH ⟂ BC and HK ⟂ BC, so H, A, K are collinear. (2)
 
 3. We show that A, B, C, K lie on one circle:
 

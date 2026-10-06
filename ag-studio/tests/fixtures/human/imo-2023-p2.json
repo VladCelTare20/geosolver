@@ -2141,7 +2141,6 @@
               "∡(OE, DL) + 90°",
               "∡OEB + ∡BPD + 90°",
               "∡OEA + ∡APD + 90°",
-              "½·∡EOA + ∡APD + 90°",
               "∡EPD"
             ],
             "links": [
@@ -2396,18 +2395,7 @@
                       ]
                     },
                     "from": []
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1/2"
-                  }
-                ]
-              },
-              {
-                "reasons": [
+                  },
                   {
                     "kind": "atom",
                     "key": "central_angle",
@@ -2436,6 +2424,11 @@
                 "combination": [
                   {
                     "reason": 0,
+                    "row": 0,
+                    "coef": "1/2"
+                  },
+                  {
+                    "reason": 1,
                     "row": 0,
                     "coef": "-1/2"
                   }
@@ -3197,9 +3190,9 @@
           {
             "kind": "chain",
             "terms": [
-              "∠BAX",
-              "∠IAC + ∠IAX",
-              "∠XAC"
+              "180° − ∠XAB",
+              "∠XAC − 2∠CAI + 180°",
+              "180° − ∠CAX"
             ],
             "links": [
               {
@@ -3226,7 +3219,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               },
@@ -3279,12 +3272,12 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-2"
+                    "coef": "2"
                   },
                   {
                     "reason": 1,
                     "row": 0,
-                    "coef": "2"
+                    "coef": "-2"
                   }
                 ]
               }
@@ -3341,16 +3334,16 @@
       "blocks": 9,
       "claims": 4,
       "sentences": 11,
-      "chain_links": 36,
+      "chain_links": 35,
       "chains": 7,
-      "pure_chains": 5,
+      "pure_chains": 4,
       "pooled": 0,
       "fallback_blocks": 0,
       "words_en": 605,
-      "lines_en": 56,
+      "lines_en": 55,
       "citations": 43,
       "aux_shown": 0,
-      "human_cost": 152,
+      "human_cost": 157,
       "reproved": 4,
       "silent": 24,
       "pruned": 3,
@@ -3361,7 +3354,7 @@
       "similar_steps": 1,
       "theorem_steps": 5,
       "steps": 9,
-      "multi_fact_links": 2,
+      "multi_fact_links": 3,
       "undirected_chains": 3,
       "directed_chains": 4
     }

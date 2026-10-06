@@ -9,8 +9,8 @@ AB = 2R·sin C    [teorema sinusurilor generalizată în △CAB; OA = OC] (1)
 2. Arătăm că AH = 2R·cos A:
 
 AH = AB·sin∢HBA / sin∢BHA    [teorema sinusurilor în △BHA]
-   = AB·cos A / sin∢BHA    [∢ABH = A + 90°]
-   = AB·cos A / sin C    [C = ∢AHB]
+   = AB·cos A / sin∢BHA    [∢ABH = A + 90°; BH ⟂ AC]
+   = AB·cos A / sin C    [C = ∢AHB; AH ⟂ BC]
    = 2R·cos A    [din (1)] (2)
 
 3. Arătăm că MaO = R·cos A:

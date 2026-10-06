@@ -9,8 +9,8 @@ AB = 2R·sin C    [extended law of sines in △CAB; OA = OC] (1)
 2. We show that AH = 2R·cos A:
 
 AH = AB·sin∠HBA / sin∠BHA    [law of sines in △BHA]
-   = AB·cos A / sin∠BHA    [∠ABH = A + 90°]
-   = AB·cos A / sin C    [C = ∠AHB]
+   = AB·cos A / sin∠BHA    [∠ABH = A + 90°; BH ⟂ AC]
+   = AB·cos A / sin C    [C = ∠AHB; AH ⟂ BC]
    = 2R·cos A    [by (1)] (2)
 
 3. We show that MaO = R·cos A:

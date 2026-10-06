@@ -35,8 +35,7 @@ So T, P, X, O are concyclic. (4)
      = ∡(OE, DL) + 90°    [DL ∥ BC]
      = ∡OEB + ∡BPD + 90°    [inscribed angles in ω₁]
      = ∡OEA + ∡APD + 90°    [inscribed angles in Ω]
-     = ½·∡EOA + ∡APD + 90°    [OA = OE]
-     = ∡EPD    [central angle in Ω]
+     = ∡EPD    [OA = OE; central angle in Ω]
 
 So T, P, E, D are concyclic. (5)
 
@@ -68,7 +67,7 @@ Radii of Ω, so △OAX ≅ △OPX. Hence XA = XP. (7)
 
 9. We show that AX bisects ∠BAC:
 
-∠BAX = ∠IAC + ∠IAX    [AI bisects ∠BAC]
-     = ∠XAC    [XA = XP: triangle XAP is isosceles, by (7); ∡IAP = ∡APX, by (8)]
+180° − ∠XAB = ∠XAC − 2∠CAI + 180°    [AI bisects ∠BAC]
+            = 180° − ∠CAX    [XA = XP: triangle XAP is isosceles, by (7); ∡IAP = ∡APX, by (8)]
 
 So AX bisects ∠BAC, as required. ∎

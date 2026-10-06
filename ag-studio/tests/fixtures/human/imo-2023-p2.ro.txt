@@ -35,8 +35,7 @@ Deci punctele T, P, X, O sunt conciclice. (4)
      = ∡(OE, DL) + 90°    [DL ∥ BC]
      = ∡OEB + ∡BPD + 90°    [unghiuri înscrise în ω₁]
      = ∡OEA + ∡APD + 90°    [unghiuri înscrise în Ω]
-     = ½·∡EOA + ∡APD + 90°    [OA = OE]
-     = ∡EPD    [unghi la centru în Ω]
+     = ∡EPD    [OA = OE; unghi la centru în Ω]
 
 Deci punctele T, P, E, D sunt conciclice. (5)
 
@@ -68,7 +67,7 @@ Raze în Ω ⇒ △OAX ≅ △OPX. Deci XA = XP. (7)
 
 9. Arătăm că AX este bisectoarea unghiului BAC:
 
-∢BAX = ∢IAC + ∢IAX    [AI este bisectoarea ∢BAC]
-     = ∢XAC    [XA = XP: ΔXAP isoscel, din (7); ∡IAP = ∡APX, din (8)]
+180° − ∢XAB = ∢XAC − 2∢CAI + 180°    [AI este bisectoarea ∢BAC]
+            = 180° − ∢CAX    [XA = XP: ΔXAP isoscel, din (7); ∡IAP = ∡APX, din (8)]
 
 Deci AX este bisectoarea unghiului BAC, ceea ce trebuia demonstrat. ∎

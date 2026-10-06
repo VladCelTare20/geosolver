@@ -715,6 +715,10 @@ pub fn with_proof<R>(hp: &HumanProof, f: impl FnOnce() -> R) -> R {
 
 fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], raw_line: &dyn Fn(FactId) -> String) -> Rendered {
     let n = Names::new(t, &hp.setup);
+    if std::env::var_os("HP_COORDS").is_some() {
+        let pts: Vec<String> = (0..t.n as PointId).filter(|&p| t.coord(p).0.is_finite()).map(|p| format!("{} ({:.3}, {:.3})", n.get(p), t.coord(p).0, t.coord(p).1)).collect();
+        eprintln!("COORDS {}", pts.join("; "));
+    }
     let mut lines: Vec<String> = Vec::new();
     let claims: BTreeMap<u16, u16> = hp.blocks.iter().filter_map(|b| if let BlockKind::Claim(k) = b.kind { Some((b.id, k)) } else { None }).collect();
     for s in &hp.setup {

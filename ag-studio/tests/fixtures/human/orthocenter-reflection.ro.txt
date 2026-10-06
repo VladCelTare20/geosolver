@@ -2,7 +2,7 @@ Unghiurile notate ∢ sunt citite din figură.
 
 1. BH = BK și CH = CK ⇒ BC este mediatoarea segmentului HK ⇒ BC ⟂ HK. (1)
 
-2. AH ∥ HK, ambele ⟂ BC ⇒ punctele H, A, K sunt coliniare. (2)
+2. AH ⟂ BC și HK ⟂ BC ⇒ punctele H, A, K sunt coliniare. (2)
 
 3. Arătăm că punctele A, B, C, K sunt conciclice:
 

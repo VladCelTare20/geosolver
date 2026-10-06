@@ -613,20 +613,23 @@ fn split_links(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], direc
                 any.then_some(v)
             })
             .collect();
+        let mut assigned = vec![0i64; parts.len()];
         let home: Vec<usize> = extra
             .iter()
             .map(|&i| {
                 let mut v: Vec<PointId> = Vec::new();
                 super::view::reason_points_pub(&l.reasons[i], &mut v);
-                let mut best = (0usize, theorem_part);
+                let mut best = (i64::MIN, theorem_part);
                 for (pi, pts) in part_pts.iter().enumerate() {
                     if let Some(pts) = pts {
-                        let n = v.iter().filter(|x| pts.contains(x)).count();
-                        if n > best.0 {
-                            best = (n, pi);
+                        let n = v.iter().filter(|x| pts.contains(x)).count() as i64;
+                        let score = 10 * n - assigned[pi];
+                        if n > 0 && score > best.0 {
+                            best = (score, pi);
                         }
                     }
                 }
+                assigned[best.1] += 1;
                 best.1
             })
             .collect();
