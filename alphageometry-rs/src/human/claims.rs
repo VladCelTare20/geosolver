@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const MERGED: &str = "merged";
 const MAX_CLAIMS: usize = 7;
 const ORDER_BUDGET: usize = 40_000;
+const DRAWN_BUDGET: usize = 1_200;
 const DIRECT_CAP: usize = 10_000;
 const MAIN_CAP: usize = 2_500;
 const SUB_CAP: usize = 400;
@@ -2308,10 +2309,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             form.alts.clear();
             let _ = super::search::route_splits(w, &mut form);
             let splits: Vec<(LinComb, LinComb)> = super::search::undirected_splits(w, &form).into_iter().filter(|(l, r)| !(l.is_zero() && *r == degenerate)).collect();
-            if splits.is_empty() {
+            let used = spent.load(std::sync::atomic::Ordering::Relaxed);
+            if splits.is_empty() || used >= DRAWN_BUDGET {
                 continue;
             }
-            let found = self.drawn_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true)).search(cx, &splits, 2500, i64::MAX, &spent, &weights);
+            let found = self.drawn_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true)).search(cx, &splits, DRAWN_BUDGET - used, i64::MAX, &spent, &weights);
             if std::env::var_os("HP_ROUTE").is_some() {
                 eprintln!("route_drawn {:?}: {} splits, found {:?}", form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
             }
@@ -2860,16 +2862,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             }
             if part.target.table == Table::Angle && s.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
-                let saved = self.force_undirected;
-                self.force_undirected = true;
-                let (r, _, _) = self.chain_sentences(&part.target, &part.support, h, then.clone(), &focus);
-                self.force_undirected = saved;
-                if std::env::var_os("HP_ROUTE").is_some() {
-                    eprintln!("drawn chain for pooled part: pooled {}", r.iter().any(|x| matches!(x, Sentence::Pooled { .. })));
-                }
-                if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) && r.iter().all(|x| self.chain_gives_then(x)) {
-                    s = r;
-                } else if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
+                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
                     if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
                         s = r;
                     }
@@ -2975,7 +2968,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
             let role = self.role[&f];
             let t0 = std::time::Instant::now();
+            let started = std::time::Instant::now();
             let (sentences, links, pooled) = self.node_sentences(f);
+            if std::env::var_os("HP_TIME").is_some() {
+                eprintln!("present node {f}: {:.1} ms", started.elapsed().as_secs_f64() * 1e3);
+            }
             if std::env::var_os("HP_TIME").is_some() {
                 eprintln!("  node {f}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
             }
@@ -3068,7 +3065,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let id = self.blocks.len() as u16 + 1;
         let mut facts = merge_facts;
         facts.extend(goal.extra.iter().copied());
+        let t0 = std::time::Instant::now();
         let (mut body, _, _) = if goal.parts.is_some() { self.node_sentences(GOAL) } else { (Vec::new(), 0, false) };
+        if std::env::var_os("HP_TIME").is_some() {
+            eprintln!("present goal: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
+        }
         let mut all = merge_sentences;
         shift_pending(&mut body, all.len());
         all.append(&mut body);
