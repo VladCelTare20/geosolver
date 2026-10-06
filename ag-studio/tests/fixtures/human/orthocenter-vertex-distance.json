@@ -1108,14 +1108,13 @@
                       "H",
                       "A",
                       "B",
-                      "C",
-                      "B"
+                      "C"
                     ],
                     "stmt": {
                       "kind": "eq",
                       "args": [
                         "∠ABH",
-                        "A + 90°"
+                        "90° − A"
                       ],
                       "points": [
                         "A",
@@ -1163,13 +1162,14 @@
                       "B",
                       "H",
                       "A",
-                      "B"
+                      "B",
+                      "C"
                     ],
                     "stmt": {
                       "kind": "eq",
                       "args": [
                         "C",
-                        "∠AHB"
+                        "180° − ∠AHB"
                       ],
                       "points": [
                         "A",
@@ -1582,7 +1582,7 @@
       "pure_chains": 0,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 171,
+      "words_en": 173,
       "lines_en": 13,
       "citations": 16,
       "aux_shown": 0,

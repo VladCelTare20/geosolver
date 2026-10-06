@@ -29,6 +29,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     promote_atoms(cx, &mut ch, hp);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| split_sentence(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
+    per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_same_reasons(s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| dedupe_restated(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| absorb_by_triangles(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| restated_line_fact(cx, blocks, s));
@@ -989,6 +990,21 @@ fn merge_sentence(s: &Sentence) -> Option<Sentence> {
         }
         _ => None,
     }
+}
+
+fn merge_same_reasons(s: &Sentence) -> Option<Sentence> {
+    let (terms, links) = sentence_parts(s)?;
+    if links.len() < 2 || !links.windows(2).any(|w| !w[0].reasons.is_empty() && w[0].reasons == w[1].reasons) {
+        return None;
+    }
+    let mut terms = terms.to_vec();
+    let mut links = links.to_vec();
+    while let Some(k) = (0..links.len().saturating_sub(1)).find(|&k| !links[k].reasons.is_empty() && links[k].reasons == links[k + 1].reasons) {
+        let m = merge_links(&links[k], &links[k + 1]);
+        links.splice(k..k + 2, [m]);
+        terms.remove(k + 1);
+    }
+    Some(with_parts(s, terms, links, true))
 }
 
 const PROMOTE: [AtomKey; 10] = [

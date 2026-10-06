@@ -12,17 +12,17 @@ Ideea: este suficient să arătăm că △AHG ∼ △MOG.
 
 5. Arătăm că △AHB ∼ △MON:
 
-∢HAB = ∢B − 90°    [AH ⟂ BC]
-     = 90° − ∢BMN    [MN este linie mijlocie în △CBA]
-     = ∢OMN    [OM ⟂ BC, din (3)]
+∢BAH = 90° − ∢B    [AH ⟂ BC]
+     = 90° − ∢NMC    [MN este linie mijlocie în △CBA]
+     = ∢NMO    [OM ⟂ BC, din (3)]
 
-∢ABH = ∢A + 90°    [BH ⟂ AC]
-     = ∢MNC + 90°    [MN este linie mijlocie în △CBA]
-     = ∢MNO    [ON ⟂ AC, din (2)]
+∢HBA = 90° − ∢A    [BH ⟂ AC]
+     = 90° − ∢CNM    [MN este linie mijlocie în △CBA]
+     = ∢ONM    [ON ⟂ AC, din (2)]
 
 Deci △AHB ∼ △MON. (5)
 
-6. AH ∥ OM, din (4) ⇒ ∢HAG = ∢OMA.
+6. AH ∥ OM, din (4) ⇒ ∢GAH = ∢AMO.
 
 MG / AG = 1 / 2    [AG : GM = 2, din (1)]
         = MN / AB    [MN este linie mijlocie în △CBA]

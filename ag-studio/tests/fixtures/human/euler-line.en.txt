@@ -12,17 +12,17 @@ Plan: it suffices to show that △AHG ∼ △MOG.
 
 5. We show that △AHB ∼ △MON:
 
-∠HAB = ∠B − 90°    [AH ⟂ BC]
-     = 90° − ∠BMN    [MN is a midline of △CBA]
-     = ∠OMN    [OM ⟂ BC, by (3)]
+∠BAH = 90° − ∠B    [AH ⟂ BC]
+     = 90° − ∠NMC    [MN is a midline of △CBA]
+     = ∠NMO    [OM ⟂ BC, by (3)]
 
-∠ABH = ∠A + 90°    [BH ⟂ AC]
-     = ∠MNC + 90°    [MN is a midline of △CBA]
-     = ∠MNO    [ON ⟂ AC, by (2)]
+∠HBA = 90° − ∠A    [BH ⟂ AC]
+     = 90° − ∠CNM    [MN is a midline of △CBA]
+     = ∠ONM    [ON ⟂ AC, by (2)]
 
 Hence △AHB ∼ △MON. (5)
 
-6. AH ∥ OM, by (4), so ∠HAG = ∠OMA.
+6. AH ∥ OM, by (4), so ∠GAH = ∠AMO.
 
 MG / AG = 1 / 2    [AG : GM = 2, by (1)]
         = MN / AB    [MN is a midline of △CBA]

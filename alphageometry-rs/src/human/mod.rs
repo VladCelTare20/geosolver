@@ -82,7 +82,36 @@ pub fn score(hp: &HumanProof) -> usize {
             _ => 0,
         })
         .sum();
-    hp.metrics.human_cost + 20 * hp.metrics.similar_steps + 2 * crowded
+    let m = &hp.metrics;
+    m.human_cost + 20 * m.similar_steps + 2 * crowded + 12 * m.multi_fact_links + 8 * doubled_directed(hp) + 4 * m.directed_chains + 20 * m.pooled + 6 * repeated_citations(hp)
+}
+
+pub fn doubled_directed(hp: &HumanProof) -> usize {
+    fn count(e: &Expr) -> usize {
+        match e {
+            Expr::Lin { terms } => terms.iter().map(|(k, x)| usize::from(k.abs() != crate::rational::Rat::one() && matches!(x, Expr::Angle { directed: true, .. } | Expr::LineAngle { directed: true, .. })) + count(x)).sum(),
+            _ => 0,
+        }
+    }
+    hp.blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .map(|s| match s {
+            Sentence::Chain { terms, directed: true, .. } => terms.iter().map(count).sum(),
+            _ => 0,
+        })
+        .sum()
+}
+
+pub fn repeated_citations(hp: &HumanProof) -> usize {
+    hp.blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .map(|s| match s {
+            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.windows(2).filter(|w| !w[0].reasons.is_empty() && w[0].reasons == w[1].reasons).count(),
+            _ => 0,
+        })
+        .sum()
 }
 
 fn guarded(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts, library: bool) -> Option<HumanProof> {
@@ -192,6 +221,7 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
         return Some(u);
     }
     barem::polish(&cx, &mut hp);
+    drop_unused_centres(&mut hp);
     tick("barem");
     fill_metrics(&cx, &w, &mut hp);
     hp.metrics.timed_out = cx.timed_out();
@@ -344,6 +374,24 @@ fn all_reasons(s: &Sentence) -> Vec<&Reason> {
         Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().flat_map(|l| l.reasons.iter()).collect(),
         Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.iter().collect(),
         Sentence::Raw { .. } => Vec::new(),
+    }
+}
+
+fn drop_unused_centres(hp: &mut HumanProof) {
+    let mut used: Vec<PointId> = Vec::new();
+    for b in &hp.blocks {
+        used.extend(b.points.iter().copied());
+        used.extend(view::stmt_points(&b.stmt));
+        for s in &b.body {
+            used.extend(view::sentence_points(s));
+        }
+    }
+    for l in hp.setup.iter_mut() {
+        if let SetupLine::Circle { centre, .. } = l {
+            if centre.is_some_and(|o| !used.contains(&o)) {
+                *centre = None;
+            }
+        }
     }
 }
 

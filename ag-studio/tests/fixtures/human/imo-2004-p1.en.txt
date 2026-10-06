@@ -1,6 +1,6 @@
-Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in step 8, where the figure-angle form would depend on the configuration. Let ω₂ be the circle (CNR), with center O₂; P lies on ω₂. Let F be the foot of the perpendicular from B to AR.
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in step 8, where the figure-angle form would depend on the configuration. Let ω₂ be the circle (CNR); P lies on ω₂. Let F be the foot of the perpendicular from B to AR.
 
-Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and A, F, R, P are collinear.
+Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and A, R, P, F are collinear.
 
 1. BC is a diameter, so ∠BNC = 90°. (1)
 
@@ -19,13 +19,13 @@ So F, N, B, A are concyclic. (2)
 
 6. We show that R, N, F, O are concyclic:
 
-∠NFA = ∠NBA    [F, N, B, A concyclic, by (2)]
-     = ½·∠NOM    [inscribed angle ∠MBN = 180° − ½∠MON]
+∠NFA = ∠NBM    [F, N, B, A concyclic, by (2)]
+     = ½·∠NOM    [central angle ∠MON = 2∠MBN]
      = ∠NOR    [OR bisects ∠MON]
 
 So R, N, F, O are concyclic. (6)
 
-7. AB·AM = AC·AN (power of the point A with respect to (BMCN)). P, R, M, B concyclic, P, R, N, C on ω₂, A, B, M collinear and A, N, C collinear, so A, F, R, P are collinear (the radical axis theorem). (7)
+7. AB·AM = AC·AN (power of the point A with respect to (BMCN)). P, R, M, B concyclic, P, R, N, C on ω₂, A, M, B collinear and A, N, C collinear, so A, R, P, F are collinear (the radical axis theorem). (7)
 
 8. We show that P lies on the line BC:
 
@@ -33,6 +33,6 @@ So R, N, F, O are concyclic. (6)
      = ∡ONC + ∡PRN    [OC = ON]
      = ∡NOF + ∡PRN    [NC ∥ OF, by (5)]
      = ∡PRF    [R, N, F, O concyclic, by (6)]
-     = 0°    [A, F, R, P collinear, by (7)]
+     = 0°    [A, R, P, F collinear, by (7)]
 
 So P lies on the line BC, as required. ∎

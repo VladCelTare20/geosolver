@@ -1,6 +1,6 @@
-Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pasul 8, unde forma cu unghiuri din figură ar depinde de configurație. Fie ω₂ cercul (CNR), cu centrul O₂; P se află pe ω₂. Fie F piciorul perpendicularei din B pe AR.
+Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pasul 8, unde forma cu unghiuri din figură ar depinde de configurație. Fie ω₂ cercul (CNR); P se află pe ω₂. Fie F piciorul perpendicularei din B pe AR.
 
-Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conciclice și punctele A, F, R, P sunt coliniare.
+Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conciclice și punctele A, R, P, F sunt coliniare.
 
 1. BC este diametru ⇒ ∢BNC = 90°. (1)
 
@@ -19,13 +19,13 @@ Deci punctele F, N, B, A sunt conciclice. (2)
 
 6. Arătăm că punctele R, N, F, O sunt conciclice:
 
-∢NFA = ∢NBA    [F, N, B, A conciclice, din (2)]
-     = ½·∢NOM    [unghiul înscris ∢MBN = 180° − ½∢MON]
+∢NFA = ∢NBM    [F, N, B, A conciclice, din (2)]
+     = ½·∢NOM    [unghiul la centru ∢MON = 2∢MBN]
      = ∢NOR    [OR este bisectoarea ∢MON]
 
 Deci punctele R, N, F, O sunt conciclice. (6)
 
-7. AB·AM = AC·AN (puterea punctului A față de (BMCN)). P, R, M, B conciclice, P, R, N, C pe ω₂, A, B, M coliniare și A, N, C coliniare ⇒ punctele A, F, R, P sunt coliniare (teorema axei radicale). (7)
+7. AB·AM = AC·AN (puterea punctului A față de (BMCN)). P, R, M, B conciclice, P, R, N, C pe ω₂, A, M, B coliniare și A, N, C coliniare ⇒ punctele A, R, P, F sunt coliniare (teorema axei radicale). (7)
 
 8. Arătăm că punctul P se află pe dreapta BC:
 
@@ -33,6 +33,6 @@ Deci punctele R, N, F, O sunt conciclice. (6)
      = ∡ONC + ∡PRN    [OC = ON]
      = ∡NOF + ∡PRN    [NC ∥ OF, din (5)]
      = ∡PRF    [R, N, F, O conciclice, din (6)]
-     = 0°    [A, F, R, P coliniare, din (7)]
+     = 0°    [A, R, P, F coliniare, din (7)]
 
 Deci punctul P se află pe dreapta BC, ceea ce trebuia demonstrat. ∎

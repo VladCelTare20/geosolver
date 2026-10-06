@@ -420,7 +420,7 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
         }
         Reason::Fact { stmt: s, block, because, .. } => {
             let base = match s {
-                Stmt::Coll { pts } if pts.len() >= 3 && block.is_some() => format!("{} on {}", n.get(pts[pts.len() - 1]), n.pts(&pts[..2])),
+                Stmt::Coll { pts } if pts.len() == 3 && block.is_some() => format!("{} on {}", n.get(pts[2]), n.pts(&pts[..2])),
                 Stmt::Cyclic { pts } if circle_name(pts).is_some() => format!("{} lie on {}", n.list(pts), circle_name(pts).unwrap_or_default()),
                 _ => short_stmt(n, s),
             };

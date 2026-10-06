@@ -1,4 +1,4 @@
-Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
+Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pașii 5, 7 și 8, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
 
 Ideea: este suficient să arătăm că XA = XP și ∡IAP = ∡APX.
 
@@ -14,21 +14,23 @@ Deci NB = NC. (1)
 
 3. Arătăm că punctele T, E, S, O sunt conciclice:
 
-∢OTS = 90° − ∢EBS    [OT ⟂ BE]
-     = 90° − ∢ENS    [unghiuri înscrise în Ω]
-     = ∢ESO    [NS este diametru al cercului Ω]
-     = ∢OES    [unghi la centru în Ω]
+∢BTO = 90° − ∢SBE    [OT ⟂ BE]
+     = 90° − ∢SNE    [unghiuri înscrise în Ω]
+     = ∢OSE    [NS este diametru al cercului Ω]
+     = ∢SEO    [unghi la centru în Ω]
 
 Deci punctele T, E, S, O sunt conciclice. (3)
 
 4. Arătăm că punctele T, P, X, O sunt conciclice:
 
-∢BTO = ∢DBL + 90°    [OT ⟂ BE]
-     = ∢DBP − ∢PDL + 90°    [unghiuri înscrise în ω₁]
-     = ∢DBC − ∢DPB + 90°    [DL ∥ BC]
-     = ∢BSO − ∢DPB + 180°    [ON ⟂ BC, din (2)]
-     = ∢PDX − ∢BPO + 180°    [unghiul înscris ∢SBP = 180° − ½∢SOP]
-     = 180° − ∢XPO    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
+∢OTX = ∢EBS + 90°    [OT ⟂ BE]
+     = ∢EBP + ∢PNO + 90°    [unghiuri înscrise în Ω]
+     = ∢EBC − ∢NPB + 180°    [ON ⟂ BC, din (2)]
+     = ∢BLD − ∢NPB + 180°    [DL ∥ BC]
+     = ∢NPD    [unghiuri înscrise în ω₁]
+     = ∢PBX + ∢NPX    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
+     = ∢PNO + ∢NPX    [unghiuri înscrise în Ω]
+     = ∢OPX    [ON = OP]
 
 Deci punctele T, P, X, O sunt conciclice. (4)
 
@@ -45,9 +47,10 @@ Deci punctele T, P, E, D sunt conciclice. (5)
 
 6. Arătăm că XA = XP:
 
-∢AOX = ∢AOP − ∢PTX    [T, P, X, O conciclice, din (4)]
-     = 2∢AEP − ∢PTD    [unghi la centru în Ω]
-     = ∢XTP    [T, P, E, D conciclice, din (5)]
+∢AOX = ∢AOP − ∢PTB    [T, P, X, O conciclice, din (4)]
+     = ∢OAE − ∢EPO    [T, P, E, D conciclice, din (5)]
+     = ∢AEP    [unghi la centru în Ω]
+     = ∢BTP    [T, P, E, D conciclice, din (5)]
      = ∢XOP    [T, P, X, O conciclice, din (4)]
 
 Raze în Ω ⇒ △OAX ≡ △OPX. Deci XA = XP. (6)
@@ -64,7 +67,8 @@ Raze în Ω ⇒ △OAX ≡ △OPX. Deci XA = XP. (6)
 
 8. Arătăm că AX este bisectoarea unghiului BAC:
 
-∢XAB = 2∢CAI − ∢XAC    [AI este bisectoarea ∢BAC]
-     = ∢CAX    [XA = XP: ΔXAP isoscel, din (6); ∡IAP = ∡APX, din (7)]
+∡BAX = 2∡IAC + ∡CAX    [AI este bisectoarea ∢BAC]
+     = ∡XAC + 2∡IAP + 2∡XPA    [XA = XP: ΔXAP isoscel, din (6)]
+     = ∡XAC    [din (7)]
 
 Deci AX este bisectoarea unghiului BAC, ceea ce trebuia demonstrat. ∎
