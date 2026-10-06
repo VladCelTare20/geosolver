@@ -388,6 +388,8 @@ closed_keys!(AtomKey, eng::AtomKey, {
     CongruentSas => "congruent_sas",
     CongruentAsa => "congruent_asa",
     CongruentRhs => "congruent_rhs",
+    SineSupplement => "sine_supplement",
+    SineComplement => "sine_complement",
 });
 
 impl AtomKey {
@@ -904,6 +906,7 @@ impl Cx<'_> {
                 None if args.len() > 3 => return (self.equal_from(args), None),
                 None => return (self.stmt(stmt, Ctx::Statement), None),
             },
+            AtomKey::SineSupplement | AtomKey::SineComplement => return (self.stmt(stmt, Ctx::Statement), None),
             AtomKey::Isosceles if args.len() > 3 => return (self.equal_from(args), None),
             AtomKey::Isosceles => ("isosceles", sl(0..3), None),
             AtomKey::CentralAngle => match named(&[g(1), g(2), g(3)], Some(&g(0))) {

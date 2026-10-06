@@ -11,6 +11,7 @@ pub enum Hyp {
     Line(Vec<PointId>),
     Circle(Vec<PointId>),
     Eq(Table, LinComb),
+    EqOrHalf(Table, LinComb),
     Distinct(Vec<PointId>),
     Triangle(PointId, PointId, PointId),
     Between(PointId, PointId, PointId),
@@ -21,7 +22,7 @@ pub enum Hyp {
 
 impl Hyp {
     pub fn is_config(&self) -> bool {
-        !matches!(self, Hyp::Line(_) | Hyp::Circle(_) | Hyp::Eq(..))
+        !matches!(self, Hyp::Line(_) | Hyp::Circle(_) | Hyp::Eq(..) | Hyp::EqOrHalf(..))
     }
     pub fn reads_figure(&self) -> bool {
         matches!(self, Hyp::Between(..) | Hyp::Outside(..) | Hyp::SplitAlike(..) | Hyp::OutsideParity(..))
@@ -60,7 +61,11 @@ pub const LIBRARY: [AtomKey; 23] = [
     AtomKey::Reim,
 ];
 
-pub const TRIG: [AtomKey; 2] = [AtomKey::LawOfSines, AtomKey::ExtLawOfSines];
+pub const TRIG: [AtomKey; 4] = [AtomKey::LawOfSines, AtomKey::ExtLawOfSines, AtomKey::SineSupplement, AtomKey::SineComplement];
+
+pub fn is_identity(key: AtomKey) -> bool {
+    matches!(key, AtomKey::LawOfSines | AtomKey::ExtLawOfSines | AtomKey::SineSupplement | AtomKey::SineComplement)
+}
 
 pub const CONGRUENCE: [AtomKey; 4] = [AtomKey::CongruentSss, AtomKey::CongruentSas, AtomKey::CongruentAsa, AtomKey::CongruentRhs];
 
@@ -139,6 +144,54 @@ impl Rows<'_> {
         let (lo, hi) = (p.min(q), p.max(q));
         let s = self.t.sines.iter().filter(|s| s.v == v && s.p.min(s.q) == lo && s.p.max(s.q) == hi && s.shift.mod_one().is_zero()).map(|s| s.var).min()?;
         Some(LinComb::singleton(self.t.sine_canon(s), Rat::one()))
+    }
+    fn cosine(&self, v: PointId, p: PointId, q: PointId) -> Option<LinComb> {
+        let (lo, hi) = (p.min(q), p.max(q));
+        let s = self.t.sines.iter().filter(|s| s.v == v && s.p.min(s.q) == lo && s.p.max(s.q) == hi && s.shift.mod_one() == half()).map(|s| s.var).min()?;
+        Some(LinComb::singleton(self.t.sine_canon(s), Rat::one()))
+    }
+}
+
+pub fn interior_degrees(t: &EngineTrace, p: PointId, v: PointId, q: PointId) -> f64 {
+    let (u, w) = (sub(t, p, v), sub(t, q, v));
+    let c = (u.0 * w.0 + u.1 * w.1) / ((u.0 * u.0 + u.1 * u.1).sqrt() * (w.0 * w.0 + w.1 * w.1).sqrt()).max(1e-300);
+    c.clamp(-1.0, 1.0).acos().to_degrees()
+}
+
+pub fn trig_case(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<usize> {
+    let x = interior_degrees(t, a[1], a[0], a[2]);
+    let y = interior_degrees(t, a[4], a[3], a[5]);
+    let near = |v: f64| v.abs() < 1e-6;
+    match key {
+        AtomKey::SineSupplement if near(x - y) => Some(0),
+        AtomKey::SineSupplement if near(x + y - 180.0) => Some(1),
+        AtomKey::SineComplement if near(x + y - 90.0) => Some(0),
+        AtomKey::SineComplement if near(x - y - 90.0) => Some(1),
+        AtomKey::SineComplement if near(y - x - 90.0) => Some(2),
+        _ => None,
+    }
+}
+
+fn trig_args(a: &[PointId], case: usize) -> Vec<PointId> {
+    let mut v = a[..6].to_vec();
+    match case {
+        1 => v.push(a[0]),
+        2 => v.push(a[3]),
+        _ => {}
+    }
+    v
+}
+
+pub fn trig_identity_args(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Vec<PointId>> {
+    trig_case(t, key, a).map(|c| trig_args(a, c))
+}
+
+fn args_case(a: &[PointId]) -> Option<usize> {
+    match a.len() {
+        6 => Some(0),
+        7 if a[6] == a[0] => Some(1),
+        7 if a[6] == a[3] => Some(2),
+        _ => None,
     }
 }
 
@@ -320,6 +373,28 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
                 rows: vec![(Table::Angle, r.para((p, q), (c, d))?)],
             }
         }
+        AtomKey::SineSupplement | AtomKey::SineComplement if args_case(a).is_some() => {
+            if trig_case(t, key, a) != args_case(a) || (key == AtomKey::SineSupplement && args_case(a) == Some(2)) {
+                return None;
+            }
+            let a1 = r.ang(a[1], a[0], a[2])?;
+            let a2 = r.ang(a[4], a[3], a[5])?;
+            let shift = if key == AtomKey::SineComplement { half() } else { Rat::zero() };
+            let mut row = None;
+            for c in [&a1 - &a2, &a1 + &a2] {
+                let mut c = c;
+                c.add_term(ANGLE_UNIT, -&shift);
+                if t.holds(Table::Angle, &c) {
+                    row = Some(r.ex(c));
+                    break;
+                }
+            }
+            let other = if key == AtomKey::SineComplement { r.cosine(a[3], a[4], a[5])? } else { r.sine(a[3], a[4], a[5])? };
+            Spec {
+                hyps: vec![Hyp::EqOrHalf(Table::Angle, row?), Hyp::Triangle(a[0], a[1], a[2]), Hyp::Triangle(a[3], a[4], a[5])],
+                rows: vec![(Table::Ratio, &r.sine(a[0], a[1], a[2])? - &other)],
+            }
+        }
         AtomKey::LawOfSines if n(3) => {
             let (p, q, c) = (a[0], a[1], a[2]);
             let row = &(&(&r.dm(q, c)? - &r.dm(c, p)?) - &r.sine(p, q, c)?) + &r.sine(q, c, p)?;
@@ -472,6 +547,19 @@ pub fn stmt(key: AtomKey, a: &[PointId]) -> Option<Stmt> {
             Stmt::Eq { lhs: prod(vec![(seg(a[1], a[2]), 1), (s(a[0], a[1], a[2]), -1)]), rhs: prod(vec![(seg(a[2], a[0]), 1), (s(a[1], a[2], a[0]), -1)]) }
         }
         AtomKey::CongruentSss | AtomKey::CongruentSas | AtomKey::CongruentAsa | AtomKey::CongruentRhs => Stmt::Congruent { t1: (a[0], a[1], a[2]), t2: (a[3], a[4], a[5]), opposite: false },
+        AtomKey::SineSupplement | AtomKey::SineComplement => {
+            let u = |x: PointId, y: PointId, z: PointId| Expr::Angle { a: x, b: y, c: z, directed: false };
+            let (x, y) = (u(a[1], a[0], a[2]), u(a[4], a[3], a[5]));
+            let k = |d: i64| (Rat::one(), Expr::Const { degrees: Rat::from_int(d) });
+            let rhs = match (key, args_case(a)?) {
+                (AtomKey::SineSupplement, 0) => y,
+                (AtomKey::SineSupplement, 1) => Expr::Lin { terms: vec![k(180), (Rat::from_int(-1), y)] },
+                (_, 0) => Expr::Lin { terms: vec![k(90), (Rat::from_int(-1), y)] },
+                (_, 1) => Expr::Lin { terms: vec![(Rat::one(), y), k(90)] },
+                _ => Expr::Lin { terms: vec![(Rat::one(), y), (Rat::from_int(-1), Expr::Const { degrees: Rat::from_int(90) })] },
+            };
+            Stmt::Eq { lhs: x, rhs }
+        }
         AtomKey::ExtLawOfSines => Stmt::Eq {
             lhs: seg(a[1], a[2]),
             rhs: prod(vec![(Expr::Num { value: Rat::from_int(2) }, 1), (seg(a[3], a[0]), 1), (Expr::Sin { angle: Box::new(Expr::Angle { a: a[1], b: a[0], c: a[2], directed: false }) }, 1)]),
@@ -874,6 +962,34 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                         }
                     }
                 }
+            }
+        }
+    }
+    let mut trig: Vec<(PointId, PointId, PointId, bool, f64)> = Vec::new();
+    for x in &t.sines {
+        let sh = x.shift.mod_one();
+        let cos = sh == half();
+        if !(sh.is_zero() || cos) || x.p == x.q || x.v == x.p || x.v == x.q || t.orient(x.v, x.p, x.q) == 0 {
+            continue;
+        }
+        let Some(&val) = t.values[Table::Ratio.idx()].get(x.var as usize) else { continue };
+        let e = (x.v, x.p.min(x.q), x.p.max(x.q), cos, val);
+        if val > 1e-9 && !trig.iter().any(|y| (y.0, y.1, y.2, y.3) == (e.0, e.1, e.2, e.3)) {
+            trig.push(e);
+        }
+    }
+    trig.sort_by(|a, b| (a.0, a.1, a.2, a.3).cmp(&(b.0, b.1, b.2, b.3)));
+    for (i, x) in trig.iter().enumerate() {
+        if x.3 {
+            continue;
+        }
+        for (j, y) in trig.iter().enumerate() {
+            if i == j || (!y.3 && j < i) || (x.4 - y.4).abs() > 1e-9 * x.4.max(1.0) {
+                continue;
+            }
+            let key = if y.3 { AtomKey::SineComplement } else { AtomKey::SineSupplement };
+            if let Some(args) = trig_identity_args(t, key, &[x.0, x.1, x.2, y.0, y.1, y.2]) {
+                push(&mut out, key, args);
             }
         }
     }

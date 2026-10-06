@@ -312,6 +312,12 @@ impl<'c, 'a> Checker<'c, 'a> {
                 super::theorems::Hyp::Line(p) => self.on_line(h, p),
                 super::theorems::Hyp::Circle(p) => self.on_circle(h, p),
                 super::theorems::Hyp::Eq(tb, row) => t.holds(*tb, row) && (self.proven(h, *tb, row) || self.verified(*tb, row)),
+                super::theorems::Hyp::EqOrHalf(tb, row) => {
+                    let mut two = row.clone();
+                    two.mul_assign_scalar(&Rat::from_int(2));
+                    let two = exact(t, *tb, two);
+                    t.holds(*tb, row) && (self.proven(h, *tb, row) || self.verified(*tb, row) || self.proven(h, *tb, &two) || self.verified(*tb, &two))
+                }
                 other => super::theorems::config_holds(t, other),
             };
             if !ok {
@@ -321,7 +327,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                 return false;
             }
         }
-        spec.rows.iter().all(|(tb, row)| t.holds(*tb, row) && self.verified(*tb, row))
+        spec.rows.iter().all(|(tb, row)| t.holds(*tb, row) && (super::theorems::is_identity(key) || self.verified(*tb, row)))
     }
 
     fn equidistant(&mut self, h: FactId, o: PointId, pts: &[PointId]) -> bool {
@@ -473,7 +479,8 @@ impl<'c, 'a> Checker<'c, 'a> {
             }
             let (t, row) = cache[&term.reason].get(term.row as usize)?.clone();
             let theorem = matches!(r, Reason::Atom { key, .. } if super::theorems::is_theorem(*key));
-            if theorem && !self.verified(t, &row) {
+            let identity = matches!(r, Reason::Atom { key, .. } if super::theorems::is_identity(*key));
+            if theorem && !identity && !self.verified(t, &row) {
                 return None;
             }
             if matches!(r, Reason::Atom { .. }) && !theorem && !self.proven(h, t, &row) {

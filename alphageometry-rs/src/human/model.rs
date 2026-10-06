@@ -176,10 +176,12 @@ pub enum AtomKey {
     CongruentSas,
     CongruentAsa,
     CongruentRhs,
+    SineSupplement,
+    SineComplement,
 }
 
 impl AtomKey {
-    pub const ALL: [AtomKey; 40] = [
+    pub const ALL: [AtomKey; 42] = [
         AtomKey::Inscribed,
         AtomKey::Thales,
         AtomKey::TangentChord,
@@ -220,6 +222,8 @@ impl AtomKey {
         AtomKey::CongruentSas,
         AtomKey::CongruentAsa,
         AtomKey::CongruentRhs,
+        AtomKey::SineSupplement,
+        AtomKey::SineComplement,
     ];
     pub fn as_str(self) -> &'static str {
         match self {
@@ -263,6 +267,8 @@ impl AtomKey {
             AtomKey::CongruentSas => "congruent_sas",
             AtomKey::CongruentAsa => "congruent_asa",
             AtomKey::CongruentRhs => "congruent_rhs",
+            AtomKey::SineSupplement => "sine_supplement",
+            AtomKey::SineComplement => "sine_complement",
         }
     }
 }

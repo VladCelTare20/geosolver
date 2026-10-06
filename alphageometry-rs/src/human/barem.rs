@@ -593,11 +593,41 @@ fn split_links(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], direc
         let used: BTreeSet<u16> = l.combination.iter().map(|t| t.reason).collect();
         let extra: Vec<usize> = (0..l.reasons.len()).filter(|i| !used.contains(&(*i as u16))).collect();
         let theorem_part = parts.iter().position(|p| p.iter().any(|&g| matches!(&l.reasons[groups[g].0 as usize], Reason::Atom { key, .. } if super::theorems::is_theorem(*key)))).unwrap_or(0);
+        let part_pts: Vec<Option<Vec<PointId>>> = parts
+            .iter()
+            .map(|p| {
+                let mut v: Vec<PointId> = Vec::new();
+                let mut any = false;
+                for &g in p {
+                    let r = &l.reasons[groups[g].0 as usize];
+                    if matches!(r, Reason::Atom { key, .. } if super::theorems::is_theorem(*key)) {
+                        any = true;
+                        super::view::reason_points_pub(r, &mut v);
+                    }
+                }
+                any.then_some(v)
+            })
+            .collect();
+        let home: Vec<usize> = extra
+            .iter()
+            .map(|&i| {
+                let mut v: Vec<PointId> = Vec::new();
+                super::view::reason_points_pub(&l.reasons[i], &mut v);
+                let mut best = (0usize, theorem_part);
+                for (pi, pts) in part_pts.iter().enumerate() {
+                    if let Some(pts) = pts {
+                        let n = v.iter().filter(|x| pts.contains(x)).count();
+                        if n > best.0 {
+                            best = (n, pi);
+                        }
+                    }
+                }
+                best.1
+            })
+            .collect();
         for (pi, part) in parts.iter().enumerate() {
             let mut idx: Vec<usize> = part.iter().map(|&g| groups[g].0 as usize).collect();
-            if pi == theorem_part {
-                idx.extend(extra.iter().copied());
-            }
+            idx.extend(extra.iter().zip(&home).filter(|(_, h)| **h == pi).map(|(i, _)| *i));
             let mut reasons: Vec<Reason> = Vec::new();
             let mut map: BTreeMap<usize, u16> = BTreeMap::new();
             for i in idx {

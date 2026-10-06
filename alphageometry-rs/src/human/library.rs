@@ -7,6 +7,7 @@ use crate::elimination::ANGLE_UNIT;
 use crate::lincomb::LinComb;
 use crate::predicate::PointId;
 use crate::proof::{FactId, Reason};
+use crate::rational::Rat;
 use rustc_hash::FxHashMap;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -108,7 +109,7 @@ impl Directory {
                     .entry((k, a.args.clone()))
                     .or_insert_with(|| match spec(cx.t, k, &a.args) {
                         Some(sp) => (
-                            sp.hyps.iter().filter_map(|x| if let Hyp::Eq(tb, r) = x { row_key(cx, *tb, r) } else { None }).collect(),
+                            sp.hyps.iter().filter_map(|x| if let Hyp::Eq(tb, r) | Hyp::EqOrHalf(tb, r) = x { row_key(cx, *tb, r) } else { None }).collect(),
                             sp.rows.iter().filter_map(|(tb, r)| row_key(cx, *tb, r)).collect(),
                         ),
                         None => (Vec::new(), Vec::new()),
@@ -268,6 +269,14 @@ impl<'d> HypEval<'d> {
                 }
                 self.dir.lookup(b, *tb, r, NEVER, forbid, me, true).or_else(|| self.short(b, *tb, r, NEVER, forbid, me))
             }
+            Hyp::EqOrHalf(tb, r) => {
+                if !t.holds(*tb, r) {
+                    return None;
+                }
+                let mut two = r.clone();
+                two.mul_assign_scalar(&Rat::from_int(2));
+                self.eval(b, &Hyp::Eq(*tb, r.clone()), forbid, me).or_else(|| self.eval(b, &Hyp::Eq(*tb, t.exact(*tb, &two)), forbid, me))
+            }
             Hyp::Line(pts) => cx.line_through(pts, NEVER).map(|l| Found { avail: l.fact + 1, sources: l.src.clone(), via: Vec::new(), level: 1 }),
             Hyp::Circle(pts) => {
                 let by_obj = cx.circles.iter().filter(|c| pts.iter().all(|p| c.pts.contains(p))).min_by_key(|c| (c.src.len(), c.fact)).map(|c| Found { avail: c.fact + 1, sources: c.src.clone(), via: Vec::new(), level: 1 });
@@ -355,8 +364,13 @@ impl<'c, 'a> Builder<'c, 'a> {
                     }
                 }
             }
+            if std::env::var_os("HP_SINES").is_some() {
+                for x in &t.sines {
+                    eprintln!("sine var {} canon {} {}{}{} flip {} shift {} used {}", x.var, t.sine_canon(x.var), t.name(x.p), t.name(x.v), t.name(x.q), x.flip, x.shift, used_sines.contains(&t.sine_canon(x.var)));
+                }
+            }
             for x in &t.sines {
-                if x.shift.mod_one().is_zero() && x.p != x.q && x.v != x.p && x.v != x.q && used_sines.contains(&t.sine_canon(x.var)) && t.orient(x.v, x.p, x.q) != 0 {
+                if x.shift.mod_one().is_zero() && x.p != x.q && x.v != x.p && x.v != x.q && t.orient(x.v, x.p, x.q) != 0 {
                     fig.sines.insert((x.v, x.p.min(x.q), x.p.max(x.q)));
                 }
             }
@@ -407,7 +421,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                         return None;
                     }
                     let sp = spec(t, key, &args)?;
-                    let trig_ok = sp.rows.iter().all(|(tb, r)| *tb != Table::Ratio || t.canon_ratio(r).terms.iter().all(|(v, _)| !sine_vars.contains(v) || used_sines.contains(v)));
+                    let trig_ok = super::theorems::is_identity(key) || sp.rows.iter().all(|(tb, r)| *tb != Table::Ratio || t.canon_ratio(r).terms.iter().all(|(v, _)| !sine_vars.contains(v) || used_sines.contains(v)));
                     if !trig_ok || !sp.hyps.iter().filter(|h| h.is_config()).all(|h| config_holds(t, h)) {
                         return None;
                     }
@@ -423,7 +437,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                             }
                         }
                     }
-                    if !sp.rows.iter().all(|(tb, r)| evr.verified(cx, *tb, r)) {
+                    if !sp.rows.iter().all(|(tb, r)| t.holds(*tb, r) && (super::theorems::is_identity(key) || evr.verified(cx, *tb, r))) {
                         return None;
                     }
                     let restates_goal = acc.sources.is_empty() && acc.via.is_empty() && sp.rows.iter().any(|(tb, r)| row_key(cx, *tb, r).is_some_and(|k| goal_keys.contains(&k)));

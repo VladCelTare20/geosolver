@@ -517,6 +517,7 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::Reim => format!("Reim's theorem on {}", n.pts(&[a[0], a[1]])),
         AtomKey::LawOfSines => format!("law of sines in △{}", n.pts(&[a[0], a[1], a[2]])),
         AtomKey::ExtLawOfSines => format!("extended law of sines in △{}", n.pts(&[a[0], a[1], a[2]])),
+        AtomKey::SineSupplement | AtomKey::SineComplement => stmt(n, s),
         AtomKey::CongruentSss => format!("△{} ≅ △{} (SSS)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::CongruentSas => format!("△{} ≅ △{} (SAS)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::CongruentAsa => format!("△{} ≅ △{} (ASA)", n.pts(&a[0..3]), n.pts(&a[3..6])),

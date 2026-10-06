@@ -1452,6 +1452,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let reasons: Vec<Reason> = stmts.iter().map(|(s, i)| Reason::Lemma { stmt: s.clone(), block: PENDING_BLOCK, sentence: *i as u16 }).collect();
             let combination = vec![Term { reason: 0, row: 0, coef: Rat::one() }, Term { reason: 1, row: 0, coef: Rat::from_int(-1) }];
             out.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons, combination });
+            prune_lemmas(&mut out);
             let n = out.iter().map(|s| if let Sentence::Computation { links, .. } = s { links.len() } else { 1 }).sum();
             return Some((out, n));
         }
@@ -1462,6 +1463,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let a = &self.w.atoms[i];
         match a.src {
             AtomSrc::Engine(f) => matches!(self.w.cx.t.facts[f as usize].reason, ER::Formula(..)),
+            AtomSrc::Human(k) => super::theorems::TRIG.contains(&k),
             _ => false,
         }
     }
@@ -1510,6 +1512,111 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
     fn certify_ext(&self, row: &LinComb, h: FactId, focus: &BTreeSet<PointId>, ext: &[&LinComb], banned: &BTreeSet<usize>) -> Option<Vec<(usize, Rat)>> {
+        let los: Vec<usize> = (0..self.w.atoms.len()).filter(|&i| self.w.atoms[i].table == Table::Ratio && self.w.atoms[i].admissible(h) && !banned.contains(&i) && self.triangle_of(i).is_some()).collect();
+        let cost = |sup: &[(usize, Rat)]| -> u32 {
+            let base = self.w.atoms.len();
+            sup.iter().map(|(i, _)| if *i >= base { 1 } else { self.w.atoms[*i].cost.max(1) + if self.triangle_of(*i).is_some() { 30 } else { 0 } }).sum()
+        };
+        let mut best: Option<(u32, Vec<(usize, Rat)>)> = None;
+        if los.len() <= 120 {
+            for &keep in &los {
+                let mut b2 = banned.clone();
+                b2.extend(los.iter().copied().filter(|&j| j != keep));
+                if let Some(sup) = self.certify_ext_once(row, h, focus, ext, &b2) {
+                    let c = cost(&sup);
+                    if best.as_ref().is_none_or(|b| c < b.0) {
+                        best = Some((c, sup));
+                    }
+                }
+            }
+        }
+        let full = self.certify_ext_once(row, h, focus, ext, banned);
+        let (mut bc, mut sup, mut ban) = match (best, full) {
+            (Some(b), Some(f)) if cost(&f) < b.0 => (cost(&f), f, banned.clone()),
+            (Some(b), _) => {
+                let keep: BTreeSet<usize> = b.1.iter().map(|x| x.0).collect();
+                let mut b2 = banned.clone();
+                b2.extend(los.iter().copied().filter(|j| !keep.contains(j)));
+                (b.0, b.1, b2)
+            }
+            (None, f) => return f,
+        };
+        if let Some(r) = self.certify_route(row, h, ext, banned) {
+            if cost(&r) < bc {
+                bc = cost(&r);
+                sup = r;
+            }
+        }
+        let base = self.w.atoms.len();
+        for _ in 0..4 {
+            let mut improved = false;
+            for (i, _) in sup.clone() {
+                if i >= base || self.triangle_of(i).is_some() {
+                    continue;
+                }
+                let mut b2 = ban.clone();
+                b2.insert(i);
+                if let Some(s2) = self.certify_ext_once(row, h, focus, ext, &b2) {
+                    let c = cost(&s2);
+                    if c < bc {
+                        bc = c;
+                        sup = s2;
+                        ban = b2;
+                        improved = true;
+                        break;
+                    }
+                }
+            }
+            if !improved {
+                break;
+            }
+        }
+        Some(sup)
+    }
+
+    fn certify_route(&self, row: &LinComb, h: FactId, ext: &[&LinComb], banned: &BTreeSet<usize>) -> Option<Vec<(usize, Rat)>> {
+        let cx = self.w.cx;
+        let base = self.w.atoms.len();
+        let mut atoms: Vec<Atom> = self.w.atoms.clone();
+        for e in ext {
+            atoms.push(Atom { src: AtomSrc::Glue(0), args: Vec::new(), table: Table::Ratio, row: (*e).clone(), q: (*e).clone(), cost: 1, sources: BTreeSet::new(), tmpl: 0, avail: 0, row_idx: 0, via: Vec::new() });
+        }
+        let weights: Vec<i64> = atoms
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                if i >= base {
+                    return 1;
+                }
+                if a.table != Table::Ratio || !a.admissible(h) || banned.contains(&i) || a.cost == 0 {
+                    return super::route::OFF;
+                }
+                let k = match (&a.src, self.triangle_of(i)) {
+                    (AtomSrc::Human(AtomKey::ExtLawOfSines), _) => 10,
+                    (_, Some(_)) => 30,
+                    (AtomSrc::Human(k), None) if super::theorems::is_identity(*k) => 3,
+                    _ => 4,
+                };
+                k + a.cost as i64
+            })
+            .collect();
+        let g = super::route::Graph::new(cx, &atoms, Table::Ratio, false);
+        let mut lhs = LinComb::zero();
+        for (v, k) in row.terms.iter() {
+            if !k.is_negative() && cx.piv[1].get(*v as usize).copied().unwrap_or(true) {
+                lhs.add_term(*v, k.clone());
+            }
+        }
+        if lhs.is_zero() {
+            return None;
+        }
+        let rhs = &lhs - row;
+        let spent = std::sync::atomic::AtomicUsize::new(0);
+        let p = g.search(cx, &[(lhs, rhs)], 4000, i64::MAX, &spent, &weights)?;
+        Some(super::route::support(&p))
+    }
+
+    fn certify_ext_once(&self, row: &LinComb, h: FactId, focus: &BTreeSet<PointId>, ext: &[&LinComb], banned: &BTreeSet<usize>) -> Option<Vec<(usize, Rat)>> {
         let cx = self.w.cx;
         let tb = Table::Ratio;
         let base = self.w.atoms.len();
@@ -1520,7 +1627,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 .iter()
                 .enumerate()
                 .filter(|(i, a)| a.table == tb && a.admissible(h) && !banned.contains(i))
-                .map(|(i, a)| (eff(a, focus, &self.w.claim_cost, cx) + self.w.extra.get(i).copied().unwrap_or(0) + if self.triangle_of(i).is_some() { 60 } else { 0 }, i)),
+                .map(|(i, a)| (eff(a, focus, &self.w.claim_cost, cx) + self.w.extra.get(i).copied().unwrap_or(0) + match (&self.w.atoms[i].src, self.triangle_of(i)) {
+                    (_, None) => 0,
+                    (AtomSrc::Human(AtomKey::ExtLawOfSines), _) => 20,
+                    _ => 60,
+                }, i)),
         );
         idx.sort();
         let rows: Vec<(u32, &LinComb)> = idx.iter().map(|(c, i)| (*c, if *i >= base { ext[*i - base] } else { &self.w.atoms[*i].row })).collect();
@@ -2824,4 +2935,47 @@ fn trig_stmt(s: (PointId, PointId), q: &Rat, o: PointId, r0: PointId, trig: &Exp
     f.push((Expr::Seg { a: o, b: r0 }, 1));
     f.push((trig.clone(), 1));
     Stmt::Eq { lhs: Expr::Seg { a: s.0, b: s.1 }, rhs: Expr::Prod { factors: f } }
+}
+
+fn prune_lemmas(out: &mut Vec<Sentence>) {
+    loop {
+        let n = out.len();
+        let mut used = vec![false; n];
+        used[n - 1] = true;
+        for s in out.iter_mut() {
+            sentence_reasons_mut(s, &mut |r| {
+                if let Reason::Lemma { block, sentence, .. } = r {
+                    if *block == PENDING_BLOCK && (*sentence as usize) < n {
+                        used[*sentence as usize] = true;
+                    }
+                }
+            });
+        }
+        if used.iter().all(|u| *u) {
+            return;
+        }
+        let mut map = vec![u16::MAX; n];
+        let mut k = 0u16;
+        for i in 0..n {
+            if used[i] {
+                map[i] = k;
+                k += 1;
+            }
+        }
+        let mut i = 0;
+        out.retain(|_| {
+            let keep = used[i];
+            i += 1;
+            keep
+        });
+        for s in out.iter_mut() {
+            sentence_reasons_mut(s, &mut |r| {
+                if let Reason::Lemma { block, sentence, .. } = r {
+                    if *block == PENDING_BLOCK && (*sentence as usize) < n {
+                        *sentence = map[*sentence as usize];
+                    }
+                }
+            });
+        }
+    }
 }
