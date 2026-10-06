@@ -950,7 +950,7 @@
     hooks = hooks || {};
     var d = hpDoc(h, view, { auxText: hooks.auxText });
     var T = d.T;
-    function rowsHtml(rows) {
+    function rowsHtml(rows, tail) {
       var lhsLong = rows.length > 0 && rows[0].lhsLen > 12;
       var html = '<table class="hp-chain' + (lhsLong ? " lhs-own" : "") + '" role="list"><tbody>';
       rows.forEach(function (r, i) {
@@ -958,7 +958,7 @@
         html += '<tr class="hp-row" role="listitem" data-l="' + r.id + '" tabindex="-1">' +
           '<td class="hp-lhs math" role="presentation">' + (lhsLong ? "" : r.lhs) + "</td>" +
           '<td class="hp-eq" role="presentation">=</td>' +
-          '<td class="hp-rhs math" role="presentation">' + r.rhs + "</td>" +
+          '<td class="hp-rhs math" role="presentation">' + r.rhs + (tail && i === rows.length - 1 ? '<span class="hp-row-tail">' + tail + "</span>" : "") + "</td>" +
           '<td class="hp-why math" role="presentation">' + (r.why ? '<span class="sr-only">' + esc(T("hp.link_sr", { r: "" })) + "</span>" + r.why : "") + "</td></tr>";
       });
       html += "</tbody></table>";
@@ -982,8 +982,7 @@
         var tail = last ? tag + (db.end ? " " + qed : "") : "";
         if (p.rows) {
           if (first) html += '<p class="hp-text hp-lead">' + num + "</p>";
-          html += rowsHtml(p.rows);
-          if (tail) html += '<p class="hp-text hp-end-line">' + tail + "</p>";
+          html += rowsHtml(p.rows, tail);
         } else {
           html += '<p class="hp-text">' + (first ? num : "") + p.text + tail + "</p>";
           if (p.compute) {

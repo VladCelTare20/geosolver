@@ -959,3 +959,53 @@ Writer time is the `micros` column of `--human-stats`, measured sequentially (on
 - The search's hyperedges per node are two certificates, so the minimum is over those, not over all certificates; certificates themselves are greedy (`certify_greedy`).
 - IMO 2004 P1 and IMO 2023 P2 are unchanged: their proofs had no similarity left to remove (2023 P2's congruence △OAX ≅ △OPX is the natural step), and the library variants scored worse.
 - Engine theorem facts with squared-length rows (Pythagoras chains in IMO 2008 P1) are still cited with their engine premises; they are not re-certified through the library.
+
+### 13.9 Barem layout (`wf/hp-barem`)
+
+The owner, verbatim: "Fix it all, make sure the proof is correct and understandable and resembles human proofs! BUT make sure that the proof is detailed enough so that anyone understands the solution! … Also look at the romanian national evaluation math rubric (much easier problems, but same structure as what I want)". The target layout is `geosolver-bench/human-proofs/barem/STYLE.md`, with five hand-written goldens in `barem/golden/*.md`; each golden now ends with the machine's EN and RO text and a list of every deviation and its reason.
+
+**Shape.** A notation line; the angle conventions (only those used: "Angles written ∠ are read from the figure." and/or the definition of ∡ in words); a plan ("Plan: it suffices to show that …" / "Ideea: este suficient să arătăm că …") built from the conclusion's premises when there are at least four steps; numbered steps `k.`; a tag `(k)` only on a step that a later step cites, cited "by (k)" / "din (k)"; the last step restates the goal in the problem's words (`GoalWords`: P lies on the line BC, A, B, C, K lie on one circle, AX bisects ∠BAC, …) and ends ", as required. ∎" / ", ceea ce trebuia demonstrat. ∎". A step is one theorem application, or one chain with one fact per link (≤ 8 links), with the reason before the conclusion ("OB = OC and MB = MC, so OM is the perpendicular bisector of BC; hence OM ⟂ BC.").
+
+**Where it is done.** Everything is presentation, after the checker has accepted the proof (`human/barem.rs:polish`, called by `mod.rs:write_inner` after `check::check`):
+
+| transform | what it does | guard |
+|---|---|---|
+| `undirected` | a directed chain becomes a figure-angle chain (∠) | every link checks with exact constants on the figure; terms only with constants 0/90/180° and coefficients 1, 2, ½ |
+| `split_links` | a link that cites several facts becomes several links, one fact each | all fact orders up to 6 facts, a greedy order up to 14; every intermediate expression must be displayable; collinearities and radii ride along |
+| `promote_atoms` | perpendicular bisector, midline, orthocentre, centroid, median to the hypotenuse, equal tangents, perpendicular-bisector locus become their own step (Thales, power of a point, parallels when used twice) | the users cite the new step |
+| `merge_sentence` | two links with the same displayed expression merge | — |
+| `cut_long` | a chain over 8 links is cut at the balanced point; the first part becomes its own step | — |
+| `lemma_steps`, `prefix_steps` | a lemma or an inline-proved result ("Hence △AHG ∼ △MOG") cited later becomes its own numbered step | — |
+| `finish` | step numbers, tags, plan, goal words, convention lines | re-derived by the checker (I6) |
+
+Every transform is validated by the same independent checker (`check::violations_with`): a batch first, then each edit alone; a rejected edit is dropped, and if the whole pass ends with any violation the unpolished proof is kept. The checker gained `layout_violations` (I6: step numbers in order, a tag exactly on cited steps, the goal words equal `goal_words`, the plan inside the conclusion's premises) and accepts a block whose statement is established by its own body. `tests/human_proofs.rs:checker_rejects_corrupted_proofs` corrupts a lemma statement, removes a tag, misnumbers a step and changes the goal words; each is rejected.
+
+**Trigonometry** (`claims.rs:Presenter::trig_ladder`). For a length goal the writer already found `XY = q·R·trig(v)` for both sides. Each side is now reached through intermediate lemmas of the same shape (`a = 2R·sin A`, `BH = 2R·sin∠HCB`), each a short computation that applies one law of sines (two for the extended law of sines), chosen so that the target needs fewer law-of-sines triangles (`trig_candidates`, `certify_ext`, one-step lookahead `trig_pair`). Radius segments are merged into R before the rows are ordered (`radius_vars`), so no row reads "R²·x / R"; the radius equalities each link needs are certified separately and cited. The intermediate statements are engine-verified rows (`in_admissible_span`) and every computation link is re-checked like any other. Not built: a `complement_sine` atom (sin∠HAB = cos B when ∠HAB = 90° − B is certified in the angle table). The engine has no sine variable for cos B, so BH = 2R·cos B is written BH = 2R·sin∠HCB.
+
+**Score.** `mod.rs:score` weighs a similar-triangle step 20 (was 8), which keeps the similar-triangle count at or below `wf/hp-theorems` after the extra perpendicular atoms (`atoms.rs:perps` now includes Thales' right angles, so "OF ⟂ BN, AC ⟂ BN ⇒ OF ∥ AC" style parallels exist).
+
+**Renderers.** `text.rs` (CLI), `ag-studio/src/human_view.rs` (`doc`/`text`, server and PDF) and `ag-studio/assets/site.js` (`hpDoc`/`humanText`/`renderHuman`) produce the same text; a `node` harness that loads `i18n.js` and `site.js` with DOM stubs gives the `.txt` fixtures byte-for-byte after whitespace normalisation (12/12, EN and RO), and `desktop-e2e.mjs:humanParity` checks the same in three browsers. Every new wording is an i18n key in both catalogues (`hp.plan`, `hp.we_show`, `hp.required`, `hp.goal.*`, `hp.say.*`, `hp.by`, `hp.by_list`, `hp.setup.directed`, `hp.setup.figure`, …); the RO text prints ∢ for figure angles and ∡ only after defining it.
+
+**Measured** (`ddar --corpus-one … --budget 150 --human --human-json --human-stats -`, 6 at a time; before = `wf/hp-theorems` + `wf/hp-display` merge, 1c39b88; after = this branch; IMO 2021 P3 re-run alone at budget 400 in both because it times out under load).
+
+| | IMO before | IMO after | JGEX before | JGEX after |
+|---|---|---|---|---|
+| available / checker violations / panics | 30 / 0 / 0 | 30 / 0 / 0 | 240 / 0 / 0 | 240 / 0 / 0 |
+| numbered steps (blocks) | 249 | 351 | 516 | 657 |
+| words (EN) | 11734 | 16769 | 19641 | 30275 |
+| chain links | 777 | 931 | 1238 | 1424 |
+| links citing more than one fact | 61 | 16 | 88 | 25 |
+| figure-angle (∠) chains | 76 | 208 | 140 | 444 |
+| pooled sentences | 5 | 3 | 7 | 1 |
+| chains over 8 links | — | 0 | — | 0 |
+| similar-triangle steps | 127 | 120 | 219 | 212 |
+
+Words rise by about 45 %: one fact per link, the step numbers, "We show that …:" leads, the closing sentence in the problem's words and the convention lines are all extra text. That is the layout the owner asked for ("detailed enough so that anyone understands"); the number of facts a reader must check is unchanged.
+
+Remaining pooled sentences, each because no order of its facts has displayable intermediate expressions (an undirected intermediate may have at most two angle terms): IMO 2015 P3 steps 20 and 21, IMO 2020 P1 step 7, JGEX E074-24 step 6. Links still citing several facts (41) are the same case.
+
+**Known weaknesses.**
+- The writer still picks the certificate, and barem only re-presents it. IMO 2004 P1 (corpus run) does not take the golden's last chain (OF ∥ AC, inscribed angles in ω₂): it goes through the centre O₂ and is cut into two steps. Euler's line keeps the intercept theorem instead of the centroid ratio.
+- Doubled directed angles (2∡IAP = 2∡APX) are stated as such when the engine's rows are only determined modulo 90°.
+- Directed chains stay directed when the figure-angle form fails the exact check (Euler's line similarity), so both conventions are printed.
+- Trig intermediates still name non-triangle angles (sin∠COA); `complement_sine` would let them read 90° − B.

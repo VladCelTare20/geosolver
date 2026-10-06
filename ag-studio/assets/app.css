@@ -580,9 +580,9 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .hp-text { margin: 0 0 4px; max-width: 75ch; }
 .hp-text:last-child { margin-bottom: 0; }
 .hp-lead { margin-bottom: 2px; }
-.hp-end-line { text-align: right; }
+.hp-row-tail { white-space: nowrap; margin-left: .45em; }
+.hp-row-tail .hp-qed { float: none; }
 .hp-qed { float: right; margin-left: var(--s3); color: var(--proved); font-weight: 600; }
-.hp-end-line .hp-qed { float: none; }
 .hp-ref, .hp-step { color: var(--accent); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; border-radius: 3px; }
 @media (hover: hover) { .hp-ref:hover, .hp-step:hover { text-decoration-style: solid; } }
 .hp-ref:focus-visible, .hp-step:focus-visible, .hp-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
