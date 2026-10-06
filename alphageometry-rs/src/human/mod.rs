@@ -91,7 +91,8 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     let mut p = Presenter::new(&w);
     p.run();
     tick("present");
-    let blocks = p.blocks.clone();
+    let mut blocks = p.blocks.clone();
+    claims::drop_self_reasons(&mut blocks);
     let as_drawn = p.as_drawn;
     let setup = setup_lines(&cx, &blocks);
     let mut hp = HumanProof { version: 1, available: true, setup, blocks, as_drawn, metrics: Metrics::default() };

@@ -738,7 +738,12 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
                 } else if restates || (rs.len() == 1 && rs[0] == own) {
                     format!("{} (shown above).", cap(&own))
                 } else {
-                    format!("{} ({}).", cap(&own), rs.join("; "))
+                    let rest: Vec<String> = rs.iter().filter(|x| **x != own).cloned().collect();
+                    if rest.is_empty() {
+                        format!("{} (shown above).", cap(&own))
+                    } else {
+                        format!("{} ({}).", cap(&own), rest.join("; "))
+                    }
                 }
             }
         }

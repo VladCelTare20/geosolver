@@ -163,6 +163,44 @@ pub fn sentence_reasons_mut(s: &mut Sentence, f: &mut dyn FnMut(&mut Reason)) {
     }
 }
 
+fn restating(parent: &Stmt, b: &Reason) -> bool {
+    match b {
+        Reason::Hyp { stmt, .. } | Reason::Fact { stmt, .. } => same_cong(stmt, parent),
+        Reason::Atom { stmt, from, .. } => from.is_empty() && same_cong(stmt, parent),
+        _ => false,
+    }
+}
+
+fn clean_because(parent: &Stmt, because: Vec<Reason>) -> Vec<Reason> {
+    let mut out: Vec<Reason> = Vec::new();
+    for b in because {
+        let lifted: Vec<Reason> = match b {
+            Reason::Fact { ref stmt, because: ref inner, .. } if same_cong(stmt, parent) => clean_because(parent, inner.clone()),
+            ref x if restating(parent, x) => Vec::new(),
+            x => vec![x],
+        };
+        for x in lifted {
+            if !out.contains(&x) {
+                out.push(x);
+            }
+        }
+    }
+    out
+}
+
+pub fn drop_self_reasons(blocks: &mut [Block]) {
+    for b in blocks.iter_mut() {
+        for s in b.body.iter_mut() {
+            sentence_reasons_mut(s, &mut |r| {
+                if let Reason::Fact { stmt, because, .. } = r {
+                    let taken = std::mem::take(because);
+                    *because = clean_because(stmt, taken);
+                }
+            });
+        }
+    }
+}
+
 fn shift_pending(ss: &mut [Sentence], off: usize) {
     for s in ss.iter_mut() {
         sentence_reasons_mut(s, &mut |r| {
