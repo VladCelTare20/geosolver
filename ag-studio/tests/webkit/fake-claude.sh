@@ -12,6 +12,7 @@ PROMPT=$2
 sleep 1
 case "$PROMPT" in
   *"translate it into a .geo program"*|*"Translate this geometry problem"*)
+    if [ -n "$FAKE_CLAUDE_GEO" ]; then printf '```geo\n%s\n```\n' "$FAKE_CLAUDE_GEO"; exit 0; fi
     printf '```geo\n# Stewart: AD^2 = 14\nB = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = point: dist(A,B)=5, dist(A,C)=4\nprove dist(A,D)^2 = 14\n```\n'
     exit 0 ;;
   Problema:*)

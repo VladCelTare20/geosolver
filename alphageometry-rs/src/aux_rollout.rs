@@ -504,8 +504,11 @@ fn lemmas_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("AUX_LEMMAS").map_or(true, |v| v != "0"))
 }
 
-/// Share of the budget after which the lemma phase starts, and where it ends.
+/// Share of the budget after which the lemma phase starts (but never later
+/// than `LEMMA_START_CAP`, so a longer budget does not postpone it), and where
+/// it ends.
 const LEMMA_START: f64 = 0.3;
+const LEMMA_START_CAP: Duration = Duration::from_secs(18);
 const LEMMA_END: f64 = 0.75;
 /// The phase never takes longer than this: a lemma worth its detour is a
 /// short search, and the rollouts it interrupts need the time back.
@@ -749,7 +752,7 @@ fn search_with(
     let mut lemma_due = lemmas && budget.is_some();
     while !past(deadline) && round < max_rounds && size >= 2 {
         if let (true, Some(b)) = (lemma_due, budget) {
-            if t0.elapsed() >= b.mul_f64(LEMMA_START) {
+            if t0.elapsed() >= b.mul_f64(LEMMA_START).min(LEMMA_START_CAP) {
                 lemma_due = false;
                 let until = t0 + b.mul_f64(LEMMA_END).min(t0.elapsed() + LEMMA_PHASE_CAP);
                 if let Some((aug, cons)) = lemma_phase(problem, warm.ddar(), verbose, until) {

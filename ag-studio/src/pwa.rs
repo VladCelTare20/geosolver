@@ -21,7 +21,7 @@ pub const MANIFEST: &str = r##"{
   "id": "/",
   "name": "GeoSolver",
   "short_name": "GeoSolver",
-  "description": "Draw the figure of a geometry problem and get a machine-checked proof.",
+  "description": "Describe, photograph or write a geometry problem and get a machine-checked proof.",
   "lang": "en",
   "dir": "ltr",
   "start_url": "/",
@@ -207,8 +207,23 @@ fn bytes(ctype: &'static str, cache: &'static str, body: &'static [u8]) -> Respo
         .into_response()
 }
 
-pub async fn manifest() -> Response {
-    bytes("application/manifest+json", "public, max-age=86400", MANIFEST.as_bytes())
+pub fn manifest_for(lang: crate::i18n::Lang) -> String {
+    let mut m: serde_json::Value = serde_json::from_str(MANIFEST).unwrap_or_default();
+    m["lang"] = serde_json::Value::from(lang.code());
+    m["description"] = serde_json::Value::from(crate::i18n::t(lang, "pwa.description"));
+    format!("{m:#}\n")
+}
+
+pub async fn manifest(headers: axum::http::HeaderMap) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("application/manifest+json")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400")),
+            (header::VARY, HeaderValue::from_static("Accept-Language, Cookie")),
+        ],
+        manifest_for(crate::i18n::lang_from_headers(&headers)),
+    )
+        .into_response()
 }
 
 pub async fn favicon_svg() -> Response {
@@ -294,6 +309,19 @@ mod tests {
         let m = rasterize(&icon_svg(512, 512, Some(ACCENT), 300.0, "#ffffff", 2.2)).unwrap();
         let white: Vec<u32> = (0..256).filter(|&x| m.pixel(x, 256).unwrap().red() == 255).collect();
         assert!(256 - white[0] <= 204, "maskable mark inside the 80 % safe circle");
+    }
+
+    #[test]
+    fn the_manifest_describes_the_app_in_the_visitors_language() {
+        use crate::i18n::Lang;
+        let en: serde_json::Value = serde_json::from_str(&manifest_for(Lang::En)).unwrap();
+        assert_eq!(en["lang"], "en");
+        assert!(en["description"].as_str().unwrap().starts_with("Describe, photograph or write"), "{en}");
+        assert!(!MANIFEST.contains("Draw the figure"));
+        let ro: serde_json::Value = serde_json::from_str(&manifest_for(Lang::Ro)).unwrap();
+        assert_eq!(ro["lang"], "ro");
+        assert!(ro["description"].as_str().unwrap().starts_with("Descrie, fotografiază"), "{ro}");
+        assert_eq!(ro["icons"], en["icons"]);
     }
 
     #[test]

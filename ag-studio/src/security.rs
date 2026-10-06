@@ -18,6 +18,9 @@
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
+//! | `AGSTUDIO_SOLVE_DEADLINE_SECS` | 60 | wall-clock limit of one web solve or export (10–600); the request timeout grows to fit |
+//! | `AGSTUDIO_EXTENDED_DEADLINE_SECS` | 180 | limit of the "Keep searching" solve offered after a time-limit verdict (one at a time, server-wide; 0 = not offered; at most 900) |
+//! | `RAYON_NUM_THREADS` | unset | solver threads per worker; unset, the CPUs (cgroup quota included) minus one are shared among the workers running at once |
 //! | `AGSTUDIO_WORKER_MEM_MB` | 2048 | memory cap (`RLIMIT_DATA`: heap and thread stacks, not merely reserved address space) of each solve worker process; 0 = none |
 //! | `AGSTUDIO_HUMAN_PROOFS` | 1 | 0 turns off the human-style proof writer (the Proof tab, MCP and reports then show only the full derivation) |
 //! | `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests per minute (0 = off) |
@@ -184,13 +187,20 @@ pub struct Config {
     /// Wall-clock deadline of one web solve or export (its worker is killed
     /// [`crate::worker::GRACE`] later).
     pub solve_deadline: Duration,
+    /// Deadline of a "keep searching" solve after a time-limit verdict
+    /// (`AGSTUDIO_EXTENDED_DEADLINE_SECS`; `None` = not offered).
+    pub extended_deadline: Option<Duration>,
     /// How long a client has to send a request's headers before the
     /// connection is closed.
     pub header_timeout: Duration,
 }
 
-/// Default web solve deadline, well inside the 120 s request timeout.
+/// Default web solve deadline (`AGSTUDIO_SOLVE_DEADLINE_SECS`).
 pub const SOLVE_DEADLINE: Duration = Duration::from_secs(60);
+/// Default [`Config::extended_deadline`].
+pub const EXTENDED_DEADLINE: Duration = Duration::from_secs(180);
+/// The shortest whole-request timeout; longer deadlines raise it.
+pub const REQUEST_TIMEOUT_MIN: Duration = Duration::from_secs(120);
 /// Default [`Config::header_timeout`].
 pub const HEADER_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -282,6 +292,12 @@ impl Config {
         let cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
+        let solve_deadline =
+            Duration::from_secs(num("AGSTUDIO_SOLVE_DEADLINE_SECS", SOLVE_DEADLINE.as_secs() as usize).clamp(10, 600) as u64);
+        let extended_deadline = match num("AGSTUDIO_EXTENDED_DEADLINE_SECS", EXTENDED_DEADLINE.as_secs() as usize) {
+            0 => None,
+            s => Some(Duration::from_secs(s.min(900) as u64)).filter(|d| *d > solve_deadline),
+        };
         Ok(Config {
             bind,
             basic_auth,
@@ -306,9 +322,17 @@ impl Config {
                 .unwrap_or_else(|| PathBuf::from("./agstudio.db")),
             secure_cookies: flag("AGSTUDIO_SECURE_COOKIES"),
             queue_wait: Duration::from_secs(num("AGSTUDIO_QUEUE_WAIT_SECS", 5).min(60) as u64),
-            solve_deadline: SOLVE_DEADLINE,
+            solve_deadline,
+            extended_deadline,
             header_timeout: HEADER_TIMEOUT,
         })
+    }
+
+    /// The whole-request timeout: room for the longest solve, its worker's
+    /// grace period and the wait for a slot.
+    pub fn request_timeout(&self) -> Duration {
+        let longest = self.extended_deadline.unwrap_or(self.solve_deadline).max(self.solve_deadline);
+        REQUEST_TIMEOUT_MIN.max(longest + crate::worker::GRACE + self.queue_wait + Duration::from_secs(30))
     }
 
     /// Guest access is only ever granted behind the shared Basic password.
@@ -350,12 +374,17 @@ type StatusProbe = fn() -> translate::Status;
 /// How long a `claude auth status` result is reused by `/api/status`.
 pub const TRANSLATE_STATUS_TTL: Duration = Duration::from_secs(60);
 
+/// How long a credential the API rejected keeps AI reported as signed out.
+pub const CREDENTIAL_REJECTED_HOLD: Duration = Duration::from_secs(600);
+
 /// Shared server state.
 pub struct AppState {
     pub config: Config,
     /// Concurrency gate for the CPU/subprocess-heavy endpoints.
     pub heavy: Arc<Semaphore>,
     pub render: Arc<Semaphore>,
+    /// One "keep searching" solve at a time, server-wide.
+    pub extended: Arc<Semaphore>,
     pub inflight: Arc<Mutex<HashMap<String, usize>>>,
     /// Concurrency gate for argon2 (login/register).
     pub argon: Arc<Semaphore>,
@@ -371,6 +400,7 @@ pub struct AppState {
     status_snapshot: Mutex<(Option<(Instant, translate::Status)>, bool)>,
     /// Last time expired sessions were swept from the DB (see [`sweep_expired_sessions`]).
     session_sweep: Mutex<Option<Instant>>,
+    credential_rejected: Mutex<Option<Instant>>,
     /// HMAC key of the gate cookie: `AGSTUDIO_GATE_KEY`, else the DB's.
     pub gate_key: [u8; 32],
 }
@@ -406,6 +436,7 @@ impl AppState {
         Ok(Arc::new(AppState {
             heavy: Arc::new(Semaphore::new(config.max_concurrent)),
             render: Arc::new(Semaphore::new(config.max_concurrent)),
+            extended: Arc::new(Semaphore::new(1)),
             inflight: Arc::new(Mutex::new(HashMap::new())),
             argon: Arc::new(Semaphore::new(ARGON2_PERMITS)),
             rate: Mutex::new(RateLimiter::default()),
@@ -415,8 +446,34 @@ impl AppState {
             translate_status: tokio::sync::Mutex::new(None),
             status_snapshot: Mutex::new((None, false)),
             session_sweep: Mutex::new(None),
+            credential_rejected: Mutex::new(None),
             gate_key,
         }))
+    }
+
+    /// Record how a call to the `claude` CLI ended: a rejected credential
+    /// reports AI as signed out for [`CREDENTIAL_REJECTED_HOLD`]; an answer
+    /// clears that.
+    pub fn note_ai_outcome(&self, outcome: Result<(), &anyhow::Error>) {
+        let mut rejected = relock(&self.credential_rejected);
+        match outcome {
+            Ok(()) => *rejected = None,
+            Err(e) if translate::failure(e) == Some(translate::Failure::SignedOut) => {
+                if rejected.is_none() {
+                    eprintln!(
+                        "  AI translation: off for {} min — the claude CLI is signed out or its credential was rejected (see the error above); `agstudio doctor` checks it",
+                        CREDENTIAL_REJECTED_HOLD.as_secs() / 60
+                    );
+                }
+                *rejected = Some(Instant::now());
+            }
+            Err(_) => {}
+        }
+    }
+
+    fn with_rejection(&self, s: translate::Status) -> translate::Status {
+        let held = relock(&self.credential_rejected).is_some_and(|at| at.elapsed() < CREDENTIAL_REJECTED_HOLD);
+        translate::Status { installed: s.installed, logged_in: s.logged_in && !held }
     }
 
     /// Translation status for `/api/status`: never spawns anything when
@@ -430,7 +487,7 @@ impl AppState {
         let mut cached = self.translate_status.lock().await;
         if let Some((at, s)) = *cached {
             if at.elapsed() < TRANSLATE_STATUS_TTL {
-                return s;
+                return self.with_rejection(s);
             }
         }
         let probe = self.translate_probe;
@@ -438,7 +495,7 @@ impl AppState {
         let now = Instant::now();
         *cached = Some((now, s));
         relock(&self.status_snapshot).0 = Some((now, s));
-        s
+        self.with_rejection(s)
     }
 
     /// The last probe result without waiting: `None` until the first probe
@@ -461,7 +518,7 @@ impl AppState {
                 relock(&me.status_snapshot).1 = false;
             });
         }
-        current
+        current.map(|s| self.with_rejection(s))
     }
 }
 
@@ -523,6 +580,23 @@ mod tests {
         let vars: HashMap<String, String> =
             vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         Config::from_lookup(8787, move |k| vars.get(k).cloned())
+    }
+
+    #[test]
+    fn the_solve_deadlines_are_configurable_and_the_request_timeout_fits_them() {
+        let c = cfg(&[]).unwrap();
+        assert_eq!(c.solve_deadline, Duration::from_secs(60));
+        assert_eq!(c.extended_deadline, Some(Duration::from_secs(180)));
+        assert!(c.request_timeout() >= Duration::from_secs(180) + crate::worker::GRACE + c.queue_wait);
+        let c = cfg(&[("AGSTUDIO_SOLVE_DEADLINE_SECS", "90"), ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "0")]).unwrap();
+        assert_eq!(c.solve_deadline, Duration::from_secs(90));
+        assert_eq!(c.extended_deadline, None);
+        assert_eq!(c.request_timeout(), REQUEST_TIMEOUT_MIN.max(Duration::from_secs(90) + crate::worker::GRACE + c.queue_wait + Duration::from_secs(30)));
+        let c = cfg(&[("AGSTUDIO_SOLVE_DEADLINE_SECS", "1"), ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "5000")]).unwrap();
+        assert_eq!(c.solve_deadline, Duration::from_secs(10));
+        assert_eq!(c.extended_deadline, Some(Duration::from_secs(900)));
+        let c = cfg(&[("AGSTUDIO_SOLVE_DEADLINE_SECS", "200"), ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "120")]).unwrap();
+        assert_eq!(c.extended_deadline, None, "a longer search must be longer");
     }
 
     #[test]

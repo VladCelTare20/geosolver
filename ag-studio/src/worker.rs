@@ -38,6 +38,37 @@ pub const EXIT_NO_THREADS: i32 = 3;
 /// Env var carrying the server's pid to the worker, which exits once its
 /// parent is no longer that process.
 const PARENT_ENV: &str = "AGSTUDIO_WORKER_PARENT";
+
+static THREAD_BUDGET: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+static RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+const MIN_WORKER_THREADS: usize = 2;
+
+/// Share `total` solver threads among the workers that run at once: each new
+/// worker gets `total / running` (at least 2) instead of `total` each. Not
+/// called when the operator set `RAYON_NUM_THREADS`, which then applies to
+/// every worker as before.
+pub fn share_threads(total: usize) {
+    let _ = THREAD_BUDGET.set(total.max(1));
+}
+
+fn threads_for(total: usize, running: usize) -> usize {
+    total.div_ceil(running.max(1)).max(MIN_WORKER_THREADS.min(total))
+}
+
+struct Running;
+
+impl Running {
+    fn start() -> (Running, usize) {
+        let n = RUNNING.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        (Running, n)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        RUNNING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
 /// How often a worker checks that its server is still alive.
 const PARENT_POLL: Duration = Duration::from_millis(100);
 /// How long a dying process waits for its last stderr line to be written.
@@ -312,6 +343,10 @@ async fn run_with(
         Err(e) => return Outcome::Failed(format!("could not locate the solver executable: {e}")),
     };
     configure(&mut cmd, hard);
+    let (_running, running) = Running::start();
+    if let Some(&total) = THREAD_BUDGET.get() {
+        cmd.env("RAYON_NUM_THREADS", threads_for(total, running).to_string());
+    }
     tweak(&mut cmd);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -648,6 +683,17 @@ pub(crate) mod tests {
     use super::*;
     use std::time::Instant;
     use tokio::sync::Semaphore;
+
+    #[test]
+    fn concurrent_workers_share_the_solver_threads() {
+        assert_eq!(threads_for(7, 1), 7);
+        assert_eq!(threads_for(7, 2), 4);
+        assert_eq!(threads_for(7, 4), 2);
+        assert_eq!(threads_for(7, 8), 2);
+        assert_eq!(threads_for(15, 4), 4);
+        assert_eq!(threads_for(1, 3), 1);
+        assert_eq!(threads_for(7, 0), 7);
+    }
 
     const WATCHDOG_ENTRY: &str = "worker::tests::watchdog_process_entry";
     const WATCHDOG_ENV: &str = "AGSTUDIO_TEST_WATCHDOG_PROCESS";

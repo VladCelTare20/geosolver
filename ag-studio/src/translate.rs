@@ -105,6 +105,11 @@ fn env_login_hint(var: impl Fn(&str) -> Option<String>) -> bool {
     var("CLAUDE_CODE_OAUTH_TOKEN").is_some_and(|v| !v.is_empty())
 }
 
+/// Is a `CLAUDE_CODE_OAUTH_TOKEN` set (counted as signed in without a check)?
+pub fn token_in_env() -> bool {
+    env_login_hint(|k| std::env::var(k).ok())
+}
+
 fn find_claude() -> Option<PathBuf> {
     const NESTED: &str = "node_modules/@anthropic-ai/claude-code/bin/claude.exe";
     let mut fallbacks: Vec<PathBuf> = Vec::new();
@@ -296,7 +301,70 @@ fn scratch_dir() -> Result<(tempfile::TempDir, PathBuf)> {
 
 /// Does CLI output look like its "please sign in" message?
 fn looks_signed_out(s: &str) -> bool {
-    s.contains("Not logged in") || s.contains("/login") || s.contains("auth login")
+    s.contains("Not logged in") || s.contains("/login") || s.contains("auth login") || credential_rejected(s)
+}
+
+fn credential_rejected(s: &str) -> bool {
+    const MARKS: [&str; 8] = [
+        "Failed to authenticate",
+        "API Error: 401",
+        "Invalid bearer token",
+        "OAuth access token is invalid",
+        "OAuth token has expired",
+        "OAuth token revoked",
+        "authentication_error",
+        "Invalid API key",
+    ];
+    MARKS.iter().any(|m| s.contains(m))
+}
+
+const DETAIL_CHARS: usize = 600;
+
+fn clip(s: &str) -> String {
+    let s = s.trim();
+    match s.char_indices().nth(DETAIL_CHARS) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
+    }
+}
+
+fn cli_said(stdout: &str, stderr: &str) -> String {
+    let (out, err) = (clip(stdout), clip(stderr));
+    match (out.is_empty(), err.is_empty()) {
+        (true, true) => "nothing".to_string(),
+        (false, true) => format!("stdout: {out}"),
+        (true, false) => format!("stderr: {err}"),
+        (false, false) => format!("stdout: {out} | stderr: {err}"),
+    }
+}
+
+fn signed_out(stdout: &str, stderr: &str) -> anyhow::Error {
+    fail(Failure::SignedOut, format!("{NOT_SIGNED_IN} (claude said {})", cli_said(stdout, stderr)))
+}
+
+/// Make one minimal model call to test that the CLI's credential is accepted
+/// (`claude auth status` reports any non-empty token as signed in). Returns
+/// the model's reply.
+pub fn check_credentials() -> Result<String> {
+    let bin = claude_bin().ok_or_else(|| anyhow!(NOT_FOUND))?;
+    check_credentials_with(&bin, Duration::from_secs(60))
+}
+
+fn check_credentials_with(bin: &Path, timeout: Duration) -> Result<String> {
+    let (_scratch, cwd) = scratch_dir()?;
+    let mut cmd = child_command(bin, "Reply with the single word OK.", "", None, &cwd);
+    let model = std::env::var("AGSTUDIO_CLAUDE_MODEL").unwrap_or_else(|_| "haiku".to_string());
+    cmd.arg("--model").arg(model);
+    let output = run_with_timeout(cmd, timeout).context("running the claude CLI")?;
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let err = String::from_utf8_lossy(&output.stderr);
+    if looks_signed_out(&raw) || looks_signed_out(&err) {
+        return Err(signed_out(&raw, &err));
+    }
+    if !output.status.success() || raw.is_empty() {
+        bail!("claude exited unsuccessfully ({}); it said {}", output.status, cli_said(&raw, &err));
+    }
+    Ok(clip(&raw))
 }
 
 /// Translate a problem into a `.geo` program using the local Claude subscription.
@@ -355,14 +423,14 @@ fn translate_with(bin: &Path, source: &Source, timeout: Duration) -> Result<Tran
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         if looks_signed_out(&raw) || looks_signed_out(&err) {
-            return Err(fail(Failure::SignedOut, NOT_SIGNED_IN));
+            return Err(signed_out(&raw, &err));
         }
-        bail!("claude exited unsuccessfully: {}", err.trim());
+        bail!("claude exited unsuccessfully ({}); it said {}", output.status, cli_said(&raw, &err));
     }
     let Some(geo) = extract_geo(&raw) else {
         // The CLI prints a login prompt (with exit 0) when not signed in.
         if looks_signed_out(&raw) {
-            return Err(fail(Failure::SignedOut, NOT_SIGNED_IN));
+            return Err(signed_out(&raw, ""));
         }
         return Err(fail(
             Failure::NoProgram,
@@ -709,15 +777,15 @@ fn humanize_with(
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         if looks_signed_out(&raw) || looks_signed_out(&err) {
-            bail!(NOT_SIGNED_IN);
+            return Err(signed_out(&raw, &err));
         }
-        bail!("claude exited unsuccessfully: {}", err.trim());
+        bail!("claude exited unsuccessfully ({}); it said {}", output.status, cli_said(&raw, &err));
     }
     if raw.is_empty() {
         bail!("empty proof from the model");
     }
     if raw.len() < 200 && looks_signed_out(&raw) {
-        bail!(NOT_SIGNED_IN);
+        return Err(signed_out(&raw, ""));
     }
     Ok(raw)
 }
@@ -967,6 +1035,42 @@ mod tests {
         assert_eq!(kind("Not logged in · Please run /login", 0), Some(Failure::SignedOut));
         assert_eq!(kind("Please run /login", 1), Some(Failure::SignedOut));
         assert_eq!(kind("boom", 1), None);
+        assert_eq!(kind("Failed to authenticate. API Error: 401 Invalid bearer token", 1), Some(Failure::SignedOut));
+        assert_eq!(
+            kind("Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"OAuth access token is invalid\"}}", 1),
+            Some(Failure::SignedOut)
+        );
+    }
+
+    #[test]
+    fn a_failed_run_logs_what_the_cli_printed_on_stdout() {
+        let fake = FakeClaude::new("Something went wrong: API Error: 529 overloaded", 1);
+        let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+        let shown = format!("{e:#}");
+        assert!(shown.contains("API Error: 529 overloaded"), "{shown}");
+        assert_eq!(failure(&e), None);
+        let rejected = FakeClaude::new("Failed to authenticate. API Error: 401 Invalid bearer token", 1);
+        let e = translate_with(&rejected.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+        assert!(format!("{e:#}").contains("Invalid bearer token"), "{e:#}");
+        let e = humanize_with(&rejected.bin(), "p", "001. x", "", &[], Lang::En, CHILD_TIMEOUT).err().unwrap();
+        assert_eq!(failure(&e), Some(Failure::SignedOut), "{e:#}");
+        assert!(format!("{e:#}").contains("Invalid bearer token"), "{e:#}");
+        let long = "x".repeat(5000);
+        let fake = FakeClaude::new(&long, 1);
+        let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+        assert!(format!("{e:#}").len() < 1000, "the CLI's output is clipped");
+    }
+
+    #[test]
+    fn the_credential_check_reports_a_rejected_token_as_signed_out() {
+        let fake = FakeClaude::new("Failed to authenticate. API Error: 401 Invalid bearer token", 1);
+        let e = check_credentials_with(&fake.bin(), CHILD_TIMEOUT).err().unwrap();
+        assert_eq!(failure(&e), Some(Failure::SignedOut));
+        assert!(format!("{e:#}").contains("Invalid bearer token"), "{e:#}");
+        let ok = FakeClaude::new("OK", 0);
+        assert_eq!(check_credentials_with(&ok.bin(), CHILD_TIMEOUT).unwrap(), "OK");
+        assert_eq!(ok.value_after("--tools").as_deref(), Some(""));
+        assert!(ok.argv().iter().any(|a| a == "--model"));
     }
 
     #[test]

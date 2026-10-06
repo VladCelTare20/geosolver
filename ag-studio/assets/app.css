@@ -380,6 +380,12 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .syntax-help p { margin: var(--s2) 0; }
 .syntax-help pre { margin: var(--s2) 0; padding: var(--s2) var(--s3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-control); overflow-x: auto; font-size: var(--fs-13); line-height: 1.6; }
 .syntax-help code { font-family: var(--font-mono); font-size: 0.95em; }
+.syntax-help h4 { font-size: var(--fs-13); font-weight: 650; margin: var(--s3) 0 var(--s1); }
+.syn-ref { margin: 0; }
+.syn-ref dt { font-weight: 600; color: var(--text-2); margin-top: var(--s2); }
+.syn-ref dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.syn-ref dd > span { display: inline-block; max-width: 100%; margin: 0 16px 3px 0; color: var(--text-2); }
+.syn-ref dd > span code { color: var(--text); }
 
 .editor { display: grid; grid-template-columns: auto minmax(0, 1fr); border: 1px solid var(--border-strong); border-radius: var(--r-control); background: var(--surface); overflow: hidden; transition: border-color 140ms ease-out, box-shadow 140ms ease-out; }
 .editor:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-a25); }
@@ -476,7 +482,9 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .verdict-meta { margin-top: var(--s2); display: flex; gap: 2px 0; flex-wrap: wrap; font-size: var(--fs-13); color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; min-width: 0; }
 .verdict-meta > span { position: relative; margin-right: 18px; min-width: 0; overflow-wrap: anywhere; }
 .verdict-meta > span + span::before { content: "·" / ""; position: absolute; left: -12px; }
-.guest-note { margin-top: var(--s2); }
+.guest-note, .ai-reading { margin-top: var(--s2); }
+.ai-reading { max-width: 75ch; }
+.st-ai { margin-bottom: 2px; }
 .guest-note .hint-ic svg { width: 14px; height: 14px; margin-top: 3px; }
 .refine { margin-top: var(--s2); display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-13); color: var(--text-2); }
 .refine .spinner { width: 14px; height: 14px; }
@@ -954,7 +962,8 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .group-toggle::after { content: ""; position: absolute; inset: -14px -8px; }
   .err-detail summary, .raw-note summary { min-height: 48px; }
   .details > summary { min-height: 48px; }
-  .guest-note a, .err-where .link-btn, .refine .link-btn { display: inline-block; padding-block: 14px; margin-block: -14px; }
+  .guest-note a, .err-where .link-btn, .refine .link-btn, .ai-reading .link-btn { display: inline-block; padding-block: 14px; margin-block: -14px; }
+  .ai-reading { margin-bottom: var(--s1); }
   .guest-note, .refine { margin-bottom: var(--s1); }
 }
 @media screen and (pointer: coarse) and (max-width: 359px) {

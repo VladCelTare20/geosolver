@@ -226,7 +226,9 @@ fn report_translate_status(state: Shared) {
     tokio::spawn(async move {
         let who = if state.config.guest_ai_allowed() { "accounts + guests" } else { "accounts only" };
         let on = format!("on ({who}; local Claude subscription)");
+        let unverified = format!("{on} — CLAUDE_CODE_OAUTH_TOKEN is not checked until the first AI call; `agstudio doctor` tests it now");
         let note = match state.translate_status().await {
+            s if s.logged_in && translate::token_in_env() => unverified.as_str(),
             s if s.logged_in => on.as_str(),
             s if s.installed => "installed — run `claude auth login` to enable",
             _ => "off — install the `claude` CLI to enable",
@@ -291,6 +293,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for WithPeer
 /// Extracted from [`serve`] so integration tests can drive it without a socket.
 fn app_router(state: Shared) -> Router {
     let body_limit = state.config.max_body_bytes;
+    let request_timeout = state.config.request_timeout();
     Router::new()
         .route("/", get(index))
         .route("/app", get(app_page))
@@ -325,6 +328,7 @@ fn app_router(state: Shared) -> Router {
         .route("/api/auth/login", post(api_login))
         .route("/api/auth/logout", post(api_logout))
         .route("/api/auth/me", get(api_me))
+        .fallback(not_found)
         // Innermost first; the last layer added is the outermost.
         .layer(axum::middleware::from_fn(security::same_origin))
         .layer(axum::middleware::from_fn_with_state(
@@ -352,7 +356,7 @@ fn app_router(state: Shared) -> Router {
         // ordinary requests still return in well under a second.
         .layer(TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
-            Duration::from_secs(120),
+            request_timeout,
         ))
         .layer(DefaultBodyLimit::max(body_limit))
         .with_state(state)
@@ -372,6 +376,44 @@ async fn index(State(state): State<Shared>, headers: HeaderMap) -> Response {
     } else {
         page(landing_html())
     }
+}
+
+const NOT_FOUND_HTML: &str = "<!DOCTYPE html>\n<html lang=\"{lang}\">\n<head>\n<meta charset=\"utf-8\">\n\
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n\
+<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"robots\" content=\"noindex\">\n\
+<title>{title} · GeoSolver</title>\n<link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\">\n\
+<link rel=\"stylesheet\" href=\"/assets/app.css\">\n<style>\n\
+  .nf-page { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: max(var(--s4), var(--sai-t)) max(var(--s4), var(--sai-r)) max(var(--s4), var(--sai-b)) max(var(--s4), var(--sai-l)); }\n\
+  .nf-card { width: min(100%, 420px); padding: var(--s5); display: grid; gap: var(--s3); }\n\
+  .nf-card svg { width: 40px; height: 40px; color: var(--accent); }\n\
+  .nf-card h1 { font-family: var(--font-math); font-size: var(--fs-25); font-weight: 600; }\n\
+  .nf-card p { color: var(--text-2); }\n\
+  .nf-card .btn { justify-self: start; min-height: 48px; }\n\
+</style>\n</head>\n<body>\n<main class=\"nf-page\">\n<div class=\"nf-card card\">\n\
+<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><circle cx=\"16\" cy=\"16\" r=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/><path d=\"M16 4.6 26.2 22H5.8Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linejoin=\"round\"/></svg>\n\
+<h1>{title}</h1>\n<p>{body}</p>\n<a class=\"btn btn-primary\" href=\"/\">{home}</a>\n</div>\n</main>\n</body>\n</html>\n";
+
+/// Any route the app does not have: a branded page for a browser, JSON for
+/// `/api/*`, plain text otherwise.
+async fn not_found(uri: axum::http::Uri, headers: HeaderMap) -> Response {
+    let lang = i18n::lang_from_headers(&headers);
+    if uri.path().starts_with("/api/") {
+        return err_code(StatusCode::NOT_FOUND, "not_found", i18n::t(lang, "nf.title"));
+    }
+    let html = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| a.contains("text/html"));
+    if !html {
+        return (StatusCode::NOT_FOUND, i18n::t(lang, "nf.title")).into_response();
+    }
+    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let body = versioned(NOT_FOUND_HTML)
+        .replace("{lang}", lang.code())
+        .replace("{title}", &esc(i18n::t(lang, "nf.title")))
+        .replace("{body}", &esc(i18n::t(lang, "nf.body")))
+        .replace("{home}", &esc(i18n::t(lang, "nf.home")));
+    (StatusCode::NOT_FOUND, [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))], Html(body)).into_response()
 }
 
 fn page(html: &'static str) -> Response {
@@ -521,6 +563,9 @@ struct Status {
     #[serde(skip_serializing_if = "Option::is_none")]
     gate: Option<&'static str>,
     solve_deadline_secs: u64,
+    /// The limit of a "keep searching" solve, when the server offers one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extended_deadline_secs: Option<u64>,
     /// How long one AI translation may run before the server stops it.
     translate_timeout_secs: u64,
     /// The largest photo `/api/translate` accepts, in bytes before base64.
@@ -568,6 +613,7 @@ async fn api_status(
         username: user.map(|u| u.username),
         gate: via.filter(|v| v.0 == security::GateVia::Cookie).map(|_| "cookie"),
         solve_deadline_secs: state.config.solve_deadline.as_secs(),
+        extended_deadline_secs: state.config.extended_deadline.map(|d| d.as_secs()),
         translate_timeout_secs: translate::CHILD_TIMEOUT.as_secs(),
         max_image_bytes: upload_image_limit(state.config.max_body_bytes),
         solver_free: state.heavy.available_permits() > 0,
@@ -919,7 +965,7 @@ fn check_input(state: &Shared, headers: &HeaderMap, input: &str) -> Result<(), R
 
 /// Trim a client-supplied title and cut it to [`MAX_TITLE_CHARS`]; blank → none.
 fn clean_title(title: Option<String>) -> Option<String> {
-    let t = title?;
+    let t = present::tidy_title(&title?);
     let t = t.trim();
     if t.chars().count() <= MAX_TITLE_CHARS {
         return (!t.is_empty()).then(|| t.to_string());
@@ -1037,6 +1083,9 @@ struct SolveReq {
     /// `false` when the client is replaying an entry already in history.
     #[serde(default = "yes")]
     record: bool,
+    /// Search up to [`security::Config::extended_deadline`] ("keep searching").
+    #[serde(default)]
+    extended: bool,
 }
 
 fn input_error_note(note: &str) -> bool {
@@ -1205,6 +1254,22 @@ async fn api_solve(
     if let Some(at) = division_by_zero(&req.input) {
         return division_by_zero_err(i18n::lang_from_headers(&headers), at);
     }
+    let extended = match (req.extended && !req.best, state.config.extended_deadline) {
+        (false, _) => None,
+        (true, None) => {
+            let lang = i18n::lang_from_headers(&headers);
+            return err_code(StatusCode::BAD_REQUEST, "extended_off", i18n::t(lang, "solve.extended_off"));
+        }
+        (true, Some(limit)) => match state.extended.clone().try_acquire_owned() {
+            Ok(p) => Some((p, limit)),
+            Err(_) => {
+                let lang = i18n::lang_from_headers(&headers);
+                let mut resp = err_code(StatusCode::SERVICE_UNAVAILABLE, "busy_extended", i18n::t(lang, "server.busy_extended"));
+                resp.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("30"));
+                return resp;
+            }
+        },
+    };
     let slots = match claim_solve_slots(&state, &caller, ip.as_ref(), &headers) {
         Ok(s) => s,
         Err(resp) => return resp,
@@ -1213,6 +1278,7 @@ async fn api_solve(
         Ok(p) => p,
         Err(e) => return e,
     };
+    let deadline = extended.as_ref().map_or(state.config.solve_deadline, |(_, limit)| *limit);
     let title = clean_title(req.title);
     let history_title = title.clone();
     let opts = SolveOptions {
@@ -1235,7 +1301,7 @@ async fn api_solve(
     let mut job = if req.best {
         worker::Request::new(&req.input, &opts, worker::Mode::Best, budget)
     } else {
-        worker::Request::new(&req.input, &opts, worker::Mode::Solve, state.config.solve_deadline)
+        worker::Request::new(&req.input, &opts, worker::Mode::Solve, deadline)
     };
     job.present = true;
     // The permit (and the per-caller slot) live with the worker process: freed
@@ -1243,6 +1309,7 @@ async fn api_solve(
     // went away or cancelled.
     let outcome = worker::run(&job, Some(permit)).await;
     drop(slots);
+    drop(extended);
     match solution_of(outcome, &job, &headers) {
         Ok((sol, reply)) => {
             let mut value = advertise_limit(view_of(&sol, reply.as_deref(), history_title.as_deref()), job.limit());
@@ -1586,10 +1653,14 @@ async fn api_translate(
     .await;
 
     match res {
-        Ok(Ok(t)) => Json(t).into_response(),
+        Ok(Ok(t)) => {
+            state.note_ai_outcome(Ok(()));
+            Json(t).into_response()
+        }
         Ok(Err(Failed::Image(why))) => image_rejected(lang, why),
         Ok(Err(Failed::Model(e))) => {
             eprintln!("translate error: {e:#}");
+            state.note_ai_outcome(Err(&e));
             translate_failed(lang, &e, photo)
         }
         Err(e) => {
@@ -1681,9 +1752,16 @@ async fn api_humanize(
     })
     .await;
     match res {
-        Ok(Ok(text)) => Json(serde_json::json!({ "proof": text })).into_response(),
+        Ok(Ok(text)) => {
+            state.note_ai_outcome(Ok(()));
+            Json(serde_json::json!({ "proof": text })).into_response()
+        }
         Ok(Err(e)) => {
-            eprintln!("humanize error: {e}"); // detail to the operator's log, not the client
+            eprintln!("humanize error: {e:#}");
+            state.note_ai_outcome(Err(&e));
+            if translate::failure(&e) == Some(translate::Failure::SignedOut) {
+                return err_code(StatusCode::SERVICE_UNAVAILABLE, "translate_unavailable", i18n::t(lang, "humanize.unavailable"));
+            }
             err(
                 StatusCode::SERVICE_UNAVAILABLE,
                 i18n::t(lang, "humanize.failed"),
@@ -1882,8 +1960,17 @@ async fn api_export(
         let Ok(permit) = state.render.clone().try_acquire_owned() else {
             return err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"));
         };
+        let retitled = clean_title(req.title.clone());
         let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
             let _permit = permit;
+            let value = match retitled {
+                Some(t) => {
+                    let mut v = (*value).clone();
+                    v["title"] = serde_json::Value::String(t);
+                    std::sync::Arc::new(v)
+                }
+                None => value,
+            };
             if want_pdf {
                 render::report_pdf_from_json(&value, lang, derivation)
             } else {
@@ -2778,6 +2865,33 @@ mod tests {
     }
 
     // ------------------------------------------------ public-exposure hardening --
+
+    #[tokio::test]
+    async fn a_longer_search_runs_one_at_a_time_and_only_when_offered() {
+        let (state, _dir) = state_with(|c| c.extended_deadline = Some(Duration::from_secs(150)));
+        let cookie = register_cookie(&state, "patient").await;
+        let (_, _, st) = call(&state, "GET", "/api/status", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(st["extended_deadline_secs"], 150, "{st}");
+        let solve = serde_json::json!({"input": ISOSCELES_GEO, "extended": true});
+        let (code, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), solve.clone()).await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["status"], "proved", "{body}");
+        let held = state.extended.clone().try_acquire_owned().unwrap();
+        let (code, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), solve.clone()).await;
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert_eq!(body["code"], "busy_extended", "{body}");
+        let (code, _, _) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ISOSCELES_GEO})).await;
+        assert_eq!(code, StatusCode::OK, "an ordinary solve does not wait for the longer one");
+        drop(held);
+
+        let (state, _dir) = state_with(|c| c.extended_deadline = None);
+        let cookie = register_cookie(&state, "patient").await;
+        let (_, _, st) = call(&state, "GET", "/api/status", Some(&cookie), serde_json::Value::Null).await;
+        assert!(st.get("extended_deadline_secs").is_none(), "{st}");
+        let (code, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), solve).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "extended_off", "{body}");
+    }
 
     fn state_with(f: impl FnOnce(&mut Config)) -> (Shared, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -3712,6 +3826,56 @@ mod tests {
         assert_eq!(clean_title(Some("   ".into())), None);
     }
 
+    #[test]
+    fn titles_are_typeset_and_stripped_of_characters_no_page_can_show() {
+        assert_eq!(clean_title(Some("Stewart: AD^2 = 14".into())).as_deref(), Some("Stewart: AD² = 14"));
+        assert_eq!(clean_title(Some("The median splits the triangle.".into())).as_deref(), Some("The median splits the triangle"));
+        assert_eq!(clean_title(Some("Wait…".into())).as_deref(), Some("Wait…"));
+        assert_eq!(clean_title(Some("Eu\u{0}ler\u{fffe} line\u{85}\u{7}\nsecond".into())).as_deref(), Some("Euler line second"));
+        assert_eq!(clean_title(Some("\u{0}\u{ffff}".into())), None);
+        assert_eq!(clean_title(Some("Triunghi isoscel ș ț 😀".into())).as_deref(), Some("Triunghi isoscel ș ț 😀"));
+    }
+
+    #[tokio::test]
+    async fn unknown_addresses_get_a_page_in_the_visitors_language() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let (st, h, body) = send(&state, build("GET", "/no/such/page", &[("authorization", &auth), ("accept", "text/html")], None)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+        assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"), "{h:?}");
+        assert!(body.contains("Page not found") && body.contains("href=\"/\"") && body.contains("/assets/app.css?v="), "{body}");
+        assert!(!body.contains("{title}") && !body.contains("no/such"), "{body}");
+        let ro = [("authorization", auth.as_str()), ("accept", "text/html"), ("accept-language", "ro-RO,ro;q=0.9")];
+        let (_, _, body) = send(&state, build("GET", "/nimic", &ro, None)).await;
+        assert!(body.contains("Pagina nu a fost găsită") && body.contains("lang=\"ro\""), "{body}");
+        let (st, _, body) = send(&state, build("GET", "/api/nope", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+        assert!(body.contains("\"code\":\"not_found\""), "{body}");
+        let (st, _, body) = send(&state, build("GET", "/nope.txt", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+        assert_eq!(body, "Page not found");
+        let (st, _, _) = send(&state, build("GET", "/icons/nope.png", &[("authorization", &auth)], None)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn exports_survive_emoji_controls_and_noncharacters_in_titles_and_comments() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let commented = format!("# Isosceles \u{0}\u{fffe} 😀 comment\n{ISOSCELES_GEO}");
+        for (input, title) in [
+            (ISOSCELES_GEO.to_string(), Some("Euler 😀")),
+            (ISOSCELES_GEO.to_string(), Some("nul \u{0} and \u{fffe} and \u{1b}[31m")),
+            (commented, None),
+        ] {
+            for format in ["pdf", "png"] {
+                let export = serde_json::json!({"input": input, "format": format, "title": title}).to_string();
+                let (st, _, text) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export))).await;
+                assert_eq!(st, StatusCode::OK, "{format} {title:?}: {text}");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn static_assets_are_served_with_their_types() {
         let (state, _dir) = test_state();
@@ -4330,6 +4494,24 @@ mod tests {
         let body = settled_status(&state, &cookie).await;
         assert_eq!(body["can_translate"], false, "{body}");
         assert_eq!(body["translate_block"], "sign_in", "AGSTUDIO_GUEST_AI=0 keeps it for accounts");
+    }
+
+    #[tokio::test]
+    async fn a_rejected_credential_turns_ai_off_until_a_call_succeeds() {
+        let (state, _dir) = ai_guest_state(true, true);
+        let cookie = gate_cookie(&state).await;
+        assert_eq!(settled_status(&state, &cookie).await["can_translate"], true);
+        let rejected = anyhow::Error::new(translate::Failure::SignedOut).context("401 Invalid bearer token");
+        state.note_ai_outcome(Err(&rejected));
+        let body = settled_status(&state, &cookie).await;
+        assert_eq!(body["translate_logged_in"], false, "{body}");
+        assert_eq!(body["can_translate"], false, "{body}");
+        assert_eq!(body["translate_block"], "not_logged_in", "{body}");
+        state.note_ai_outcome(Err(&anyhow::anyhow!("network hiccup")));
+        assert_eq!(settled_status(&state, &cookie).await["translate_block"], "not_logged_in");
+        state.note_ai_outcome(Ok(()));
+        let body = settled_status(&state, &cookie).await;
+        assert_eq!(body["can_translate"], true, "{body}");
     }
 
     #[tokio::test]

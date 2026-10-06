@@ -2277,6 +2277,26 @@ fn source_assumes(src: &str) -> Vec<String> {
         .collect()
 }
 
+/// Can `c` appear in page and report text? XML 1.0 characters, minus the C1
+/// controls, DEL and Unicode noncharacters.
+pub fn displayable(c: char) -> bool {
+    let xml = matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{7e}' | '\u{a0}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}');
+    let nonchar = ('\u{fdd0}'..='\u{fdef}').contains(&c) || (c as u32 & 0xfffe) == 0xfffe;
+    xml && !nonchar
+}
+
+/// A title as shown and exported: one line, only displayable characters,
+/// `AD^2` typeset as `AD²`, no closing full stop.
+pub fn tidy_title(s: &str) -> String {
+    let flat: String = s.chars().map(|c| if c.is_whitespace() { ' ' } else { c }).filter(|&c| displayable(c)).collect();
+    let words = flat.split_whitespace().collect::<Vec<_>>().join(" ");
+    let t = caret_powers(&words);
+    match t.strip_suffix('.') {
+        Some(rest) if !rest.ends_with('.') => rest.trim_end().to_string(),
+        _ => t,
+    }
+}
+
 /// A title from the program's leading comment (`# Stewart's theorem — …`).
 pub fn source_title(src: &str) -> Option<String> {
     let line = src.lines().map(str::trim).find(|l| !l.is_empty())?;
@@ -2865,6 +2885,7 @@ fn bisector_helpers(p: &Problem) -> Vec<BisectorHelper> {
 fn line_helpers(p: &Problem) -> Vec<(u32, u32, u32)> {
     let anonymous = |i: u32| p.points.get(i as usize).is_none_or(|q| q.name.starts_with('_'));
     let mut out = Vec::new();
+    let mut unplaced: Vec<(u32, u32)> = Vec::new();
     for x in 0..p.points.len() as u32 {
         if !anonymous(x) || p.goal.as_ref().is_some_and(|g| g.points.contains(&x)) {
             continue;
@@ -2898,6 +2919,22 @@ fn line_helpers(p: &Problem) -> Vec<(u32, u32, u32)> {
             continue;
         }
         if let Some(on) = colls.iter().flat_map(|c| c.points.iter().copied()).find(|&r| r != x && r != v && !anonymous(r)) {
+            out.push((x, v, on));
+        } else if colls.is_empty() {
+            unplaced.push((x, v));
+        }
+    }
+    let at = |i: u32| p.points.get(i as usize).map(|q| (q.value.x, q.value.y));
+    let on_line = |v: u32, a: u32, b: u32| match (at(v), at(a), at(b)) {
+        (Some(o), Some(a), Some(b)) => {
+            let (ux, uy, wx, wy) = (a.0 - o.0, a.1 - o.1, b.0 - o.0, b.1 - o.1);
+            let scale = (ux.hypot(uy) * wx.hypot(wy)).max(f64::MIN_POSITIVE);
+            ((ux * wy - uy * wx) / scale).abs() < 1e-9
+        }
+        _ => false,
+    };
+    for (x, v) in unplaced {
+        if let Some(&(_, _, on)) = out.iter().find(|&&(_, w, on)| w == v && on_line(v, x, on)) {
             out.push((x, v, on));
         }
     }
@@ -3787,7 +3824,7 @@ pub fn solution_json(sol: &Solution, title: Option<&str>) -> serde_json::Value {
         o.remove("svg");
         o.remove("svg_proof");
     }
-    let title = title.map(str::to_string).or(view.source_title.clone());
+    let title = title.map(str::to_string).or(view.source_title.clone()).map(|t| tidy_title(&t)).filter(|t| !t.is_empty());
     v["title"] = title.map_or(serde_json::Value::Null, serde_json::Value::String);
     v
 }

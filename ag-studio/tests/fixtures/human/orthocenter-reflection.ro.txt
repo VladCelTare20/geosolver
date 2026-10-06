@@ -1,4 +1,4 @@
-Unghiurile notate ∢ sunt citite din figură.
+Unghiurile notate ∠ sunt citite din figură.
 
 1. BH = BK și CH = CK ⇒ BC este mediatoarea segmentului HK ⇒ BC ⟂ HK. (1)
 
@@ -6,9 +6,9 @@ Unghiurile notate ∢ sunt citite din figură.
 
 3. Arătăm că punctele A, B, C, K sunt conciclice:
 
-∢C = ∢HBC − 90°    [BH ⟂ AC]
-   = ∢BHK    [BC ⟂ HK, din (1)]
-   = ∢HKB    [BH = BK]
-   = ∢AKB    [H, A, K coliniare, din (2)]
+∠C = ∠HBC − 90°    [BH ⟂ AC]
+   = ∠BHK    [BC ⟂ HK, din (1)]
+   = ∠HKB    [BH = BK]
+   = ∠AKB    [H, A, K coliniare, din (2)]
 
 Deci punctele A, B, C, K sunt conciclice, ceea ce trebuia demonstrat. ∎

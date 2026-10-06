@@ -218,7 +218,18 @@ async function guestRun(browser, eng, prof) {
     await page.click('#solve');
     await settle(page);
     check(/Proved|Demonstrat/.test(await visibleText(page, '#verdict')), `${tag}: Describe -> AI -> proof`);
+    const reading = await page.evaluate(() => ({ note: !!document.querySelector('#verdict .ai-reading'), label: !!document.querySelector('#statement .st-ai'), title: (document.querySelector('#statement .st-title') || {}).textContent || '' }));
+    check(reading.note && reading.label && !reading.title.includes('^'), `${tag}: a Describe result says it is the AI's reading, and its title is typeset (${JSON.stringify(reading)})`);
     await humanAbsent(page, tag, check);
+    await page.click('#open-geo');
+    check(await page.evaluate(() => document.getElementById('tab-geo').getAttribute('aria-selected') === 'true' && /dist\(A,D\)/.test(document.getElementById('geo-input').value)), `${tag}: "Check or edit it in .geo" opens the translated program`);
+    const kept = await page.evaluate(() => document.getElementById('geo-input').value);
+    await page.fill('#geo-input', '');
+    await page.click('#solve');
+    const empty = await page.evaluate(() => ({ verdict: !document.getElementById('verdict').hidden, error: !document.getElementById('state-error').hidden, field: !document.getElementById('geo-error').hidden }));
+    check(!empty.verdict && !empty.error && empty.field, `${tag}: Solve on an empty editor shows only the field error, not the old verdict (${JSON.stringify(empty)})`);
+    await page.fill('#geo-input', kept);
+    await page.click('#tab-describe');
 
     await page.click('#tab-geo');
     const buf = fs.readFileSync(PHOTO);

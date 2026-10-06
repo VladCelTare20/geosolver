@@ -163,10 +163,18 @@ fn verdict_icon(status: &str, time_limited: bool, x: f32, y: f32, color: &str) -
 }
 
 fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            c if present::displayable(c) => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Map the few math glyphs the bundled font lacks to equivalents it carries.
@@ -464,8 +472,14 @@ pub fn pdf_from_pages(pages: &[String]) -> Result<Vec<u8>> {
         let tree = parse_svg(svg)?;
         check_svg_size(&tree)?;
         let (w, h) = (tree.size().width(), tree.size().height());
-        let (chunk, root) = svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default())
-            .map_err(|e| anyhow!("PDF conversion error: {e}"))?;
+        let (chunk, root) = match svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default()) {
+            Ok(converted) => converted,
+            Err(embedded) => {
+                let outlined = svg2pdf::ConversionOptions { embed_text: false, ..Default::default() };
+                svg2pdf::to_chunk(&tree, outlined)
+                    .map_err(|e| anyhow!("PDF conversion error: {e} (with embedded text: {embedded})"))?
+            }
+        };
         let mut map = std::collections::HashMap::new();
         let chunk = chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
         let root = *map.get(&root).ok_or_else(|| anyhow!("PDF conversion lost the page"))?;

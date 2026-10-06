@@ -1516,12 +1516,8 @@ fn merge_text(parts: Vec<Part>) -> Vec<Part> {
     out
 }
 
-fn ro_angles(s: String, lang: Lang) -> String {
-    if lang == Lang::Ro {
-        s.replace('\u{2220}', "\u{2222}")
-    } else {
-        s
-    }
+fn ro_angles(s: String, _lang: Lang) -> String {
+    s
 }
 
 fn ro_part(p: Part, lang: Lang) -> Part {

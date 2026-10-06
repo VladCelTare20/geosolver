@@ -5,7 +5,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var t = function (k, v) { return window.i18n.t(k, v); };
   var FIRST_DEDUCTIONS = 6;
-  var data = null, expanded = false, viewer = null;
+  var data = null, expanded = false, viewer = null, stepsApi = null;
+  function human() { return data && data.view && data.view.human && data.view.human.blocks && data.view.human.blocks.length ? data.view.human : null; }
 
   document.querySelectorAll("[data-icon]").forEach(function (el) { el.innerHTML = GS.icons[el.getAttribute("data-icon")] || ""; });
   $("z-in").innerHTML = GS.icons.plus;
@@ -14,18 +15,38 @@
 
   function paintSteps() {
     if (!data) return;
-    var proof = data.view.proof;
-    var cut = previewEnd(proof.steps);
+    var proof = data.view.proof, h = human();
+    var cut = h ? 0 : previewEnd(proof.steps);
     var steps = expanded ? proof.steps : proof.steps.slice(0, cut);
-    GS.renderSteps($("steps"), { steps: steps, conclusion: expanded ? proof.conclusion : null }, {
+    $("steps").hidden = !steps.length;
+    $("steps-kbd").hidden = !steps.length;
+    stepsApi = GS.renderSteps($("steps"), { steps: steps, conclusion: expanded ? proof.conclusion : null }, {
       focus: function (pts, facts) { viewer.highlight(pts, facts); },
       describedBy: "steps-kbd",
     });
+    var lines = window.i18n.tp("show.lines", proof.steps.length);
     var more = $("more");
     more.hidden = proof.steps.length <= cut;
     more.setAttribute("aria-expanded", expanded ? "true" : "false");
-    more.textContent = expanded ? t("show.fewer") : t("show.steps", { lines: window.i18n.tp("show.lines", proof.steps.length) });
+    more.textContent = h ? t(expanded ? "show.derivation.hide" : "show.derivation", { lines: lines })
+      : expanded ? t("show.fewer") : t("show.steps", { lines: lines });
     return cut;
+  }
+  function paintHuman() {
+    var h = human();
+    $("case-human-wrap").hidden = !h;
+    $("steps-h").setAttribute("data-i18n", h ? "hp.tab.full" : "proof.tab.steps");
+    $("steps-h").textContent = t(h ? "hp.tab.full" : "proof.tab.steps");
+    if (!h) return;
+    GS.renderHuman($("human"), h, data.view, {
+      focus: function (pts, facts) { viewer.highlight(pts, facts); },
+      jump: function (n) {
+        expanded = true;
+        paintSteps();
+        if (stepsApi && stepsApi.jump) stepsApi.jump(n);
+      },
+      describedBy: "hp-kbd",
+    });
   }
 
   function previewEnd(steps) {
@@ -72,7 +93,8 @@
 
   fetch("/assets/showcase.json").then(function (r) { return r.status === 401 ? GS.toGate() : r.json(); }).then(function (d) {
     data = d;
-    $("hero-fig").innerHTML = d.svg;
+    var fig = human() && d.svg_proof ? d.svg_proof : d.svg;
+    $("hero-fig").innerHTML = fig;
     var hs = $("hero-fig").querySelector("svg");
     hs.removeAttribute("width");
     hs.removeAttribute("height");
@@ -92,12 +114,13 @@
     fitCase();
     window.addEventListener("resize", fitCase);
     viewer = new GS.Viewer({ frame: $("case-fig").parentNode, viewport: $("case-fig"), zoomIn: $("z-in"), zoomOut: $("z-out"), fit: $("z-fit") });
-    viewer.setSvg(d.svg, t("case.title"));
+    viewer.setSvg(fig, t("case.title"));
     paintStats();
+    paintHuman();
     paintSteps();
   }).catch(function () {});
 
-  document.addEventListener("langchange", function () { paintStats(); paintSteps(); });
+  document.addEventListener("langchange", function () { paintStats(); paintHuman(); paintSteps(); });
   window.i18n.apply();
   GS.initTheme();
   GS.booted = true;
