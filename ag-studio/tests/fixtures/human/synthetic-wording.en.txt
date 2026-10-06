@@ -5,7 +5,7 @@ Plan: it suffices to show that ∡ABX = ∡XCA.
 1. We show that ∡ABX = ∡XCA:
 
 ∡ABX = ∡ACX    [inscribed angles in Ω]
-     = ∡XCA    [A, B, C, X concyclic] (1)
+     = ∡XCA    [inscribed angles in (ABCX)] (1)
 
 2. We show that AB ⟂ CX:
 

@@ -26,6 +26,17 @@ const SENTENCE_COST: i64 = 14;
 const SHORT_REASONS: usize = 3;
 const MAX_POOLED: usize = 5;
 
+struct Reporter(bool, std::cell::Cell<String>);
+
+impl Drop for Reporter {
+    fn drop(&mut self) {
+        let m = self.1.take();
+        if self.0 && !m.is_empty() {
+            eprintln!("    {m}");
+        }
+    }
+}
+
 fn stamp(what: &str, t0: std::time::Instant) {
     if std::env::var_os("HP_TIME2").is_some() {
         eprintln!("    {what}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
@@ -989,9 +1000,27 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     }
                 }
                 let block = self.block_of.get(&d).copied();
-                (Reason::Fact { stmt: fact_stmt(cx, f), fact: f, block, because: Vec::new() }, a.row_idx)
+                let because = if block.is_none() && matches!(a.src, AtomSrc::Engine(_) | AtomSrc::Glue(_)) { self.human_justification(f, h).into_iter().collect() } else { Vec::new() };
+                (Reason::Fact { stmt: fact_stmt(cx, f), fact: f, block, because }, a.row_idx)
             }
         }
+    }
+
+    fn human_justification(&self, f: FactId, h: FactId) -> Option<Reason> {
+        let cx = self.w.cx;
+        let t = cx.t;
+        if cx.is_hyp(f) {
+            return None;
+        }
+        let targets = super::check::stmt_targets(t, &fact_stmt(cx, f))?;
+        let [(tb, row)] = targets.as_slice() else { return None };
+        let want = super::library::quot_row(cx, *tb, &t.exact(*tb, row));
+        let neg = want.negated();
+        let hit = self.w.atoms.iter().filter(|a| a.table == *tb && a.admissible(h) && matches!(a.src, AtomSrc::Human(k) if !super::theorems::is_identity(k))).find(|a| {
+            let c = super::library::quot_row(cx, *tb, &a.row);
+            c == want || c == neg
+        })?;
+        Some(self.atom_reason(hit, h, false).0)
     }
 
     fn radii_groups(&self, support: &[(usize, Rat)], h: FactId) -> BTreeMap<usize, (Reason, u16, Rat)> {
@@ -1284,7 +1313,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             }
         }
-        stamp("cs lemma plan", t_cs);
+        stamp(&format!("cs lemma plan (budget left {budget}, split {})", split.is_some()), t_cs);
         let full = |s: &Option<(usize, LemmaSplit)>| s.as_ref().is_some_and(|x| !x.1.groups.is_empty());
         let use_split = match (&best, &split) {
             (_, None) => false,
@@ -1331,7 +1360,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             }
         }
-        stamp("cs halves", t_cs);
+        stamp(&format!("cs halves (budget left {budget})"), t_cs);
         partial.sort_by_key(|(_, ls)| (ls.reduced.len(), ls.plans.len()));
         for (si, ls) in &partial {
             if let Some(r) = self.build_split(target, *si, &ex[*si].0, ls, h, then.clone(), focus) {
@@ -2183,6 +2212,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut seen: BTreeSet<u32> = BTreeSet::new();
         let mut frontier: Vec<u32> = (0..n).map(|k| 1u32 << k).collect();
         let mut out: Vec<LemmaCand> = Vec::new();
+        let (mut t_ends, mut t_disp, mut t_order, mut n_sub, mut n_disp, mut n_order) = (0f64, 0f64, 0f64, 0usize, 0usize, 0usize);
+        let timing = std::env::var_os("HP_TIME2").is_some();
+        let _report = Reporter(timing, std::cell::Cell::new(String::new()));
         for _size in 2..=max {
             let mut next: Vec<u32> = Vec::new();
             for &m in &frontier {
@@ -2206,6 +2238,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 for &k in &members {
                     s.iadd_mul(&work[k].2, &work[k].1);
                 }
+                n_sub += 1;
+                let te = std::time::Instant::now();
                 let ends: Vec<(LinComb, LinComb)> = if table == Table::Angle {
                     if classes(&s).is_empty() || (!halves && !integral_node(&s)) {
                         continue;
@@ -2227,18 +2261,33 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 } else {
                     ratio_splits(cx, &s)
                 };
+                if timing {
+                    t_ends += te.elapsed().as_secs_f64();
+                }
                 if ends.is_empty() {
                     continue;
                 }
                 let sub: Vec<(usize, Rat, LinComb)> = members.iter().map(|&k| work[k].clone()).collect();
                 for (a, end) in ends {
+                    let td = std::time::Instant::now();
+                    n_disp += 1;
                     let shown = if table == Table::Angle {
                         (display_node(cx, &a, !halves, &[], focus), display_node(cx, &end, !halves, &[], focus))
                     } else {
                         (Some(ratio_expr(cx, &a)), Some(ratio_expr(cx, &end)))
                     };
+                    if timing {
+                        t_disp += td.elapsed().as_secs_f64();
+                    }
                     let (Some(ea), Some(ee)) = shown else { continue };
-                    if let Some((groups, c)) = order_items_mode(cx, table, &a, &end, &sub, budget, SUB_CAP, halves) {
+                    let to = std::time::Instant::now();
+                    n_order += 1;
+                    let ordered = order_items_mode(cx, table, &a, &end, &sub, budget, SUB_CAP, halves);
+                    if timing {
+                        t_order += to.elapsed().as_secs_f64();
+                        _report.1.set(format!("lemma_candidates n {n} subsets {n_sub} ends {:.1} ms, display {n_disp} {:.1} ms, order {n_order} {:.1} ms, budget left {}", t_ends * 1e3, t_disp * 1e3, t_order * 1e3, *budget));
+                    }
+                    if let Some((groups, c)) = ordered {
                         let bad = expr_badness(&ea) + expr_badness(&ee);
                         let cost = c + long_penalty(groups.len()) + 3 * bad;
                         out.push(LemmaCand { members: members.clone(), sum: s.clone(), start: a.clone(), end: end.clone(), groups, cost, lhs: ea.clone(), rhs: ee.clone() });
@@ -2866,7 +2915,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         if let Some(Reason::Fact { stmt, block, because, .. }) = self.inline.get(&d) {
             return Reason::Fact { stmt: stmt.clone(), fact: r, block: *block, because: because.clone() };
         }
-        Reason::Fact { stmt: fact_stmt(cx, r), fact: r, block: self.block_of.get(&d).copied(), because: Vec::new() }
+        let block = self.block_of.get(&d).copied();
+        let because = if block.is_none() { self.human_justification(r, r + 1).into_iter().collect() } else { Vec::new() };
+        Reason::Fact { stmt: fact_stmt(cx, r), fact: r, block, because }
     }
 
     pub fn node_sentences(&mut self, f: FactId) -> (Vec<Sentence>, usize, bool) {

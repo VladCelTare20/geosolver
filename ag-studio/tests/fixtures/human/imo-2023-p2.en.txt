@@ -10,27 +10,25 @@ Plan: it suffices to show that A, I, X are collinear.
 
 Hence NB = NC. (1)
 
-2. By (1), OB = OC and NB = NC, so ON is the perpendicular bisector of BC; hence ON ⟂ BC. (2)
+2. OB = OC and, by (1), NB = NC, so ON is the perpendicular bisector of BC; hence ON ⟂ BC. (2)
 
 3. We show that T, E, S, O are concyclic:
 
-∠BTO = 90° − ∠SBE    [OT ⟂ BE]
-     = 90° − ∠SNE    [inscribed angles in Ω]
-     = ∠OSE    [NS is a diameter of Ω]
-     = ∠SEO    [central angle in Ω]
+∠OTB = 90° − ∠EBT    [OT ⟂ BE]
+     = 90° − ∠ENS    [inscribed angles in Ω]
+     = ∠ESO    [NS is a diameter of Ω]
+     = ∠OES    [OS = OE]
 
 So T, E, S, O are concyclic. (3)
 
 4. We show that T, P, X, O are concyclic:
 
-∠OTX = ∠EBS + 90°    [OT ⟂ BE]
-     = ∠EBP + ∠PNO + 90°    [inscribed angles in Ω]
-     = ∠EBC − ∠NPB + 180°    [ON ⟂ BC, by (2)]
-     = ∠BLD − ∠NPB + 180°    [DL ∥ BC]
-     = ∠NPD    [inscribed angles in ω₁]
-     = ∠PBX + ∠NPX    [PX is tangent to ω₁ (tangent–chord angle)]
-     = ∠PNO + ∠NPX    [inscribed angles in Ω]
-     = ∠OPX    [ON = OP]
+∠OTB = 90° − ∠LBD    [OT ⟂ BE]
+     = ∠BPD − ∠LDX + 90°    [inscribed angles in ω₁]
+     = ∠BPD − ∠CBT + 90°    [DL ∥ BC]
+     = ∠BPD − ∠OSB    [ON ⟂ BC, by (2)]
+     = ∠XBP − ∠OPD    [central angle in Ω]
+     = ∠OPX    [PX is tangent to ω₁ (tangent–chord angle)]
 
 So T, P, X, O are concyclic. (4)
 
@@ -41,19 +39,19 @@ So T, P, X, O are concyclic. (4)
      = ∡(OE, DL) + 90°    [DL ∥ BC]
      = ∡OEB + ∡BPD + 90°    [inscribed angles in ω₁]
      = ∡OEA + ∡APD + 90°    [inscribed angles in Ω]
-     = ∡EPD    [OA = OE; central angle in Ω]
+     = ∡EPD    [OA = OE; inscribed angle ∠APE = 180° − ½∠AOE]
 
 So T, P, E, D are concyclic. (5)
 
 6. We show that XA = XP:
 
-∠AOX = ∠AOP − ∠PTB    [T, P, X, O concyclic, by (4)]
-     = ∠OAE − ∠EPO    [T, P, E, D concyclic, by (5)]
+∠AOX = ∠AOP − ∠PTX    [T, P, X, O concyclic, by (4)]
+     = ∠EPO − ∠OAE    [T, P, E, D concyclic, by (5)]
      = ∠AEP    [central angle in Ω]
-     = ∠BTP    [T, P, E, D concyclic, by (5)]
+     = ∠XTP    [T, P, E, D concyclic, by (5)]
      = ∠XOP    [T, P, X, O concyclic, by (4)]
 
-Radii of Ω, so △OAX ≅ △OPX. Hence XA = XP. (6)
+Radii of Ω, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
 
 7. We show that A, I, X are collinear:
 
@@ -70,8 +68,8 @@ So A, I, X are collinear. (7)
 
 8. We show that AX bisects ∠BAC:
 
-180° − ∠BAX = ∠BAI    [A, I, X collinear, by (7)]
-            = ∠IAC    [AI bisects ∠BAC]
-            = 180° − ∠XAC    [A, I, X collinear, by (7)]
+∠BAX = ∠BAI    [A, I, X collinear, by (7)]
+     = ∠IAC    [AI bisects ∠BAC]
+     = ∠XAC    [A, I, X collinear, by (7)]
 
 So AX bisects ∠BAC, as required. ∎

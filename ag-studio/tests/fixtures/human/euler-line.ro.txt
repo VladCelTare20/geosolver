@@ -20,7 +20,7 @@ Ideea: este suficient să arătăm că △AHG ∼ △MOG.
      = 90° − ∢CNM    [MN este linie mijlocie în △CBA]
      = ∢ONM    [ON ⟂ AC, din (2)]
 
-Deci △AHB ∼ △MON. (5)
+Deci △AHB ∼ △MON (UU). (5)
 
 6. AH ∥ OM, din (4) ⇒ ∢GAH = ∢AMO.
 
@@ -28,6 +28,6 @@ MG / AG = 1 / 2    [AG : GM = 2, din (1)]
         = MN / AB    [MN este linie mijlocie în △CBA]
         = OM / AH    [△AHB ∼ △MON, din (5)]
 
-Deci △AHG ∼ △MOG. (6)
+Deci △AHG ∼ △MOG (LUL). (6)
 
-7. △AHG ∼ △MOG, din (6) ⇒ punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎
+7. △AHG ∼ △MOG, din (6) ⇒ ∢AGH = ∢MGO; cum punctele A, G, M sunt coliniare, unghiurile sunt opuse la vârf ⇒ punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎

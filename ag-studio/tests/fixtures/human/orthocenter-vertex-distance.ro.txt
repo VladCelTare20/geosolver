@@ -2,20 +2,22 @@ Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercu
 
 Ideea: este suficient să arătăm că AH = 2R·cos A și MaO = R·cos A.
 
-1. Arătăm că AB = 2R·sin C:
+1. OB = OC și MaB = MaC ⇒ OMa este mediatoarea segmentului BC ⇒ OMa ⟂ BC. (1)
 
-AB = 2R·sin C    [teorema sinusurilor generalizată în △CAB; OA = OC] (1)
+2. Arătăm că AB = 2R·sin C:
 
-2. Arătăm că AH = 2R·cos A:
+AB = 2R·sin C    [teorema sinusurilor generalizată în △CAB; OA = OC] (2)
+
+3. Arătăm că AH = 2R·cos A:
 
 AH = AB·sin∢HBA / sin∢BHA    [teorema sinusurilor în △BHA]
    = AB·cos A / sin∢BHA    [∢ABH = 90° − A; BH ⟂ AC]
    = AB·cos A / sin C    [C = 180° − ∢AHB; AH ⟂ BC]
-   = 2R·cos A    [din (1)] (2)
+   = 2R·cos A    [din (2)] (3)
 
-3. Arătăm că MaO = R·cos A:
+4. Arătăm că MaO = R·cos A:
 
-MaO = R·sin∢MaBO    [teorema sinusurilor în △BMaO; ∢OMaB = 90°; OA = OB]
-    = R·cos A    [∢OBMa = 90° − A; unghiul la centru ∢BOC = 2∢BAC; OB = OC] (3)
+MaO = R·sin∢MaBO    [teorema sinusurilor în △BMaO; ∢OMaB = 90° (OMa ⟂ BC, din (1)); OA = OB]
+    = R·cos A    [∢OBMa = 90° − A; unghiul la centru ∢BOC = 2∢BAC; OB = OC] (4)
 
-4. AH = 2R·cos A, din (2) și MaO = R·cos A, din (3) ⇒ AH : MaO = 2, ceea ce trebuia demonstrat. ∎
+5. AH = 2R·cos A, din (3) și MaO = R·cos A, din (4) ⇒ AH : MaO = 2, ceea ce trebuia demonstrat. ∎

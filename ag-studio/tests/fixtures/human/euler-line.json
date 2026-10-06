@@ -1452,8 +1452,8 @@
           {
             "kind": "chain",
             "terms": [
-              "∡OGH",
-              "0°"
+              "∠AGH",
+              "∠MGO"
             ],
             "links": [
               {
@@ -1474,18 +1474,35 @@
                     "step": 22,
                     "block": 6,
                     "because": []
+                  },
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "coll",
+                      "args": [
+                        "A",
+                        "G",
+                        "M"
+                      ],
+                      "points": [
+                        "A",
+                        "M",
+                        "G"
+                      ]
+                    },
+                    "step": 7
                   }
                 ],
                 "combination": [
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   },
                   {
                     "reason": 0,
                     "row": 1,
-                    "coef": "1"
+                    "coef": "-1"
                   }
                 ]
               }
@@ -1503,7 +1520,7 @@
                 "H"
               ]
             },
-            "directed": true
+            "directed": false
           }
         ],
         "engine_steps": [
@@ -1552,11 +1569,11 @@
       "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 225,
+      "words_en": 241,
       "lines_en": 22,
-      "citations": 16,
+      "citations": 17,
       "aux_shown": 0,
-      "human_cost": 66,
+      "human_cost": 67,
       "reproved": 3,
       "silent": 9,
       "pruned": 5,
@@ -1568,7 +1585,7 @@
       "theorem_steps": 4,
       "steps": 7,
       "multi_fact_links": 0,
-      "undirected_chains": 3,
+      "undirected_chains": 4,
       "directed_chains": 0
     }
   }

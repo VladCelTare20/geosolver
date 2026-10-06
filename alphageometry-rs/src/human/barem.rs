@@ -33,6 +33,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| dedupe_restated(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| absorb_by_triangles(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| restated_line_fact(cx, blocks, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| vertical_angles(cx, blocks, s));
     let named: Vec<(PointId, Vec<PointId>)> = hp.setup.iter().filter_map(|l| if let SetupLine::Circle { name, through, centre: Some(o), .. } = l { (!name.is_empty()).then(|| (*o, through.clone())) } else { None }).collect();
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| drop_setup_radii(&named, s));
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| trim_parallel_extras(s));
@@ -440,6 +441,9 @@ fn drop_setup_radii(named: &[(PointId, Vec<PointId>)], s: &Sentence) -> Option<S
         return Some(Sentence::Because { stmt: stmt.clone(), reasons: l.reasons, combination: l.combination });
     }
     let Sentence::Chain { terms, links, then, directed } = s else { return None };
+    if terms.iter().any(super::expr::has_angle) {
+        return None;
+    }
     let mut changed = false;
     let mut out: Vec<Link> = Vec::new();
     for l in links {
@@ -454,6 +458,76 @@ fn drop_setup_radii(named: &[(PointId, Vec<PointId>)], s: &Sentence) -> Option<S
         out.push(Link { reasons: keep.iter().map(|&i| l.reasons[i].clone()).collect(), combination: l.combination.iter().map(|t| Term { reason: map[&t.reason], ..t.clone() }).collect() });
     }
     changed.then(|| Sentence::Chain { terms: terms.clone(), links: out, then: then.clone(), directed: *directed })
+}
+
+fn vertical_angles(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
+    let owned: Link;
+    let (l, st, goal) = match s {
+        Sentence::Chain { links, then: Some(st @ Stmt::Coll { pts }), .. } if links.len() == 1 => (&links[0], st, pts),
+        Sentence::Because { stmt: st @ Stmt::Coll { pts }, reasons, combination } if !combination.is_empty() => {
+            owned = Link { reasons: reasons.clone(), combination: combination.clone() };
+            (&owned, st, pts)
+        }
+        _ => return None,
+    };
+    let core: Vec<(usize, &Reason)> = l.reasons.iter().enumerate().filter(|(_, r)| !matches!(super::claims::reason_stmt(r), Some(Stmt::Coll { .. }))).collect();
+    let [(ri, r)] = core.as_slice() else { return None };
+    let (t1, t2) = match super::claims::reason_stmt(r)? {
+        Stmt::Sim { t1, t2, .. } | Stmt::Congruent { t1, t2, .. } => (*t1, *t2),
+        _ => return None,
+    };
+    let a = [t1.0, t1.1, t1.2];
+    let b = [t2.0, t2.1, t2.2];
+    let i = (0..3).find(|&i| a[i] == b[i] && goal.contains(&a[i]))?;
+    let v = a[i];
+    let others: Vec<usize> = (0..3).filter(|&j| j != i).collect();
+    let in_goal = |j: usize| goal.contains(&a[j]) && goal.contains(&b[j]) && a[j] != b[j];
+    let (g, p) = if in_goal(others[0]) { (others[0], others[1]) } else if in_goal(others[1]) { (others[1], others[0]) } else { return None };
+    let (x, y, pp, qq) = (a[g], b[g], a[p], b[p]);
+    if pp == qq || [pp, qq].iter().any(|z| goal.contains(z)) {
+        return None;
+    }
+    let trio = [pp, v, qq];
+    let hyp_line = cx.hyp_pred.iter().filter(|(f, p)| p.name == "coll" && matches!(cx.class.get(**f as usize), Some(super::ctx::FactClass::Hyp)) && trio.iter().all(|z| p.points.contains(z))).map(|(f, _)| *f).min();
+    let coll_reason = if let Some(fact) = hyp_line {
+        Reason::Hyp { stmt: Stmt::Coll { pts: trio.to_vec() }, fact }
+    } else {
+        let blk = blocks.iter().find(|bk| matches!(&bk.stmt, Stmt::Coll { pts } if trio.iter().all(|z| pts.contains(z))))?;
+        Reason::Fact { stmt: blk.stmt.clone(), fact: *blk.engine_facts.first()?, block: Some(blk.id), because: Vec::new() }
+    };
+    let terms = vec![Expr::Angle { a: pp, b: v, c: x, directed: false }, Expr::Angle { a: qq, b: v, c: y, directed: false }];
+    let (_, e0) = super::expr::eval(cx.t, &terms[0])?;
+    let (_, e1) = super::expr::eval(cx.t, &terms[1])?;
+    let diff = &e0 - &e1;
+    let rows = check::reason_rows(cx.t, blocks, r)?;
+    let ang: Vec<(usize, &LinComb)> = rows.iter().enumerate().filter(|(_, (tb, _))| *tb == Table::Angle).map(|(k, (_, row))| (k, row)).collect();
+    let signs = [Rat::one(), Rat::from_int(-1)];
+    let mut combination: Option<Vec<Term>> = None;
+    'search: for (ai, (k1, r1)) in ang.iter().enumerate() {
+        for c1 in &signs {
+            let mut x = (*r1).clone();
+            x.mul_assign_scalar(c1);
+            if check::residual_ok(cx, Table::Angle, &diff, &x, false) {
+                combination = Some(vec![Term { reason: 0, row: *k1 as u16, coef: c1.clone() }]);
+                break 'search;
+            }
+            for (k2, r2) in ang.iter().skip(ai + 1) {
+                for c2 in &signs {
+                    let y = LinComb::combine(&x, r2, c2);
+                    if check::residual_ok(cx, Table::Angle, &diff, &y, false) {
+                        combination = Some(vec![Term { reason: 0, row: *k1 as u16, coef: c1.clone() }, Term { reason: 0, row: *k2 as u16, coef: c2.clone() }]);
+                        break 'search;
+                    }
+                }
+            }
+        }
+    }
+    let _ = ri;
+    if debug() {
+        eprintln!("vertical angles: trio {trio:?} combination {combination:?}");
+    }
+    let link = Link { reasons: vec![(*r).clone(), coll_reason], combination: combination? };
+    Some(Sentence::Chain { terms, links: vec![link], then: Some(st.clone()), directed: false })
 }
 
 fn restated_line_fact(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {

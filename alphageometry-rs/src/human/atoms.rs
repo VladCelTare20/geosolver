@@ -701,5 +701,21 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
         let via: Option<Vec<usize>> = a.via.iter().map(|&v| map.get(v).copied().flatten()).collect();
         a.via = via.unwrap_or_default();
     }
+    prefer_isosceles(cx, &mut b.atoms);
     b.atoms
+}
+
+fn prefer_isosceles(cx: &Ctx, atoms: &mut [Atom]) {
+    let key = |a: &Atom| super::library::quot_row(cx, a.table, &a.row);
+    let iso: Vec<(LinComb, FactId)> = atoms.iter().filter(|a| a.table == Table::Angle && matches!(a.src, AtomSrc::Human(AtomKey::Isosceles | AtomKey::Radii))).map(|a| (key(a), a.avail)).collect();
+    for a in atoms.iter_mut() {
+        if a.table != Table::Angle || !matches!(a.src, AtomSrc::Human(AtomKey::CentralAngle)) {
+            continue;
+        }
+        let k = key(a);
+        let n = k.negated();
+        if iso.iter().any(|(r, avail)| *avail <= a.avail && (*r == k || *r == n)) {
+            a.cost += 1;
+        }
+    }
 }

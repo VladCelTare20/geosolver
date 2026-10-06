@@ -13,7 +13,7 @@ So F, N, B, A are concyclic. (2)
 
 3. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (2), so FN = BF (equal arcs and chords). (3)
 
-4. By (3), OB = ON and FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
+4. OB = ON and, by (3), FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
 
 5. NC ⟂ NB, by (1) and OF ⟂ NB, by (4), so NC ∥ OF. (5)
 
@@ -25,7 +25,7 @@ So F, N, B, A are concyclic. (2)
 
 So R, N, F, O are concyclic. (6)
 
-7. AB·AM = AC·AN (power of the point A with respect to (BMCN)). P, R, M, B concyclic, P, R, N, C on ω₂, A, M, B collinear and A, N, C collinear, so A, R, P, F are collinear (the radical axis theorem). (7)
+7. AB·AM = AC·AN (power of the point A with respect to (BMCN)). A has the same power with respect to the circles (PRMB) and ω₂, so A lies on their radical axis, the line PR; hence A, R, P, F are collinear. (7)
 
 8. We show that P lies on the line BC:
 

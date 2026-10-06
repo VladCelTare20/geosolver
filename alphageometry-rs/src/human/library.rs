@@ -379,16 +379,18 @@ impl<'c, 'a> Builder<'c, 'a> {
         };
         let tiny: Vec<usize> = narrow.iter().copied().filter(|&i| self.atoms[i].cost == 0 || matches!(self.atoms[i].src, AtomSrc::Hyp(_)) || (central(i) && matching(i)) || base_iso(i)).collect();
         let passes = if narrow_only { vec![tiny, narrow] } else { vec![tiny, narrow, all] };
-        for cands in passes {
-            let found = self.justify_with(&row, &cands, args);
-            if !found.is_empty() {
-                return found;
+        for doubled in [false, true] {
+            for cands in &passes {
+                let found = self.justify_with(&row, cands, args, doubled);
+                if !found.is_empty() {
+                    return found;
+                }
             }
         }
         Vec::new()
     }
 
-    fn justify_with(&self, row: &LinComb, cands: &[usize], args: &[PointId]) -> Vec<usize> {
+    fn justify_with(&self, row: &LinComb, cands: &[usize], args: &[PointId], doubled: bool) -> Vec<usize> {
         let cx = self.cx;
         let unit = LinComb::singleton(ANGLE_UNIT, Rat::one());
         let mut input: Vec<(u32, &LinComb)> = vec![(0, &unit)];
@@ -407,7 +409,7 @@ impl<'c, 'a> Builder<'c, 'a> {
         let cands: Vec<usize> = std::iter::once(usize::MAX).chain(cands.iter().copied()).collect();
         let mut two = row.clone();
         two.mul_assign_scalar(&Rat::from_int(2));
-        for target in [row.clone(), two] {
+        for target in [if doubled { two } else { row.clone() }] {
             let target = cx.quot.q(&cx.t.exact(Table::Angle, &target));
             let found = super::cert::certify_greedy(&cx.piv[Table::Angle.idx()], &input, &target, &|_| true);
             if std::env::var_os("HP_THM").is_some() {
