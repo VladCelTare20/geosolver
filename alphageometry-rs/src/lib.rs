@@ -21,6 +21,7 @@ pub(crate) mod aux_rollout;
 pub(crate) mod aux_score;
 pub mod aux_search;
 pub(crate) mod aux_virtual;
+pub mod budget;
 pub mod bench;
 pub(crate) mod certify;
 pub mod corpus;

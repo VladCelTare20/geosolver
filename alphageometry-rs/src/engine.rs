@@ -1078,6 +1078,7 @@ impl Ddar {
     fn base_closure(&mut self, deadline: Option<std::time::Instant>) -> bool {
         let mut changed = true;
         while changed {
+            crate::budget::check();
             if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
                 return false;
             }

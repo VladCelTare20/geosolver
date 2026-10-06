@@ -562,6 +562,7 @@ impl Figure {
     fn derive_geometric_mean(&mut self) {
         let n = self.names.len() as PointId;
         for c in 0..n {
+            crate::budget::check();
             for a in 0..n {
                 for b in 0..n {
                     if a >= b || a == c || b == c {
@@ -648,6 +649,7 @@ impl Figure {
             let pts: Vec<PointId> = set.iter().copied().collect();
             let n = self.names.len() as PointId;
             for p in 0..n {
+                crate::budget::check();
                 if set.contains(&p) {
                     continue; // P on the circle → degenerate power
                 }
@@ -729,6 +731,7 @@ impl Figure {
             let n = self.names.len() as PointId;
             for &t in &pts {
                 for p in 0..n {
+                    crate::budget::check();
                     if on.contains(&p) || p == o {
                         continue;
                     }
@@ -784,6 +787,7 @@ impl Figure {
     fn derive_thales(&mut self) {
         let n = self.names.len() as PointId;
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in 0..n {
                     if a == b || a == c || b == c {
@@ -848,6 +852,7 @@ impl Figure {
         let n = self.names.len() as PointId;
         let mut found: Vec<(PointId, PointId, PointId, PointId, Vec<String>)> = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in (b + 1)..n {
                     if a == b || a == c {
@@ -1041,6 +1046,7 @@ impl Figure {
         let n = self.names.len() as PointId;
         let mut out = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in (a + 1)..n {
                 for c in (b + 1)..n {
                     if self.numerically_collinear(a, b, c) {
@@ -1588,6 +1594,7 @@ impl Figure {
     fn gather_bisector_products(&mut self) {
         let n = self.names.len() as PointId;
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in (b + 1)..n {
                     if a == b || a == c {
@@ -1653,6 +1660,7 @@ impl Figure {
         let mut derived_splits: Vec<(PointId, PointId, PointId)> = Vec::new();
         let n = self.names.len() as PointId;
         for x in 0..n {
+            crate::budget::check();
             for z in (x + 1)..n {
                 for y in 0..n {
                     if y == x || y == z || self.coll(x, y, z) {

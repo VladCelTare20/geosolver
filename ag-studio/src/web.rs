@@ -1002,7 +1002,7 @@ fn solution_of(
         }
         Outcome::TimedOut => {
             eprintln!("solve worker killed at its {:.0}s hard limit", req.hard_limit().as_secs_f64());
-            Ok((worker::time_limit_solution(&req.input, req.limit()), None))
+            Ok((worker::time_limit_solution(&req.input, req.kind, req.limit()), None))
         }
         Outcome::Failed(e) => {
             eprintln!("solve worker failed: {e}");

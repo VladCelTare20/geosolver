@@ -273,6 +273,17 @@ pub fn solve(input: &str, opts: &SolveOptions) -> Result<Solution, String> {
 /// Default wall-clock limit for the CLI and MCP solve paths.
 pub const DEFAULT_SOLVE_TIMEOUT: Duration = Duration::from_secs(60);
 
+const METRIC_RESERVE: Duration = Duration::from_secs(5);
+
+/// The method a solve of `input` is routed to, known before it runs.
+pub fn routed_method(input: &str, kind: InputKind) -> Method {
+    if kind == InputKind::Geo && extract_goal(input).is_some_and(|g| is_metric_goal(&g)) {
+        Method::Euclidean
+    } else {
+        Method::Ddar
+    }
+}
+
 /// [`solve`] with an optional wall-clock `timeout`. When it expires the result
 /// is `proved: false` with a "time limit" note. The deadline is also handed to
 /// the auxiliary search, so the abandoned worker starts no new DDAR run after
@@ -292,17 +303,17 @@ pub fn solve_within(
             // sums of products, …) get the classical Euclidean prover; plain
             // relations go through the DDAR closure.
             if extract_goal(input).map(|g| is_metric_goal(&g)).unwrap_or(false) {
-                return euclidean_flow(input, opts);
+                return euclidean_flow(input, opts, deadline);
             }
             let compiled = match geo::compile(input) {
                 Ok(c) => c,
-                Err(e) if e.is_metric_goal() => return euclidean_flow(input, opts),
+                Err(e) if e.is_metric_goal() => return euclidean_flow(input, opts, deadline),
                 Err(e) => return Err(format!("compile error: {e}")),
             };
             // Safety net: a goal the compiler lowered to a trivially-true
             // placeholder would be "proved" vacuously by DDAR.
             if compiled.problem.goal.as_ref().is_some_and(is_placeholder_goal) {
-                return euclidean_flow(input, opts);
+                return euclidean_flow(input, opts, deadline);
             }
             deductive_flow(
                 compiled.problem,
@@ -592,7 +603,7 @@ fn conjunction_solution(
 /// readable candidate and writing it up fit inside `budget`.
 pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<Solution, String> {
     let euclid = |opts: &SolveOptions| -> Result<Solution, String> {
-        let mut sol = euclidean_flow(input, opts)?;
+        let mut sol = euclidean_flow(input, opts, Some(Instant::now() + budget))?;
         if sol.proved {
             sol.note = format!(
                 "classical Euclidean proof — already minimal (cites named theorems); {}",
@@ -1088,7 +1099,7 @@ fn deductive_flow(
 
 /// The classical-Euclidean path for absolute-length goals: draw the figure from
 /// the construction lines, then prove the length goal with named theorems.
-fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String> {
+fn euclidean_flow(program: &str, opts: &SolveOptions, deadline: Option<Instant>) -> Result<Solution, String> {
     let start = Instant::now();
     let (cons, goal) = split_metric_program(program)?;
 
@@ -1105,8 +1116,13 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
         Err(_) => (String::new(), String::new(), None, Vec::new(), None),
     };
 
+    let provers_until = deadline.map(|d| {
+        let now = Instant::now();
+        let left = d.saturating_duration_since(now);
+        now + left.mul_f64(0.8).max(left.saturating_sub(METRIC_RESERVE))
+    });
     let result = catch_unwind(AssertUnwindSafe(|| {
-        ddar::metric::solve(&cons, &goal, ddar::metric::DEFAULT_SAMPLES)
+        ddar::metric::solve_until(&cons, &goal, ddar::metric::DEFAULT_SAMPLES, provers_until)
     }))
     .map_err(|_| "metric prover panicked".to_string())?;
     let mut goal_holds = goal_holds;
@@ -1121,15 +1137,20 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
             goal_holds = Some(true);
             numeric_samples = Some(evidence.samples);
             numeric_evidence = Some(evidence.report);
-            (
-                false,
-                None,
-                format!(
+            let note = match deadline {
+                Some(d) if reason == ddar::metric::TIME_LIMIT_REASON => format!(
+                    "not proved — the Euclidean provers stopped at the {:.0}s time limit; the goal \
+                     holds numerically in {} sampled figures, which is evidence, not a proof",
+                    d.saturating_duration_since(start).as_secs_f64(),
+                    evidence.samples
+                ),
+                _ => format!(
                     "not proved — no classical Euclidean proof was found ({reason}); the goal \
                      holds numerically in {} sampled figures, which is evidence, not a proof",
                     evidence.samples
                 ),
-            )
+            };
+            (false, None, note)
         }
         Err(ddar::metric::MetricError::Refuted(report)) => {
             goal_holds = Some(false);
@@ -1140,6 +1161,18 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
                 "not provable — the equation fails in a sampled figure (the statement \
                  appears to be false)"
                     .to_string(),
+            )
+        }
+        Err(ddar::metric::MetricError::TimedOut(report)) => {
+            numeric_evidence = Some(report);
+            let secs = deadline.map_or(0.0, |d| d.saturating_duration_since(start).as_secs_f64());
+            (
+                false,
+                None,
+                format!(
+                    "not proved — the Euclidean provers stopped at the {secs:.0}s time limit; the equation \
+                     holds in the drawn figure but not in every sampled configuration"
+                ),
             )
         }
         Err(e) => (false, None, format!("metric prover: {}", e.message())),
@@ -1810,6 +1843,36 @@ mod tests {
             assert!(!best.proved, "{goal} was proved in best mode: {:?}", best.aux_constructions);
             assert_eq!(best.status, Status::Refuted, "{goal}: {}", best.note);
         }
+    }
+
+    fn ptolemy_program(extra: usize, factor: &str) -> String {
+        let mut src = String::from("A B C = triangle\nD = reflect(C, perp_bisector(A, B))\n");
+        for i in 0..extra {
+            src.push_str(&format!("P{i} = free\n"));
+        }
+        src.push_str(&format!("prove dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {factor}dist(A,D)*dist(B,C)\n"));
+        src
+    }
+
+    #[test]
+    fn a_metric_solve_answers_inside_its_deadline_with_its_figure_and_method() {
+        let t = Instant::now();
+        let sol = solve_within(&ptolemy_program(89, ""), &SolveOptions::default(), Some(Duration::from_secs(6))).unwrap();
+        let took = t.elapsed();
+        assert!(took < Duration::from_secs(6) + crate::worker::GRACE, "{took:?}");
+        assert!(!sol.proved);
+        assert_eq!(sol.method, Method::Euclidean);
+        assert!(!sol.svg.is_empty());
+        assert!(sol.note.contains("time limit"), "{}", sol.note);
+        assert_eq!(crate::present::classify_note(&sol).key, "time_limit");
+        let t = Instant::now();
+        let sol = solve_within(&ptolemy_program(89, "2*"), &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
+        assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
+        assert!(!sol.proved);
+        assert_eq!(sol.status, Status::Refuted, "{}", sol.note);
+        assert_eq!(sol.method, Method::Euclidean);
+        assert_eq!(routed_method(&ptolemy_program(1, ""), InputKind::Geo), Method::Euclidean);
+        assert_eq!(routed_method(BUTTERFLY, InputKind::Geo), Method::Ddar);
     }
 
     #[test]

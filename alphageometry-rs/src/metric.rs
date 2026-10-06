@@ -400,6 +400,9 @@ pub enum MetricError {
     /// The goal or construction could not be processed (parse error, no valid
     /// figure, unsupported form, …).
     Failed(String),
+    /// The provers stopped at their deadline and the goal holds in the drawn
+    /// figure but not in every sampled configuration. Carries the report.
+    TimedOut(String),
 }
 
 impl MetricError {
@@ -413,7 +416,7 @@ impl MetricError {
         match self {
             MetricError::Refuted(_) => Some(false),
             MetricError::NoProof { .. } => Some(true),
-            MetricError::Failed(_) => None,
+            MetricError::Failed(_) | MetricError::TimedOut(_) => None,
         }
     }
 
@@ -427,7 +430,7 @@ impl MetricError {
 
     pub fn message(&self) -> &str {
         match self {
-            MetricError::Refuted(m) | MetricError::Failed(m) => m,
+            MetricError::Refuted(m) | MetricError::Failed(m) | MetricError::TimedOut(m) => m,
             MetricError::NoProof { reason, .. } => reason,
         }
     }
@@ -436,7 +439,7 @@ impl MetricError {
     /// an unproved goal (labelled as not a proof), or the failure message.
     pub fn report(&self) -> String {
         match self {
-            MetricError::Refuted(m) | MetricError::Failed(m) => m.clone(),
+            MetricError::Refuted(m) | MetricError::Failed(m) | MetricError::TimedOut(m) => m.clone(),
             MetricError::NoProof { reason, evidence } => format!(
                 "NOT PROVED — no classical Euclidean proof was found ({reason}).\n\n{}",
                 evidence.report
@@ -472,16 +475,45 @@ impl From<String> for MetricError {
 /// was found, or [`MetricError::Failed`] when it could not be processed. A
 /// derivation whose goal fails in its own figure is rejected as `Refuted`.
 pub fn solve(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricError> {
+    solve_until(cons_src, goal, n, None)
+}
+
+pub const TIME_LIMIT_REASON: &str = "the search stopped at its time limit";
+
+/// [`solve`] whose theorem provers stop at `deadline`. A goal that fails in the
+/// drawn figure is refuted before they run (no derivation of it could pass the
+/// figure backstop). After a stop the numeric check still runs: a goal holding
+/// in every sample is `NoProof` with `reason` [`TIME_LIMIT_REASON`], one
+/// holding only in the drawn configuration is `TimedOut`.
+pub fn solve_until(cons_src: &str, goal: &str, n: usize, deadline: Option<std::time::Instant>) -> Result<String, MetricError> {
     use crate::synthetic::Outcome;
-    let reason = match crate::synthetic::prove_euclidean(cons_src, goal) {
-        Ok(Outcome::Proved(proof)) => return checked_proof(cons_src, goal, proof),
-        Ok(Outcome::Unhandled(reason)) => reason,
-        Err(e) => return Err(e.into()),
+    if let Ok((l, r)) = drawn_sides(cons_src, goal) {
+        if !sides_agree(l, r) {
+            return Err(match check_numerically(cons_src, goal, n) {
+                Err(e @ MetricError::Refuted(_)) => e,
+                _ => MetricError::Refuted(format!(
+                    "REFUTED — the equation fails in the drawn figure\n  {goal}\n  LHS = {} , RHS = {}",
+                    fmt(l),
+                    fmt(r)
+                )),
+            });
+        }
+    }
+    let euclid = crate::budget::within(deadline, || crate::synthetic::prove_euclidean(cons_src, goal));
+    let reason = match euclid {
+        Some(Ok(Outcome::Proved(proof))) => return checked_proof(cons_src, goal, proof),
+        Some(Ok(Outcome::Unhandled(reason))) => Some(reason),
+        Some(Err(e)) => return Err(e.into()),
+        None => None,
     };
-    let reason = match crate::ratio::prove_ratio(cons_src, goal) {
-        Ok(Outcome::Proved(proof)) => return checked_proof(cons_src, goal, proof),
-        Ok(Outcome::Unhandled(ratio_reason)) => format!("{reason}; {ratio_reason}"),
-        Err(e) => return Err(e.into()),
+    let Some(reason) = reason else {
+        return Err(after_time_limit(cons_src, goal, n));
+    };
+    let reason = match crate::budget::within(deadline, || crate::ratio::prove_ratio(cons_src, goal)) {
+        Some(Ok(Outcome::Proved(proof))) => return checked_proof(cons_src, goal, proof),
+        Some(Ok(Outcome::Unhandled(ratio_reason))) => format!("{reason}; {ratio_reason}"),
+        Some(Err(e)) => return Err(e.into()),
+        None => return Err(after_time_limit(cons_src, goal, n)),
     };
     let evidence = check_numerically(cons_src, goal, n)?;
     Err(MetricError::NoProof { reason, evidence })
@@ -492,7 +524,7 @@ pub fn solve(cons_src: &str, goal: &str, n: usize) -> Result<String, MetricError
 /// which `build_sampled_figure` also uses). Proofs are configuration-relative —
 /// Ptolemy's equality, say, needs the drawn convex order — so this checks that
 /// one figure, not every re-sampled instance.
-fn checked_proof(cons_src: &str, goal: &str, proof: String) -> Result<String, MetricError> {
+fn drawn_sides(cons_src: &str, goal: &str) -> Result<(f64, f64), MetricError> {
     let (lhs, rhs) = parse_equation(goal)?;
     let fig = crate::geo::build_sampled_figure(cons_src)?;
     let map: Coords = fig
@@ -501,8 +533,30 @@ fn checked_proof(cons_src: &str, goal: &str, proof: String) -> Result<String, Me
         .map(String::as_str)
         .zip(fig.coords.iter().copied())
         .collect();
-    let (l, r) = (lhs.eval(&map)?, rhs.eval(&map)?);
-    if l.is_finite() && r.is_finite() && (l - r).abs() / (1.0 + r.abs()) < 1e-6 {
+    Ok((lhs.eval(&map)?, rhs.eval(&map)?))
+}
+
+fn sides_agree(l: f64, r: f64) -> bool {
+    l.is_finite() && r.is_finite() && (l - r).abs() / (1.0 + r.abs()) < 1e-6
+}
+
+fn after_time_limit(cons_src: &str, goal: &str, n: usize) -> MetricError {
+    match check_numerically(cons_src, goal, n) {
+        Ok(evidence) => MetricError::NoProof { reason: TIME_LIMIT_REASON.to_string(), evidence },
+        Err(MetricError::Refuted(report)) => match drawn_sides(cons_src, goal) {
+            Ok((l, r)) if sides_agree(l, r) => MetricError::TimedOut(format!(
+                "NOT PROVED — {TIME_LIMIT_REASON}. The equation holds in the drawn figure but fails in \
+                 another sampled configuration, so it depends on how the figure is drawn.\n\n{report}"
+            )),
+            _ => MetricError::Refuted(report),
+        },
+        Err(e) => e,
+    }
+}
+
+fn checked_proof(cons_src: &str, goal: &str, proof: String) -> Result<String, MetricError> {
+    let (l, r) = drawn_sides(cons_src, goal)?;
+    if sides_agree(l, r) {
         return Ok(proof);
     }
     Err(MetricError::Refuted(format!(

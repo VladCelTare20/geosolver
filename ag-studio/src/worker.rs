@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::OwnedSemaphorePermit;
 
-use crate::engine::{self, InputKind, Method, Solution, SolveOptions, Status};
+use crate::engine::{self, InputKind, Solution, SolveOptions, Status};
 use crate::i18n::Lang;
 use crate::{present, render};
 use ddar::svg::Theme;
@@ -189,13 +189,13 @@ pub enum Outcome {
 
 /// The honest answer for a solve that had to be killed: not proved, with a
 /// note saying why. No figure — drawing it is part of what overran.
-pub fn time_limit_solution(input: &str, limit: Duration) -> Solution {
+pub fn time_limit_solution(input: &str, kind: InputKind, limit: Duration) -> Solution {
     Solution {
         input: input.to_string(),
         low_level: String::new(),
         proved: false,
         status: Status::NotProved,
-        method: Method::Ddar,
+        method: crate::engine::routed_method(input, kind),
         proof: None,
         numeric_evidence: None,
         numeric_samples: None,
@@ -963,7 +963,7 @@ pub(crate) mod tests {
     #[test]
     fn the_reply_is_the_last_line_of_output() {
         let reply = Reply {
-            result: Ok(time_limit_solution("x", Duration::from_secs(3))),
+            result: Ok(time_limit_solution("x", InputKind::Geo, Duration::from_secs(3))),
             report: None,
             figure_png: None,
             view: None,

@@ -759,6 +759,7 @@ impl Figure {
         let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
             Vec::new();
         for v in 0..n {
+            crate::budget::check();
             for x in 0..n {
                 for y in (x + 1)..n {
                     if v == x || v == y {
@@ -848,6 +849,7 @@ impl Figure {
         let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
             Vec::new();
         for m in 0..n {
+            crate::budget::check();
             for a in 0..n {
                 for b in (a + 1)..n {
                     if m == a || m == b || self.midpoints.iter().any(|&(mm, x, y)| {
@@ -1288,6 +1290,7 @@ impl Figure {
         let n = self.coords.len() as PointId;
         for (m, b, c) in self.midpoints.clone() {
             for a in 0..n {
+                crate::budget::check();
                 if a == m || a == b || a == c {
                     continue;
                 }
@@ -1347,6 +1350,7 @@ impl Figure {
         let mut seen: BTreeSet<(Atom, Atom)> = BTreeSet::new();
         let mut out = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in 0..n {
                     for d in 0..n {
@@ -1386,6 +1390,7 @@ impl Figure {
         let mut seen: BTreeSet<(Atom, Atom)> = BTreeSet::new();
         let mut out = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in 0..n {
                     for d in 0..n {
@@ -1470,6 +1475,7 @@ impl Figure {
                 (String::new(), Some(step))
             };
             for a in 0..n {
+                crate::budget::check();
                 if a == b || a == c || a == d {
                     continue;
                 }
@@ -1534,6 +1540,7 @@ impl Figure {
         let n = self.coords.len() as PointId;
         for [a, b, c, d] in self.find_rectangles() {
             for p in 0..n {
+                crate::budget::check();
                 if [a, b, c, d].contains(&p) {
                     continue;
                 }
