@@ -2307,6 +2307,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     async fn corpus_problems_solve_through_the_api() {
         let _heavy = crate::engine::heavy_search_lock();
         let dir = tempfile::tempdir().unwrap();

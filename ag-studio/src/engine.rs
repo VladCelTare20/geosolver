@@ -1994,6 +1994,7 @@ mod corpus_tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn imo_2008_p6_corpus_text_is_proved_through_the_app() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(IMO_2008_P6, &corpus_opts(), Some(Duration::from_secs(150))).unwrap();

@@ -133,3 +133,24 @@ fn metric_fuzz_smoke_no_false_proof() {
         assert_eq!(verdict(case, &o), "ok", "{} {}\n{}\n{:?}", case.name, case.mutation, case.text, o.proof);
     }
 }
+
+#[test]
+fn degenerate_figures_that_once_panicked_ddar_stay_unproved_without_a_panic() {
+    let cases = read_corpus(include_str!("golden/fuzz/degenerate-former-panics.txt")).unwrap();
+    assert_eq!(cases.len(), 12);
+    let budget = Duration::from_millis(if cfg!(debug_assertions) { 3000 } else { 1000 });
+    let outcomes: Vec<Outcome> = std::thread::scope(|s| {
+        let handles: Vec<_> = cases
+            .chunks(3)
+            .map(|chunk| s.spawn(move || chunk.iter().map(|(n, t)| solve_case(n, t, budget, true)).collect::<Vec<_>>()))
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+    });
+    for ((name, text), o) in cases.iter().zip(&outcomes) {
+        assert!(o.parsed, "{name}: {} {}", o.status, o.detail);
+        assert_eq!(o.goal_numeric, Some(false), "{name}: the goal is false on this degenerate figure");
+        assert_ne!(o.status, "engine-panic", "{name}: {}", o.detail);
+        assert_ne!(o.status, "UNSOUND", "{name}");
+        assert!(!o.proved, "{name} proved a goal that is false on its figure:\n{text}\n{:?}", o.proof);
+    }
+}

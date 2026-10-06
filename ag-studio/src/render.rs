@@ -1481,6 +1481,7 @@ mod tests {
 
     #[test]
     fn the_human_report_hides_helpers_unless_the_derivation_is_appended() {
+        let _heavy = crate::engine::heavy_search_lock();
         let src = "A B C = triangle\nO = midpoint(B, C)\nM = meet(line(A, B), circle(O, B))\n\
                    N = meet(line(A, C), circle(O, B))\nR = meet(bisector(B, A, C), bisector(M, O, N))\n\
                    P = meet(circumcircle(B, M, R), circumcircle(C, N, R))\nprove coll(P, B, C)";

@@ -29,3 +29,4 @@ agstudio.db
 deploy/.env
 deploy/certs/
 .claude/worktrees/
+deploy/acme/
