@@ -36,6 +36,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| restated_line_fact(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| vertical_angles(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| expose_addition(cx, blocks, bi, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| because_chain(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| undirected_hyps(cx, s));
     per_block(cx, &mut ch, hp, &congruence_side);
     per_sentence(cx, &mut ch, hp, true, &|_, blocks, bi, s| restated_conclusion(blocks, bi, s));
@@ -43,6 +44,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| drop_setup_radii(&named, s));
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| trim_parallel_extras(s));
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _, s| redisplay_drawn(cx, blocks, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| stable_names(cx, s));
     cut_long(cx, &mut ch, hp);
     lemma_steps(cx, &mut ch, hp);
     prefix_steps(cx, &mut ch, hp);
@@ -1051,7 +1053,7 @@ fn expose_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: 
             }
             let Some(x) = with_const(cx, xs, target, directed) else { continue };
             let x = tidy(x);
-            if x == *e1 || x == *e2 || !nice_mid(cx, &x, directed) || !shows(cx, Table::Angle, &x, target, directed) {
+            if x == *e1 || x == *e2 || !nice_mid(cx, &x, directed) || cancelling(cx, &x) || !shows(cx, Table::Angle, &x, target, directed) {
                 continue;
             }
             let (ia, ib) = if fact_first { (&x, e2) } else { (e1, &x) };
@@ -1075,6 +1077,31 @@ fn expose_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: 
         }
     }
     best
+}
+
+fn cancelling(cx: &Ctx, e: &Expr) -> bool {
+    let parts = plain_terms(e);
+    for i in 0..parts.len() {
+        for j in i + 1..parts.len() {
+            let (Some((_, a)), Some((_, b))) = (eval(cx.t, &parts[i].1), eval(cx.t, &parts[j].1)) else { continue };
+            let mut sum = cx.quot.q(&a);
+            sum.iadd_mul(&cx.quot.q(&b), &(&parts[j].0 / &parts[i].0));
+            if super::chain::classes(&sum).is_empty() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn vertex_count(cx: &Ctx, a: &Expr, b: &Expr, directed: bool) -> usize {
+    let mut vs: Vec<Option<PointId>> = Vec::new();
+    for (_, ti) in diff_terms(cx, a, b, directed).unwrap_or_default() {
+        if !vs.contains(&ti.vertex) {
+            vs.push(ti.vertex);
+        }
+    }
+    vs.len()
 }
 
 fn plain_terms(e: &Expr) -> Vec<(Rat, Expr)> {
@@ -1123,7 +1150,10 @@ fn expose_middle(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus
             let xs: Vec<(Rat, Expr)> = rest_terms.iter().cloned().chain(plain_terms(&beta)).collect();
             let (Some(y), Some(x)) = (with_const(cx, ys, &q1, directed), with_const(cx, xs, &q2, directed)) else { continue };
             let (y, x) = (tidy(y), tidy(x));
-            if y == *e1 || x == *e2 || y == x || !nice_mid(cx, &y, directed) || !nice_mid(cx, &x, directed) {
+            if y == *e1 || x == *e2 || y == x || !nice_mid(cx, &y, directed) || !nice_mid(cx, &x, directed) || cancelling(cx, &y) || cancelling(cx, &x) {
+                continue;
+            }
+            if vertex_count(cx, e1, &y, directed) > 2 || vertex_count(cx, &x, e2, directed) > 2 {
                 continue;
             }
             if !shows(cx, Table::Angle, &y, &q1, directed) || !shows(cx, Table::Angle, &x, &q2, directed) {
@@ -1147,6 +1177,65 @@ fn expose_middle(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus
     best
 }
 
+fn stable_names(cx: &Ctx, s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain { terms, links, directed, then } = s else { return None };
+    if !terms.first().is_some_and(|e| angle_table(cx, e)) {
+        return None;
+    }
+    let mut out = terms.clone();
+    let mut changed = false;
+    for k in 1..out.len().saturating_sub(1) {
+        let d = *directed && is_directed(&out[k - 1]) && is_directed(&out[k]);
+        let (Some(prev), Some(cur)) = (term_infos(cx, &out[k - 1], d), term_infos(cx, &out[k], d)) else { continue };
+        let mut parts: Vec<(Rat, Expr)> = match &out[k] {
+            Expr::Lin { terms } => terms.clone(),
+            x => vec![(Rat::one(), x.clone())],
+        };
+        let mut hit = false;
+        for c in &cur {
+            let Some(p) = prev.iter().find(|p| p.key == c.key && p.expr != c.expr && p.coef == c.coef) else { continue };
+            if let Some(slot) = parts.iter_mut().find(|(k2, x)| *x == c.expr && *k2 == c.coef) {
+                slot.1 = p.expr.clone();
+                hit = true;
+            }
+        }
+        if hit {
+            out[k] = tidy(Expr::Lin { terms: parts });
+            changed = true;
+        }
+    }
+    changed.then(|| Sentence::Chain { terms: out, links: links.clone(), directed: *directed, then: then.clone() })
+}
+
+fn because_chain(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Option<Sentence> {
+    let Sentence::Because { stmt: Stmt::EqAngle { lhs, rhs }, reasons, combination } = s else { return None };
+    if combination.is_empty() || is_directed(lhs) || is_directed(rhs) {
+        return None;
+    }
+    let link = oriented_link(cx, blocks, lhs, rhs, reasons, combination, false)?;
+    if link_facts(&link) != 1 {
+        return None;
+    }
+    opaque_link(cx, lhs, rhs, &link, false)?;
+    let chain = Sentence::Chain { terms: vec![lhs.clone(), rhs.clone()], links: vec![link], directed: false, then: None };
+    let exposed = expose_addition(cx, blocks, bi, &chain)?;
+    Some(exposed)
+}
+
+fn opaque_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool) -> Option<usize> {
+    let d = diff_terms(cx, e1, e2, directed)?;
+    if d.len() >= OPAQUE {
+        return Some(d.len());
+    }
+    if d.len() < 2 {
+        return None;
+    }
+    let fp = link_points(l);
+    let on_fact_ray = |v: PointId, a: PointId| fp.contains(&a) || fp.iter().any(|&p| p != v && near_line(cx, v, a, p));
+    let outside = d.iter().any(|(_, ti)| ti.vertex.is_some_and(|v| ti.pts.len() == 3 && (!fp.contains(&v) || !on_fact_ray(v, ti.pts[0]) || !on_fact_ray(v, ti.pts[2]))));
+    outside.then_some(d.len())
+}
+
 const OPAQUE: usize = 3;
 const EXPOSED_LINKS: usize = 12;
 
@@ -1163,10 +1252,7 @@ fn expose_addition(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Optio
             continue;
         }
         let d = *directed && is_directed(e1) && is_directed(e2);
-        let Some(delta) = row_delta(cx, e1, e2, d) else { continue };
-        if delta < OPAQUE {
-            continue;
-        }
+        let Some(delta) = opaque_link(cx, e1, e2, l, d) else { continue };
         if let Some((_, x, fact_first, label)) = expose_link(cx, e1, e2, l, d, &focus) {
             let ls = if fact_first { vec![l.clone(), label] } else { vec![label, l.clone()] };
             cands.push((delta, k, vec![x], ls));

@@ -11,7 +11,7 @@ Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conci
 
 Deci punctele F, N, B, A sunt conciclice. (2)
 
-3. AR este bisectoarea ∢BAC ⇒ ∢FAC = ∢BAF. F, N, B, A conciclice, din (2) ⇒ FN = BF (egalitatea arcelor și a coardelor). (3)
+3. AR este bisectoarea ∢BAC ⇒ ∢FAC = ∢BAF. F, N, B, A conciclice, din (2) ⇒ FN = BF (unghiurile înscrise egale sau suplementare subîntind coarde egale). (3)
 
 4. OB = ON și, din (3), FB = FN ⇒ OF este mediatoarea segmentului BN ⇒ OF ⟂ BN. (4)
 

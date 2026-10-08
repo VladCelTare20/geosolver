@@ -11,7 +11,7 @@ Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and A, R, P, 
 
 So F, N, B, A are concyclic. (2)
 
-3. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (2), so FN = BF (equal arcs and chords). (3)
+3. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (2), so FN = BF (equal or supplementary inscribed angles stand on equal chords). (3)
 
 4. OB = ON and, by (3), FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
 

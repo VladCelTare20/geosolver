@@ -113,8 +113,9 @@
     if (!f) return "";
     return spoken(factHtml(f));
   }
-  function factHtml(f, T) {
+  function factHtml(f, T, L) {
     T = T || t;
+    L = L || lang();
     var a = (f.args || []).map(function (x) { return math(x); });
     var g = function (i) { return a[i] || ""; };
     switch (f.kind) {
@@ -138,7 +139,7 @@
       case "aconst": return g(0) + " = " + g(1) + "°";
       case "rconst": return g(0) + " : " + g(1) + " = " + g(2);
       case "simtri": return "△" + g(0) + " ∼ △" + g(1);
-      case "contri": return "△" + g(0) + (lang() === "ro" ? " ≡ △" : " ≅ △") + g(1);
+      case "contri": return "△" + g(0) + (L === "ro" ? " ≡ △" : " ≅ △") + g(1);
       case "eqdist": return a.join(" = ");
       case "points": return a.join(", ");
       case "prose": return math(localNum(((lang() === "ro" && f.ro) || f.args || [])[0]), true);
@@ -431,7 +432,7 @@
         var eq = SP(g(0) + " = " + g(1));
         return !plain && (s.args || []).join(" ").length <= 24 ? '<span class="hp-nb">' + eq + "</span>" : eq;
       }
-      var out = SP(factHtml(s, T));
+      var out = SP(factHtml(s, T, L));
       var short = ["perp", "para", "cong", "eqangle", "aconst", "simtri", "contri", "rconst"].indexOf(s.kind) >= 0 && (s.args || []).join(" ").length <= 20;
       return short && !plain ? '<span class="hp-nb">' + out + "</span>" : out;
     }
@@ -880,7 +881,7 @@
       } else if (s.kind === "raw") {
         var step = null;
         steps.forEach(function (x) { if (x.n === s.step) step = x; });
-        var rt = step ? fillKey("hp.raw", { fact: SP(factHtml(step.fact, T)), rule: esc(ruleLabel(step)), n: stepLink(s.step, String(s.step)) }) : stepLink(s.step);
+        var rt = step ? fillKey("hp.raw", { fact: SP(factHtml(step.fact, T, L)), rule: esc(ruleLabel(step)), n: stepLink(s.step, String(s.step)) }) : stepLink(s.step);
         parts.push({ text: cap(rt), light: register([{ kind: "engine", step: s.step }]) });
       }
       return parts;

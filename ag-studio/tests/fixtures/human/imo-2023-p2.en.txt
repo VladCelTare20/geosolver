@@ -1,4 +1,4 @@
-Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5, 7 and 8, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
 
 Plan: it suffices to show that A, I, X are collinear.
 
@@ -27,6 +27,7 @@ So T, E, S, O are concyclic. (3)
      = ∠BLD − ∠LDX + 90°    [exterior angle of △DBL]
      = ∠BPD − ∠LDX + 90°    [inscribed angles in ω₁]
      = ∠BPD − ∠CBT + 90°    [DL ∥ BC]
+     = ∠BPD + ∠XBC − 90°    [angle addition]
      = ∠BPD − ∠OSB    [ON ⟂ BC, by (2)]
      = ∠XBP − ∠OPD    [central angle in Ω]
      = ∠DPX − ∠OPD    [PX is tangent to ω₁ (tangent–chord angle)]
@@ -41,7 +42,9 @@ So T, P, X, O are concyclic. (4)
      = ∡(OE, DL) + 90°    [DL ∥ BC]
      = ∡OEB + ∡BLD + 90°    [angle addition]
      = ∡OEB + ∡BPD + 90°    [inscribed angles in ω₁]
-     = ∡OEA + ∡APD + 90°    [inscribed angles in Ω]
+     = ∡OEA + ∡BPD + ∡AEB + 90°    [angle addition]
+     = ∡OEA + ∡BPD + ∡APB + 90°    [inscribed angles in Ω]
+     = ∡OEA + ∡APD + 90°    [angle addition]
      = ∡EPD    [OA = OE; inscribed angle ∠APE = 180° − ½∠AOE]
 
 So T, P, E, D are concyclic. (5)
@@ -57,18 +60,14 @@ So T, P, E, D are concyclic. (5)
 
 Radii of Ω, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
 
-7. We show that ∡IAX = ∡DPA + 90°:
+7. We show that A, I, X are collinear:
 
 ∡IAX = ∡SAX + 90°    [NS is a diameter of Ω]
      = ∡PAX + ∡SAP + 90°    [angle addition]
      = ∡PAX + ∡XBP + 90°    [inscribed angles in Ω]
      = ∡PAX + ∡DPX + 90°    [PX is tangent to ω₁ (tangent–chord angle)]
      = ∡XPA + ∡DPX + 90°    [XA = XP: triangle XAP is isosceles, by (6)]
-     = ∡DPA + 90°    [angle addition] (7)
-
-8. We show that A, I, X are collinear:
-
-∡IAX = ∡DPA + 90°    [by (7)]
+     = ∡DPA + 90°    [angle addition]
      = ∡BPA + ∡DPB + 90°    [angle addition]
      = ∡BEA + ∡DPB + 90°    [inscribed angles in Ω]
      = ∡BEA + ∡DLB + 90°    [inscribed angles in ω₁]
@@ -76,12 +75,6 @@ Radii of Ω, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
      = ∡(BC, AD) + 90°    [DL ∥ BC]
      = 0°    [AD ⟂ BC]
 
-So A, I, X are collinear. (8)
+So A, I, X are collinear. (7)
 
-9. We show that AX bisects ∠BAC:
-
-∠BAX = ∠BAI    [A, I, X collinear, by (8)]
-     = ∠IAC    [AI bisects ∠BAC]
-     = ∠XAC    [A, I, X collinear, by (8)]
-
-So AX bisects ∠BAC, as required. ∎
+8. A, I, X collinear, by (7) and AI bisects ∠BAC, so AX bisects ∠BAC, as required. ∎
