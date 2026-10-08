@@ -1197,7 +1197,8 @@ fn expose_middle(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus
             if y == *e1 || x == *e2 || y == x || !nice_mid(cx, &y, directed) || !nice_mid(cx, &x, directed) || cancelling(cx, &y) || cancelling(cx, &x) {
                 continue;
             }
-            if vertex_count(cx, e1, &y, directed) > 2 || vertex_count(cx, &x, e2, directed) > 2 {
+            let triangle = |a: &Expr, b: &Expr| matches!(identity_label(cx, a, b, directed), Some((AtomKey::ExteriorAngle | AtomKey::AngleSum, _)));
+            if (vertex_count(cx, e1, &y, directed) > 2 && !triangle(e1, &y)) || (vertex_count(cx, &x, e2, directed) > 2 && !triangle(&x, e2)) {
                 continue;
             }
             if !shows(cx, Table::Angle, &y, &q1, directed) || !shows(cx, Table::Angle, &x, &q2, directed) {
@@ -1282,8 +1283,35 @@ fn opaque_link(cx: &Ctx, blocks: &[Block], e1: &Expr, e2: &Expr, l: &Link, direc
             }
         }
     }
-    let on_fact_ray = |v: PointId, a: PointId| fp.contains(&a) || fp.iter().any(|&p| p != v && near_line(cx, v, a, p));
-    let outside = d.iter().any(|(_, ti)| ti.vertex.is_some_and(|v| ti.pts.len() == 3 && (!fp.contains(&v) || !on_fact_ray(v, ti.pts[0]) || !on_fact_ray(v, ti.pts[2]))));
+    let same_ray = |v: PointId, a: PointId, p: PointId| {
+        let (o, x, y) = (cx.t.coord(v), cx.t.coord(a), cx.t.coord(p));
+        near_line(cx, v, a, p) && (x.0 - o.0) * (y.0 - o.0) + (x.1 - o.1) * (y.1 - o.1) > 0.0
+    };
+    let ray = |v: PointId, a: PointId| -> Option<bool> {
+        if fp.contains(&a) || fp.iter().any(|&p| p != v && same_ray(v, a, p)) {
+            return Some(false);
+        }
+        fp.iter().any(|&p| p != v && near_line(cx, v, a, p)).then_some(true)
+    };
+    let mut flips: Vec<bool> = Vec::new();
+    let mut outside = false;
+    for (_, ti) in &d {
+        let Some(v) = ti.vertex else { continue };
+        if ti.pts.len() != 3 {
+            continue;
+        }
+        match (fp.contains(&v), ray(v, ti.pts[0]), ray(v, ti.pts[2])) {
+            (true, Some(f0), Some(f2)) => flips.push(f0 != f2),
+            _ => outside = true,
+        }
+    }
+    let cyclic = l.reasons.iter().any(|r| match r {
+        Reason::Atom { key: AtomKey::Inscribed, .. } => true,
+        Reason::Hyp { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Lemma { stmt, .. } => matches!(stmt, Stmt::Cyclic { .. }),
+        Reason::Claim { block, .. } => blocks.iter().any(|b| b.id == *block && matches!(b.stmt, Stmt::Cyclic { .. })),
+        _ => false,
+    });
+    let outside = outside || (!cyclic && flips.windows(2).any(|w| w[0] != w[1]));
     outside.then_some(d.len())
 }
 
@@ -2442,7 +2470,8 @@ pub fn finish(cx: &Ctx, hp: &mut HumanProof) {
     if hp.blocks.len() >= PLAN_MIN_STEPS {
         if let Some(c) = hp.blocks.last().filter(|b| b.kind == BlockKind::Conclusion) {
             let direct: Vec<u16> = cited_blocks(c).into_iter().filter(|x| hp.blocks.iter().any(|b| b.id == *x && plan_worthy(b))).collect();
-            if direct.len() <= PLAN_MAX {
+            let all_used = hp.blocks.iter().all(|b| b.tag || b.kind == BlockKind::Conclusion || b.kind == BlockKind::Raw);
+            if direct.len() <= PLAN_MAX && all_used {
                 hp.plan = direct;
             }
         }

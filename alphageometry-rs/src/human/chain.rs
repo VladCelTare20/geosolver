@@ -675,7 +675,8 @@ pub fn with_const(cx: &Ctx, mut terms: Vec<(Rat, Expr)>, node: &LinComb, directe
     let c = if directed { rest.get(ANGLE_UNIT).mod_one() } else { rest.get(ANGLE_UNIT) };
     terms.sort_by_key(|(k, _)| k.is_negative());
     if !c.is_zero() {
-        terms.push((Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
+        let at = if terms.iter().all(|(k, _)| k.is_negative()) { 0 } else { terms.len() };
+        terms.insert(at, (Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
     }
     Some(Expr::Lin { terms })
 }
