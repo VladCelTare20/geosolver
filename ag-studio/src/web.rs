@@ -200,35 +200,51 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     let bind = config.bind;
     let state = AppState::new(config).map_err(|e| anyhow::anyhow!(e))?;
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    serve_until(listener, state, shutdown_signal()).await
+    let db = state.db.clone();
+    let flusher = tokio::spawn(checkpoint_periodically(db));
+    let outcome = serve_until(listener, state, async {
+        let signal = shutdown_signal().await;
+        eprintln!("  {signal}: draining");
+    })
+    .await;
+    flusher.abort();
+    outcome
 }
 
-async fn shutdown_signal() {
-    let interrupt = async {
-        if tokio::signal::ctrl_c().await.is_err() {
-            std::future::pending::<()>().await;
+const CHECKPOINT_EVERY: Duration = Duration::from_secs(600);
+
+async fn checkpoint_periodically(db: crate::db::Db) {
+    let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + CHECKPOINT_EVERY, CHECKPOINT_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        let db = db.clone();
+        let done = tokio::task::spawn_blocking(move || crate::db::checkpoint(&crate::db::lock(&db), "PASSIVE")).await;
+        if let Ok(Err(e)) = done {
+            eprintln!("periodic database checkpoint failed: {e}");
         }
-    };
-    let terminate = async {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut s) => {
-                s.recv().await;
-            }
-            Err(_) => std::future::pending::<()>().await,
-        }
-    };
-    tokio::select! {
-        _ = interrupt => {}
-        _ = terminate => {}
     }
+}
+
+async fn shutdown_signal() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            return tokio::select! {
+                _ = term.recv() => "SIGTERM",
+                _ = tokio::signal::ctrl_c() => "SIGINT",
+            };
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
+    "SIGINT"
 }
 
 #[cfg(test)]
 async fn serve_on(listener: tokio::net::TcpListener, state: Shared) -> anyhow::Result<()> {
     serve_until(listener, state, std::future::pending()).await
 }
-
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Serve `state` on an already-bound listener until `shutdown` resolves, then
 /// drain. Answers at once: the translation probe (which can take seconds)
@@ -239,7 +255,7 @@ async fn serve_until(
     shutdown: impl std::future::Future<Output = ()>,
 ) -> anyhow::Result<()> {
     let bind = listener.local_addr()?;
-    println!("\n  GeoSolver {VERSION}  →  http://{bind}\n");
+    println!("\n  GeoSolver {}  →  http://{bind}\n", crate::VERSION);
     println!("  Security: {}", state.config.summary());
     if bind.ip().is_loopback() {
         println!("  (loopback only — put a reverse proxy in front to expose it)");
@@ -258,11 +274,12 @@ async fn serve_until(
     };
     let drained = accept_loop(listener, app_router(state.clone()), header_timeout, shutdown, drain).await;
     let db = state.db.clone();
-    let checkpoint = tokio::task::spawn_blocking(move || db::checkpoint(&db::lock(&db))).await;
-    match checkpoint {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => eprintln!("database checkpoint failed: {e}"),
-        Err(e) => eprintln!("database checkpoint failed: {e}"),
+    let flushed = tokio::task::spawn_blocking(move || db::checkpoint(&db::lock(&db), "TRUNCATE")).await;
+    match flushed {
+        Ok(Ok(true)) => eprintln!("  database checkpointed: the main file holds every write"),
+        Ok(Ok(false)) => eprintln!("  database checkpoint incomplete (a reader was busy); the -wal file still holds recent writes"),
+        Ok(Err(e)) => eprintln!("  database checkpoint failed: {e}"),
+        Err(e) => eprintln!("  database checkpoint failed: {e}"),
     }
     match drained {
         Ok(0) => println!("  GeoSolver stopped."),
@@ -394,6 +411,7 @@ fn app_router(state: Shared) -> Router {
         .route("/icons/{file}", get(pwa::icon_file))
         .route("/splash/{file}", get(pwa::splash_file))
         .route("/robots.txt", get(pwa::robots))
+        .route("/licenses", get(pwa::licenses))
         .route("/assets/{file}", get(asset))
         .route("/assets/fonts/{file}", get(font_asset))
         .route("/healthz", get(healthz))
@@ -679,6 +697,7 @@ struct Status {
     /// How long a solve waits in line for a slot before the server says busy.
     queue_wait_secs: f64,
     version: &'static str,
+    revision: &'static str,
 }
 
 /// Never waits on the `claude` probe: a stale or missing result is refreshed
@@ -721,7 +740,8 @@ async fn api_status(
         max_image_bytes: upload_image_limit(state.config.max_body_bytes),
         solver_free: state.heavy.available_permits() > 0,
         queue_wait_secs: state.config.queue_wait.as_secs_f64(),
-        version: VERSION,
+        version: crate::VERSION,
+        revision: crate::REVISION,
     })
     .into_response();
     if guest {
@@ -2407,6 +2427,7 @@ mod tests {
 
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     async fn corpus_problems_solve_through_the_api() {
         let _heavy = crate::engine::heavy_search_lock();
         let dir = tempfile::tempdir().unwrap();
@@ -3268,6 +3289,26 @@ mod tests {
         }
         let (st, _, _) = send(&state, build("GET", "/auth", &[("host", "evil.example")], None)).await;
         assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn healthz_answers_a_proxy_whatever_host_it_sends() {
+        for bind in ["127.0.0.1:8787", "0.0.0.0:8787"] {
+            let (state, _dir) = state_with(|c| {
+                c.bind = bind.parse().unwrap();
+                c.public_hosts = vec!["geo.example.com".into()];
+                c.basic_auth = Some(security::BasicAuth::parse(":pw-for-tests-123").unwrap());
+            });
+            for host in ["app:8787", "app", "10.0.0.7:8787", "geo.example.com"] {
+                let (st, _, body) = send(&state, build("GET", "/healthz", &[("host", host)], None)).await;
+                assert_eq!(st, StatusCode::OK, "{bind} {host}: {body}");
+            }
+            for path in ["/", "/gate", "/api/status", "/healthz/", "/healthz?x=1"] {
+                let (st, _, _) = send(&state, build("GET", path, &[("host", "app:8787")], None)).await;
+                let want = if path == "/healthz?x=1" { StatusCode::OK } else { StatusCode::FORBIDDEN };
+                assert_eq!(st, want, "{bind} {path} with an unlisted Host");
+            }
+        }
     }
 
     #[tokio::test]
@@ -4540,6 +4581,20 @@ mod tests {
         let (_, h, body) = call_raw(&state, build("GET", "/robots.txt", &[], None)).await;
         assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
         assert_eq!(std::str::from_utf8(&body).unwrap(), "User-agent: *\nDisallow: /\n");
+        let (st, h, body) = call_raw(&state, build("GET", "/licenses", &[], None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
+        let text = std::str::from_utf8(&body).unwrap();
+        for must in [
+            "Apache License, Version 2.0",
+            "The Inter Project Authors",
+            "The STIX Fonts Project Authors",
+            "SIL OPEN FONT LICENSE Version 1.1",
+            "Bitstream Vera",
+            "Tavmjong Bah",
+        ] {
+            assert!(text.contains(must), "/licenses lacks {must:?}");
+        }
     }
 
     #[test]

@@ -1,5 +1,7 @@
 # Human proof writer — golden examples
 
+> **Historical design evidence.** These files fixed the target text before the writer existed and predate its current numbered-step layout (Plan line, numbered steps, "by (k)" links). The live goldens — what the engine writes today and what the tests compare against — are `ag-studio/tests/fixtures/human/*.{json,en.txt,ro.txt}` (regenerated with `HP_BLESS=1`) and `alphageometry-rs/tests/golden/human/`.
+
 Acceptance tests for the writer specified in [`../HUMAN_PROOFS.md`](../HUMAN_PROOFS.md). Each file holds:
 1. the program;
 2. the engine proof as the deployed CLI prints it;

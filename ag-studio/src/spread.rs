@@ -543,6 +543,7 @@ prove cyclic(P, Q, P1, Q1)";
 
     #[test]
     fn a_figure_with_search_aux_points_is_redrawn_with_them() {
+        let _heavy = crate::engine::heavy_search_lock();
         let sol = crate::engine::solve(IMO_2019_P2, &crate::engine::SolveOptions::default()).unwrap();
         let f = sol.figure.as_ref().unwrap();
         let aux_from = f.aux_from.expect("this proof needs auxiliary points");

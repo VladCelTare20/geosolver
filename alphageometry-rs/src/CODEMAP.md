@@ -3,6 +3,7 @@
 Up: [../../CODEMAP.md](../../CODEMAP.md)
 
 ## Files
+- `lib.rs` — the crate root (library name `ddar`): the public modules and the re-exports `Ddar`, `Predicate`, `Problem`.
 - `geo.rs` — the `.geo` language: parse, expand constructions, sample a figure, compile to predicates. Point cap counts expanded points.
 - `predicate.rs` — the low-level AlphaGeometry predicate language and parser. `Problem::parse` accepts any relation name, arity and f64 (the engine's own callers and tests rely on that); input from outside goes through `lowlevel.rs`.
 - `lowlevel.rs` — `parse_checked`: what a hand-written low-level problem must satisfy before `Ddar` sees it — at most `MAX_POINTS` (100, shared with `geo.rs` and the corpus translator), finite coordinates (|x| ≤ 1e6), only the relations `Ddar` implements with their exact point/constant counts, and every hypothesis true at the given coordinates. `goal_holds` reads the goal off the coordinates; `conjuncts` lowers a `midp`/`simtri`/`contri` goal as the corpus translator does (`corpus.rs:lower_engine_goal`).

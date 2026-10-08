@@ -16,7 +16,7 @@
 //! | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
 //! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` calls per 24 h, counted once the request is valid (0 = no daily cap; the per-minute limit always applies) |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
-//! | `AGSTUDIO_MAX_CONCURRENT` | ~CPUs | simultaneous heavy requests; each solve/export is one worker process |
+//! | `AGSTUDIO_MAX_CONCURRENT` | CPUs available, clamped to 2..8 | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
 //! | `AGSTUDIO_WORKER_MEM_MB` | 2048 | memory cap (`RLIMIT_DATA`: heap and thread stacks, not merely reserved address space) of each solve worker process; 0 = none |
 //! | `AGSTUDIO_HUMAN_PROOFS` | 1 | 0 turns off the human-style proof writer (the Proof tab, MCP and reports then show only the full derivation) |
@@ -26,8 +26,13 @@
 //! | `AGSTUDIO_MAX_BODY_KB` | 8192 | request body size limit |
 //! | `AGSTUDIO_MAX_INPUT_CHARS` | 16384 | max program length |
 //! | `AGSTUDIO_DISABLE_TRANSLATE` | off | turn off `/api/translate` and `/api/humanize` (no `claude` subprocess at all) |
+//! | `AGSTUDIO_CLAUDE_BIN` | `claude` on `PATH`, then `~/.local/bin` | the Claude Code CLI; when set it is authoritative (a wrong path reports "not installed") |
+//! | `AGSTUDIO_CLAUDE_MODEL` | the CLI's default | `--model` for Describe/Photo translations |
+//! | `AGSTUDIO_HUMANIZE_MODEL` | `claude-opus-4-8` | `--model` for AI explanations (`/api/humanize`) |
+//! | `CLAUDE_CODE_OAUTH_TOKEN` | (none) | subscription token from `claude setup-token`; counts as signed in |
+//! | `CLAUDE_CONFIG_DIR` | `~/.claude` | the CLI's state directory; must be writable by the service |
 //! | `AGSTUDIO_TRUST_PROXY` | off | client IP = **rightmost** `X-Forwarded-For` entry, honoured only when the TCP peer is loopback/private/CGNAT (i.e. the proxy). Turn on behind `tailscale funnel`/nginx, or every visitor shares one rate-limit bucket |
-//! | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard) |
+//! | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames (a `:port` is ignored) the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard); `/healthz` accepts any |
 //! | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
 //! | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
 //! | `AGSTUDIO_SHUTDOWN_GRACE_SECS` | 70 | on SIGTERM/SIGINT: stop accepting, let requests in flight finish for at most this long (default = solve deadline + worker grace + 5 s), checkpoint the DB, exit 0. Keep the service manager's stop timeout above it |
@@ -913,7 +918,7 @@ fn json_error(code: StatusCode, msg: &str) -> Response {
 /// all (not a browser) passes.
 pub async fn host_guard(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
     let cfg = &state.config;
-    if !cfg.bind.ip().is_loopback() && cfg.public_hosts.is_empty() {
+    if (!cfg.bind.ip().is_loopback() && cfg.public_hosts.is_empty()) || req.uri().path() == "/healthz" {
         return next.run(req).await;
     }
     let host = req
@@ -953,6 +958,7 @@ pub const PUBLIC_PATHS: &[&str] = &[
     "/assets/app.css",
     "/assets/fonts/{file}",
     "/robots.txt",
+    "/licenses",
 ];
 
 fn is_public(method: &axum::http::Method, path: &str) -> bool {

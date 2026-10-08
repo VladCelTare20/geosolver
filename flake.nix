@@ -11,16 +11,17 @@
         "aarch64-linux"
       ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-    in
-    {
-      packages = forAll (pkgs: rec {
-        geosolver = pkgs.rustPlatform.buildRustPackage {
+      version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+      revision = self.shortRev or self.dirtyShortRev or "unknown";
+      geosolverWith =
+        pkgs: doCheck:
+        pkgs.rustPlatform.buildRustPackage {
           pname = "geosolver";
-          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+          inherit version doCheck;
           src = nixpkgs.lib.cleanSourceWith {
             src = self;
             filter =
-              path: type:
+              path: _:
               let
                 base = baseNameOf path;
               in
@@ -28,19 +29,35 @@
                 "target"
                 "docs"
                 "deploy"
+                "nix"
+                "flake.nix"
+                "flake.lock"
               ]);
           };
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--workspace" ];
           cargoTestFlags = [ "--workspace" ];
+          GEOSOLVER_REVISION = revision;
           meta = {
             description = "Olympiad geometry prover: web app, MCP server and CLI";
+            homepage = "https://github.com/VladCelTare20/geosolver";
             license = pkgs.lib.licenses.asl20;
             mainProgram = "agstudio";
+            platforms = systems;
           };
         };
+    in
+    {
+      packages = forAll (pkgs: rec {
+        geosolver = geosolverWith pkgs false;
         default = geosolver;
       });
+
+      checks = forAll (pkgs: {
+        tests = geosolverWith pkgs true;
+      });
+
+      nixosModules.default = import ./nix/module.nix self;
 
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {

@@ -12,11 +12,12 @@ use std::time::Duration;
 
 /// Run `f` on a fresh 2 MiB-stack thread (the size a server worker gets) and
 /// wait at most `secs` for it — an unbounded loop fails the test instead of
-/// hanging the suite.
+/// hanging the suite. Debug builds get 32 MiB and 5× the time.
 fn bounded<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (stack, secs) = if cfg!(debug_assertions) { (32 << 20, secs * 5) } else { (2 << 20, secs) };
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
-        .stack_size(2 << 20)
+        .stack_size(stack)
         .spawn(move || {
             let _ = tx.send(f());
         })

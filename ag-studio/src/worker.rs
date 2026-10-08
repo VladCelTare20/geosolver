@@ -948,7 +948,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn an_imo_solve_with_many_threads_fits_the_default_memory_cap() {
-        let imo = include_str!("../../imo2023p2.geo");
+        let imo = include_str!("../../alphageometry-rs/examples/imo/2023_p2.geo");
         let t = Instant::now();
         let outcome = bounded(run_with(&request(imo, 50.0), None, with_threads("64"))).await;
         let Outcome::Done(reply) = outcome else {
@@ -960,7 +960,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_worker_that_cannot_start_its_threads_fails_instead_of_answering_not_proved() {
-        let imo = include_str!("../../imo2023p2.geo");
+        let imo = include_str!("../../alphageometry-rs/examples/imo/2023_p2.geo");
         let outcome = bounded(run_with(&request(imo, 30.0), None, with_threads("100000"))).await;
         match outcome {
             Outcome::Failed(e) => assert!(e.contains(&format!("exit status: {EXIT_NO_THREADS}")), "{e}"),

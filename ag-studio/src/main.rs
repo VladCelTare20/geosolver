@@ -35,6 +35,9 @@ use std::time::Duration;
 use ddar::svg::Theme;
 use engine::{parse_theme, solve_best, solve_within, InputKind, Solution, SolveOptions};
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const REVISION: &str = env!("GEOSOLVER_REVISION");
+
 /// Default `best` search budget, in seconds.
 const DEFAULT_BUDGET_SECS: f64 = 20.0;
 
@@ -45,6 +48,11 @@ fn main() -> ExitCode {
         Some("translate") => cmd_translate(&args[1..]),
         Some("best") => cmd_best(&args[1..]),
         Some("serve") => cmd_serve(&args[1..]),
+        Some("backup") => cmd_backup(&args[1..]),
+        Some("version") | Some("--version") | Some("-V") => {
+            println!("agstudio {VERSION} ({REVISION})");
+            ExitCode::SUCCESS
+        }
         Some(worker::SUBCOMMAND) => ExitCode::from(worker::worker_main().clamp(0, 255) as u8),
         Some("mcp") => {
             if let Some(extra) = args.get(1) {
@@ -81,12 +89,16 @@ fn print_usage() {
          agstudio best   <program|file> [--low-level] [--budget SECS] [--theme dark|light] [--title T] [--svg F] [--png F] [--pdf F]\n  \
          agstudio translate <text> | --image <path>  [--solve] [--timeout SECS] [--svg F] [--png F] [--pdf F] [--theme dark|light] [--title T]\n  \
          agstudio serve [--port N]\n  \
-         agstudio mcp\n\n\
+         agstudio backup <dest.db> [--db PATH]\n  \
+         agstudio mcp\n  \
+         agstudio --version\n\n\
          `render`    solves a .geo program (or file), falling back to the aux search\n\
               (gives up after --timeout seconds, default {timeout}).\n\
          `best`      spends a time budget (default {budget}s) finding the shortest, most elegant proof.\n\
          `translate` turns a photo/description into .geo via the local `claude` CLI\n\
-              (your Claude subscription — no API key); add --solve/--png/--pdf to go end to end.\n",
+              (your Claude subscription — no API key); add --solve/--png/--pdf to go end to end.\n\
+         `backup`    writes a consistent, self-contained copy of the database (AGSTUDIO_DB,\n\
+              or --db) to a new file, safely while the server runs.\n",
         timeout = engine::DEFAULT_SOLVE_TIMEOUT.as_secs(),
         budget = DEFAULT_BUDGET_SECS,
     )
@@ -211,10 +223,47 @@ fn cmd_serve(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match rt.block_on(web::serve(config)) {
+    let served = rt.block_on(web::serve(config));
+    rt.shutdown_timeout(Duration::from_secs(2));
+    match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("server error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_backup(args: &[String]) -> ExitCode {
+    let parsed = match parse_args(args, &[], &["--db"]) {
+        Ok(p) => p,
+        Err(e) => return usage_error(&e),
+    };
+    let dest = match parsed.positional.as_slice() {
+        [d] => std::path::PathBuf::from(d),
+        [] => return usage_error("backup needs a destination file, e.g. agstudio backup agstudio-backup.db"),
+        more => return usage_error(&format!("backup takes one destination (got {})", more.len())),
+    };
+    let src = parsed
+        .get("--db")
+        .map(str::to_string)
+        .or_else(|| std::env::var("AGSTUDIO_DB").ok().filter(|v| !v.trim().is_empty()))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("./agstudio.db"));
+    match db::backup(&src, &dest) {
+        Ok(s) => {
+            println!(
+                "backed up {} -> {} ({} bytes; {} users, {} history rows; integrity ok)",
+                src.display(),
+                dest.display(),
+                s.bytes,
+                s.users,
+                s.history
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
             ExitCode::from(1)
         }
     }

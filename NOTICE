@@ -16,4 +16,21 @@ under the same licence. See LICENSE for the full text.
 This is not an official Google or DeepMind product, and is not endorsed by or
 affiliated with either.
 
-Bundled fonts: DejaVu, under a public-domain-style licence.
+Bundled fonts (built into the agstudio binary; full licence texts in
+ag-studio/assets/fonts/FONT-LICENSES.txt, served by the app at /licenses and
+installed in the Docker image under /usr/share/doc/geosolver/):
+
+    Inter - Copyright (c) 2016 The Inter Project Authors
+    SIL Open Font License 1.1. Static instances are modified and renamed
+    "GeoSolver Sans".
+
+    STIX Two Text - Copyright 2001-2021 The STIX Fonts Project Authors
+    SIL Open Font License 1.1. Static instances are modified and renamed
+    "GeoSolver Math".
+
+    DejaVu - Copyright (c) 2003 Bitstream, Inc. (Bitstream Vera); glyphs from
+    Arev Fonts Copyright (c) 2006 Tavmjong Bah; DejaVu changes are in the
+    public domain. Bitstream Vera and Arev licences.
+
+Third-party Rust crates linked into the binaries are listed with their
+licences in THIRD_PARTY_LICENSES.md.

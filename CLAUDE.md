@@ -12,7 +12,8 @@ via a web app, an MCP server (Claude Desktop/Code), or a CLI.
   - `src/engine.rs` — in-process solve wrapper (DDAR + aux search; routes
     absolute-length goals to the classical Euclidean prover). Returns proof + SVG.
   - `src/render.rs` — SVG→PNG (resvg) / SVG→PDF (svg2pdf); the combined
-    figure+proof "report" page. Bundles `assets/fonts/DejaVu*` for glyph coverage.
+    figure+proof "report" page. Bundles Inter, STIX Two and DejaVu
+    (`assets/fonts/`, licences in `FONT-LICENSES.txt`, served at `/licenses`).
   - `src/translate.rs` — photo/NL→`.geo` by shelling out to the local `claude`
     CLI (subscription auth, **no API key**). `prompts/geo_grammar.md` is the prompt.
   - `src/web.rs` + `assets/index.html` — axum server + single-page UI.
@@ -22,12 +23,13 @@ via a web app, an MCP server (Claude Desktop/Code), or a CLI.
 ## Commands
 ```sh
 cargo build --release -p ag-studio          # the agstudio binary
-cargo test                                   # engine + ag-studio tests
+RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6   # all tests (the gate)
 ./run.sh  (Linux/macOS)  |  ./run.ps1 (Windows)  # build + launch the web app (:8787)
 agstudio render <program|file> [--pdf F --png F --svg F --theme light|dark]
 agstudio translate "<text>" | --image P [--solve --pdf F]
 agstudio serve [--port N]                     # web app
 agstudio mcp                                  # MCP server (stdio)
+agstudio backup <dest.db>                     # consistent copy of the server DB
 ```
 
 ## Conventions
@@ -48,5 +50,7 @@ agstudio mcp                                  # MCP server (stdio)
   `~/Projects/geosolver-bench/`), never with `--bench` alone (26 pre-selected rows).
 - Soundness is the product. Every change to goal compilation or a prover needs a
   regression test with a FALSE statement that must stay unproved.
-- State is one SQLite file (`AGSTUDIO_DB`); deploy files must put it on
-  persistent, writable storage.
+- State is one SQLite file (`AGSTUDIO_DB`, WAL mode, schema version in
+  `PRAGMA user_version`); deploy files must put it on persistent, writable
+  storage, and backups go through `agstudio backup`, never a copy of the bare
+  `.db`. A schema change bumps `db.rs:SCHEMA_VERSION` with a migration.

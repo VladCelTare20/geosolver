@@ -8,7 +8,9 @@
 
 The woff2 files are subsets (Latin, Latin Extended-A, Greek, punctuation,
 arrows, mathematical operators, geometric shapes) made with `pyftsubset`.
-The OFL text: https://openfontlicense.org
+The licence texts (OFL 1.1 for Inter and STIX, Bitstream Vera and Arev for
+DejaVu) are in `FONT-LICENSES.txt`, built into the binary and served at
+`/licenses`.
 
 ## Export fonts (PDF/PNG reports)
 

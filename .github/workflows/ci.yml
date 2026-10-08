@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "wf/release"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Portable build (no target-cpu=native on shared runners)
+        run: rm -f .cargo/config.toml alphageometry-rs/.cargo/config.toml
+      - name: Build
+        run: cargo build --release --locked --workspace --all-targets
+      - name: Tests (the release gate)
+        env:
+          RAYON_NUM_THREADS: "4"
+        run: cargo test --release --locked --workspace --no-fail-fast -- --test-threads=4
+      - name: Bench rows must stay 26/26
+        run: |
+          out=$(cargo run --release --locked -p alphageometry-rs --bin ddar -- --bench 2>&1 | tee /dev/stderr)
+          echo "$out" | grep -q '26/26'
+      - name: Clippy (report only)
+        run: cargo clippy --release --locked --workspace --all-targets || true
+      - name: Third-party licence list is current
+        run: |
+          ./deploy/third-party-licenses.sh
+          git diff --exit-code THIRD_PARTY_LICENSES.md
+
+  msrv:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - run: cargo check --locked --workspace
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the runtime image
+        run: docker build --build-arg GEOSOLVER_REVISION="${GITHUB_SHA::12}" -t geosolver:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name gs -p 127.0.0.1:8787:8787 -e AGSTUDIO_BASIC_AUTH=:ci-password-123 geosolver:ci
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8787/healthz && break; sleep 1; done
+          docker exec gs agstudio --version
+          curl -fsS -u x:ci-password-123 -H 'Content-Type: application/json' \
+            -d '{"input":"A B C = triangle\nO = circumcenter(A, B, C)\nprove cong(O, A, O, B)"}' \
+            http://127.0.0.1:8787/api/solve | grep -q '"proved":true'
+          docker exec gs agstudio backup /data/ci.db
+          docker stop gs
+          docker logs gs 2>&1 | grep -q 'database checkpointed'

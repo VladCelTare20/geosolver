@@ -86,9 +86,14 @@ impl Drop for Server {
 }
 
 fn free_port() -> u16 {
-    (18800..18850)
-        .find(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok())
-        .expect("no free port in 18800-18849")
+    static NEXT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(18800);
+    loop {
+        let p = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(p < 18850, "no free port in 18800-18849");
+        if std::net::TcpListener::bind(("127.0.0.1", p)).is_ok() {
+            return p;
+        }
+    }
 }
 
 fn http(port: u16, method: &str, path: &str, cookie: Option<&str>, body: Option<&str>) -> (u16, String, String) {
@@ -153,4 +158,73 @@ fn a_real_server_solves_through_worker_processes() {
     assert_eq!(st, 200);
     assert!(body.contains("%PDF"), "{}", &body[..body.len().min(200)]);
     drop(server);
+}
+
+fn usernames(path: &std::path::Path) -> Vec<String> {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let Ok(mut st) = conn.prepare("SELECT username FROM users ORDER BY id") else {
+        return Vec::new();
+    };
+    st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_copies_a_running_database_and_sigterm_leaves_a_self_contained_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("live.db");
+    let port = free_port();
+    let mut server = Server(
+        Command::new(BIN)
+            .args(["serve", "--port", &port.to_string()])
+            .env("AGSTUDIO_DB", &db)
+            .env("AGSTUDIO_DISABLE_TRANSLATE", "1")
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let until = Instant::now() + Duration::from_secs(20);
+    while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(Instant::now() < until, "server did not start");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let creds = serde_json::json!({"username": "keeper", "password": "password123"}).to_string();
+    let (st, _, body) = http(port, "POST", "/api/auth/register", None, Some(&creds));
+    assert_eq!(st, 200, "{body}");
+
+    let dest = dir.path().join("backup.db");
+    let out = Command::new(BIN).args(["backup", dest.to_str().unwrap()]).env("AGSTUDIO_DB", &db).output().unwrap();
+    let said = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{said}");
+    assert!(said.contains("1 users") && said.contains("integrity ok"), "{said}");
+    assert_eq!(usernames(&dest), ["keeper"]);
+    let again = Command::new(BIN).args(["backup", dest.to_str().unwrap()]).env("AGSTUDIO_DB", &db).output().unwrap();
+    assert_eq!(again.status.code(), Some(1), "an existing backup file is never overwritten");
+
+    let pid = server.0.id() as libc::pid_t;
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    let status = server.0.wait_timeout(Duration::from_secs(15)).unwrap().expect("SIGTERM stops the server");
+    let mut log = String::new();
+    server.0.stderr.take().unwrap().read_to_string(&mut log).unwrap();
+    assert!(status.success(), "{status:?}: {log}");
+    assert!(log.contains("database checkpointed"), "{log}");
+
+    let main_file_only = dir.path().join("main-file-only.db");
+    std::fs::copy(&db, &main_file_only).unwrap();
+    assert_eq!(usernames(&main_file_only), ["keeper"]);
+    let conn = rusqlite::Connection::open(&main_file_only).unwrap();
+    let secrets: i64 = conn.query_row("SELECT count(*) FROM server_secrets", [], |r| r.get(0)).unwrap();
+    assert_eq!(secrets, 1, "the gate key survives a main-file-only copy");
+}
+
+#[test]
+fn version_flag_prints_the_crate_version_and_revision() {
+    for flag in ["--version", "-V", "version"] {
+        let out = Command::new(BIN).arg(flag).output().unwrap();
+        assert!(out.status.success(), "{flag}");
+        let text = String::from_utf8_lossy(&out.stdout);
+        let want = format!("agstudio {} (", env!("CARGO_PKG_VERSION"));
+        assert!(text.starts_with(&want) && text.trim_end().ends_with(')'), "{flag}: {text}");
+    }
 }

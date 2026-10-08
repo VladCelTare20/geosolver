@@ -1753,6 +1753,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn the_butterfly_theorem_needs_and_gets_an_auxiliary_point() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(BUTTERFLY, &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
@@ -1762,6 +1763,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn the_default_and_best_solves_run_the_corpus_search() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
@@ -1812,7 +1814,7 @@ mod tests {
     #[ignore = "60 s best search; run with --ignored"]
     fn best_mode_returns_a_proof_at_least_as_readable_as_the_imo_2023_p2_golden() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let src = std::fs::read_to_string(root.join("imo2023p2.geo")).unwrap();
+        let src = std::fs::read_to_string(root.join("alphageometry-rs/examples/imo/2023_p2.geo")).unwrap();
         let best = solve_best(&src, &SolveOptions::default(), Duration::from_secs(60)).unwrap();
         assert!(best.proved, "{}", best.note);
         assert!(best.note.starts_with("most readable of"), "{}", best.note);
@@ -2104,6 +2106,7 @@ mod corpus_tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn imo_2008_p6_corpus_text_is_proved_through_the_app() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(IMO_2008_P6, &corpus_opts(), Some(Duration::from_secs(150))).unwrap();
@@ -2115,6 +2118,7 @@ mod corpus_tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn a_conjunctive_corpus_goal_is_proved_only_as_a_whole() {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(TRAPEZOID, &corpus_opts(), Some(Duration::from_secs(60))).unwrap();

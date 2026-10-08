@@ -70,6 +70,7 @@ try {
       await page.evaluate(() => document.querySelector('[data-example-solve="ortho"]').click());
       await page.waitForSelector('#verdict:not([hidden])', { timeout: 30000 });
       await page.waitForTimeout(600);
+      if (await page.locator('#ptab-steps').isVisible()) await page.tap('#ptab-steps');
       const step = page.locator('#steps li.step:not(.is-group):not([hidden])').nth(1);
       await step.scrollIntoViewIfNeeded();
       const sb = await step.boundingBox();
