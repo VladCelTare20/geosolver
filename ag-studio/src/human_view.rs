@@ -2396,7 +2396,7 @@ pub mod tests {
     }
 
     fn sample_atom(key: AtomKey) -> Reason {
-        let args: Vec<String> = ["A", "B", "C", "D", "E", "F"].iter().map(|s| s.to_string()).collect();
+        let args: Vec<String> = ["A", "B", "C", "D", "E", "F", "G"].iter().map(|s| s.to_string()).collect();
         Reason::Atom { key, args, stmt: atom_stmt(), from: vec![], circle: None }
     }
 

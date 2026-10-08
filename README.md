@@ -76,6 +76,10 @@ uses is tagged (k) and cited "by (k)"; the last step restates the goal in the
 problem's words ("…, as required. ∎"). Angles written ∠ are read from the
 figure; directed angles ∡ are used only where a chain must not depend on the
 drawing, and are then defined in words together with the steps that need them.
+When a fact gives one angle and the chain needs a neighbouring one, the step in
+between is its own line (`[angle addition]`, `[exterior angle of △DBL]`,
+`[angle sum in △PBC]`), checked like any other link. Setup lines only introduce
+objects; they never state anything the proof still has to show.
 Trigonometric proofs use the textbook forms `a = 2R·sin A`, `AH = 2R·cos A`
 and `OMₐ = R·cos A` (law of sines, extended law of sines, sin(90° − x) = cos x),
 each side in at most three lines.
