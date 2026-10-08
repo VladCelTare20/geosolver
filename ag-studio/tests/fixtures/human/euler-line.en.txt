@@ -18,7 +18,7 @@ Plan: it suffices to show that △AHG ∼ △MOG.
 
 Hence △AHB ∼ △MON. (4)
 
-5. AH ∥ OM, by (3), so ∠HAG = ∠OMG.
+5. AH ∥ OM, by (3), so ∠GAH = ∠GMO.
 
 AH / AG = AH·MN / (AB·MG)    [intercept theorem, AB ∥ MN; MN ∥ BA, by (2)]
         = MO / MG    [△AHB ∼ △MON, by (4)]

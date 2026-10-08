@@ -1098,8 +1098,8 @@
           {
             "kind": "chain",
             "terms": [
-              "∠HAG",
-              "∠OMG"
+              "∠GAH",
+              "∠GMO"
             ],
             "links": [
               {
@@ -1127,7 +1127,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               }

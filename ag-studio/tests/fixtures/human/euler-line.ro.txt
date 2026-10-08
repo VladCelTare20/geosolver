@@ -18,7 +18,7 @@ Ideea: este suficient să arătăm că △AHG ∼ △MOG.
 
 Deci △AHB ∼ △MON. (4)
 
-5. AH ∥ OM, din (3) ⇒ ∢HAG = ∢OMG.
+5. AH ∥ OM, din (3) ⇒ ∢GAH = ∢GMO.
 
 AH / AG = AH·MN / (AB·MG)    [teorema lui Thales, AB ∥ MN; MN ∥ BA, din (2)]
         = MO / MG    [△AHB ∼ △MON, din (4)]

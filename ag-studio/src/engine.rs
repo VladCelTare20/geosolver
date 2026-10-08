@@ -919,7 +919,7 @@ fn solves_with(
 
 /// Parse `(steps, facts)` from a proof: the header's trailing "(N steps, M
 /// facts …)" when present, else a count of numbered step lines.
-fn proof_size(proof: &str) -> (usize, usize) {
+pub(crate) fn proof_size(proof: &str) -> (usize, usize) {
     if let Some(first) = proof.lines().next() {
         if let Some(open) = first.rfind('(') {
             let nums: Vec<usize> = first[open..]
