@@ -35,6 +35,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| absorb_by_triangles(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| restated_line_fact(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| vertical_angles(cx, blocks, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| redisplay_middles(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| expose_addition(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| because_chain(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| undirected_hyps(cx, s));
@@ -1013,19 +1014,18 @@ fn nice_mid(cx: &Ctx, x: &Expr, directed: bool) -> bool {
     }
 }
 
-fn expose_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: &BTreeSet<PointId>) -> Option<(i64, Expr, bool, Link)> {
+fn subst_candidates(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: &BTreeSet<PointId>) -> Vec<(bool, Expr)> {
     let t = cx.t;
-    let (_, r1) = eval(t, e1)?;
-    let (_, r2) = eval(t, e2)?;
+    let mut out = Vec::new();
+    let (Some((_, r1)), Some((_, r2))) = (eval(t, e1), eval(t, e2)) else { return out };
     let (q1, q2) = (cx.quot.q(&r1), cx.quot.q(&r2));
     let delta = LinComb::combine(&q2, &q1, &Rat::from_int(-1));
     let fpts = link_points(l);
-    let mut best: Option<(i64, Expr, bool, Link)> = None;
     for (fact_first, base, target) in [(true, e1, &q2), (false, e2, &q1)] {
-        let infos = term_infos(cx, base, directed)?;
+        let Some(infos) = term_infos(cx, base, directed) else { continue };
         let sign = if fact_first { Rat::one() } else { Rat::from_int(-1) };
         for (i, ti) in infos.iter().enumerate() {
-            let (_, tr) = eval(t, &ti.expr)?;
+            let Some((_, tr)) = eval(t, &ti.expr) else { continue };
             let mut nr = cx.quot.q(&tr);
             nr.iadd_mul(&delta, &(&sign / &ti.coef));
             let cl = super::chain::classes(&nr);
@@ -1056,27 +1056,71 @@ fn expose_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: 
             if x == *e1 || x == *e2 || !nice_mid(cx, &x, directed) || cancelling(cx, &x) || !shows(cx, Table::Angle, &x, target, directed) {
                 continue;
             }
-            let (ia, ib) = if fact_first { (&x, e2) } else { (e1, &x) };
-            let Some(idelta) = row_delta(cx, ia, ib, directed) else { continue };
-            if idelta == 0 {
-                continue;
-            }
-            let fdelta = if fact_first { row_delta(cx, e1, &x, directed) } else { row_delta(cx, &x, e2, directed) }.unwrap_or(9);
-            if fdelta > 2 {
-                continue;
-            }
-            let Some(label) = identity_link(cx, ia, ib, directed) else { continue };
-            let generic = matches!(label.reasons.first(), Some(Reason::Atom { key: AtomKey::AngleAddition, args, .. }) if args.is_empty());
-            if generic && !directed {
-                continue;
-            }
-            let score = 10 * idelta as i64 + 3 * fdelta as i64 + badness(&x) + if generic { 25 } else { 0 };
-            if best.as_ref().is_none_or(|b| score < b.0) {
-                best = Some((score, x, fact_first, label));
-            }
+            out.push((fact_first, x));
+        }
+    }
+    out
+}
+
+fn expose_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: &BTreeSet<PointId>) -> Option<(i64, Expr, bool, Link)> {
+    let mut best: Option<(i64, Expr, bool, Link)> = None;
+    for (fact_first, x) in subst_candidates(cx, e1, e2, l, directed, focus) {
+        let (ia, ib) = if fact_first { (&x, e2) } else { (e1, &x) };
+        let Some(idelta) = row_delta(cx, ia, ib, directed) else { continue };
+        if idelta == 0 {
+            continue;
+        }
+        let fdelta = if fact_first { row_delta(cx, e1, &x, directed) } else { row_delta(cx, &x, e2, directed) }.unwrap_or(9);
+        if fdelta > 2 {
+            continue;
+        }
+        let Some(label) = identity_link(cx, ia, ib, directed) else { continue };
+        let generic = matches!(label.reasons.first(), Some(Reason::Atom { key: AtomKey::AngleAddition, args, .. }) if args.is_empty());
+        if generic && !directed {
+            continue;
+        }
+        let score = 10 * idelta as i64 + 3 * fdelta as i64 + badness(&x) + if generic { 25 } else { 0 };
+        if best.as_ref().is_none_or(|b| score < b.0) {
+            best = Some((score, x, fact_first, label));
         }
     }
     best
+}
+
+fn link_cost(cx: &Ctx, blocks: &[Block], a: &Expr, b: &Expr, l: &Link, directed: bool) -> usize {
+    if identity_only(l) || link_facts(l) != 1 {
+        return 0;
+    }
+    opaque_link(cx, blocks, a, b, l, directed).unwrap_or(0)
+}
+
+fn redisplay_middles(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain { terms, links, directed, then } = s else { return None };
+    if terms.len() < 3 || !terms.first().is_some_and(|e| angle_table(cx, e)) {
+        return None;
+    }
+    let focus: BTreeSet<PointId> = blocks[bi].points.iter().copied().collect();
+    let mut terms = terms.clone();
+    let mut changed = false;
+    for k in 1..terms.len() - 1 {
+        let d1 = *directed && is_directed(&terms[k - 1]) && is_directed(&terms[k]);
+        let d2 = *directed && is_directed(&terms[k]) && is_directed(&terms[k + 1]);
+        if d1 != d2 {
+            continue;
+        }
+        let cost = |x: &Expr| link_cost(cx, blocks, &terms[k - 1], x, &links[k - 1], d1) + link_cost(cx, blocks, x, &terms[k + 1], &links[k], d2);
+        if cost(&terms[k]) == 0 {
+            continue;
+        }
+        let mut cands: Vec<Expr> = subst_candidates(cx, &terms[k - 1], &terms[k], &links[k - 1], d1, &focus).into_iter().filter(|c| c.0).map(|c| c.1).collect();
+        cands.extend(subst_candidates(cx, &terms[k], &terms[k + 1], &links[k], d2, &focus).into_iter().filter(|c| !c.0).map(|c| c.1));
+        let best = cands.into_iter().map(|x| (cost(&x), badness(&x), x)).filter(|c| c.0 == 0).min_by_key(|c| (c.0, c.1));
+        if let Some((_, _, x)) = best {
+            terms[k] = x;
+            changed = true;
+        }
+    }
+    changed.then(|| Sentence::Chain { terms, links: links.clone(), directed: *directed, then: then.clone() })
 }
 
 fn cancelling(cx: &Ctx, e: &Expr) -> bool {
@@ -1216,13 +1260,13 @@ fn because_chain(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Option<
     if link_facts(&link) != 1 {
         return None;
     }
-    opaque_link(cx, lhs, rhs, &link, false)?;
+    opaque_link(cx, blocks, lhs, rhs, &link, false)?;
     let chain = Sentence::Chain { terms: vec![lhs.clone(), rhs.clone()], links: vec![link], directed: false, then: None };
     let exposed = expose_addition(cx, blocks, bi, &chain)?;
     Some(exposed)
 }
 
-fn opaque_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool) -> Option<usize> {
+fn opaque_link(cx: &Ctx, blocks: &[Block], e1: &Expr, e2: &Expr, l: &Link, directed: bool) -> Option<usize> {
     let d = diff_terms(cx, e1, e2, directed)?;
     if d.len() >= OPAQUE {
         return Some(d.len());
@@ -1230,7 +1274,14 @@ fn opaque_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool) -> Opti
     if d.len() < 2 {
         return None;
     }
-    let fp = link_points(l);
+    let mut fp = link_points(l);
+    for r in &l.reasons {
+        if let Reason::Claim { block, .. } | Reason::Fact { block: Some(block), .. } | Reason::Lemma { block, .. } = r {
+            if let Some(b) = blocks.iter().find(|b| b.id == *block) {
+                fp.extend(super::view::stmt_points(&b.stmt));
+            }
+        }
+    }
     let on_fact_ray = |v: PointId, a: PointId| fp.contains(&a) || fp.iter().any(|&p| p != v && near_line(cx, v, a, p));
     let outside = d.iter().any(|(_, ti)| ti.vertex.is_some_and(|v| ti.pts.len() == 3 && (!fp.contains(&v) || !on_fact_ray(v, ti.pts[0]) || !on_fact_ray(v, ti.pts[2]))));
     outside.then_some(d.len())
@@ -1252,7 +1303,7 @@ fn expose_addition(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Optio
             continue;
         }
         let d = *directed && is_directed(e1) && is_directed(e2);
-        let Some(delta) = opaque_link(cx, e1, e2, l, d) else { continue };
+        let Some(delta) = opaque_link(cx, blocks, e1, e2, l, d) else { continue };
         if let Some((_, x, fact_first, label)) = expose_link(cx, e1, e2, l, d, &focus) {
             let ls = if fact_first { vec![l.clone(), label] } else { vec![label, l.clone()] };
             cands.push((delta, k, vec![x], ls));
@@ -1722,7 +1773,8 @@ fn merge_same_reasons(s: &Sentence) -> Option<Sentence> {
     Some(with_parts(s, terms, links, true))
 }
 
-const PROMOTE: [AtomKey; 10] = [
+const PROMOTE: [AtomKey; 11] = [
+    AtomKey::Miquel,
     AtomKey::Thales,
     AtomKey::PerpBisector,
     AtomKey::Midline,
@@ -1735,7 +1787,7 @@ const PROMOTE: [AtomKey; 10] = [
     AtomKey::PerpBisectorLocus,
 ];
 
-const ALWAYS: [AtomKey; 7] = [AtomKey::PerpBisector, AtomKey::Midline, AtomKey::Orthocentre, AtomKey::Centroid, AtomKey::MedianHypotenuse, AtomKey::EqualTangents, AtomKey::PerpBisectorLocus];
+const ALWAYS: [AtomKey; 8] = [AtomKey::PerpBisector, AtomKey::Midline, AtomKey::Orthocentre, AtomKey::Centroid, AtomKey::MedianHypotenuse, AtomKey::EqualTangents, AtomKey::PerpBisectorLocus, AtomKey::Miquel];
 
 fn atom_key_args(r: &Reason) -> Option<(AtomKey, Vec<PointId>)> {
     match r {

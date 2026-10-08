@@ -956,7 +956,7 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                         for &q in fig.on(p, f).iter().filter(|q| c2.contains(q) && !common.contains(q)) {
                             for &d in c2.iter().filter(|d| !common.contains(d) && **d != q) {
                                 for &c in fig.on(p, e) {
-                                    if fig.on(q, d).contains(&c) && ![m, f, p, e, q, d].contains(&c) {
+                                    if p < q && fig.on(q, d).contains(&c) && ![m, f, p, e, q, d].contains(&c) {
                                         push(&mut out, AtomKey::Miquel, vec![p, q, c, d, e, f, m]);
                                     }
                                 }

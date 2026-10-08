@@ -53,7 +53,7 @@ Deci punctele T, P, E, D sunt conciclice. (5)
 
 ∢AOX = ∢AOP − ∢XOP    [adunarea unghiurilor]
      = ∢AOP − ∢PTX    [T, P, X, O conciclice, din (4)]
-     = ∢EPO − ∢OAE    [T, P, E, D conciclice, din (5)]
+     = ∢AOP − ∢AEP    [T, P, E, D conciclice, din (5)]
      = ∢AEP    [unghi la centru în Ω]
      = ∢XTP    [T, P, E, D conciclice, din (5)]
      = ∢XOP    [T, P, X, O conciclice, din (4)]

@@ -45,7 +45,7 @@ So T, P, E, D are concyclic. (5)
 6. We show that XA = XP:
     ∠AOX = ∠AOP − ∠XOP    [angle addition]
          = ∠AOP − ∠PTB    [T, P, X, O concyclic, by (4)]
-         = ∠OAE − ∠EPO    [T, P, E, D concyclic, by (5)]
+         = ∠AOP − ∠AEP    [T, P, E, D concyclic, by (5)]
          = ∠AEP           [central angle ∠AOP = 2∠AEP]
          = ∠BTP           [T, P, E, D concyclic, by (5)]
          = ∠XOP           [T, P, X, O concyclic, by (4)]
