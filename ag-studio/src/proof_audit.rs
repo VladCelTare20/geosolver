@@ -87,6 +87,33 @@ pub fn shown(sol: &Solution) -> Shown {
     Shown { sol, view }
 }
 
+pub fn drawn_badly(sol: &Solution) -> Option<Solution> {
+    let fig = sol.figure.as_ref()?;
+    let goal = fig.problem.goal.as_ref()?;
+    let instances = ddar::geo::build_instances(&sol.input, 64).ok()?;
+    for inst in instances {
+        let at: std::collections::HashMap<&str, ddar::numerics::Vec2> = inst.iter().map(|(n, v)| (n.as_str(), *v)).collect();
+        let mut p = fig.problem.clone();
+        let placed = p.points.iter_mut().all(|q| at.get(q.name.as_str()).map(|v| q.value = *v).is_some());
+        if !placed || p.preds.iter().chain(std::iter::once(goal)).any(|pr| ddar::geo::numeric_holds(&p, pr) != Some(true)) {
+            continue;
+        }
+        let Some(redrawn) = crate::spread::respread(&p, fig.aux_from, &sol.input, crate::spread::Goal::Holds) else { continue };
+        let opts = ddar::human::Opts { deadline: None, strict: false };
+        let Some((hp, trace, deps, proof)) = ddar::human::for_problem(&p, &[], &opts) else { continue };
+        if !hp.available || angle_violations(&hp, &trace.names, &redrawn).is_empty() {
+            continue;
+        }
+        let mut out = sol.clone();
+        out.proof_steps = Some(crate::engine::proof_size(&proof).0);
+        out.proof = Some(proof);
+        out.human = Some(crate::engine::HumanSource { closure: trace.closure(&deps), names: trace.names.clone(), proof: hp });
+        out.figure = Some(crate::engine::FigureSource { problem: p, aux_from: fig.aux_from });
+        return Some(out);
+    }
+    None
+}
+
 fn xy(fig: &Problem, names: &[String], id: u32) -> Option<(f64, f64)> {
     let n = names.get(id as usize)?;
     fig.points.iter().find(|p| &p.name == n).map(|p| (p.value.x, p.value.y))
@@ -333,14 +360,20 @@ mod tests {
         assert!(setup_violations(&h.proof, &h.names, fig, goal).is_empty());
         assert!(svg_draws(&sh.view.svg, fig).unwrap() >= 4);
 
-        let engine = sol.figure.as_ref().unwrap();
-        let respread = crate::spread::respread(&engine.problem, engine.aux_from, &sol.input, crate::spread::Goal::Holds).expect("the engine's figure is redrawn");
-        let engine_proof = sol.human.as_ref().unwrap();
+        let bad = drawn_badly(&sol).expect("an instance of this program that the page redraws");
+        let engine = bad.figure.as_ref().unwrap();
+        let respread = crate::spread::respread(&engine.problem, engine.aux_from, &sol.input, crate::spread::Goal::Holds).expect("the badly drawn figure is redrawn");
+        let engine_proof = bad.human.as_ref().unwrap();
         assert!(angle_violations(&engine_proof.proof, &engine_proof.names, &engine.problem).is_empty());
         assert!(
             !angle_violations(&engine_proof.proof, &engine_proof.names, &respread).is_empty(),
             "the proof written on the engine's figure misreads the redrawn one (∠C = ∠HBC − 90°)"
         );
+        let redrawn = shown(&bad);
+        let rh = redrawn.sol.human.as_ref().unwrap();
+        let rfig = &redrawn.sol.figure.as_ref().unwrap().problem;
+        assert!(angle_violations(&rh.proof, &rh.names, rfig).is_empty(), "the page rewrites the proof for the figure it redraws");
+        assert!(svg_draws(&redrawn.view.svg, rfig).is_ok());
 
         let mut flipped = h.proof.clone();
         let chain = flipped

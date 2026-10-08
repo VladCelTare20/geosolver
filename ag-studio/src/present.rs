@@ -4047,6 +4047,8 @@ mod tests {
         let src = "A B C = triangle\nH = orthocenter(A, B, C)\nK = reflect(H, line(B, C))\nprove cyclic(A, B, C, K)";
         let sol = crate::engine::solve(src, &crate::engine::SolveOptions::default()).unwrap();
         assert!(reads_figure(&sol), "the flagship example's human proof reads its angles off the figure");
+        assert!(displayed(&sol, None).is_none(), "the engine draws this example as a textbook triangle, so the page keeps its figure");
+        let sol = crate::proof_audit::drawn_badly(&sol).expect("an instance of this program that the page redraws");
         let engine_fig = sol.figure.as_ref().unwrap().problem.clone();
         let shown = displayed(&sol, None).expect("the engine's figure is redrawn for the page");
         let fig = shown.figure.as_ref().unwrap().problem.clone();
