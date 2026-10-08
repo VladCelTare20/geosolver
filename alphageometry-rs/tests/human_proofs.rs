@@ -359,6 +359,18 @@ fn identity_links_are_checked_and_honestly_labelled() {
 }
 
 #[test]
+fn a_setup_line_never_states_the_goal() {
+    let c = geo_case("orthocenter_reflection", "examples/orthocenter_reflection.geo");
+    let s = solve(&c);
+    let base = write(&s, &strict());
+    assert!(verify(&s, &base).is_empty());
+    let ddar::predicate::Predicate { points, .. } = s.goal.clone();
+    let mut m = base.clone();
+    m.setup.push(human::SetupLine::Circle { name: "\u{3b3}".into(), through: points.clone(), centre: None, diameter: None });
+    assert!(!verify(&s, &m).is_empty(), "a setup circle through the goal's four points accepted:\n{}", human::render_en(&s.trace, &m, &s.aux));
+}
+
+#[test]
 fn a_corrupted_block_falls_back_to_the_raw_steps() {
     let c = geo_case("euler_line", "examples/euler_line.geo");
     let s = solve(&c);

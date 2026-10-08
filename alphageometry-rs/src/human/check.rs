@@ -701,8 +701,32 @@ pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
     out
 }
 
-pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+pub fn setup_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+    let mut maximal: Vec<Vec<PointId>> = Vec::new();
+    for c in cx.circles.iter().filter(|c| c.src.is_empty() && c.pts.len() >= 3) {
+        if let Some(m) = maximal.iter_mut().find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3) {
+            for &p in &c.pts {
+                if !m.contains(&p) {
+                    m.push(p);
+                }
+            }
+        } else {
+            maximal.push(c.pts.clone());
+        }
+    }
     let mut out = Vec::new();
+    for l in &hp.setup {
+        if let SetupLine::Circle { through, .. } = l {
+            if through.len() >= 4 && !maximal.iter().any(|m| through.iter().all(|p| m.contains(p))) {
+                out.push(Violation { block: 0, rule: "I7", detail: format!("a setup circle lists points {through:?} whose concyclicity is not a hypothesis") });
+            }
+        }
+    }
+    out
+}
+
+pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+    let mut out = setup_violations(cx, hp);
     let mut bad = |block: u16, detail: String| out.push(Violation { block, rule: "I6", detail });
     for (i, b) in hp.blocks.iter().enumerate() {
         if b.step as usize != i + 1 {

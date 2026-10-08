@@ -280,7 +280,7 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
     let t = cx.t;
     let mut maximal: Vec<Vec<PointId>> = Vec::new();
     for c in &cx.circles {
-        if c.pts.len() < 3 {
+        if c.pts.len() < 3 || !c.src.is_empty() {
             continue;
         }
         if let Some(m) = maximal.iter_mut().find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3) {
