@@ -7,14 +7,14 @@
 //! | Env var | Default | Effect |
 //! |---|---|---|
 //! | `AGSTUDIO_BIND` | `127.0.0.1:<port>` | interface/port to bind |
-//! | `AGSTUDIO_BASIC_AUTH` | (none) | the shared site password. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, or a password under 8 chars) refuses to start |
+//! | `AGSTUDIO_BASIC_AUTH` | (none) | the shared site password. `user:pass` checks both; `:pass` or a bare `pass` (no colon) accepts **any** username with that password. Set-but-unusable (empty, a password under 8 chars, or one still containing the template's `CHANGE-ME`) refuses to start. `AGSTUDIO_BASIC_AUTH_FILE` reads it from a file instead |
 //! | `AGSTUDIO_GATE` | `form` | how browsers enter the shared password: `form` = the `/gate` password page, which sets a signed `gate` cookie (HTTP Basic is still accepted, for API clients); `basic` = only the HTTP Basic dialog (the behaviour before the gate page) |
-//! | `AGSTUDIO_GATE_KEY` | (generated, stored in the DB) | 64 hex chars: the HMAC key of the gate cookie. Malformed refuses to start. Rotating it (or the password) signs every device out |
+//! | `AGSTUDIO_GATE_KEY` | (generated, stored in the DB) | 64 hex chars: the HMAC key of the gate cookie. Malformed refuses to start. Rotating it (or the password) signs every device out. `AGSTUDIO_GATE_KEY_FILE` reads it from a file instead |
 //! | `AGSTUDIO_GATE_DAYS` | 180 | how long the gate cookie lasts (1–400 days; renewed on visits after 7 days) |
 //! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
 //! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
 //! | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
-//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` calls per 24 h, counted once the request is valid (0 = no daily cap; the per-minute limit always applies) |
+//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid (0 = no daily cap; the per-minute limit always applies; accounts are never counted) |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | CPUs available, clamped to 2..8 | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
@@ -29,7 +29,7 @@
 //! | `AGSTUDIO_CLAUDE_BIN` | `claude` on `PATH`, then `~/.local/bin` | the Claude Code CLI; when set it is authoritative (a wrong path reports "not installed") |
 //! | `AGSTUDIO_CLAUDE_MODEL` | the CLI's default | `--model` for Describe/Photo translations |
 //! | `AGSTUDIO_HUMANIZE_MODEL` | `claude-opus-4-8` | `--model` for AI explanations (`/api/humanize`) |
-//! | `CLAUDE_CODE_OAUTH_TOKEN` | (none) | subscription token from `claude setup-token`; counts as signed in |
+//! | `CLAUDE_CODE_OAUTH_TOKEN` | (none) | subscription token from `claude setup-token`; counts as signed in (`CLAUDE_CODE_OAUTH_TOKEN_FILE`: from a file) |
 //! | `CLAUDE_CONFIG_DIR` | `~/.claude` | the CLI's state directory; must be writable by the service |
 //! | `AGSTUDIO_TRUST_PROXY` | off | client IP = **rightmost** `X-Forwarded-For` entry, honoured only when the TCP peer is loopback/private/CGNAT (i.e. the proxy). Turn on behind `tailscale funnel`/nginx, or every visitor shares one rate-limit bucket |
 //! | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames (a `:port` is ignored) the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard); `/healthz` accepts any |
@@ -37,6 +37,11 @@
 //! | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
 //! | `AGSTUDIO_SHUTDOWN_GRACE_SECS` | 70 | on SIGTERM/SIGINT: stop accepting, let requests in flight finish for at most this long (default = solve deadline + worker grace + 5 s), checkpoint the DB, exit 0. Keep the service manager's stop timeout above it |
 //! | `AGSTUDIO_ACCESS_LOG` | on | one stdout line per request: UTC time, client IP, method, path (no query), status, milliseconds; `/healthz` and `/readyz` are not logged. `0` turns it off |
+//!
+//! Flags take `1`/`0`, `true`/`false`, `yes`/`no` or `on`/`off` in any case; any other
+//! value, or a number that does not parse, refuses to start (empty = unset).
+//! `AGSTUDIO_BASIC_AUTH_FILE`, `AGSTUDIO_GATE_KEY_FILE` and `CLAUDE_CODE_OAUTH_TOKEN_FILE`
+//! read the secret from a file; setting a variable and its `_FILE` refuses to start.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -64,6 +69,9 @@ pub const ARGON2_PERMITS: usize = 2;
 
 /// Minimum length of the shared Basic-auth password.
 const MIN_BASIC_PASSWORD_CHARS: usize = 8;
+
+/// The marker of the template password in `deploy/.env.example`.
+const PLACEHOLDER_PASSWORD: &str = "change-me";
 
 /// The configured HTTP Basic credentials, kept only as SHA-256 digests so a
 /// comparison is constant-time and length-independent.
@@ -93,6 +101,14 @@ impl BasicAuth {
                 "AGSTUDIO_BASIC_AUTH is set but unusable: the password must be at least \
                  {MIN_BASIC_PASSWORD_CHARS} characters (forms: `user:pass`, `:pass`, or `pass`)"
             ));
+        }
+        if pass.to_ascii_lowercase().contains(PLACEHOLDER_PASSWORD) {
+            return Err(
+                "AGSTUDIO_BASIC_AUTH is still the CHANGE-ME placeholder from deploy/.env.example, \
+                 which is published with the source. Set your own password, e.g. \
+                 `AGSTUDIO_BASIC_AUTH=:$(openssl rand -hex 16)`"
+                    .into(),
+            );
         }
         Ok(BasicAuth {
             user: user.map(|u| sha256(u.as_bytes())),
@@ -186,6 +202,8 @@ pub struct Config {
     pub enable_translate: bool,
     pub db_path: PathBuf,
     pub secure_cookies: bool,
+    /// `CLAUDE_CODE_OAUTH_TOKEN`, or the contents of `CLAUDE_CODE_OAUTH_TOKEN_FILE`.
+    pub claude_oauth_token: Option<String>,
     /// How long a heavy request waits for a slot before 503 + `Retry-After`.
     pub queue_wait: Duration,
     /// Wall-clock deadline of one web solve or export (its worker is killed
@@ -204,11 +222,54 @@ pub const SOLVE_DEADLINE: Duration = Duration::from_secs(60);
 /// Default [`Config::header_timeout`].
 pub const HEADER_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn is_on(v: Option<&str>) -> bool {
-    matches!(v, Some("1") | Some("true") | Some("yes") | Some("on"))
+/// A boolean setting: `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`, any case.
+pub fn parse_flag(v: &str) -> Option<bool> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
-fn is_off(v: Option<&str>) -> bool {
-    matches!(v, Some("0") | Some("false") | Some("no") | Some("off"))
+
+fn set_value(get: &impl Fn(&str) -> Option<String>, k: &str) -> Option<String> {
+    get(k).filter(|v| !v.trim().is_empty())
+}
+
+fn env_flag(get: &impl Fn(&str) -> Option<String>, k: &str) -> Result<Option<bool>, String> {
+    match set_value(get, k) {
+        None => Ok(None),
+        Some(v) => parse_flag(&v)
+            .map(Some)
+            .ok_or_else(|| format!("invalid {k} `{v}` (want 1/0, true/false, yes/no or on/off)")),
+    }
+}
+
+fn env_num<T: std::str::FromStr>(
+    get: &impl Fn(&str) -> Option<String>,
+    k: &str,
+    default: T,
+) -> Result<T, String> {
+    match set_value(get, k) {
+        None => Ok(default),
+        Some(v) => v
+            .trim()
+            .parse()
+            .map_err(|_| format!("invalid {k} `{v}` (want a whole number)")),
+    }
+}
+
+fn env_secret(get: &impl Fn(&str) -> Option<String>, k: &str) -> Result<Option<String>, String> {
+    let file_key = format!("{k}_FILE");
+    match (get(k), set_value(get, &file_key)) {
+        (Some(_), Some(_)) => Err(format!("set {k} or {file_key}, not both")),
+        (Some(v), None) => Ok(Some(v)),
+        (None, None) => Ok(None),
+        (None, Some(path)) => {
+            let text = std::fs::read_to_string(path.trim())
+                .map_err(|e| format!("could not read {file_key} `{path}`: {e}"))?;
+            Ok(Some(text.trim_end_matches(['\n', '\r']).to_string()))
+        }
+    }
 }
 
 impl Config {
@@ -224,8 +285,7 @@ impl Config {
         default_port: u16,
         get: impl Fn(&str) -> Option<String>,
     ) -> Result<Config, String> {
-        let num = |k: &str, d: usize| get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
-        let flag = |k: &str| is_on(get(k).as_deref());
+        let flag = |k: &str| env_flag(&get, k).map(|v| v.unwrap_or(false));
 
         let bind_str = get("AGSTUDIO_BIND").unwrap_or_else(|| format!("127.0.0.1:{default_port}"));
         let bind: SocketAddr = bind_str
@@ -233,12 +293,13 @@ impl Config {
             .map_err(|_| format!("invalid AGSTUDIO_BIND `{bind_str}` (want e.g. 0.0.0.0:8787)"))?;
 
         // Fail closed: a set-but-broken value must never silently mean "no auth".
-        let basic_auth = match get("AGSTUDIO_BASIC_AUTH") {
+        let basic_auth = match env_secret(&get, "AGSTUDIO_BASIC_AUTH")? {
             None => None,
             Some(spec) => Some(BasicAuth::parse(&spec)?),
         };
 
-        if !bind.ip().is_loopback() && basic_auth.is_none() && !flag("AGSTUDIO_ALLOW_INSECURE") {
+        let allow_insecure = flag("AGSTUDIO_ALLOW_INSECURE")?;
+        if !bind.ip().is_loopback() && basic_auth.is_none() && !allow_insecure {
             return Err(format!(
                 "refusing to bind the non-loopback interface {bind} with no authentication.\n  \
                  Set AGSTUDIO_BASIC_AUTH=\"user:pass\" to require a login, OR front the app with a \
@@ -247,34 +308,20 @@ impl Config {
             ));
         }
 
-        let guest_raw = get("AGSTUDIO_GUEST_MODE");
-        let guest_mode = if is_on(guest_raw.as_deref()) {
-            true
-        } else if is_off(guest_raw.as_deref()) {
-            false
-        } else {
-            basic_auth.is_some()
-        };
+        let guest_mode = env_flag(&get, "AGSTUDIO_GUEST_MODE")?.unwrap_or(basic_auth.is_some());
         if guest_mode && basic_auth.is_none() {
             return Err("AGSTUDIO_GUEST_MODE=1 needs AGSTUDIO_BASIC_AUTH: guest access is \
                         \"link + shared password\", never fully open"
                 .into());
         }
-        let guest_ai_raw = get("AGSTUDIO_GUEST_AI");
-        let guest_ai = if is_on(guest_ai_raw.as_deref()) {
-            true
-        } else if is_off(guest_ai_raw.as_deref()) {
-            false
-        } else {
-            guest_mode
-        };
+        let guest_ai = env_flag(&get, "AGSTUDIO_GUEST_AI")?.unwrap_or(guest_mode);
 
         let gate = match get("AGSTUDIO_GATE").as_deref().map(str::trim) {
             None | Some("") | Some("form") => GateMode::Form,
             Some("basic") => GateMode::Basic,
             Some(other) => return Err(format!("invalid AGSTUDIO_GATE `{other}` (want `form` or `basic`)")),
         };
-        let gate_key = match get("AGSTUDIO_GATE_KEY") {
+        let gate_key = match env_secret(&get, "AGSTUDIO_GATE_KEY")? {
             None => None,
             Some(v) => Some(parse_hex32(v.trim()).ok_or(
                 "AGSTUDIO_GATE_KEY is set but unusable: it must be 64 hex characters (32 bytes), \
@@ -289,40 +336,56 @@ impl Config {
             .filter(|h| !h.is_empty())
             .collect();
 
+        let claude_oauth_token = env_secret(&get, "CLAUDE_CODE_OAUTH_TOKEN")?;
+        env_num::<u64>(&get, "AGSTUDIO_WORKER_MEM_MB", 0)?;
+        env_flag(&get, crate::engine::HUMAN_ENV)?;
+
         let cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
         Ok(Config {
             bind,
             basic_auth,
-            basic_auth_fails_per_min: num("AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN", 10) as u32,
+            basic_auth_fails_per_min: env_num(&get, "AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN", 10)?,
             gate,
             gate_key,
-            gate_days: num("AGSTUDIO_GATE_DAYS", 180).clamp(1, 400) as u32,
+            gate_days: env_num(&get, "AGSTUDIO_GATE_DAYS", 180u32)?.clamp(1, 400),
             guest_mode,
             guest_ai,
-            guest_ai_per_day: num("AGSTUDIO_GUEST_AI_PER_DAY", 0) as u32,
-            max_concurrent: num("AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8)).max(1),
-            rate_per_min: num("AGSTUDIO_RATE_PER_MIN", 120) as u32,
-            translate_per_min: num("AGSTUDIO_TRANSLATE_PER_MIN", 12) as u32,
-            auth_per_min: num("AGSTUDIO_AUTH_PER_MIN", 15) as u32,
-            max_body_bytes: num("AGSTUDIO_MAX_BODY_KB", 8192).saturating_mul(1024),
-            max_input_chars: num("AGSTUDIO_MAX_INPUT_CHARS", 16384),
-            trust_proxy: flag("AGSTUDIO_TRUST_PROXY"),
+            guest_ai_per_day: env_num(&get, "AGSTUDIO_GUEST_AI_PER_DAY", 0)?,
+            max_concurrent: env_num(&get, "AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8))?.max(1),
+            rate_per_min: env_num(&get, "AGSTUDIO_RATE_PER_MIN", 120)?,
+            translate_per_min: env_num(&get, "AGSTUDIO_TRANSLATE_PER_MIN", 12)?,
+            auth_per_min: env_num(&get, "AGSTUDIO_AUTH_PER_MIN", 15)?,
+            max_body_bytes: env_num(&get, "AGSTUDIO_MAX_BODY_KB", 8192usize)?.saturating_mul(1024),
+            max_input_chars: env_num(&get, "AGSTUDIO_MAX_INPUT_CHARS", 16384)?,
+            trust_proxy: flag("AGSTUDIO_TRUST_PROXY")?,
             public_hosts,
-            enable_translate: !flag("AGSTUDIO_DISABLE_TRANSLATE"),
+            enable_translate: !flag("AGSTUDIO_DISABLE_TRANSLATE")?,
             db_path: get("AGSTUDIO_DB")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("./agstudio.db")),
-            secure_cookies: flag("AGSTUDIO_SECURE_COOKIES"),
-            queue_wait: Duration::from_secs(num("AGSTUDIO_QUEUE_WAIT_SECS", 5).min(60) as u64),
+            secure_cookies: flag("AGSTUDIO_SECURE_COOKIES")?,
+            claude_oauth_token,
+            queue_wait: Duration::from_secs(env_num(&get, "AGSTUDIO_QUEUE_WAIT_SECS", 5u64)?.min(60)),
             solve_deadline: SOLVE_DEADLINE,
             header_timeout: HEADER_TIMEOUT,
-            shutdown_grace: get("AGSTUDIO_SHUTDOWN_GRACE_SECS")
-                .and_then(|v| v.trim().parse::<u64>().ok())
-                .map_or(SOLVE_DEADLINE + crate::worker::GRACE + Duration::from_secs(5), |s| Duration::from_secs(s.min(600))),
-            access_log: !is_off(get("AGSTUDIO_ACCESS_LOG").as_deref()),
+            shutdown_grace: match set_value(&get, "AGSTUDIO_SHUTDOWN_GRACE_SECS") {
+                Some(_) => Duration::from_secs(env_num(&get, "AGSTUDIO_SHUTDOWN_GRACE_SECS", 0u64)?.min(600)),
+                None => SOLVE_DEADLINE + crate::worker::GRACE + Duration::from_secs(5),
+            },
+            access_log: env_flag(&get, "AGSTUDIO_ACCESS_LOG")?.unwrap_or(true),
         })
+    }
+
+    /// Hand a file-supplied subscription token to the `claude` children. Call
+    /// before any other thread starts.
+    pub fn export_claude_token(&self) {
+        if let Some(t) = &self.claude_oauth_token {
+            if std::env::var("CLAUDE_CODE_OAUTH_TOKEN").ok().as_deref() != Some(t.as_str()) {
+                std::env::set_var("CLAUDE_CODE_OAUTH_TOKEN", t);
+            }
+        }
     }
 
     /// Guest access is only ever granted behind the shared Basic password.
@@ -343,7 +406,7 @@ impl Config {
     /// A one-line human summary for the startup banner.
     pub fn summary(&self) -> String {
         format!(
-            "auth: {}{} · concurrency: {} · rate: {}/min (translate {}/min) · body ≤ {} KB · proxy IPs: {}",
+            "auth: {}{} · concurrency: {} · rate: {}/min (translate {}/min) · body ≤ {} KB · proxy IPs: {} · secure cookies: {} · v{}",
             match (&self.basic_auth, self.gate) {
                 (None, _) => "none (open)",
                 (Some(_), GateMode::Form) => "shared password (form + Basic)",
@@ -355,6 +418,8 @@ impl Config {
             self.translate_per_min,
             self.max_body_bytes / 1024,
             if self.trust_proxy { "trusted" } else { "ignored" },
+            if self.secure_cookies { "on" } else { "off" },
+            env!("CARGO_PKG_VERSION"),
         )
     }
 }
@@ -548,6 +613,139 @@ mod tests {
             assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", bad)]).is_err(), "{bad:?} must fail closed");
         }
         assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", "longenough")]).unwrap().basic_auth.is_some());
+    }
+
+    #[test]
+    fn the_published_template_password_refuses_to_start() {
+        let template = include_str!("../../deploy/.env.example");
+        let shipped: Vec<&str> = template
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("#").unwrap_or(l).trim().strip_prefix("AGSTUDIO_BASIC_AUTH="))
+            .collect();
+        assert!(!shipped.is_empty(), "the template documents AGSTUDIO_BASIC_AUTH");
+        for spec in shipped {
+            let err = BasicAuth::parse(spec).err().unwrap_or_else(|| panic!("{spec:?} must fail closed"));
+            assert!(err.contains("openssl rand -hex 16"), "{err}");
+        }
+        assert!(
+            !template.lines().any(|l| l.trim_start().starts_with("AGSTUDIO_BASIC_AUTH=")),
+            "an unedited copy must leave the password unset, so a public bind refuses to start"
+        );
+        for bad in [":CHANGE-ME-run-openssl-rand-hex-16", "op:change-me-please", "Change-Me-12345"] {
+            assert!(BasicAuth::parse(bad).is_err(), "{bad:?}");
+        }
+        let unedited = cfg(&[("AGSTUDIO_BIND", "0.0.0.0:8787"), ("AGSTUDIO_TRUST_PROXY", "1")]);
+        assert!(unedited.err().unwrap().contains("refusing to bind"));
+    }
+
+    #[test]
+    fn flags_parse_in_any_case_and_refuse_anything_else() {
+        let on = cfg(&[("AGSTUDIO_SECURE_COOKIES", "True"), ("AGSTUDIO_TRUST_PROXY", " ON ")]).unwrap();
+        assert!(on.secure_cookies && on.trust_proxy);
+        let off = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_MODE", "False")]).unwrap();
+        assert!(!off.guest_allowed(), "GUEST_MODE=False must mean off, not the default");
+        let no_ai = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_AI", "NO")]).unwrap();
+        assert!(!no_ai.guest_ai_allowed());
+        assert!(!cfg(&[("AGSTUDIO_DISABLE_TRANSLATE", "Yes")]).unwrap().enable_translate);
+        assert!(cfg(&[("AGSTUDIO_SECURE_COOKIES", "")]).is_ok(), "empty = unset");
+        for k in [
+            "AGSTUDIO_SECURE_COOKIES",
+            "AGSTUDIO_TRUST_PROXY",
+            "AGSTUDIO_GUEST_MODE",
+            "AGSTUDIO_GUEST_AI",
+            "AGSTUDIO_DISABLE_TRANSLATE",
+            "AGSTUDIO_ALLOW_INSECURE",
+            "AGSTUDIO_HUMAN_PROOFS",
+        ] {
+            for bad in ["2", "enabled", "tru", "o n"] {
+                let err = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), (k, bad)]).err();
+                assert!(err.as_deref().is_some_and(|e| e.contains(k)), "{k}={bad:?} must refuse to start: {err:?}");
+            }
+        }
+        assert_eq!(parse_flag("Off"), Some(false));
+        assert_eq!(parse_flag("1 "), Some(true));
+        assert_eq!(parse_flag("nope"), None);
+    }
+
+    #[test]
+    fn numbers_refuse_to_start_when_unparseable() {
+        for k in [
+            "AGSTUDIO_MAX_CONCURRENT",
+            "AGSTUDIO_RATE_PER_MIN",
+            "AGSTUDIO_TRANSLATE_PER_MIN",
+            "AGSTUDIO_AUTH_PER_MIN",
+            "AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN",
+            "AGSTUDIO_GUEST_AI_PER_DAY",
+            "AGSTUDIO_GATE_DAYS",
+            "AGSTUDIO_MAX_BODY_KB",
+            "AGSTUDIO_MAX_INPUT_CHARS",
+            "AGSTUDIO_QUEUE_WAIT_SECS",
+            "AGSTUDIO_WORKER_MEM_MB",
+        ] {
+            for bad in ["four", "6O", "-1", "1.5"] {
+                let err = cfg(&[(k, bad)]).err();
+                assert!(err.as_deref().is_some_and(|e| e.contains(k)), "{k}={bad:?} must refuse to start: {err:?}");
+            }
+        }
+        assert!(cfg(&[("AGSTUDIO_RATE_PER_MIN", "4294967296")]).is_err(), "no silent wrap to 0 = off");
+        let c = cfg(&[("AGSTUDIO_MAX_CONCURRENT", " 3 "), ("AGSTUDIO_RATE_PER_MIN", "60"), ("AGSTUDIO_MAX_BODY_KB", "")]).unwrap();
+        assert_eq!((c.max_concurrent, c.rate_per_min, c.max_body_bytes), (3, 60, 8192 * 1024));
+    }
+
+    #[test]
+    fn the_banner_shows_secure_cookies_and_the_version() {
+        let off = cfg(&[]).unwrap().summary();
+        assert!(off.contains("secure cookies: off"), "{off}");
+        assert!(off.contains(env!("CARGO_PKG_VERSION")), "{off}");
+        let on = cfg(&[("AGSTUDIO_SECURE_COOKIES", "1")]).unwrap().summary();
+        assert!(on.contains("secure cookies: on"), "{on}");
+    }
+
+    #[test]
+    fn secrets_can_come_from_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, body: &str| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, body).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        let pw = write("pw", ":from-a-file-123\n");
+        let key = write("key", &format!("{}\r\n", "ab".repeat(32)));
+        let tok = write("tok", "sk-ant-oat-test\n");
+        let c = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH_FILE", &pw),
+            ("AGSTUDIO_GATE_KEY_FILE", &key),
+            ("CLAUDE_CODE_OAUTH_TOKEN_FILE", &tok),
+        ])
+        .unwrap();
+        let auth = c.basic_auth.as_ref().unwrap();
+        assert!(auth.credentials_match(b"anyone", b"from-a-file-123"), "trailing newline stripped");
+        assert_eq!(c.gate_key, Some([0xab; 32]));
+        assert_eq!(c.claude_oauth_token.as_deref(), Some("sk-ant-oat-test"));
+        assert_eq!(cfg(&[("CLAUDE_CODE_OAUTH_TOKEN", "t")]).unwrap().claude_oauth_token.as_deref(), Some("t"));
+
+        let both = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_BASIC_AUTH_FILE", &pw)]);
+        assert!(both.err().unwrap().contains("not both"));
+        let missing = dir.path().join("absent").to_string_lossy().into_owned();
+        for k in ["AGSTUDIO_BASIC_AUTH_FILE", "AGSTUDIO_GATE_KEY_FILE", "CLAUDE_CODE_OAUTH_TOKEN_FILE"] {
+            let err = cfg(&[(k, &missing)]).err();
+            assert!(err.as_deref().is_some_and(|e| e.contains(k)), "{k}: {err:?}");
+        }
+        let weak = write("weak", "short\n");
+        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH_FILE", &weak)]).is_err(), "a file password is checked like any other");
+        let placeholder = write("ph", ":CHANGE-ME-run-openssl-rand-hex-16\n");
+        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH_FILE", &placeholder)]).is_err());
+    }
+
+    #[test]
+    fn the_csp_names_each_inline_script_once() {
+        let csp = content_security_policy();
+        let hashes: Vec<&str> = csp.split_whitespace().filter(|w| w.starts_with("'sha256-")).collect();
+        assert!(!hashes.is_empty(), "{csp}");
+        let mut unique = hashes.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), hashes.len(), "{csp}");
     }
 
     fn hdr(user: &str, pass: &str) -> String {
@@ -822,7 +1020,7 @@ impl AppState {
         RateLimiter::hit(&mut r.basic_fail, ip, self.config.basic_auth_fails_per_min, now);
     }
 
-    /// Count one guest translation for `ip` against `AGSTUDIO_GUEST_AI_PER_DAY`;
+    /// Count one guest translation or AI explanation for `ip` against `AGSTUDIO_GUEST_AI_PER_DAY`;
     /// false once the day's budget is spent.
     pub fn guest_translation_allowed(&self, ip: IpAddr) -> bool {
         let now = Instant::now();
@@ -1291,11 +1489,12 @@ fn content_security_policy() -> &'static str {
             include_str!("../assets/auth.html"),
             include_str!("../assets/landing.html"),
         ];
-        let hashes: Vec<String> = pages
-            .iter()
-            .flat_map(|p| inline_scripts(p))
-            .map(csp_hash)
-            .collect();
+        let mut hashes: Vec<String> = Vec::new();
+        for h in pages.iter().flat_map(|p| inline_scripts(p)).map(csp_hash) {
+            if !hashes.contains(&h) {
+                hashes.push(h);
+            }
+        }
         format!(
             "default-src 'self'; script-src 'self' {}; style-src 'self' 'unsafe-inline'; \
              img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; \

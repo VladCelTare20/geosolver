@@ -18,6 +18,8 @@ FROM ${RUST_IMAGE} AS build
 ARG GEOSOLVER_REVISION=unknown
 ARG CARGO_BUILD_JOBS=
 WORKDIR /src
+# The context is an allowlist (.dockerignore): sources, Cargo files and the
+# corpus only, never deploy/.env, TLS keys, databases or local worktrees.
 COPY . .
 # Portable build: drop the host-CPU tuning so the binary runs on any CPU of the
 # target architecture (the `.cargo/config.toml` files pin target-cpu=native).

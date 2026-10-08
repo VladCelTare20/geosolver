@@ -228,7 +228,10 @@ const HUMAN_MAX: Duration = Duration::from_secs(2);
 const HUMAN_MIN: Duration = Duration::from_millis(300);
 
 pub fn human_enabled() -> bool {
-    std::env::var_os(HUMAN_ENV).is_none_or(|v| v != "0")
+    std::env::var(HUMAN_ENV)
+        .ok()
+        .and_then(|v| crate::security::parse_flag(&v))
+        .unwrap_or(true)
 }
 
 type Traced = (String, EngineTrace, Vec<FactId>);
@@ -1786,7 +1789,7 @@ mod tests {
     fn best_mode_on_a_small_pool_still_returns_the_default_solves_proof_inside_its_budget() {
         let _heavy = crate::engine::heavy_search_lock();
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let src = std::fs::read_to_string(root.join("imo2023p2.geo")).unwrap();
+        let src = std::fs::read_to_string(root.join("alphageometry-rs/examples/imo/2023_p2.geo")).unwrap();
         let pool = rayon::ThreadPoolBuilder::new().num_threads(2).build().unwrap();
         let budget = Duration::from_secs(12);
         let t = Instant::now();

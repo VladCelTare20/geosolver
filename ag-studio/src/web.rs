@@ -130,11 +130,11 @@ fn cache_put(owner: &str, value: serde_json::Value) -> (String, std::sync::Arc<s
     (id, arc)
 }
 
-fn cache_get(id: &str) -> Option<std::sync::Arc<serde_json::Value>> {
+fn cache_get(id: &str, owner: &str) -> Option<std::sync::Arc<serde_json::Value>> {
     let c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     c.entries
         .iter()
-        .find(|e| e.id == id && e.at.elapsed() < SOLUTION_TTL)
+        .find(|e| e.id == id && e.owner == owner && e.at.elapsed() < SOLUTION_TTL)
         .map(|e| e.value.clone())
 }
 
@@ -1508,7 +1508,7 @@ async fn api_history_replace(
     ApiJson(req): ApiJson<ReplaceReq>,
 ) -> Response {
     let lang = i18n::lang_from_headers(&headers);
-    let Some(value) = cache_get(&req.id) else {
+    let Some(value) = cache_get(&req.id, &format!("u{}", user.id)) else {
         return err(StatusCode::GONE, i18n::t(lang, "export.expired"));
     };
     let mut stored = value.as_ref().clone();
@@ -1802,13 +1802,14 @@ struct HumanizeReq {
 }
 
 /// Rewrite a machine (DDAR) proof into a flowing, human-readable proof in the
-/// chosen language, via the local Claude Opus subscription. Same
-/// availability/rate-limit posture as `/api/translate` (guests allowed in guest
-/// mode); any failure degrades to a 503 so the client can fall back to the
-/// machine proof.
+/// chosen language, via the local Claude Opus subscription. Shares the per-minute
+/// bucket and the guests' daily budget (`AGSTUDIO_GUEST_AI_PER_DAY`) with
+/// `/api/translate`; guests keep it under `AGSTUDIO_GUEST_AI=0`. Any failure
+/// degrades to a 503 so the client can fall back to the machine proof.
 async fn api_humanize(
     State(state): State<Shared>,
-    _caller: Caller,
+    caller: Caller,
+    ip: Option<axum::Extension<security::ClientIp>>,
     headers: HeaderMap,
     ApiJson(req): ApiJson<HumanizeReq>,
 ) -> Response {
@@ -1825,6 +1826,11 @@ async fn api_humanize(
         || aux_bytes > max;
     if over_limit {
         return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(lang, "err.too_long"));
+    }
+    if let (Caller::Guest(_), Some(ip)) = (&caller, ip.as_ref()) {
+        if !state.guest_translation_allowed(ip.0 .0) {
+            return err_code(StatusCode::TOO_MANY_REQUESTS, "daily", i18n::t(lang, "humanize.daily"));
+        }
     }
     if !state.config.enable_translate || !translate::available() {
         return err(
@@ -2028,7 +2034,8 @@ fn export_response(bytes: Vec<u8>, want_pdf: bool) -> Response {
 
 async fn api_export(
     State(state): State<Shared>,
-    _caller: Caller,
+    caller: Caller,
+    ip: Option<axum::Extension<security::ClientIp>>,
     headers: HeaderMap,
     ApiJson(req): ApiJson<ExportReq>,
 ) -> Response {
@@ -2038,7 +2045,8 @@ async fn api_export(
     let id = req.id.as_deref().filter(|s| !s.is_empty());
     let signed = req.signed.as_deref().filter(|s| !s.is_empty());
     if id.is_some() || signed.is_some() {
-        let value = id.and_then(cache_get).or_else(|| {
+        let owner = caller_key(&caller, ip.as_ref());
+        let value = id.and_then(|id| cache_get(id, &owner)).or_else(|| {
             signed.and_then(|body| signed_solution(body, req.sig.as_deref().unwrap_or(""))).map(std::sync::Arc::new)
         });
         let Some(value) = value else {
@@ -3411,7 +3419,8 @@ mod tests {
         assert!(!script_src.contains("unsafe-inline"), "{script_src}");
         for html in [INDEX_HTML, AUTH_HTML, LANDING_HTML] {
             for script in security::inline_scripts(html) {
-                assert!(script_src.contains(&security::csp_hash(script)), "missing hash in {script_src}");
+                let hash = security::csp_hash(script);
+                assert_eq!(script_src.matches(&hash).count(), 1, "{hash} missing or repeated in {script_src}");
             }
         }
     }
@@ -3892,6 +3901,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_cached_solution_is_exported_and_recorded_only_by_its_owner() {
+        let (state, _dir) = test_state();
+        let euler = register_cookie(&state, "euler").await;
+        let gauss = register_cookie(&state, "gauss").await;
+        let (st, _, body) =
+            call(&state, "POST", "/api/solve", Some(&euler), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        assert_eq!(st, StatusCode::OK, "{body}");
+        let id = body["id"].as_str().expect("solution id").to_string();
+        let export = serde_json::json!({"id": id, "format": "png"}).to_string();
+        let (st, _, _) = call_raw(&state, build("POST", "/api/export", &[("cookie", &gauss)], Some(&export))).await;
+        assert_eq!(st, StatusCode::GONE, "another account's cached solution must not render");
+        let (st, _, bytes) = call_raw(&state, build("POST", "/api/export", &[("cookie", &euler)], Some(&export))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(bytes.starts_with(b"\x89PNG"));
+
+        let (st, _, mine) =
+            call(&state, "POST", "/api/solve", Some(&gauss), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        assert_eq!(st, StatusCode::OK, "{mine}");
+        let row = mine["history_id"].as_i64().expect("a recorded solve");
+        let put = |sid: &str| serde_json::json!({"id": sid}).to_string();
+        let uri = format!("/api/history/{row}");
+        let (st, _, _) = call_raw(&state, build("PUT", &uri, &[("cookie", &gauss)], Some(&put(&id)))).await;
+        assert_eq!(st, StatusCode::GONE, "another account's cached solution must not enter this history");
+        let own = mine["id"].as_str().unwrap().to_string();
+        let (st, _, _) = call_raw(&state, build("PUT", &uri, &[("cookie", &gauss)], Some(&put(&own)))).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn a_guest_cannot_export_another_guests_cached_solution() {
+        let (state, _dir) = guest_state(true);
+        let auth = basic("", "shared-secret");
+        let mut browsers = Vec::new();
+        for _ in 0..2 {
+            let (_, h, _) = send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
+            let set = h.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).expect("a guest id");
+            browsers.push(cookie_of(set));
+        }
+        assert_ne!(browsers[0], browsers[1]);
+        let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
+        let a = [("authorization", auth.as_str()), ("cookie", browsers[0].as_str())];
+        let b = [("authorization", auth.as_str()), ("cookie", browsers[1].as_str())];
+        let (st, _, text) = send(&state, build("POST", "/api/solve", &a, Some(&solve))).await;
+        assert_eq!(st, StatusCode::OK, "{text}");
+        let id = serde_json::from_str::<serde_json::Value>(&text).unwrap()["id"].as_str().unwrap().to_string();
+        let export = serde_json::json!({"id": id, "format": "png"}).to_string();
+        let (st, _, _) = send(&state, build("POST", "/api/export", &b, Some(&export))).await;
+        assert_eq!(st, StatusCode::GONE, "guest B must not render guest A's result");
+        let (st, h, _) = send(&state, build("POST", "/api/export", &a, Some(&export))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(h[header::CONTENT_TYPE], "image/png");
+    }
+
+    #[tokio::test]
     async fn solve_answers_with_a_readable_view_and_an_export_id() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "euler").await;
@@ -3966,6 +4029,17 @@ mod tests {
         let body = serde_json::json!({"id": best["id"]});
         let other = register_cookie(&state, "lagrange").await;
         let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&other), body.clone()).await;
+        assert_eq!(st, StatusCode::GONE, "another account's cached solution is not usable");
+        let (_, _, theirs) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&other),
+            serde_json::json!({"input": ORTHO_REFLECTION, "record": false}),
+        )
+        .await;
+        let theirs = serde_json::json!({"id": theirs["id"]});
+        let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&other), theirs).await;
         assert_eq!(st, StatusCode::NOT_FOUND, "only the owner can replace a row");
         let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&cookie), body).await;
         assert_eq!(st, StatusCode::NO_CONTENT);
@@ -4690,6 +4764,56 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["code"], "sign_in");
         assert_eq!(v["error"], i18n::t(i18n::Lang::Ro, "auth.sign_in_ai"));
+    }
+
+    #[tokio::test]
+    async fn guest_ai_explanations_count_against_the_daily_budget() {
+        let (state, _dir) = state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
+            c.guest_mode = true;
+            c.guest_ai = true;
+            c.guest_ai_per_day = 2;
+            c.translate_per_min = 0;
+            c.enable_translate = false;
+        });
+        let cookie = gate_cookie(&state).await;
+        let hz = serde_json::json!({"problem": "p", "proof": "1. coll A B C"}).to_string();
+        let humanize = || build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz));
+        for _ in 0..2 {
+            let (st, _, body) = send(&state, humanize()).await;
+            assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "within the budget: {body}");
+        }
+        let (st, _, body) = send(&state, humanize()).await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["code"], "daily");
+        assert_eq!(v["error"], i18n::t(i18n::Lang::En, "humanize.daily"));
+        let tr = build("POST", "/api/translate", &[("cookie", &cookie)], Some("{\"text\":\"x\"}"));
+        let (st, _, _) = send(&state, tr).await;
+        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "translate checks availability first");
+
+        let (state, _dir) = state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
+            c.guest_mode = true;
+            c.guest_ai_per_day = 1;
+            c.translate_per_min = 0;
+            c.enable_translate = false;
+        });
+        let cookie = gate_cookie(&state).await;
+        let _ = send(&state, build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz))).await;
+        let (st, _, _) = send(&state, build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz))).await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+        let auth = basic("", GATE_PW);
+        let reg = creds("noether", "password123").to_string();
+        let (st, h, body) = send(&state, build("POST", "/api/auth/register", &[("authorization", &auth)], Some(&reg))).await;
+        assert!(st.is_success(), "{body}");
+        let sid = set_cookies(&h).into_iter().find(|c| c.contains("sid=")).expect("a session cookie");
+        let sid = cookie_of(&sid);
+        let as_user = [("authorization", auth.as_str()), ("cookie", sid.as_str())];
+        for _ in 0..3 {
+            let (st, _, _) = send(&state, build("POST", "/api/humanize", &as_user, Some(&hz))).await;
+            assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "accounts are never counted");
+        }
     }
 
     #[test]
