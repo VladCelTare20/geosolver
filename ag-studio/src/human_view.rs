@@ -1121,6 +1121,9 @@ impl Cx<'_> {
     }
 
     fn link_note(&self, l: &Link) -> String {
+        if l.reasons.is_empty() {
+            return self.t("hp.angle_addition").to_string();
+        }
         if let [Reason::Lemma { stmt, block, .. }] = l.reasons.as_slice() {
             if stmt.kind == "eq" || stmt.kind == "eqangle" {
                 if let Some(by) = self.by_list(&[*block]) {

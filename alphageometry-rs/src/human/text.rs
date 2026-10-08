@@ -896,6 +896,9 @@ pub fn goal_text(n: &dyn PointNames, g: &GoalWords, st: Option<&Stmt>) -> String
 }
 
 fn link_reasons(n: &dyn PointNames, l: &Link, claims: &BTreeMap<u16, u16>) -> String {
+    if l.reasons.is_empty() {
+        return "angle addition".into();
+    }
     if let [Reason::Lemma { stmt: Stmt::Eq { .. } | Stmt::EqAngle { .. }, block, .. }] = l.reasons.as_slice() {
         if let Some((k, _)) = step_of(*block).filter(|_| *block != CURRENT.with(|c| c.get())) {
             return format!("by ({k})");

@@ -35,6 +35,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| absorb_by_triangles(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| restated_line_fact(cx, blocks, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| vertical_angles(cx, blocks, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| expose_addition(cx, blocks, bi, s));
     let named: Vec<(PointId, Vec<PointId>)> = hp.setup.iter().filter_map(|l| if let SetupLine::Circle { name, through, centre: Some(o), .. } = l { (!name.is_empty()).then(|| (*o, through.clone())) } else { None }).collect();
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| drop_setup_radii(&named, s));
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| trim_parallel_extras(s));
@@ -716,6 +717,105 @@ fn supplement(e: &Expr) -> Option<Expr> {
         [(k, Expr::Const { degrees })] if k.is_one() => Expr::Const { degrees: degrees.clone() },
         _ => Expr::Lin { terms: out },
     })
+}
+
+fn term_key(k: &Rat, x: &Expr) -> Option<(String, Rat)> {
+    match x {
+        Expr::Const { .. } => None,
+        Expr::Angle { a, b, c, directed } => {
+            if *directed && a > c {
+                Some((format!("d{c},{b},{a}"), -k))
+            } else if *directed {
+                Some((format!("d{a},{b},{c}"), k.clone()))
+            } else {
+                Some((format!("u{},{b},{}", a.min(c), a.max(c)), k.clone()))
+            }
+        }
+        x => Some((format!("{x:?}"), k.clone())),
+    }
+}
+
+fn term_map(e: &Expr) -> BTreeMap<String, Rat> {
+    let mut m: BTreeMap<String, Rat> = BTreeMap::new();
+    let mut add = |k: &Rat, x: &Expr| {
+        if let Some((key, c)) = term_key(k, x) {
+            let e = m.entry(key).or_insert_with(Rat::zero);
+            *e = &*e + &c;
+        }
+    };
+    match e {
+        Expr::Lin { terms } => terms.iter().for_each(|(k, x)| add(k, x)),
+        x => add(&Rat::one(), x),
+    }
+    m.retain(|_, v| !v.is_zero());
+    m
+}
+
+pub fn term_delta(a: &Expr, b: &Expr) -> usize {
+    let (ma, mb) = (term_map(a), term_map(b));
+    let keys: BTreeSet<&String> = ma.keys().chain(mb.keys()).collect();
+    keys.into_iter().filter(|k| ma.get(*k) != mb.get(*k)).count()
+}
+
+const OPAQUE: usize = 4;
+
+fn expose_addition(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain { terms, links, directed, then } = s else { return None };
+    if !terms.first().is_some_and(|e| angle_table(cx, e)) || links.len() >= MAX_LINKS {
+        return None;
+    }
+    let t = cx.t;
+    let focus: BTreeSet<PointId> = blocks[bi].points.iter().copied().collect();
+    let mut out_terms = vec![terms[0].clone()];
+    let mut out_links: Vec<Link> = Vec::new();
+    let mut changed = false;
+    for (k, l) in links.iter().enumerate() {
+        let (e1, e2) = (&terms[k], &terms[k + 1]);
+        let delta = term_delta(e1, e2);
+        let mut best: Option<(usize, Expr, bool)> = None;
+        if link_facts(l) == 1 && delta >= OPAQUE && out_links.len() + (links.len() - k) < MAX_LINKS {
+            let d = *directed && is_directed(e1) && is_directed(e2);
+            let fact_pts = link_points(l);
+            let e_pts: [Vec<PointId>; 2] = [super::view::expr_points(e1), super::view::expr_points(e2)];
+            for (same_as_first, node_of, other) in [(true, e1, e2), (false, e2, e1)] {
+                let Some((tb, node)) = eval(t, node_of) else { continue };
+                let other_pts = if same_as_first { &e_pts[1] } else { &e_pts[0] };
+                for near in [&fact_pts, other_pts] {
+                    let Some(x) = display(cx, tb, &node, d, &[near], &focus) else { continue };
+                    if x == *e1 || x == *e2 {
+                        continue;
+                    }
+                    let fact_side = term_delta(&x, other);
+                    let add_side = term_delta(&x, node_of);
+                    if fact_side >= OPAQUE || add_side == 0 {
+                        continue;
+                    }
+                    let score = 2 * fact_side + add_side;
+                    if best.as_ref().is_none_or(|b| score < b.0) {
+                        best = Some((score, x, same_as_first));
+                    }
+                }
+            }
+        }
+        match best {
+            Some((_, x, same_as_first)) => {
+                let add = Link { reasons: Vec::new(), combination: Vec::new() };
+                if same_as_first {
+                    out_links.push(add);
+                    out_terms.push(x);
+                    out_links.push(l.clone());
+                } else {
+                    out_links.push(l.clone());
+                    out_terms.push(x);
+                    out_links.push(add);
+                }
+                changed = true;
+            }
+            None => out_links.push(l.clone()),
+        }
+        out_terms.push(e2.clone());
+    }
+    changed.then(|| Sentence::Chain { terms: out_terms, links: out_links, directed: *directed, then: then.clone() })
 }
 
 pub fn lin_terms(e: &Expr) -> usize {

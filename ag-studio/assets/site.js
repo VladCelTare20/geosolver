@@ -646,6 +646,7 @@
     }
     function linkNote(l) {
       var rs = l.reasons || [];
+      if (!rs.length) return esc(T("hp.angle_addition"));
       if (rs.length === 1 && rs[0].lemma && (rs[0].kind === "eq" || rs[0].kind === "eqangle")) {
         var by1 = byList([rs[0].block]);
         if (by1) return by1;

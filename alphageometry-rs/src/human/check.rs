@@ -519,6 +519,12 @@ impl<'c, 'a> Checker<'c, 'a> {
         let t = self.cx.t;
         let (tb, ea) = eval(t, a).ok_or("term does not evaluate")?;
         let (_, eb) = eval(t, b).ok_or("term does not evaluate")?;
+        if link.reasons.is_empty() && link.combination.is_empty() {
+            if tb != Table::Angle || a == b || !self.residual_ok(tb, &(&ea - &eb), &LinComb::zero(), directed) {
+                return Err(format!("angle-addition link is not an identity: {:?} -> {:?}", a, b));
+            }
+            return Ok(());
+        }
         let (_, sum) = self.combo(blocks, h, &link.reasons, &link.combination, !directed).ok_or("link combination does not resolve, or uses an atom row outside the engine span")?;
         if link.combination.is_empty() {
             return Err("link without a combination".into());
