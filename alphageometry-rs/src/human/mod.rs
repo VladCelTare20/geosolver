@@ -235,11 +235,42 @@ fn helper_meaning(cx: &Ctx, p: PointId) -> HelperMeaning {
     HelperMeaning::Point
 }
 
+pub fn equidistance_given(cx: &Ctx, o: PointId, pts: &[PointId]) -> bool {
+    let t = cx.t;
+    let tb = trace::Table::Ratio;
+    let rows: Vec<(u32, &crate::lincomb::LinComb)> = t.rows[tb.idx()]
+        .iter()
+        .filter(|(g, _)| cx.in_cl[*g as usize] && matches!(cx.class[*g as usize], ctx::FactClass::Hyp | ctx::FactClass::HypReg | ctx::FactClass::SilentHyp))
+        .map(|(_, r)| (1u32, r))
+        .collect();
+    let Some((&first, rest)) = pts.split_first() else { return false };
+    let Some(d0) = t.dm(o, first) else { return false };
+    rest.iter().all(|&q| t.dm(o, q).is_some_and(|dq| cert::certify_greedy(&cx.piv[tb.idx()], &rows, &(&d0 - &dq), &|_| true).is_some()))
+}
+
+fn numeric_centre(cx: &Ctx, pts: &[PointId]) -> Option<PointId> {
+    let t = cx.t;
+    (0..t.n as PointId).find(|&o| {
+        !pts.contains(&o) && !t.name(o).starts_with('_') && {
+            let d0 = t.dist(o, pts[0]);
+            d0 > 1e-9 && pts.iter().all(|&p| (t.dist(o, p) - d0).abs() < 1e-9 * d0.max(1.0))
+        }
+    })
+}
+
+pub fn circle_given(cx: &Ctx, c: &ctx::CircleObj) -> bool {
+    match cx.class[c.fact as usize] {
+        ctx::FactClass::Hyp | ctx::FactClass::HypReg | ctx::FactClass::SilentHyp => true,
+        ctx::FactClass::Silent => numeric_centre(cx, &c.pts).is_some_and(|o| equidistance_given(cx, o, &c.pts)),
+        _ => false,
+    }
+}
+
 fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine> {
     let t = cx.t;
     let mut maximal: Vec<Vec<PointId>> = Vec::new();
     for c in &cx.circles {
-        if c.pts.len() < 3 {
+        if c.pts.len() < 3 || !circle_given(cx, c) {
             continue;
         }
         if let Some(m) = maximal.iter_mut().find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3) {
@@ -297,12 +328,7 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
     let mut used_names: Vec<String> = Vec::new();
     for i in order {
         let m = &maximal[i];
-        let centre = (0..t.n as PointId).find(|&o| {
-            !m.contains(&o) && !t.name(o).starts_with('_') && {
-                let d0 = t.dist(o, m[0]);
-                d0 > 1e-9 && m.iter().all(|&p| (t.dist(o, p) - d0).abs() < 1e-9 * d0.max(1.0))
-            }
-        });
+        let centre = numeric_centre(cx, m).filter(|&o| equidistance_given(cx, o, m));
         let circum = tri.is_some_and(|t3| t3.iter().all(|p| m.contains(p)));
         let name = if circum && !used_names.iter().any(|n| n == "Ω") {
             "Ω".to_string()
@@ -340,7 +366,7 @@ fn setup_lines(cx: &Ctx, blocks: &[Block]) -> Vec<SetupLine> {
     let trig = blocks.iter().any(|b| b.body.iter().any(|s| matches!(s, Sentence::Computation { comp: CompKind::Trig, .. })));
     if trig {
         if let Some(tri) = cx.main_triangle() {
-            let centre = cx.circumcentre().map(|x| x.0);
+            let centre = cx.circumcentre().map(|x| x.0).filter(|&o| equidistance_given(cx, o, &tri));
             out.push(SetupLine::Notation { triangle: (tri[0], tri[1], tri[2]), circumcentre: centre });
         }
     }
