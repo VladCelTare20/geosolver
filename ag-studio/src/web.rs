@@ -200,22 +200,76 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     let bind = config.bind;
     let state = AppState::new(config).map_err(|e| anyhow::anyhow!(e))?;
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    serve_on(listener, state).await
+    serve_until(listener, state, shutdown_signal()).await
 }
 
-/// Serve `state` on an already-bound listener. Answers at once: the
-/// translation probe (which can take seconds) reports in the background.
+async fn shutdown_signal() {
+    let interrupt = async {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        _ = interrupt => {}
+        _ = terminate => {}
+    }
+}
+
+#[cfg(test)]
 async fn serve_on(listener: tokio::net::TcpListener, state: Shared) -> anyhow::Result<()> {
+    serve_until(listener, state, std::future::pending()).await
+}
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Serve `state` on an already-bound listener until `shutdown` resolves, then
+/// drain. Answers at once: the translation probe (which can take seconds)
+/// reports in the background.
+async fn serve_until(
+    listener: tokio::net::TcpListener,
+    state: Shared,
+    shutdown: impl std::future::Future<Output = ()>,
+) -> anyhow::Result<()> {
     let bind = listener.local_addr()?;
-    println!("\n  GeoSolver  →  http://{bind}\n");
+    println!("\n  GeoSolver {VERSION}  →  http://{bind}\n");
     println!("  Security: {}", state.config.summary());
     if bind.ip().is_loopback() {
         println!("  (loopback only — put a reverse proxy in front to expose it)");
     }
+    if let Some(warning) = worker::memory_warning(state.config.max_concurrent) {
+        println!("  Warning: {warning}");
+    }
     println!("  Press Ctrl-C to stop.\n");
     report_translate_status(state.clone());
     let header_timeout = state.config.header_timeout;
-    accept_loop(listener, app_router(state), header_timeout).await
+    let drain = state.config.shutdown_grace;
+    let marker = state.clone();
+    let shutdown = async move {
+        shutdown.await;
+        marker.draining.store(true, std::sync::atomic::Ordering::SeqCst);
+    };
+    let drained = accept_loop(listener, app_router(state.clone()), header_timeout, shutdown, drain).await;
+    let db = state.db.clone();
+    let checkpoint = tokio::task::spawn_blocking(move || db::checkpoint(&db::lock(&db))).await;
+    match checkpoint {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => eprintln!("database checkpoint failed: {e}"),
+        Err(e) => eprintln!("database checkpoint failed: {e}"),
+    }
+    match drained {
+        Ok(0) => println!("  GeoSolver stopped."),
+        Ok(cut) => println!("  GeoSolver stopped; {cut} connection(s) were still busy after {drain:?} and were closed."),
+        Err(e) => return Err(e),
+    }
+    Ok(())
 }
 
 fn report_translate_status(state: Shared) {
@@ -241,12 +295,22 @@ async fn accept_loop(
     listener: tokio::net::TcpListener,
     app: Router,
     header_timeout: Duration,
-) -> anyhow::Result<()> {
+    shutdown: impl std::future::Future<Output = ()>,
+    drain: Duration,
+) -> anyhow::Result<usize> {
     let mut http = hyper::server::conn::http1::Builder::new();
     http.timer(hyper_util::rt::TokioTimer::new())
         .header_read_timeout(header_timeout);
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    let mut conns = tokio::task::JoinSet::new();
+    tokio::pin!(shutdown);
     loop {
-        let (stream, peer) = match listener.accept().await {
+        let accepted = tokio::select! {
+            _ = &mut shutdown => break,
+            Some(_) = conns.join_next(), if !conns.is_empty() => continue,
+            accepted = listener.accept() => accepted,
+        };
+        let (stream, peer) = match accepted {
             Ok(conn) => conn,
             Err(e) if is_connection_error(&e) => continue,
             Err(e) => {
@@ -259,10 +323,32 @@ async fn accept_loop(
             hyper_util::rt::TokioIo::new(stream),
             WithPeer { app: app.clone(), peer },
         );
-        tokio::spawn(async move {
+        let mut stop = stop_rx.clone();
+        conns.spawn(async move {
+            tokio::pin!(conn);
+            tokio::select! {
+                _ = conn.as_mut() => return,
+                _ = stop.wait_for(|s| *s) => {}
+            }
+            conn.as_mut().graceful_shutdown();
             let _ = conn.await;
         });
     }
+    drop(listener);
+    let open = conns.len();
+    println!("  Shutting down: no new connections; {open} open, draining for at most {drain:?}.");
+    let _ = stop_tx.send(true);
+    let all_done = tokio::time::timeout(drain, async {
+        while conns.join_next().await.is_some() {}
+    })
+    .await
+    .is_ok();
+    if all_done {
+        return Ok(0);
+    }
+    let cut = conns.len();
+    conns.shutdown().await;
+    Ok(cut)
 }
 
 fn is_connection_error(e: &std::io::Error) -> bool {
@@ -311,6 +397,7 @@ fn app_router(state: Shared) -> Router {
         .route("/assets/{file}", get(asset))
         .route("/assets/fonts/{file}", get(font_asset))
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/api/status", get(api_status))
         .route("/api/solve", post(api_solve))
         .route("/api/translate", post(api_translate))
@@ -355,6 +442,7 @@ fn app_router(state: Shared) -> Router {
             Duration::from_secs(120),
         ))
         .layer(DefaultBodyLimit::max(body_limit))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), access_log))
         .with_state(state)
 }
 
@@ -501,6 +589,67 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
+/// Unauthenticated readiness probe: 200 only when the database takes a write,
+/// a solver slot is free and no shutdown is under way; else 503 with
+/// `Retry-After`. Keep container health checks on `/healthz`: a busy server is
+/// not ready for one more solve, but it is alive.
+async fn readyz(State(state): State<Shared>) -> Response {
+    let db = state.db.clone();
+    let db_ok = tokio::task::spawn_blocking(move || db::write_probe(&mut db::lock(&db)).is_ok())
+        .await
+        .unwrap_or(false);
+    let free = state.heavy.available_permits();
+    let draining = state.draining.load(std::sync::atomic::Ordering::SeqCst);
+    let ready = db_ok && free > 0 && !draining;
+    let body = Json(serde_json::json!({
+        "ready": ready,
+        "db": if db_ok { "ok" } else { "error" },
+        "solver_free": free,
+        "solver_slots": state.config.max_concurrent,
+        "draining": draining,
+    }));
+    if ready {
+        return body.into_response();
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, [(header::RETRY_AFTER, HeaderValue::from_static("10"))], body).into_response()
+}
+
+async fn access_log(State(state): State<Shared>, req: Request, next: axum::middleware::Next) -> Response {
+    if !state.config.access_log {
+        return next.run(req).await;
+    }
+    let path = req.uri().path().to_string();
+    if path == "/healthz" || path == "/readyz" {
+        return next.run(req).await;
+    }
+    let method = req.method().clone();
+    let ip = security::client_ip(&state.config, &req);
+    let start = std::time::Instant::now();
+    let resp = next.run(req).await;
+    println!(
+        "{} {ip} {method} {path} {} {}ms",
+        utc_timestamp(std::time::SystemTime::now()),
+        resp.status().as_u16(),
+        start.elapsed().as_millis()
+    );
+    resp
+}
+
+fn utc_timestamp(t: std::time::SystemTime) -> String {
+    let secs = t.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
 #[derive(Serialize)]
 struct Status {
     translate_installed: bool,
@@ -572,7 +721,7 @@ async fn api_status(
         max_image_bytes: upload_image_limit(state.config.max_body_bytes),
         solver_free: state.heavy.available_permits() > 0,
         queue_wait_secs: state.config.queue_wait.as_secs_f64(),
-        version: env!("CARGO_PKG_VERSION"),
+        version: VERSION,
     })
     .into_response();
     if guest {
@@ -1002,7 +1151,7 @@ fn solution_of(
         }
         Outcome::TimedOut => {
             eprintln!("solve worker killed at its {:.0}s hard limit", req.hard_limit().as_secs_f64());
-            Ok((worker::time_limit_solution(&req.input, req.limit()), None))
+            Ok((worker::time_limit_solution(&req.input, req.kind, req.limit()), None))
         }
         Outcome::Failed(e) => {
             eprintln!("solve worker failed: {e}");
@@ -2257,6 +2406,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn corpus_problems_solve_through_the_api() {
         let _heavy = crate::engine::heavy_search_lock();
         let dir = tempfile::tempdir().unwrap();
@@ -2472,6 +2622,50 @@ mod tests {
             "rejection must be fast, not run the expensive instance-search loop first"
         );
         assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
+    }
+
+    #[tokio::test]
+    async fn oversized_low_level_input_is_rejected_before_the_engine_allocates() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "tobi").await;
+        let pts: Vec<String> = (0..420).map(|i| format!("p{i}@{}_{} = ", (i % 21) as f64 * 0.37, (i / 21) as f64 * 0.41)).collect();
+        let input = format!("{} ? cong p0 p1 p0 p2", pts.join("; "));
+        assert!(input.len() < 16384);
+        let start = std::time::Instant::now();
+        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "{:?}", start.elapsed());
+        assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
+        assert_eq!(body["diagnosis"]["key"], "too_many_points", "{body:?}");
+    }
+
+    #[tokio::test]
+    async fn malformed_low_level_input_gets_a_located_compile_error() {
+        let (state, _dir) = test_state();
+        let cookie = register_cookie(&state, "ugo").await;
+        let cases = [
+            ("a@0_0 b@1_0 c@0_1 = foo a b ? coll a b c", "unknown_relation", 21),
+            ("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@2_2 = ? para a b", "arity", 41),
+            ("a@0_0 = ; b@1_0 = ; c@0_1 = coll a b c ? perp a b a c", "hyp_false", 29),
+            ("a@NaN_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c", "bad_coord", 1),
+        ];
+        for (input, key, col) in cases {
+            for best in [false, true] {
+                let (st, _, body) = call(
+                    &state,
+                    "POST",
+                    "/api/solve",
+                    Some(&cookie),
+                    serde_json::json!({"input": input, "best": best, "budget_secs": 3}),
+                )
+                .await;
+                assert_eq!(st, StatusCode::BAD_REQUEST, "{input}: {body:?}");
+                assert_eq!(body["code"], "compile", "{input}: {body:?}");
+                assert_eq!(body["diagnosis"]["key"], key, "{input}: {body:?}");
+                assert_eq!(body["diagnosis"]["line"], 1, "{input}: {body:?}");
+                assert_eq!(body["diagnosis"]["col"], col, "{input}: {body:?}");
+                assert!(!body["detail"].as_str().unwrap_or("").contains("panicked"), "{input}: {body:?}");
+            }
+        }
     }
 
     /// Firing several adversarial and several valid solves concurrently must
@@ -3512,6 +3706,102 @@ mod tests {
             let reply = bounded(http_get(addr, "/healthz")).await;
             assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
             assert!(t.elapsed() < Duration::from_secs(1), "healthz waited {:?} for the probe", t.elapsed());
+            server.abort();
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn a_shutdown_lets_the_solve_in_flight_finish_then_stops_accepting() {
+            use tokio::io::AsyncReadExt;
+            let (state, _dir) = state_with(|c| c.max_concurrent = 2);
+            let cookie = register_cookie(&state, "drainer").await;
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(serve_until(listener, state.clone(), async {
+                let _ = stop_rx.await;
+            }));
+            let input = format!("{}1500\n{}", crate::worker::tests::SLEEP, crate::worker::tests::CIRCUMCENTER);
+            let body = serde_json::json!({"input": input}).to_string();
+            let request = format!(
+                "POST /api/solve HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nCookie: {cookie}\r\n\
+                 Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                addr.port(),
+                body.len()
+            );
+            let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+            sock.write_all(request.as_bytes()).await.unwrap();
+            bounded(async {
+                while state.heavy.available_permits() == 2 {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await;
+            stop_tx.send(()).unwrap();
+            let mut reply = String::new();
+            bounded(sock.read_to_string(&mut reply)).await.unwrap();
+            assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+            assert!(reply.contains("\"proved\":true"), "{reply}");
+            let stopped = bounded(server).await.unwrap();
+            assert!(stopped.is_ok(), "{stopped:?}");
+            assert!(tokio::net::TcpStream::connect(addr).await.is_err(), "the listener is closed");
+            assert!(state.draining.load(std::sync::atomic::Ordering::SeqCst));
+            let wal = std::fs::metadata(state.config.db_path.with_extension("db-wal")).map(|m| m.len()).unwrap_or(0);
+            assert_eq!(wal, 0, "the WAL is checkpointed and truncated on the way out");
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn a_shutdown_cuts_requests_that_outlast_the_grace() {
+            let (state, _dir) = state_with(|c| {
+                c.max_concurrent = 1;
+                c.shutdown_grace = Duration::from_millis(300);
+            });
+            let cookie = register_cookie(&state, "slowpoke").await;
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(serve_until(listener, state.clone(), async {
+                let _ = stop_rx.await;
+            }));
+            let tmp = tempfile::tempdir().unwrap();
+            let (input, pidfile) = hang_input(tmp.path(), "pid");
+            let body = serde_json::json!({"input": input}).to_string();
+            let request = format!(
+                "POST /api/solve HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nCookie: {cookie}\r\n\
+                 Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                addr.port(),
+                body.len()
+            );
+            let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+            sock.write_all(request.as_bytes()).await.unwrap();
+            let pid = wait_for_pid(&pidfile).await;
+            let t = Instant::now();
+            stop_tx.send(()).unwrap();
+            let stopped = bounded(server).await.unwrap();
+            assert!(stopped.is_ok(), "{stopped:?}");
+            assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+            wait_reaped(pid, Duration::from_secs(3)).await;
+            drop(sock);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn readyz_reports_the_database_and_a_free_slot_without_the_password() {
+            let (state, _dir) = state_with(|c| {
+                c.max_concurrent = 1;
+                c.basic_auth = Some(security::BasicAuth::parse(":pw-for-tests-123").unwrap());
+            });
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(serve_on(listener, state.clone()));
+            let ready = bounded(http_get(addr, "/readyz")).await;
+            assert!(ready.starts_with("HTTP/1.1 200"), "{ready}");
+            assert!(ready.contains("\"db\":\"ok\"") && ready.contains("\"solver_free\":1"), "{ready}");
+            let permit = state.heavy.clone().acquire_owned().await.unwrap();
+            let busy = bounded(http_get(addr, "/readyz")).await;
+            assert!(busy.starts_with("HTTP/1.1 503"), "{busy}");
+            assert!(busy.to_ascii_lowercase().contains("retry-after: 10"), "{busy}");
+            drop(permit);
+            let status = bounded(http_get(addr, "/api/status")).await;
+            assert!(!status.starts_with("HTTP/1.1 200"), "the API still needs the password: {status}");
             server.abort();
         }
 

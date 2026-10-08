@@ -190,6 +190,7 @@ fn own_preds(fig: &Problem, i: usize) -> impl Iterator<Item = &Predicate> {
 }
 
 type Pt = (f64, f64);
+type Roots = (Vec<Pt>, Box<dyn Fn(Pt) -> f64>);
 
 #[derive(Clone, Copy, Debug)]
 enum Locus {
@@ -232,7 +233,7 @@ fn coords(p: &Problem, k: u32) -> Option<Pt> {
     p.points.get(k as usize).map(|q| (q.value.x, q.value.y)).filter(|q| q.0.is_finite() && q.1.is_finite())
 }
 
-fn roots(p: &Problem, loci: (Locus, Locus)) -> Option<(Vec<Pt>, Box<dyn Fn(Pt) -> f64>)> {
+fn roots(p: &Problem, loci: (Locus, Locus)) -> Option<Roots> {
     let at = |k: u32| coords(p, k);
     let circle = |a: u32, b: u32, c: u32| crate::present::circumcircle(at(a)?, at(b)?, at(c)?);
     match loci {

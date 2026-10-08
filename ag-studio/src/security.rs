@@ -30,6 +30,8 @@
 //! | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard) |
 //! | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
 //! | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
+//! | `AGSTUDIO_SHUTDOWN_GRACE_SECS` | 70 | on SIGTERM/SIGINT: stop accepting, let requests in flight finish for at most this long (default = solve deadline + worker grace + 5 s), checkpoint the DB, exit 0. Keep the service manager's stop timeout above it |
+//! | `AGSTUDIO_ACCESS_LOG` | on | one stdout line per request: UTC time, client IP, method, path (no query), status, milliseconds; `/healthz` and `/readyz` are not logged. `0` turns it off |
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -187,6 +189,9 @@ pub struct Config {
     /// How long a client has to send a request's headers before the
     /// connection is closed.
     pub header_timeout: Duration,
+    /// How long requests in flight may run on after a shutdown signal.
+    pub shutdown_grace: Duration,
+    pub access_log: bool,
 }
 
 /// Default web solve deadline, well inside the 120 s request timeout.
@@ -308,6 +313,10 @@ impl Config {
             queue_wait: Duration::from_secs(num("AGSTUDIO_QUEUE_WAIT_SECS", 5).min(60) as u64),
             solve_deadline: SOLVE_DEADLINE,
             header_timeout: HEADER_TIMEOUT,
+            shutdown_grace: get("AGSTUDIO_SHUTDOWN_GRACE_SECS")
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .map_or(SOLVE_DEADLINE + crate::worker::GRACE + Duration::from_secs(5), |s| Duration::from_secs(s.min(600))),
+            access_log: !is_off(get("AGSTUDIO_ACCESS_LOG").as_deref()),
         })
     }
 
@@ -373,6 +382,8 @@ pub struct AppState {
     session_sweep: Mutex<Option<Instant>>,
     /// HMAC key of the gate cookie: `AGSTUDIO_GATE_KEY`, else the DB's.
     pub gate_key: [u8; 32],
+    /// A shutdown signal arrived; requests in flight are draining.
+    pub draining: std::sync::atomic::AtomicBool,
 }
 
 pub type Shared = Arc<AppState>;
@@ -416,6 +427,7 @@ impl AppState {
             status_snapshot: Mutex::new((None, false)),
             session_sweep: Mutex::new(None),
             gate_key,
+            draining: std::sync::atomic::AtomicBool::new(false),
         }))
     }
 
@@ -928,6 +940,7 @@ pub async fn host_guard(State(state): State<Shared>, req: Request<Body>, next: N
 /// trailing `{file}` matches one path segment.
 pub const PUBLIC_PATHS: &[&str] = &[
     "/healthz",
+    "/readyz",
     "/gate",
     "/gate/forget",
     "/manifest.webmanifest",
@@ -1038,7 +1051,7 @@ pub async fn auth(State(state): State<Shared>, mut req: Request<Body>, next: Nex
     };
     let form = cfg.gate == GateMode::Form;
     let path = req.uri().path();
-    if path == "/healthz" || (form && is_public(req.method(), path)) {
+    if path == "/healthz" || path == "/readyz" || (form && is_public(req.method(), path)) {
         return next.run(req).await;
     }
     let nav = is_navigation(&req);

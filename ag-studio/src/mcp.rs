@@ -562,7 +562,7 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
             Ok(sol) => (sol, reply.figure_png, reply.human),
             Err(e) => return text_result(&format!("error: {e}"), true),
         },
-        Outcome::TimedOut => (worker::time_limit_solution(&program, job.limit()), None, None),
+        Outcome::TimedOut => (worker::time_limit_solution(&program, job.kind, job.limit()), None, None),
         Outcome::Failed(e) => {
             note!("solve worker failed: {e}");
             return text_result("error: the solver process failed (crashed or ran out of memory)", true);

@@ -1443,6 +1443,13 @@ fn to_predicate(np: &NamedPred, ids: &HashMap<String, PointId>) -> Predicate {
 /// `goal_holds == false`; if no figure satisfies the premises, the last
 /// failure reason is returned as the error.
 pub fn translate(prob: &AgProblem, first_seed: u64, max_attempts: u32) -> Result<Translation, String> {
+    let n: usize = prob.clauses.iter().map(|c| c.points.len()).sum();
+    if n > crate::lowlevel::MAX_POINTS {
+        return Err(format!(
+            "too many points ({n}); this engine supports at most {} in one problem",
+            crate::lowlevel::MAX_POINTS
+        ));
+    }
     let mut last_err = String::from("no attempt");
     let mut fallback: Option<(u64, u32, Sampled)> = None;
     for k in 0..max_attempts.max(1) {
@@ -1597,6 +1604,49 @@ pub fn pred_holds(problem: &Problem, pred: &Predicate) -> Option<bool> {
         .collect();
     let nums: Vec<f64> = pred.constants.iter().map(Rat::to_f64).collect();
     holds(&pred.name, &xs, &nums, fig.radius())
+}
+
+/// A corpus goal term as one predicate over `problem`'s points, unlowered
+/// (`midp f b c` stays `midp`), for display and for a low-level round trip.
+pub fn engine_goal(problem: &Problem, goal: &Term) -> Option<Predicate> {
+    let points = goal
+        .args
+        .iter()
+        .map(|a| problem.points.iter().position(|p| &p.name == a).map(|i| i as PointId))
+        .collect::<Option<Vec<_>>>()?;
+    Some(Predicate { name: goal.name.clone(), points, constants: Vec::new() })
+}
+
+/// Lower a `midp`/`simtri`/`contri` goal of a low-level problem to its engine
+/// conjuncts, with the same orientation rule the translator uses.
+pub fn lower_engine_goal(problem: &Problem, goal: &Predicate) -> Option<Vec<Predicate>> {
+    let ids: HashMap<&str, PointId> = problem
+        .points
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.name.as_str(), i as PointId))
+        .rev()
+        .collect();
+    let term = Term {
+        name: goal.name.clone(),
+        args: goal.points.iter().map(|&i| problem.point_name(i).to_string()).collect(),
+    };
+    let at = |n: &String| problem.points[ids[n.as_str()] as usize].value;
+    let same = |a: &[String]| {
+        cross(at(&a[1]) - at(&a[0]), at(&a[2]) - at(&a[0])).signum()
+            == cross(at(&a[4]) - at(&a[3]), at(&a[5]) - at(&a[3])).signum()
+    };
+    lower_goal(&term, same)
+        .ok()?
+        .into_iter()
+        .map(|np| {
+            Some(Predicate {
+                name: np.name,
+                points: np.points.iter().map(|n| ids.get(n.as_str()).copied()).collect::<Option<Vec<_>>>()?,
+                constants: np.constants,
+            })
+        })
+        .collect()
 }
 
 /// Render a problem as corpus text. A clause whose points all appear in `pins`

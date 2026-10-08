@@ -11,6 +11,9 @@ services:
       context: ..
       dockerfile: Dockerfile
     restart: unless-stopped
+    # SIGTERM drains solves in flight for up to 70 s (AGSTUDIO_SHUTDOWN_GRACE_SECS);
+    # Docker's default 10 s would cut them off.
+    stop_grace_period: 90s
     env_file: .env
     environment:
       AGSTUDIO_BIND: "0.0.0.0:8787"

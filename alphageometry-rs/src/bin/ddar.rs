@@ -372,7 +372,26 @@ fn solve_and_report(problem: &Problem, opts: &Opts) -> bool {
 }
 
 fn solve_low_level(problem_str: &str, opts: &Opts) {
-    let problem = Problem::parse(problem_str).unwrap_or_else(|e| fail(&e));
+    let problem = ddar::lowlevel::parse_checked(problem_str).unwrap_or_else(|e| fail(&e));
+    let goal = problem.goal.clone().unwrap_or_else(|| fail("the problem has no goal"));
+    if let Some(goals) = ddar::lowlevel::conjuncts(&problem, &goal) {
+        let text = problem.to_ag_string();
+        let text = text.rsplit_once(" ? ").map_or("", |(_, g)| g);
+        match ddar::runner::solve_conjunction_with_proof(&problem, &goals, text) {
+            Ok(Some(report)) => {
+                println!("Proven :-)\n");
+                if opts.proof {
+                    println!("{report}");
+                }
+                return;
+            }
+            Ok(None) => {
+                println!("Not proven (missing an auxiliary point?)");
+                std::process::exit(1);
+            }
+            Err(e) => fail(&e),
+        }
+    }
     if !solve_and_report(&problem, opts) {
         println!("Not proven (missing an auxiliary point?)");
         std::process::exit(1);
@@ -1083,10 +1102,13 @@ fn corpus_show(file: Option<&String>, name: Option<&String>) {
     let problems = load_corpus(file, Some(&vec![name.clone()]));
     let (n, text) = &problems[0];
     println!("{text}\n");
-    let t = corpus::parse_problem(n, text)
-        .and_then(|p| corpus::translate(&p, 1, 200))
-        .unwrap_or_else(|e| fail(&e));
-    println!("{}", t.problem.to_ag_string());
+    let ag = corpus::parse_problem(n, text).unwrap_or_else(|e| fail(&e));
+    let t = corpus::translate(&ag, 1, 200).unwrap_or_else(|e| fail(&e));
+    let mut shown = t.problem.clone();
+    if t.goals.len() > 1 {
+        shown.goal = corpus::engine_goal(&shown, &ag.goal);
+    }
+    println!("{}", shown.to_ag_string());
     for g in &t.goals {
         let names: Vec<&str> = g.points.iter().map(|&i| t.problem.point_name(i)).collect();
         println!("goal: {} {}", g.name, names.join(" "));

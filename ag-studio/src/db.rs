@@ -28,14 +28,10 @@ pub struct User {
     pub id: i64,
     pub username: String,
     pub password_hash: String,
-    #[allow(dead_code)]
-    pub created_at: i64,
 }
 
 pub struct HistoryEntry {
     pub id: i64,
-    #[allow(dead_code)]
-    pub user_id: i64,
     pub input: String,
     pub title: Option<String>,
     pub proved: bool,
@@ -189,6 +185,20 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Whether the database takes a write: an immediate transaction that rewrites
+/// the schema version and rolls back, so nothing changes.
+pub fn write_probe(conn: &mut Connection) -> rusqlite::Result<()> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let v: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    tx.execute_batch(&format!("PRAGMA user_version = {v}"))?;
+    tx.rollback()
+}
+
+/// Fold the write-ahead log into the main file and truncate it (on shutdown).
+pub fn checkpoint(conn: &Connection) -> rusqlite::Result<()> {
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+}
+
 /// The 32-byte server secret `name`, stored as `fresh` on first use. A row of
 /// the wrong length is replaced (logged), which revokes whatever it signed.
 pub fn server_secret(conn: &Connection, name: &str, fresh: [u8; 32]) -> rusqlite::Result<[u8; 32]> {
@@ -216,7 +226,6 @@ fn row_to_user(r: &rusqlite::Row) -> rusqlite::Result<User> {
         id: r.get(0)?,
         username: r.get(1)?,
         password_hash: r.get(2)?,
-        created_at: r.get(3)?,
     })
 }
 
@@ -237,7 +246,7 @@ pub fn create_user(conn: &Connection, username: &str, password_hash: &str) -> ru
 
 pub fn find_user_by_name(conn: &Connection, username: &str) -> rusqlite::Result<Option<User>> {
     conn.query_row(
-        "SELECT id, username, password_hash, created_at FROM users \
+        "SELECT id, username, password_hash FROM users \
          WHERE username = ?1 COLLATE NOCASE ORDER BY id LIMIT 1",
         params![username],
         row_to_user,
@@ -259,7 +268,7 @@ pub fn insert_session(conn: &Connection, id: &str, user_id: i64, ttl_secs: i64) 
 /// Look up the user for a live (non-expired) session id.
 pub fn lookup_session(conn: &Connection, id: &str) -> rusqlite::Result<Option<User>> {
     conn.query_row(
-        "SELECT u.id, u.username, u.password_hash, u.created_at
+        "SELECT u.id, u.username, u.password_hash
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.id = ?1 AND s.expires_at > ?2",
         params![hash_sid(id), now()],
@@ -339,7 +348,7 @@ pub fn list_history(
     before: Option<i64>,
 ) -> rusqlite::Result<Vec<HistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, input, title, proved, method, created_at, status, goal, \
+        "SELECT id, input, title, proved, method, created_at, status, goal, \
          solution IS NOT NULL, CASE WHEN json_valid(solution) THEN json_extract(solution, '$.view.note.key') END, \
          CASE WHEN json_valid(solution) THEN json_extract(solution, '$.view.as_drawn') END \
          FROM history WHERE user_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
@@ -347,17 +356,16 @@ pub fn list_history(
     let rows = stmt.query_map(params![user_id, before.unwrap_or(i64::MAX), limit], |r| {
         Ok(HistoryEntry {
             id: r.get(0)?,
-            user_id: r.get(1)?,
-            input: r.get(2)?,
-            title: r.get(3)?,
-            proved: r.get::<_, i64>(4)? != 0,
-            method: r.get(5)?,
-            created_at: r.get(6)?,
-            status: r.get(7)?,
-            goal: r.get(8)?,
-            has_solution: r.get::<_, i64>(9)? != 0,
-            note: r.get::<_, Option<String>>(10).ok().flatten(),
-            as_drawn: r.get::<_, Option<i64>>(11).ok().flatten().unwrap_or(0) != 0,
+            input: r.get(1)?,
+            title: r.get(2)?,
+            proved: r.get::<_, i64>(3)? != 0,
+            method: r.get(4)?,
+            created_at: r.get(5)?,
+            status: r.get(6)?,
+            goal: r.get(7)?,
+            has_solution: r.get::<_, i64>(8)? != 0,
+            note: r.get::<_, Option<String>>(9).ok().flatten(),
+            as_drawn: r.get::<_, Option<i64>>(10).ok().flatten().unwrap_or(0) != 0,
         })
     })?;
     rows.collect()

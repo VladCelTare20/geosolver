@@ -4,6 +4,8 @@ const MAX_AREA_POOL: usize = 512;
 const MAX_AREA_ROWS: usize = 4096;
 const MAX_MULTIPLIERS: usize = 40;
 
+type NewRow = (PEq, String, Option<Vec<Predicate>>, Option<usize>, bool);
+
 fn area_key(a: PointId, b: PointId, c: PointId) -> LKey {
     let mut t = [a, b, c];
     t.sort();
@@ -164,7 +166,7 @@ impl Figure {
         while qi < queue.len() {
             let m = queue[qi].clone();
             qi += 1;
-            let mut new_rows: Vec<(PEq, String, Option<Vec<Predicate>>, Option<usize>, bool)> = Vec::new();
+            let mut new_rows: Vec<NewRow> = Vec::new();
             for (bi, r) in base.iter().enumerate() {
                 for t in r.eq.terms.keys() {
                     let Some(q) = divide(&m, t) else { continue };
@@ -187,9 +189,8 @@ impl Figure {
             for f in factors {
                 let alts: Vec<(LKey, Predicate, Rat)> = match f {
                     LKey::Sin(..) => {
-                        if !sine_class.contains_key(&f) {
-                            let c = self.equal_sine_atoms(f);
-                            sine_class.insert(f, c);
+                        if let std::collections::btree_map::Entry::Vacant(slot) = sine_class.entry(f) {
+                            slot.insert(self.equal_sine_atoms(f));
                         }
                         sine_class[&f]
                             .iter()
@@ -198,9 +199,8 @@ impl Figure {
                     }
                     LKey::Len(a, b) => {
                         let s = (a, b);
-                        if !cong.contains_key(&s) {
-                            let c = self.congruent_candidates(s);
-                            cong.insert(s, c);
+                        if let std::collections::btree_map::Entry::Vacant(slot) = cong.entry(s) {
+                            slot.insert(self.congruent_candidates(s));
                         }
                         cong[&s]
                             .iter()

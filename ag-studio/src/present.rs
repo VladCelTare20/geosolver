@@ -1078,7 +1078,7 @@ fn square_ratio_text(r2: f64) -> Option<String> {
         p >= 1.0 && near(p / q as f64, r2)
     })?;
     let p = (r2 * q as f64).round() as u64;
-    let g = (1..=p.min(q)).rev().find(|g| p % g == 0 && q % g == 0).unwrap_or(1);
+    let g = (1..=p.min(q)).rev().find(|&g| p.is_multiple_of(g) && q.is_multiple_of(g)).unwrap_or(1);
     Some(if q / g == 1 { (p / g).to_string() } else { format!("{}/{}", p / g, q / g) })
 }
 
@@ -3015,11 +3015,72 @@ fn names_written(value: &serde_json::Value, known: &[String], out: &mut HashSet<
     }
 }
 
+#[cfg(test)]
 pub fn build(sol: &Solution) -> View {
-    build_with(sol, true)
+    let shown = displayed(sol, None);
+    build_shown(shown.as_ref().unwrap_or(sol), shown.is_some())
 }
 
-fn build_with(sol: &Solution, draw: bool) -> View {
+pub(crate) fn build_shown(sol: &Solution, redrawn: bool) -> View {
+    build_with(sol, true, !redrawn && !reads_figure(sol))
+}
+
+fn reads_figure(sol: &Solution) -> bool {
+    sol.proved && sol.method != Method::Euclidean && sol.human.as_ref().is_some_and(|h| h.proof.as_drawn)
+}
+
+const REWRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+const REDRAW_SLACK: std::time::Duration = std::time::Duration::from_millis(2500);
+const MIN_REWRITE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// The solution as the page shows it. A human proof that reads angles off the
+/// figure was written against the engine's coordinates; when the page would
+/// redraw the figure, the proof is written again against the redrawn one (in
+/// at most `REWRITE_BUDGET`, and only while `by` leaves room), so every ∠ it
+/// states holds in the figure shown. `None`: show `sol` as it is (and, if its
+/// proof reads the figure, undrawn).
+pub(crate) fn displayed(sol: &Solution, by: Option<std::time::Instant>) -> Option<Solution> {
+    if !reads_figure(sol) {
+        return None;
+    }
+    let budget = match by {
+        None => REWRITE_BUDGET,
+        Some(by) => by.saturating_duration_since(std::time::Instant::now()).checked_sub(REDRAW_SLACK)?.min(REWRITE_BUDGET),
+    };
+    if budget < MIN_REWRITE {
+        return None;
+    }
+    let fig = sol.figure.as_ref()?;
+    let redrawn = crate::spread::respread(&fig.problem, fig.aux_from, &sol.input, crate::spread::Goal::Holds)?;
+    let first_aux = fig.aux_from.unwrap_or(redrawn.points.len());
+    let infos = ddar::human::aux_infos(&redrawn, first_aux, &sol.aux_constructions);
+    let problem = redrawn.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("human-redrawn".into())
+        .spawn(move || {
+            let opts = ddar::human::Opts { deadline: Some(std::time::Instant::now() + budget), strict: false };
+            let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ddar::quiet_panic::quiet(|| ddar::human::for_problem(&problem, &infos, &opts))
+            }));
+            let _ = tx.send(out.ok().flatten());
+        })
+        .ok()?;
+    let (hp, trace, deps, proof) = rx.recv_timeout(budget + std::time::Duration::from_millis(500)).ok()??;
+    if !hp.available || hp.metrics.timed_out {
+        return None;
+    }
+    let mut out = sol.clone();
+    if out.proof.is_some() {
+        out.proof_steps = Some(crate::engine::proof_size(&proof).0);
+        out.proof = Some(proof);
+    }
+    out.human = Some(crate::engine::HumanSource { closure: trace.closure(&deps), names: trace.names.clone(), proof: hp });
+    out.figure = Some(crate::engine::FigureSource { problem: redrawn, aux_from: fig.aux_from });
+    Some(out)
+}
+
+fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     let original = Problem::parse(&sol.low_level).ok();
     let (fig_problem, aux_from) = match (&sol.figure, &original) {
         (Some(f), _) => (Some(f.problem.clone()), f.aux_from),
@@ -3262,7 +3323,7 @@ fn build_with(sol: &Solution, draw: bool) -> View {
             .any(|st| st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)")));
     let refuted = sol.status == Status::Refuted;
     let goal_in_figure = if refuted { crate::spread::Goal::Fails } else { crate::spread::Goal::Holds };
-    let redrawn = if draw && !as_drawn && introduced.is_empty() && (!refuted || aux_from.is_none()) {
+    let redrawn = if draw && respread && !as_drawn && introduced.is_empty() && (!refuted || aux_from.is_none()) {
         crate::spread::respread(&fig, aux_from, &sol.input, goal_in_figure)
     } else {
         None
@@ -3470,6 +3531,14 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "unknown_relation"
     } else if starts("bad number") {
         "bad_number"
+    } else if starts("too many points") {
+        "too_many_points"
+    } else if starts("bad coordinate") {
+        "bad_coord"
+    } else if starts("malformed relation") {
+        "malformed"
+    } else if starts("hypothesis `") && msg.ends_with("does not hold at the given coordinates") {
+        "hyp_false"
     } else if starts("could not build") || msg == "no attempt" {
         "degenerate"
     } else if starts("empty program") {
@@ -3633,7 +3702,7 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     }
     let by_name = matches!(
         key,
-        "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "unknown_shape" | "arity" | "arity_min" | "redefined" | "bad_number"
+        "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "unknown_shape" | "arity" | "arity_min" | "redefined" | "bad_number" | "bad_coord" | "malformed" | "hyp_false"
     );
     d.token = if let Some((f, _, _)) = &arity {
         Some(f.clone())
@@ -3646,7 +3715,7 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     let code_of = |l: &str| l.split('#').next().unwrap_or("").to_string();
     let goal_line = || lines.iter().rposition(|l| code_of(l).trim_start().starts_with("prove"));
     let line_idx: Option<usize> = match key {
-        "degenerate" | "empty" | "no_goal" | "other" => None,
+        "degenerate" | "empty" | "no_goal" | "other" | "too_many_points" => None,
         "multiple_goals" => {
             let goals: Vec<usize> = lines
                 .iter()
@@ -3769,14 +3838,20 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
 /// title (the caller's, else the program's leading comment).
 pub fn human_text(sol: &Solution, lang: crate::i18n::Lang) -> Option<String> {
     sol.human.as_ref()?;
-    let view = build_with(sol, false);
+    let view = build_with(sol, false, false);
     let h = view.human.as_ref()?;
     let v = serde_json::to_value(&view).ok()?;
     Some(crate::human_view::text(h, &v, lang))
 }
 
 pub fn solution_json(sol: &Solution, title: Option<&str>) -> serde_json::Value {
-    let view = build(sol);
+    solution_json_by(sol, title, None)
+}
+
+pub fn solution_json_by(sol: &Solution, title: Option<&str>, by: Option<std::time::Instant>) -> serde_json::Value {
+    let shown = displayed(sol, by);
+    let sol = shown.as_ref().unwrap_or(sol);
+    let view = build_shown(sol, shown.is_some());
     let mut v = serde_json::to_value(sol).unwrap_or_default();
     v["svg"] = serde_json::Value::String(view.svg.clone());
     if !view.svg_proof.is_empty() {
@@ -3928,6 +4003,24 @@ mod tests {
         assert!(plain.contains(&"P\u{2081} lies on the bisector of \u{2220}BAC".to_string()), "{plain:?}");
         assert!(!plain.contains(&"\u{2220}BAP\u{2081} = \u{2220}P\u{2081}AC".to_string()), "{plain:?}");
         assert!(v.svg.contains(">P\u{2081}<"), "a point the proof cites stays labelled");
+    }
+
+    #[test]
+    fn a_human_proof_that_reads_the_figure_is_written_against_the_figure_shown() {
+        let src = "A B C = triangle\nH = orthocenter(A, B, C)\nK = reflect(H, line(B, C))\nprove cyclic(A, B, C, K)";
+        let sol = crate::engine::solve(src, &crate::engine::SolveOptions::default()).unwrap();
+        assert!(reads_figure(&sol), "the flagship example's human proof reads its angles off the figure");
+        let engine_fig = sol.figure.as_ref().unwrap().problem.clone();
+        let shown = displayed(&sol, None).expect("the engine's figure is redrawn for the page");
+        let fig = shown.figure.as_ref().unwrap().problem.clone();
+        let moved = fig.points.iter().zip(&engine_fig.points).any(|(a, b)| (a.value.x - b.value.x).abs() + (a.value.y - b.value.y).abs() > 1e-6);
+        assert!(moved, "the page draws a different instance than the engine solved on");
+        let (_, trace, deps) = ddar::runner::solve_problem_with_trace(&fig).unwrap().unwrap();
+        let hp = &shown.human.as_ref().unwrap().proof;
+        let violations = ddar::human::verify(&trace, fig.goal.as_ref().unwrap(), &deps, &[], hp);
+        assert!(violations.is_empty(), "the proof shown must check against the figure shown: {violations:?}");
+        let json = solution_json(&sol, None);
+        assert_eq!(json["proof"].as_str(), shown.proof.as_deref(), "the derivation shown is the one the human proof cites");
     }
 
     #[test]

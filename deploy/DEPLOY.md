@@ -37,7 +37,7 @@ goes to the gate page. Wrong passwords on the form and on Basic share one
 per-IP budget (`AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN`). `AGSTUDIO_GATE=basic`
 restores the Basic-only behaviour.
 
-Without the password only these are served: `/healthz`, `/gate`,
+Without the password only these are served: `/healthz`, `/readyz`, `/gate`,
 `/manifest.webmanifest`, the icons (`/favicon.svg`, `/favicon.ico`,
 `/apple-touch-icon*.png`, `/icons/*`, `/splash/*`), `/assets/app.css`, the
 fonts and `/robots.txt` — static files with nothing secret, which iOS fetches
@@ -141,13 +141,38 @@ ProtectSystem=strict, no capabilities); its only writable path is
 | `AGSTUDIO_PUBLIC_HOST` | (none) | comma list of hostnames the app is served as (e.g. the funnel `*.ts.net` name). With a loopback bind and none set, only `localhost`/`127.0.0.1`/`[::1]` `Host` headers are accepted (DNS-rebinding guard) |
 | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
 | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
+| `AGSTUDIO_SHUTDOWN_GRACE_SECS` | 70 | on SIGTERM/SIGINT: stop accepting, let requests in flight finish for at most this long (default = solve deadline + worker grace + 5 s), checkpoint the DB, exit 0. Keep the service manager's stop timeout above it |
+| `AGSTUDIO_ACCESS_LOG` | on | one stdout line per request: UTC time, client IP, method, path (no query), status, milliseconds; `/healthz` and `/readyz` are not logged. `0` turns it off |
 | `AGSTUDIO_EXPORT_DIR` | `$XDG_DATA_HOME/geosolver/exports` (default `~/.local/share/geosolver/exports`) | MCP `export_report` writes only here (bare filenames, no overwrite unless asked) |
 | `AUX_MAX_RUNS`, `AUX_MAX_DEPTH`, `RAYON_NUM_THREADS` | server-safe | solver effort caps (set automatically; override to tune). The run/depth caps bound only the legacy fallback search; the default search runs until each solve's 60 s wall-clock limit, on `RAYON_NUM_THREADS` threads per solve |
 
 ## Health, logs, updates
 
-- Liveness: `GET /healthz` → `ok` (unauthenticated, for load balancers).
-- Logs: `docker compose logs -f app` / `journalctl -u agstudio -f`.
+- Liveness: `GET /healthz` → `ok` (unauthenticated). The container health
+  checks use it.
+- Readiness: `GET /readyz` (unauthenticated) → 200 `{"ready":true,"db":"ok","solver_free":n,…}`
+  when the database takes a write, a solver slot is free and no shutdown is
+  under way; otherwise 503 with `Retry-After: 10`. It turns 503 whenever every
+  slot is busy, so point load balancers at it, never a restart-on-unhealthy
+  health check.
+- Logs: `docker compose logs -f app` / `journalctl -u agstudio -f`. The banner
+  names the version (`GeoSolver 0.1.0 → …`), then one access line per request:
+  `2026-10-07T01:02:03Z 203.0.113.5 POST /api/solve 200 1834ms`.
+- Stopping: SIGTERM (or Ctrl-C) stops accepting connections, lets requests in
+  flight finish for up to `AGSTUDIO_SHUTDOWN_GRACE_SECS` (70 s: a solve's 60 s
+  plus its worker's grace), checkpoints the SQLite WAL and exits 0. The service
+  manager must wait longer than that and must signal only the server, not its
+  solve workers: `deploy/agstudio.service` sets `KillMode=mixed` and
+  `TimeoutStopSec=90`, `deploy/docker-compose.yml` sets `stop_grace_period: 90s`
+  (Docker's default of 10 s would cut every solve in flight). Workers notice a
+  dead server within 100 ms and exit on their own.
+- Memory: each solve worker is capped at `AGSTUDIO_WORKER_MEM_MB`. When the
+  service has a memory limit (`MemoryMax=`, a container limit), keep
+  `AGSTUDIO_MAX_CONCURRENT × AGSTUDIO_WORKER_MEM_MB` under 90 % of it (6 GB and
+  4 slots: at most 1382 MB each); the banner warns when it does not. Also set
+  `OOMPolicy=continue` (the shipped unit does), so a kernel OOM kill of one
+  worker fails that solve instead of stopping the whole service. Low-level and
+  `.geo` input is capped at 100 points before the engine allocates anything.
 - Update: `git pull && docker compose -f deploy/docker-compose.yml up -d --build`.
 
 ## Photo / natural-language translation on a server

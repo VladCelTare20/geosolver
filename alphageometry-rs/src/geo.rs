@@ -912,7 +912,7 @@ fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
 
 /// Decompose a metric expression into a rational linear combination of
 /// distances plus a numeric constant: `Σ cᵢ·|aᵢbᵢ| + k`.
-fn as_dist_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String)>, f64)> {
+fn as_dist_lincomb(e: &MExpr) -> Option<(Vec<DistTerm>, f64)> {
     match e {
         MExpr::Num(v) => Some((Vec::new(), *v)),
         MExpr::Dist(a, b) => Some((vec![(1.0, a.clone(), b.clone())], 0.0)),
@@ -987,7 +987,7 @@ fn as_dist_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<Vec<(Rat, String, String)>
 
 /// Decompose a metric expression into a rational linear combination of
 /// geometric angles plus a constant: `Σ cᵢ·∠(xᵢ yᵢ zᵢ) + k` (degrees).
-fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String, String)>, f64)> {
+fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<AngleTerm<f64>>, f64)> {
     match e {
         MExpr::Num(v) => Some((Vec::new(), *v)),
         MExpr::Angle(a, b, c) => Some((vec![(1.0, a.clone(), b.clone(), c.clone())], 0.0)),
@@ -1031,7 +1031,7 @@ fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String, String)>, f6
 /// Classify `lhs = rhs` as a rational linear combination of geometric angles
 /// equal to a constant (`Σ cᵢ·∠XᵢYᵢZᵢ = K` degrees) — the shape lowered to the
 /// engine's linear `angeq` predicate. `∠XYZ = ∠ZYX`, so mirrored terms merge.
-fn as_angle_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<(Vec<(Rat, String, String, String)>, Rat)> {
+fn as_angle_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<(Vec<AngleTerm<Rat>>, Rat)> {
     let (lt, lk) = as_angle_lincomb(lhs)?;
     let (rt, rk) = as_angle_lincomb(rhs)?;
     let mut terms = lt;
@@ -2551,6 +2551,9 @@ fn solve_constrained(
 // Building the whole scene from statements
 // ---------------------------------------------------------------------------
 
+type DistTerm = (f64, String, String);
+type AngleTerm<C> = (C, String, String, String);
+
 /// Result of building one instance: the scene, the (optional) goal predicate,
 /// and every absolute-length constraint `|ab| = v` (from `dist(a,b) = <num>`),
 /// which is solver-only and therefore not recoverable from the predicate list —
@@ -3011,7 +3014,7 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
 /// allocation, `deduction_closure`'s O(n^3) search, and `compile`'s up-to-400
 /// re-sampling attempts all bounded well short of a memory/CPU exhaustion DoS
 /// from a crafted `.geo` program (see `Ddar::new_with_slack`, `engine.rs:194`).
-const MAX_POINTS: usize = 100;
+const MAX_POINTS: usize = crate::lowlevel::MAX_POINTS;
 
 /// Total point count declared across a parsed program — shared by every
 /// public entry point (`compile`, `build_instances`, `build_sampled_figure`) so
@@ -3232,6 +3235,52 @@ pub struct SampledFigure {
     /// `(lhs, rhs)` pairs — offered to the metric provers as given equations so
     /// an arbitrary imposed relation can be *used* in a synthetic proof.
     pub metric_hyps: Vec<(MExpr, MExpr)>,
+}
+
+impl SampledFigure {
+    /// The figure without the points that no hypothesis, length constraint or
+    /// metric hypothesis mentions and that are not in `keep` (the goal's
+    /// points): nothing can be derived about them, so no proof uses them.
+    pub fn without_idle_points(self, keep: &std::collections::BTreeSet<String>) -> SampledFigure {
+        let mut named = keep.clone();
+        for (l, r) in &self.metric_hyps {
+            crate::synthetic::collect_points(l, &mut named);
+            crate::synthetic::collect_points(r, &mut named);
+        }
+        let mut used: Vec<bool> = self.names.iter().map(|n| named.contains(n)).collect();
+        for p in &self.preds {
+            for &i in &p.points {
+                used[i as usize] = true;
+            }
+        }
+        for &(a, b, _) in &self.scale {
+            used[a as usize] = true;
+            used[b as usize] = true;
+        }
+        if used.iter().all(|&u| u) {
+            return self;
+        }
+        let mut remap: Vec<Option<PointId>> = vec![None; used.len()];
+        let mut next = 0;
+        for (i, &u) in used.iter().enumerate() {
+            if u {
+                remap[i] = Some(next);
+                next += 1;
+            }
+        }
+        let at = |i: PointId| remap[i as usize].expect("a mentioned point is kept");
+        SampledFigure {
+            names: self.names.iter().zip(&used).filter(|(_, &u)| u).map(|(n, _)| n.clone()).collect(),
+            coords: self.coords.iter().zip(&used).filter(|(_, &u)| u).map(|(c, _)| *c).collect(),
+            preds: self
+                .preds
+                .into_iter()
+                .map(|p| Predicate { points: p.points.iter().map(|&i| at(i)).collect(), ..p })
+                .collect(),
+            scale: self.scale.iter().map(|&(a, b, v)| (at(a), at(b), v)).collect(),
+            metric_hyps: self.metric_hyps,
+        }
+    }
 }
 
 /// Build one generic valid instance of a coordinate-free construction. Mirrors

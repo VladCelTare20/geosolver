@@ -1225,3 +1225,54 @@ fn proof_steps_cite_the_rows_that_normalised_them() {
     assert!(proof("o@0.0_0.0 a@1.0_0.0 b@2.0_0.0 = ; t@0.6_0.8 = cong o t o a; x@-1.2_1.6 = cong o x o b ? cong o t o x")
         .is_none());
 }
+
+fn ptolemy_with(extra: usize, point: &str, goal_factor: &str) -> (String, String) {
+    let mut cons = String::from("A B C = triangle\nD = reflect(C, perp_bisector(A, B))\n");
+    for i in 0..extra {
+        cons.push_str(&format!("P{i} = {point}\n"));
+    }
+    (cons, format!("dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {goal_factor}dist(A,D)*dist(B,C)"))
+}
+
+fn ptolemy_with_free_points(extra: usize, goal_factor: &str) -> (String, String) {
+    ptolemy_with(extra, "free", goal_factor)
+}
+
+#[test]
+fn points_no_hypothesis_mentions_do_not_slow_the_metric_provers() {
+    let (cons, goal) = ptolemy_with_free_points(89, "");
+    let t = std::time::Instant::now();
+    let r = bounded(60, move || metric::solve(&cons, &goal, metric::DEFAULT_SAMPLES));
+    assert!(r.is_ok(), "{r:?}");
+    assert!(t.elapsed() < Duration::from_secs(20), "{:?}", t.elapsed());
+}
+
+#[test]
+fn metric_provers_stop_at_their_deadline_and_never_prove_past_it() {
+    let (cons, goal) = ptolemy_with(25, "on_circum(A, B, C)", "");
+    let t = std::time::Instant::now();
+    let r = bounded(60, move || {
+        metric::solve_until(&cons, &goal, metric::DEFAULT_SAMPLES, Some(std::time::Instant::now() + Duration::from_secs(2)))
+    });
+    let took = t.elapsed();
+    assert!(took < Duration::from_secs(12), "{took:?}");
+    match r {
+        Err(metric::MetricError::TimedOut(report)) => assert!(report.contains("time limit"), "{report}"),
+        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.message(), metric::TIME_LIMIT_REASON),
+        other => panic!("expected a time-limited non-proof, got {other:?}"),
+    }
+    let (cons, goal) = ptolemy_with_free_points(0, "");
+    let deadline = Some(std::time::Instant::now() + Duration::from_secs(30));
+    assert!(metric::solve_until(&cons, &goal, metric::DEFAULT_SAMPLES, deadline).is_ok());
+}
+
+#[test]
+fn a_metric_goal_false_in_the_drawn_figure_is_refuted_before_the_provers_run() {
+    let (cons, goal) = ptolemy_with_free_points(89, "2*");
+    let t = std::time::Instant::now();
+    let r = bounded(60, move || metric::solve_until(&cons, &goal, metric::DEFAULT_SAMPLES, None));
+    assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
+    assert!(matches!(r, Err(metric::MetricError::Refuted(_))), "{r:?}");
+    let (cons, goal) = ptolemy_with_free_points(0, "2*");
+    assert!(matches!(metric::solve(&cons, &goal, metric::DEFAULT_SAMPLES), Err(metric::MetricError::Refuted(_))));
+}

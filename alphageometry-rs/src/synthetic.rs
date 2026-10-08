@@ -759,6 +759,7 @@ impl Figure {
         let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
             Vec::new();
         for v in 0..n {
+            crate::budget::check();
             for x in 0..n {
                 for y in (x + 1)..n {
                     if v == x || v == y {
@@ -848,6 +849,7 @@ impl Figure {
         let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
             Vec::new();
         for m in 0..n {
+            crate::budget::check();
             for a in 0..n {
                 for b in (a + 1)..n {
                     if m == a || m == b || self.midpoints.iter().any(|&(mm, x, y)| {
@@ -1288,6 +1290,7 @@ impl Figure {
         let n = self.coords.len() as PointId;
         for (m, b, c) in self.midpoints.clone() {
             for a in 0..n {
+                crate::budget::check();
                 if a == m || a == b || a == c {
                     continue;
                 }
@@ -1347,6 +1350,7 @@ impl Figure {
         let mut seen: BTreeSet<(Atom, Atom)> = BTreeSet::new();
         let mut out = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in 0..n {
                     for d in 0..n {
@@ -1386,6 +1390,7 @@ impl Figure {
         let mut seen: BTreeSet<(Atom, Atom)> = BTreeSet::new();
         let mut out = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in 0..n {
                     for d in 0..n {
@@ -1470,6 +1475,7 @@ impl Figure {
                 (String::new(), Some(step))
             };
             for a in 0..n {
+                crate::budget::check();
                 if a == b || a == c || a == d {
                     continue;
                 }
@@ -1534,6 +1540,7 @@ impl Figure {
         let n = self.coords.len() as PointId;
         for [a, b, c, d] in self.find_rectangles() {
             for p in 0..n {
+                crate::budget::check();
                 if [a, b, c, d].contains(&p) {
                     continue;
                 }
@@ -2002,7 +2009,7 @@ fn collect_segments(e: &MExpr, fig: &Figure, out: &mut Vec<Atom>) {
 }
 
 /// Collect the point names appearing in a metric expression.
-fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
+pub(crate) fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
     match e {
         MExpr::Dist(a, b) => {
             out.insert(a.clone());
@@ -2034,11 +2041,10 @@ fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
 /// theorems rather than citing a high-level theorem that would *be* the goal.
 pub fn prove_euclidean(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let (lhs, rhs) = crate::metric::parse_equation(goal)?;
-    let sampled = crate::geo::build_sampled_figure(cons_src)?;
-
     let mut names: BTreeSet<String> = BTreeSet::new();
     collect_points(&lhs, &mut names);
     collect_points(&rhs, &mut names);
+    let sampled = crate::geo::build_sampled_figure(cons_src)?.without_idle_points(&names);
 
     for use_aux in [false, true] {
         let mut fig = Figure::gather(&sampled);

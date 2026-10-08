@@ -13,11 +13,14 @@ mod db;
 mod engine;
 mod figure;
 mod gate;
+#[allow(clippy::type_complexity)]
 mod human_view;
 mod i18n;
 mod mcp;
 mod present;
 mod pwa;
+#[cfg(test)]
+mod proof_audit;
 mod render;
 mod security;
 mod spread;
@@ -223,7 +226,6 @@ struct Prepared {
     source: String,
     opts: SolveOptions,
     out: OutFlags,
-    light: bool,
     args: Args,
 }
 
@@ -251,23 +253,15 @@ fn prepare(cmd: &str, args: &[String], switches: &[&str], valued: &[&str]) -> Re
         ..SolveOptions::default()
     };
     let out = out_flags(&parsed);
-    let mut light = false;
     match theme {
-        Some(t) => {
-            light = t == Theme::Light;
-            opts.theme = t;
-        }
-        None if out.exporting() => {
-            opts.theme = Theme::Light;
-            light = true;
-        }
+        Some(t) => opts.theme = t,
+        None if out.exporting() => opts.theme = Theme::Light,
         None => {}
     }
     Ok(Prepared {
         source,
         opts,
         out,
-        light,
         args: parsed,
     })
 }
@@ -285,13 +279,13 @@ fn cmd_best(args: &[String]) -> ExitCode {
         Err(e) => return usage_error(&e),
     };
     let budget = Duration::from_secs_f64(secs.clamp(0.1, 600.0));
-    arm_hard_limit("best", "--budget", budget);
+    let present_by = arm_hard_limit("best", "--budget", budget);
     eprintln!(
         "Searching up to {:.0}s for the shortest proof…",
         budget.as_secs_f64()
     );
     match solve_best(&p.source, &p.opts, budget) {
-        Ok(sol) => emit_solution(&sol, &p.out, p.opts.title.as_deref(), p.light),
+        Ok(sol) => emit_solution(&sol, &p.out, p.opts.title.as_deref(), present_by),
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(1)
@@ -309,9 +303,9 @@ fn cmd_render(args: &[String]) -> ExitCode {
         Ok(s) => s.map_or(engine::DEFAULT_SOLVE_TIMEOUT, Duration::from_secs_f64),
         Err(e) => return usage_error(&e),
     };
-    arm_hard_limit("render", "--timeout", timeout);
+    let present_by = arm_hard_limit("render", "--timeout", timeout);
     match solve_within(&p.source, &p.opts, Some(timeout)) {
-        Ok(sol) => emit_solution(&sol, &p.out, p.opts.title.as_deref(), p.light),
+        Ok(sol) => emit_solution(&sol, &p.out, p.opts.title.as_deref(), present_by),
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(1)
@@ -376,7 +370,6 @@ fn cmd_translate(args: &[String]) -> ExitCode {
     }
 
     // Solve the translated program end to end.
-    let mut light = theme == Some(Theme::Light);
     let mut opts = SolveOptions {
         kind: InputKind::detect(&translation.geo),
         theme: theme.unwrap_or(Theme::Dark),
@@ -386,11 +379,10 @@ fn cmd_translate(args: &[String]) -> ExitCode {
     };
     if out.exporting() && theme.is_none() {
         opts.theme = Theme::Light;
-        light = true;
     }
-    arm_hard_limit("translate --solve", "--timeout", timeout);
+    let present_by = arm_hard_limit("translate --solve", "--timeout", timeout);
     match solve_within(&translation.geo, &opts, Some(timeout)) {
-        Ok(sol) => emit_solution(&sol, &out, opts.title.as_deref(), light),
+        Ok(sol) => emit_solution(&sol, &out, opts.title.as_deref(), present_by),
         Err(e) => {
             eprintln!("error solving the translated program: {e}");
             ExitCode::from(1)
@@ -399,7 +391,8 @@ fn cmd_translate(args: &[String]) -> ExitCode {
 }
 
 /// Make `limit` (plus [`worker::GRACE`]) a hard bound on the rest of the command.
-fn arm_hard_limit(cmd: &str, flag: &str, limit: Duration) {
+fn arm_hard_limit(cmd: &str, flag: &str, limit: Duration) -> std::time::Instant {
+    let present_by = std::time::Instant::now() + (limit + worker::GRACE).saturating_sub(worker::PRESENT_MARGIN);
     worker::arm_watchdog(
         limit + worker::GRACE,
         format!(
@@ -408,6 +401,7 @@ fn arm_hard_limit(cmd: &str, flag: &str, limit: Duration) {
             worker::GRACE.as_secs_f64()
         ),
     );
+    present_by
 }
 
 /// Read a program from a file path, or return it verbatim if it is inline text.
@@ -439,7 +433,7 @@ fn looks_like_a_path(arg: &str) -> bool {
 
 /// Write requested outputs (figure SVG, and a combined proof+figure PNG/PDF
 /// report) and print the proof to the terminal.
-fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, light: bool) -> ExitCode {
+fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, present_by: std::time::Instant) -> ExitCode {
     if let Some(path) = &out.svg {
         match std::fs::write(path, &sol.svg) {
             Ok(()) => println!("Figure written to {path}"),
@@ -447,7 +441,8 @@ fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, light: boo
         }
     }
     if out.exporting() {
-        let report = render::report_svg(sol, title, light);
+        let view = present::solution_json_by(sol, title, Some(present_by));
+        let report = render::report_from_json(&view, i18n::Lang::En, false);
         if let Some(path) = &out.png {
             match render::svg_to_png(&report, 2.75).and_then(|b| Ok(std::fs::write(path, b)?)) {
                 Ok(()) => println!("PNG written to {path}"),
@@ -455,7 +450,7 @@ fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, light: boo
             }
         }
         if let Some(path) = &out.pdf {
-            match render::report_pdf(sol, title).and_then(|b| Ok(std::fs::write(path, b)?)) {
+            match render::report_pdf_from_json(&view, i18n::Lang::En, false).and_then(|b| Ok(std::fs::write(path, b)?)) {
                 Ok(()) => println!("PDF written to {path}"),
                 Err(e) => eprintln!("warning: PDF export failed: {e}"),
             }
