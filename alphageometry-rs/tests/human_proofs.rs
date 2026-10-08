@@ -111,7 +111,7 @@ fn golden_examples_have_the_planned_shape() {
         for b in &hp.blocks {
             for s in &b.body {
                 if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } = s {
-                    assert!(links.len() <= 8, "a chain longer than eight links:\n{t}");
+                    assert!(links.iter().filter(|l| !human::barem::identity_only(l)).count() <= 8 && links.len() <= 12, "a chain longer than eight links:\n{t}");
                 }
             }
         }
@@ -122,7 +122,7 @@ fn golden_examples_have_the_planned_shape() {
     let (_, hp, t) = get("orthocenter_reflection");
     numbered(hp, t);
     assert!(t.contains("BC is the perpendicular bisector of HK"), "{t}");
-    assert!(t.contains("so H, A, K are collinear. (2)"), "{t}");
+    assert!(t.contains("so A, H, K are collinear. (2)"), "{t}");
     assert!(t.contains("Angles written \u{2220} are read from the figure."), "{t}");
     assert!(!t.contains("counter-clockwise"), "only figure angles are used:\n{t}");
     assert!(t.contains("So A, B, C, K lie on one circle, as required. \u{220e}"), "{t}");
@@ -132,12 +132,12 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("Let M be the midpoint of BC."), "{t}");
     assert!(t.contains("OM is the perpendicular bisector of BC"), "{t}");
     assert!(t.contains("MN is a midline of"), "{t}");
-    assert!(t.contains("Hence \u{25b3}AHB \u{223c} \u{25b3}MON. (5)"), "{t}");
-    assert!(t.contains("Hence \u{25b3}AHG \u{223c} \u{25b3}MOG. (6)"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHB \u{223c} \u{25b3}MON (AA). (5)"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHG \u{223c} \u{25b3}MOG (SAS). (6)"), "{t}");
     assert!(t.contains("G is the centroid of \u{25b3}ABC, so AG = 2\u{b7}GM."), "{t}");
     assert!(t.contains("= 1 / 2      [AG = 2\u{b7}GM, by (1)]"), "{t}");
     assert!(!t.contains("\u{25b3}ABG \u{223c} \u{25b3}MNG"), "{t}");
-    assert!(t.contains("\u{25b3}AHG \u{223c} \u{25b3}MOG, by (6), so O, G, H lie on one line, as required. \u{220e}"), "{t}");
+    assert!(t.contains("\u{25b3}AHG \u{223c} \u{25b3}MOG, by (6), so \u{2220}AGH = \u{2220}MGO; as A, G, M are collinear") && t.contains("so O, G, H lie on one line, as required. \u{220e}"), "{t}");
     assert!(!t.contains("counter-clockwise"), "no directed angles:\n{t}");
 
     let (_, hp, t) = get("orthocenter_vertex_distance");
@@ -178,7 +178,7 @@ fn golden_examples_have_the_planned_shape() {
 
     let (_, hp, t) = get("imo_2004_p1");
     numbered(hp, t);
-    assert!(t.contains("Let \u{3c9}\u{2082} be the circle centred at O\u{2082} through C, N, R, P."), "{t}");
+    assert!(t.contains("Let \u{3c9}\u{2082} be the circle through C, N, R, P."), "{t}");
     assert!(t.contains("Let F be the foot of the perpendicular from B to AR."), "{t}");
     assert!(t.contains("OF is the perpendicular bisector of BN"), "{t}");
     assert!(t.contains("So R, N, F, O are concyclic."), "{t}");
@@ -186,7 +186,7 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("NC \u{27c2} NB, by (1) and OF \u{27c2} NB, by (4), so NC \u{2225} OF. (5)"), "{t}");
     assert!(t.contains("= \u{2221}NOF + \u{2221}PRN    [NC \u{2225} OF, by (5)]"), "{t}");
     assert!(t.contains("power of the point A"), "{t}");
-    assert!(t.contains("so R, A, F, P are collinear (the radical axis theorem)."), "{t}");
+    assert!(t.contains("so A lies on their radical axis, the line PR; hence R, A, F, P are collinear."), "{t}");
     assert!(t.contains("So P lies on the line BC, as required. \u{220e}"), "{t}");
 
     let (_, hp, t) = get("imo_2023_p2");
@@ -197,10 +197,10 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("So T, E, S, O are concyclic."), "{t}");
     assert!(t.contains("We show that XA = XP:"), "{t}");
     assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");
-    assert!(t.contains("So AX bisects \u{2220}BAC, as required. \u{220e}"), "{t}");
+    assert!(t.contains("so AX bisects \u{2220}BAC, as required. \u{220e}"), "{t}");
     assert!(!t.contains("OA : OX = OP : OX"), "{t}");
     assert!(!t.contains("2\u{2221}"), "no doubled directed angles:\n{t}");
-    assert!(t.contains("We show that \u{2221}IAP = \u{2221}APX:"), "{t}");
+    assert!(t.contains("We show that A, I, X are collinear:") && t.contains("[angle addition]"), "{t}");
     assert!(!hp.blocks.last().unwrap().engine_facts.is_empty());
 }
 
@@ -305,6 +305,57 @@ fn checker_rejects_corrupted_proofs() {
     let mut m = base.clone();
     m.blocks.retain(|b| b.kind != BlockKind::Conclusion);
     assert!(!verify(&s, &m).is_empty(), "proof without a conclusion accepted");
+}
+
+fn identity_link(hp: &mut HumanProof) -> Option<(&mut Vec<Expr>, usize)> {
+    for b in hp.blocks.iter_mut() {
+        for s in b.body.iter_mut() {
+            if let Sentence::Chain { terms, links, .. } = s {
+                if let Some(k) = links.iter().position(|l| l.combination.is_empty() && matches!(l.reasons.as_slice(), [Reason::Atom { key, .. }] if key.is_identity_label())) {
+                    return Some((terms, k));
+                }
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn identity_links_are_checked_and_honestly_labelled() {
+    let c = geo_case("imo_2023_p2", "tests/golden/human/imo_2023_p2.geo");
+    let s = solve(&c);
+    let base = write(&s, &strict());
+    assert!(verify(&s, &base).is_empty());
+    let mut probe = base.clone();
+    assert!(identity_link(&mut probe).is_some(), "the golden proof exposes at least one angle addition");
+
+    let mut m = base.clone();
+    for b in m.blocks.iter_mut() {
+        for st in b.body.iter_mut() {
+            if let Sentence::Chain { links, .. } = st {
+                for l in links.iter_mut() {
+                    if let [Reason::Atom { key, args, .. }] = l.reasons.as_mut_slice() {
+                        if key.is_identity_label() && l.combination.is_empty() {
+                            *key = if *key == human::AtomKey::AngleSum { human::AtomKey::ExteriorAngle } else { human::AtomKey::AngleSum };
+                            *args = vec![0, 1, 2];
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(!verify(&s, &m).is_empty(), "a mislabelled angle addition accepted");
+
+    let mut m = base.clone();
+    let (terms, k) = identity_link(&mut m).unwrap();
+    terms[k + 1] = Expr::Lin { terms: vec![(Rat::one(), terms[k + 1].clone()), (Rat::one(), Expr::Const { degrees: Rat::from_int(30) })] };
+    assert!(!verify(&s, &m).is_empty(), "an angle addition that is not an identity accepted");
+
+    let mut m = base.clone();
+    let l = first_chain_link(&mut m, false).unwrap();
+    l.combination.clear();
+    l.reasons = vec![Reason::Atom { key: human::AtomKey::AngleAddition, stmt: Stmt::Formula { text: String::new(), pts: vec![] }, args: vec![], from: vec![] }];
+    assert!(!verify(&s, &m).is_empty(), "a fact link relabelled as angle addition accepted");
 }
 
 #[test]

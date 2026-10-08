@@ -12,7 +12,7 @@ Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and R, A, F, 
     ∠BFA = 90°     [FB ⟂ AR]
          = ∠BNA    [∠BNC = 90°, by (1)]
 So F, N, B, A are concyclic. (2)
-3. AR bisects ∠BAC, so ∠FAB = ∠CAF. F, N, B, A concyclic, by (2), so FB = NF (equal arcs and chords). (3)
+3. AR bisects ∠BAC, so ∠FAB = ∠CAF. F, N, B, A concyclic, by (2), so FB = NF (equal or supplementary inscribed angles stand on equal chords). (3)
 4. OB = ON and, by (3), FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
 5. NC ⟂ NB, by (1) and OF ⟂ NB, by (4), so NC ∥ OF. (5)
 6. We show that R, N, F, O are concyclic:
@@ -22,9 +22,11 @@ So F, N, B, A are concyclic. (2)
 So R, N, F, O are concyclic. (6)
 7. AB·AM = AC·AN (power of the point A with respect to the circle (BMCN)). A has the same power with respect to the circles ω₁ and ω₂, so A lies on their radical axis, the line PR; hence R, A, F, P are collinear. (7)
 8. We show that P lies on the line BC:
-    ∡PCB = ∡PCN + ∡ONC    [OC = ON: triangle OCN is isosceles]
-         = ∡ONC + ∡PRN    [P, R, N, C lie on ω₂ (inscribed angles in ω₂)]
+    ∡PCB = ∡PCN + ∡NCO    [angle addition]
+         = ∡PCN + ∡ONC    [OC = ON: triangle OCN is isosceles]
+         = ∡ONC + ∡PRN    [inscribed angles in ω₂]
          = ∡NOF + ∡PRN    [NC ∥ OF, by (5)]
-         = ∡PRF           [R, N, F, O concyclic, by (6)]
+         = ∡NRF + ∡PRN    [R, N, F, O concyclic, by (6)]
+         = ∡PRF           [angle addition]
          = 0°             [R, A, F, P collinear, by (7)]
 So P lies on the line BC, as required. ∎

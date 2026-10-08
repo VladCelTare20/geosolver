@@ -568,7 +568,7 @@ pub fn atom_sentence(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) 
 pub fn theorem_name(k: TheoremKey) -> &'static str {
     match k {
         TheoremKey::RadicalAxis => "the radical axis theorem",
-        TheoremKey::ArcChord => "equal arcs and chords",
+        TheoremKey::ArcChord => "equal or supplementary inscribed angles stand on equal chords",
         TheoremKey::AngleBisectorThm => "the angle bisector theorem",
         TheoremKey::AngleBisectorThmConverse => "the converse of the angle bisector theorem",
         TheoremKey::Intercept => "the intercept theorem",
@@ -1078,7 +1078,7 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
                 Some(b) => by_step(n.list(&line), b),
                 None => n.list(&line),
             };
-            format!("{}, so {eq}; as {pts} are collinear, these are vertical angles, so {}.", cap(&join_and(&rs)), stmt(n, st))
+            format!("{}, so {eq}; as {pts} are collinear and these two angles lie on opposite sides of that line, they are vertical angles, so {}.", cap(&join_and(&rs)), stmt(n, st))
         }
         Sentence::Chain { terms, links, then, .. } => {
             let rs = links.first().map(|l| reasons_text(n, &l.reasons, claims)).unwrap_or_default();

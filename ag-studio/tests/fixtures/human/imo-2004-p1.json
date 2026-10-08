@@ -1985,13 +1985,37 @@
             "kind": "chain",
             "terms": [
               "∡PCB",
+              "∡NCO + ∡PCN",
               "∡NCO + ∡PRN",
               "∡ONC + ∡PRN",
               "∡NOF + ∡PRN",
+              "∡NRF + ∡PRN",
               "∡PRF",
               "0°"
             ],
             "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "angle_addition",
+                    "args": [
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "C"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
               {
                 "reasons": [
                   {
@@ -2103,6 +2127,28 @@
               {
                 "reasons": [
                   {
+                    "kind": "atom",
+                    "key": "angle_addition",
+                    "args": [
+                      "R"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "R"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
                     "kind": "claim",
                     "n": 4,
                     "block": 7,
@@ -2180,16 +2226,16 @@
       "blocks": 8,
       "claims": 4,
       "sentences": 10,
-      "chain_links": 11,
+      "chain_links": 13,
       "chains": 4,
       "pure_chains": 4,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 384,
-      "lines_en": 28,
-      "citations": 22,
+      "words_en": 393,
+      "lines_en": 30,
+      "citations": 24,
       "aux_shown": 1,
-      "human_cost": 105,
+      "human_cost": 107,
       "reproved": 5,
       "silent": 19,
       "pruned": 5,
@@ -2198,7 +2244,7 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 0,
-      "theorem_steps": 5,
+      "theorem_steps": 7,
       "steps": 8,
       "multi_fact_links": 0,
       "undirected_chains": 3,

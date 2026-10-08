@@ -38,6 +38,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| expose_addition(cx, blocks, bi, s));
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| undirected_hyps(cx, s));
     per_block(cx, &mut ch, hp, &congruence_side);
+    per_sentence(cx, &mut ch, hp, true, &|_, blocks, bi, s| restated_conclusion(blocks, bi, s));
     let named: Vec<(PointId, Vec<PointId>)> = hp.setup.iter().filter_map(|l| if let SetupLine::Circle { name, through, centre: Some(o), .. } = l { (!name.is_empty()).then(|| (*o, through.clone())) } else { None }).collect();
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| drop_setup_radii(&named, s));
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| trim_parallel_extras(s));
@@ -721,6 +722,25 @@ fn supplement(e: &Expr) -> Option<Expr> {
     })
 }
 
+fn restated_conclusion(blocks: &[Block], bi: usize, s: &Sentence) -> Option<Sentence> {
+    let b = &blocks[bi];
+    if b.kind != BlockKind::Conclusion || b.body.last() != Some(s) {
+        return None;
+    }
+    let Sentence::Chain { links, then, .. } = s else { return None };
+    if links.is_empty() || links.len() > 3 || !matches!(b.stmt, Stmt::EqAngle { .. }) || then.as_ref().is_some_and(|t| !matches!(t, Stmt::EqAngle { .. })) {
+        return None;
+    }
+    let coll_claim = |r: &Reason| matches!(r, Reason::Claim { block, .. } if blocks.iter().any(|x| x.id == *block && matches!(x.stmt, Stmt::Coll { .. })));
+    let plain = links.iter().all(|l| l.reasons.iter().all(|r| is_coll_reason(r) || coll_claim(r) || matches!(r, Reason::Hyp { .. })));
+    let restates = links.iter().any(|l| l.reasons.iter().any(|r| coll_claim(r) || matches!(r, Reason::Lemma { stmt: Stmt::Coll { .. }, .. } | Reason::Fact { stmt: Stmt::Coll { .. }, block: Some(_), .. })));
+    if !plain || !restates {
+        return None;
+    }
+    let merged = links[1..].iter().fold(links[0].clone(), |a, l| merge_links(&a, l));
+    Some(Sentence::Because { stmt: b.stmt.clone(), reasons: merged.reasons, combination: merged.combination })
+}
+
 fn per_block(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof, f: &dyn Fn(&Ctx, &Block) -> Option<Block>) {
     if cx.timed_out() {
         return;
@@ -1057,6 +1077,76 @@ fn expose_link(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: 
     best
 }
 
+fn plain_terms(e: &Expr) -> Vec<(Rat, Expr)> {
+    match e {
+        Expr::Lin { terms } => terms.iter().filter(|(_, x)| !matches!(x, Expr::Const { .. })).cloned().collect(),
+        Expr::Const { .. } => Vec::new(),
+        x => vec![(Rat::one(), x.clone())],
+    }
+}
+
+fn expose_middle(cx: &Ctx, e1: &Expr, e2: &Expr, l: &Link, directed: bool, focus: &BTreeSet<PointId>) -> Option<(i64, Vec<Expr>, Vec<Link>)> {
+    let t = cx.t;
+    let (_, r1) = eval(t, e1)?;
+    let (_, r2) = eval(t, e2)?;
+    let (q1, q2) = (cx.quot.q(&r1), cx.quot.q(&r2));
+    let delta = LinComb::combine(&q2, &q1, &Rat::from_int(-1));
+    let mut dc = LinComb::zero();
+    for (v, k) in delta.terms.iter() {
+        if *v != crate::elimination::ANGLE_UNIT {
+            dc.add_term(*v, k.clone());
+        }
+    }
+    let fpts = link_points(l);
+    let near: [&[PointId]; 1] = [&fpts];
+    let mut best: Option<(i64, Vec<Expr>, Vec<Link>)> = None;
+    for ts in super::chain::decomps(&dc) {
+        if ts.len() != 2 || !ts.iter().all(|x| x.0.abs().is_one()) {
+            continue;
+        }
+        for (ia, ib) in [(0usize, 1usize), (1, 0)] {
+            let mut a_comb = term_comb(&ts[ia]);
+            a_comb.mul_assign_scalar(&Rat::from_int(-1));
+            let b_comb = term_comb(&ts[ib]);
+            let (Some(alpha), Some(beta)) = (angle_expr(cx, &a_comb, directed, &near, focus), angle_expr(cx, &b_comb, directed, &near, focus)) else { continue };
+            let Some((_, ra)) = eval(t, &alpha) else { continue };
+            let rest = LinComb::combine(&q1, &cx.quot.q(&ra), &Rat::from_int(-1));
+            let rest_terms: Vec<(Rat, Expr)> = if super::chain::classes(&rest).is_empty() {
+                Vec::new()
+            } else {
+                match display(cx, Table::Angle, &rest, directed, &[&fpts], focus) {
+                    Some(r) => plain_terms(&r),
+                    None => continue,
+                }
+            };
+            let ys: Vec<(Rat, Expr)> = rest_terms.iter().cloned().chain(plain_terms(&alpha)).collect();
+            let xs: Vec<(Rat, Expr)> = rest_terms.iter().cloned().chain(plain_terms(&beta)).collect();
+            let (Some(y), Some(x)) = (with_const(cx, ys, &q1, directed), with_const(cx, xs, &q2, directed)) else { continue };
+            let (y, x) = (tidy(y), tidy(x));
+            if y == *e1 || x == *e2 || y == x || !nice_mid(cx, &y, directed) || !nice_mid(cx, &x, directed) {
+                continue;
+            }
+            if !shows(cx, Table::Angle, &y, &q1, directed) || !shows(cx, Table::Angle, &x, &q2, directed) {
+                continue;
+            }
+            let (Some(d1), Some(d2), Some(fd)) = (row_delta(cx, e1, &y, directed), row_delta(cx, &x, e2, directed), row_delta(cx, &y, &x, directed)) else { continue };
+            if fd > 2 || d1 == 0 || d2 == 0 {
+                continue;
+            }
+            let (Some(l1), Some(l2)) = (identity_link(cx, e1, &y, directed), identity_link(cx, &x, e2, directed)) else { continue };
+            let generic = |k: &Link| matches!(k.reasons.first(), Some(Reason::Atom { key: AtomKey::AngleAddition, args, .. }) if args.is_empty());
+            if !directed && (generic(&l1) || generic(&l2)) {
+                continue;
+            }
+            let score = 10 * (d1 + d2) as i64 + badness(&y) + badness(&x) + if generic(&l1) || generic(&l2) { 25 } else { 0 };
+            if best.as_ref().is_none_or(|b| score < b.0) {
+                best = Some((score, vec![y, x], vec![l1, l.clone(), l2]));
+            }
+        }
+    }
+    best
+}
+
 const OPAQUE: usize = 3;
 const EXPOSED_LINKS: usize = 12;
 
@@ -1066,7 +1156,7 @@ fn expose_addition(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Optio
         return None;
     }
     let focus: BTreeSet<PointId> = blocks[bi].points.iter().copied().collect();
-    let mut cands: Vec<(usize, usize, Expr, bool, Link)> = Vec::new();
+    let mut cands: Vec<(usize, usize, Vec<Expr>, Vec<Link>)> = Vec::new();
     for (k, l) in links.iter().enumerate() {
         let (e1, e2) = (&terms[k], &terms[k + 1]);
         if link_facts(l) != 1 || l.reasons.iter().any(|r| matches!(r, Reason::Atom { key, .. } if key.is_identity_label())) {
@@ -1078,28 +1168,34 @@ fn expose_addition(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Optio
             continue;
         }
         if let Some((_, x, fact_first, label)) = expose_link(cx, e1, e2, l, d, &focus) {
-            cands.push((delta, k, x, fact_first, label));
+            let ls = if fact_first { vec![l.clone(), label] } else { vec![label, l.clone()] };
+            cands.push((delta, k, vec![x], ls));
+        } else if let Some((_, xs, ls)) = expose_middle(cx, e1, e2, l, d, &focus) {
+            cands.push((delta, k, xs, ls));
+        } else if std::env::var_os("HP_OPAQUE").is_some() {
+            eprintln!("OPAQUE delta {delta} directed {d}: {e1:?} -> {e2:?}");
         }
     }
     if cands.is_empty() {
         return None;
     }
     cands.sort_by_key(|c| (std::cmp::Reverse(c.0), c.1));
-    let room = EXPOSED_LINKS - links.len();
-    cands.truncate(room);
+    let mut room = EXPOSED_LINKS - links.len();
+    cands.retain(|c| {
+        let extra = c.3.len() - 1;
+        if extra <= room {
+            room -= extra;
+            true
+        } else {
+            false
+        }
+    });
     let mut out_terms = vec![terms[0].clone()];
     let mut out_links: Vec<Link> = Vec::new();
     for (k, l) in links.iter().enumerate() {
-        if let Some((_, _, x, fact_first, label)) = cands.iter().find(|c| c.1 == k) {
-            if *fact_first {
-                out_links.push(l.clone());
-                out_terms.push(x.clone());
-                out_links.push(label.clone());
-            } else {
-                out_links.push(label.clone());
-                out_terms.push(x.clone());
-                out_links.push(l.clone());
-            }
+        if let Some((_, _, xs, ls)) = cands.iter().find(|c| c.1 == k) {
+            out_links.extend(ls.iter().cloned());
+            out_terms.extend(xs.iter().cloned());
         } else {
             out_links.push(l.clone());
         }
@@ -1855,6 +1951,10 @@ fn remap_ids(hp: &mut HumanProof, f: &dyn Fn(u16) -> u16) {
 
 const MAX_LINKS: usize = 8;
 
+pub fn identity_only(l: &Link) -> bool {
+    l.combination.is_empty() && l.reasons.iter().all(|r| matches!(r, Reason::Atom { key, .. } if key.is_identity_label()))
+}
+
 fn sentence_parts(s: &Sentence) -> Option<(&[Expr], &[Link])> {
     match s {
         Sentence::Chain { terms, links, .. } | Sentence::Computation { terms, links, .. } => Some((terms, links)),
@@ -1912,7 +2012,7 @@ fn cut_long(cx: &Ctx, ch: &mut Checker, hp: &mut HumanProof) {
             for si in 0..hp.blocks[bi].body.len() {
                 let Some((terms, links)) = sentence_parts(&hp.blocks[bi].body[si]) else { continue };
                 let n = links.len();
-                if n <= MAX_LINKS {
+                if links.iter().filter(|l| !identity_only(l)).count() <= MAX_LINKS && n <= EXPOSED_LINKS {
                     continue;
                 }
                 let mut ks: Vec<usize> = (2..n - 1).collect();

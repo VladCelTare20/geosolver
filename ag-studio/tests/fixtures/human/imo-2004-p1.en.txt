@@ -29,10 +29,12 @@ So R, N, F, O are concyclic. (6)
 
 8. We show that P lies on the line BC:
 
-∡PCB = ∡NCO + ∡PRN    [P, R, N, C on ω₂]
+∡PCB = ∡NCO + ∡PCN    [angle addition]
+     = ∡NCO + ∡PRN    [inscribed angles in ω₂]
      = ∡ONC + ∡PRN    [OC = ON]
      = ∡NOF + ∡PRN    [NC ∥ OF, by (5)]
-     = ∡PRF    [R, N, F, O concyclic, by (6)]
+     = ∡NRF + ∡PRN    [R, N, F, O concyclic, by (6)]
+     = ∡PRF    [angle addition]
      = 0°    [A, R, P, F collinear, by (7)]
 
 So P lies on the line BC, as required. ∎

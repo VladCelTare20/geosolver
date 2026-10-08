@@ -25,14 +25,16 @@ Deci punctele F, N, B, A sunt conciclice. (2)
 
 Deci punctele R, N, F, O sunt conciclice. (6)
 
-7. AB·AM = AC·AN (puterea punctului A față de (BMCN)). A are aceeași putere față de cercurile (PRMB) și ω₂ ⇒ A se află pe axa lor radicală, dreapta PR ⇒ punctele A, R, P, F sunt coliniare. (7)
+7. AB·AM = AC·AN (puterea punctului A față de (BMCN)). Puterea lui A față de cercurile (PRMB) și ω₂ este aceeași ⇒ A se află pe axa lor radicală, dreapta PR ⇒ punctele A, R, P, F sunt coliniare. (7)
 
 8. Arătăm că punctul P se află pe dreapta BC:
 
-∡PCB = ∡NCO + ∡PRN    [P, R, N, C pe ω₂]
+∡PCB = ∡NCO + ∡PCN    [adunarea unghiurilor]
+     = ∡NCO + ∡PRN    [unghiuri înscrise în ω₂]
      = ∡ONC + ∡PRN    [OC = ON]
      = ∡NOF + ∡PRN    [NC ∥ OF, din (5)]
-     = ∡PRF    [R, N, F, O conciclice, din (6)]
+     = ∡NRF + ∡PRN    [R, N, F, O conciclice, din (6)]
+     = ∡PRF    [adunarea unghiurilor]
      = 0°    [A, R, P, F coliniare, din (7)]
 
 Deci punctul P se află pe dreapta BC, ceea ce trebuia demonstrat. ∎

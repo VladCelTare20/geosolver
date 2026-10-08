@@ -9,7 +9,7 @@ Plan: it suffices to show that A, I, X are collinear.
 1. We show that NB = NC:
     ∠NBC = ∠NAC    [inscribed angles in Ω]
          = ∠BAN    [AI bisects ∠BAC]
-         = ∠BCN    [N, C, B, A lie on Ω]
+         = ∠BCN    [inscribed angles in Ω]
 Hence NB = NC. (1)
 2. OB = OC and, by (1), NB = NC, so ON is the perpendicular bisector of BC; hence ON ⟂ BC. (2)
 3. We show that T, E, S, O are concyclic:
@@ -20,24 +20,31 @@ Hence NB = NC. (1)
 So T, E, S, O are concyclic. (3)
 4. We show that T, P, X, O are concyclic:
     ∠OTX = ∠EBS + 90°            [OT ⟂ BE]
+         = ∠EBP + ∠PBS + 90°     [angle addition]
          = ∠EBP + ∠PNO + 90°     [inscribed angles in Ω]
          = ∠EBC − ∠NPB + 180°    [ON ⟂ BC, by (2)]
          = ∠BLD − ∠NPB + 180°    [DL ∥ BC]
          = ∠NPD                  [inscribed angles in ω₁]
+         = ∠XPD + ∠NPX           [angle addition]
          = ∠PBX + ∠NPX           [PX is tangent to ω₁ (tangent–chord angle)]
          = ∠PNO + ∠NPX           [inscribed angles in Ω]
-         = ∠OPX                  [ON = OP: triangle ONP is isosceles]
+         = ∠OPN + ∠NPX           [ON = OP: triangle ONP is isosceles]
+         = ∠OPX                  [angle addition]
 So T, P, X, O are concyclic. (4)
 5. We show that T, P, E, D are concyclic:
-    ∡ETD = ∡EON                 [T, E, S, O concyclic, by (3)]
-         = ∡(OE, BC) + 90°      [ON ⟂ BC, by (2)]
-         = ∡(OE, DL) + 90°      [DL ∥ BC]
-         = ∡OEB + ∡BPD + 90°    [inscribed angles in ω₁]
-         = ∡OEA + ∡APD + 90°    [inscribed angles in Ω]
-         = ∡EPD                 [OA = OE: triangle OAE is isosceles; central angle ∠AOE = 2∠APE]
+    ∡ETD = ∡EON                        [T, E, S, O concyclic, by (3)]
+         = ∡(OE, BC) + 90°             [ON ⟂ BC, by (2)]
+         = ∡(OE, DL) + 90°             [DL ∥ BC]
+         = ∡OEB + ∡BLD + 90°           [angle addition]
+         = ∡OEB + ∡BPD + 90°           [inscribed angles in ω₁]
+         = ∡OEA + ∡BPD + ∡AEB + 90°    [angle addition]
+         = ∡OEA + ∡BPD + ∡APB + 90°    [inscribed angles in Ω]
+         = ∡OEA + ∡APD + 90°           [angle addition]
+         = ∡EPD                        [OA = OE: triangle OAE is isosceles; central angle ∠AOE = 2∠APE]
 So T, P, E, D are concyclic. (5)
 6. We show that XA = XP:
-    ∠AOX = ∠AOP − ∠PTB    [T, P, X, O concyclic, by (4)]
+    ∠AOX = ∠AOP − ∠XOP    [angle addition]
+         = ∠AOP − ∠PTB    [T, P, X, O concyclic, by (4)]
          = ∠OAE − ∠EPO    [T, P, E, D concyclic, by (5)]
          = ∠AEP           [central angle ∠AOP = 2∠AEP]
          = ∠BTP           [T, P, E, D concyclic, by (5)]
@@ -45,16 +52,16 @@ So T, P, E, D are concyclic. (5)
 OA = OP, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
 7. We show that A, I, X are collinear:
     ∡IAX = ∡SAX + 90°           [NS is a diameter]
+         = ∡PAX + ∡SAP + 90°    [angle addition]
          = ∡PAX + ∡XBP + 90°    [inscribed angles in Ω]
          = ∡PAX + ∡DPX + 90°    [PX is tangent to ω₁ (tangent–chord angle)]
-         = ∡DPA + 90°           [XA = XP: triangle XAP is isosceles, by (6)]
+         = ∡XPA + ∡DPX + 90°    [XA = XP: triangle XAP is isosceles, by (6)]
+         = ∡DPA + 90°           [angle addition]
+         = ∡BPA + ∡DPB + 90°    [angle addition]
          = ∡BEA + ∡DPB + 90°    [inscribed angles in Ω]
-         = ∡LDA + 90°           [inscribed angles in ω₁]
+         = ∡BEA + ∡DLB + 90°    [inscribed angles in ω₁]
+         = ∡LDA + 90°           [angle addition]
          = ∡(BC, AD) + 90°      [DL ∥ BC]
          = 0°                   [AD ⟂ BC]
 So A, I, X are collinear. (7)
-8. We show that AX bisects ∠BAC:
-    ∠BAX = −∠BAI + 180°    [A, I, X collinear, by (7)]
-         = −∠IAC + 180°    [AI bisects ∠BAC]
-         = ∠XAC            [A, I, X collinear, by (7)]
-So AX bisects ∠BAC, as required. ∎
+8. A, I, X collinear, by (7) and AI bisects ∠BAC, so AX bisects ∠BAC, as required. ∎

@@ -1211,6 +1211,45 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
 
+    fn squared_ratio(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>, budget: &mut usize) -> Option<(Vec<Sentence>, usize, bool)> {
+        let two = Rat::from_int(2);
+        if support.iter().any(|(_, l)| !(l * &two).is_integer()) {
+            return None;
+        }
+        let sq = |e: &Expr| -> Option<Expr> {
+            match e {
+                Expr::Seg { .. } => Some(Expr::Prod { factors: vec![(e.clone(), 2)] }),
+                Expr::Prod { factors } => Some(Expr::Prod { factors: factors.iter().map(|(x, k)| (x.clone(), 2 * k)).collect() }),
+                _ => None,
+            }
+        };
+        let double = |c: &LinComb| {
+            let mut x = c.clone();
+            x.mul_assign_scalar(&two);
+            x
+        };
+        let splits: Vec<super::classify::Split> = target.splits.iter().filter_map(|s| Some(super::classify::Split { l: sq(&s.l)?, r: sq(&s.r)?, lraw: double(&s.lraw), rraw: double(&s.rraw) })).collect();
+        let first = splits.first()?;
+        let stmt2 = Stmt::Eq { lhs: first.l.clone(), rhs: first.r.clone() };
+        let t2 = Target { table: Table::Ratio, row: double(&target.row), splits, stmt: stmt2.clone(), alts: Vec::new() };
+        let support2: Vec<(usize, Rat)> = support.iter().map(|(i, l)| (*i, l * &two)).collect();
+        let _ = budget;
+        let (mut out, n, pooled) = self.chain_sentences(&t2, &support2, h, None, focus);
+        if std::env::var_os("HP_POOL").is_some() {
+            eprintln!("squared ratio {:?}: pooled {pooled}", target.stmt);
+        }
+        if pooled || out.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
+            return None;
+        }
+        let last = out.len().checked_sub(1)?;
+        if !matches!(out[last], Sentence::Chain { then: None, .. }) {
+            return None;
+        }
+        let stmt = then.unwrap_or_else(|| target.stmt.clone());
+        out.push(Sentence::Because { stmt, reasons: vec![Reason::Lemma { stmt: stmt2, block: PENDING_BLOCK, sentence: last as u16 }], combination: vec![Term { reason: 0, row: 0, coef: Rat::new(1, 2) }] });
+        Some((out, n, false))
+    }
+
     fn chain_sentences(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> (Vec<Sentence>, usize, bool) {
         let cx = self.w.cx;
         let odd = |l: &Rat| l.denom_i64().is_none_or(|d| d > 2);
@@ -1382,6 +1421,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
         }
         stamp("cs partial", t_cs);
+        if target.table == Table::Ratio && support.iter().any(|(_, l)| !l.is_integer()) {
+            if let Some(r) = self.squared_ratio(target, support, h, then.clone(), focus, &mut budget) {
+                return r;
+            }
+        }
         let collapse = true;
         let (reasons, combination) = self.reasons_for(support, h, collapse);
         let stmt = then.unwrap_or_else(|| target.stmt.clone());

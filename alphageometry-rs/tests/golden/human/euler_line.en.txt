@@ -21,4 +21,4 @@ Hence △AHB ∼ △MON (AA). (5)
             = MN / AB    [MN is a midline of △CBA]
             = OM / AH    [△AHB ∼ △MON, by (5)]
 Hence △AHG ∼ △MOG (SAS). (6)
-7. △AHG ∼ △MOG, by (6), so ∠AGH = ∠MGO; as A, G, M are collinear, these are vertical angles, so O, G, H lie on one line, as required. ∎
+7. △AHG ∼ △MOG, by (6), so ∠AGH = ∠MGO; as A, G, M are collinear and these two angles lie on opposite sides of that line, they are vertical angles, so O, G, H lie on one line, as required. ∎
