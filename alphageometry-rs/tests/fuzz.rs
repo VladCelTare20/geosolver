@@ -43,10 +43,20 @@ fn fuzz_smoke_no_false_proof() {
             o.proof
         );
         if case.kind == Kind::Goal || case.kind == Kind::HypGeneric {
-            assert_eq!(o.goal_numeric, Some(false), "{} must be false on its figure", case.name);
+            assert_eq!(
+                o.goal_numeric,
+                Some(false),
+                "{} must be false on its figure",
+                case.name
+            );
         }
         if case.kind == Kind::HypSpecial {
-            assert_eq!(o.goal_numeric, Some(true), "{} must hold on the original figure", case.name);
+            assert_eq!(
+                o.goal_numeric,
+                Some(true),
+                "{} must hold on the original figure",
+                case.name
+            );
         }
     }
 }
@@ -59,8 +69,16 @@ fn fuzz_generation_is_deterministic() {
         seed: 7,
         samples: 3,
     };
-    let a: Vec<String> = generate(&problems, &cfg).cases.into_iter().map(|c| c.text).collect();
-    let b: Vec<String> = generate(&problems, &cfg).cases.into_iter().map(|c| c.text).collect();
+    let a: Vec<String> = generate(&problems, &cfg)
+        .cases
+        .into_iter()
+        .map(|c| c.text)
+        .collect();
+    let b: Vec<String> = generate(&problems, &cfg)
+        .cases
+        .into_iter()
+        .map(|c| c.text)
+        .collect();
     assert_eq!(a, b);
 }
 
@@ -79,7 +97,10 @@ fn pinned_figure_reproduces_the_problem() {
         assert_eq!(p.value, fig.coords[&p.name], "{} moved", p.name);
     }
     let none: HashMap<String, ddar::numerics::Vec2> = HashMap::new();
-    assert_eq!(render_problem(&prob, &none).replace(' ', ""), text.replace(' ', ""));
+    assert_eq!(
+        render_problem(&prob, &none).replace(' ', ""),
+        text.replace(' ', "")
+    );
 }
 
 #[test]
@@ -111,12 +132,23 @@ fn any_proof_of_a_false_variant_is_unsound() {
 #[test]
 fn metric_fuzz_smoke_no_false_proof() {
     use ddar::fuzz::{generate_geo, solve_geo_case};
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples").join("metric");
-    let programs: Vec<(String, String)> =
-        ["angle_bisector", "geometric_mean", "median_apollonius", "power_of_a_point"]
-            .iter()
-            .map(|n| (n.to_string(), std::fs::read_to_string(dir.join(format!("{n}.geo"))).unwrap()))
-            .collect();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("metric");
+    let programs: Vec<(String, String)> = [
+        "angle_bisector",
+        "geometric_mean",
+        "median_apollonius",
+        "power_of_a_point",
+    ]
+    .iter()
+    .map(|n| {
+        (
+            n.to_string(),
+            std::fs::read_to_string(dir.join(format!("{n}.geo"))).unwrap(),
+        )
+    })
+    .collect();
     let gen = generate_geo(
         &programs,
         &Config {
@@ -125,12 +157,25 @@ fn metric_fuzz_smoke_no_false_proof() {
             samples: 4,
         },
     );
-    assert!(gen.cases.len() >= 10, "only {} cases: {:?}", gen.cases.len(), gen.skipped);
+    assert!(
+        gen.cases.len() >= 10,
+        "only {} cases: {:?}",
+        gen.cases.len(),
+        gen.skipped
+    );
     assert!(gen.cases.iter().any(|c| c.kind == Kind::HypGeneric));
     for case in &gen.cases {
         let o = solve_geo_case(&case.name, &case.text);
         assert_eq!(o.goal_numeric, Some(false), "{}: {}", case.name, case.text);
-        assert_eq!(verdict(case, &o), "ok", "{} {}\n{}\n{:?}", case.name, case.mutation, case.text, o.proof);
+        assert_eq!(
+            verdict(case, &o),
+            "ok",
+            "{} {}\n{}\n{:?}",
+            case.name,
+            case.mutation,
+            case.text,
+            o.proof
+        );
     }
 }
 
@@ -142,15 +187,33 @@ fn degenerate_figures_that_once_panicked_ddar_stay_unproved_without_a_panic() {
     let outcomes: Vec<Outcome> = std::thread::scope(|s| {
         let handles: Vec<_> = cases
             .chunks(3)
-            .map(|chunk| s.spawn(move || chunk.iter().map(|(n, t)| solve_case(n, t, budget, true)).collect::<Vec<_>>()))
+            .map(|chunk| {
+                s.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|(n, t)| solve_case(n, t, budget, true))
+                        .collect::<Vec<_>>()
+                })
+            })
             .collect();
-        handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect()
     });
     for ((name, text), o) in cases.iter().zip(&outcomes) {
         assert!(o.parsed, "{name}: {} {}", o.status, o.detail);
-        assert_eq!(o.goal_numeric, Some(false), "{name}: the goal is false on this degenerate figure");
+        assert_eq!(
+            o.goal_numeric,
+            Some(false),
+            "{name}: the goal is false on this degenerate figure"
+        );
         assert_ne!(o.status, "engine-panic", "{name}: {}", o.detail);
         assert_ne!(o.status, "UNSOUND", "{name}");
-        assert!(!o.proved, "{name} proved a goal that is false on its figure:\n{text}\n{:?}", o.proof);
+        assert!(
+            !o.proved,
+            "{name} proved a goal that is false on its figure:\n{text}\n{:?}",
+            o.proof
+        );
     }
 }

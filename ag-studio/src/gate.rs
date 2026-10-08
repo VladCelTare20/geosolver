@@ -30,7 +30,9 @@ const MAX_COOKIE_BYTES: usize = 128;
 const MAX_NEXT_BYTES: usize = 2048;
 
 pub fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 pub fn cookie_name(secure: bool) -> &'static str {
@@ -70,7 +72,9 @@ pub fn verify(value: &str, key: &[u8; 32], cred: &[u8; 32], max_age: u64, now: u
     if iat > now.saturating_add(MAX_SKEW_SECS) || now.saturating_sub(iat) > max_age {
         return None;
     }
-    let got = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(mac_s).ok()?;
+    let got = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(mac_s)
+        .ok()?;
     let got: [u8; 32] = got.try_into().ok()?;
     security::ct_eq(&got, &mac(key, cred, iat)).then_some(iat)
 }
@@ -84,7 +88,13 @@ fn max_age_secs(state: &Shared) -> u64 {
 pub fn cookie_iat(state: &Shared, headers: &HeaderMap) -> Option<u64> {
     let basic = state.config.basic_auth.as_ref()?;
     let value = crate::auth::single_cookie(headers, cookie_name(state.config.secure_cookies))?;
-    verify(value, &state.gate_key, &basic.cred_digest(), max_age_secs(state), now_secs())
+    verify(
+        value,
+        &state.gate_key,
+        &basic.cred_digest(),
+        max_age_secs(state),
+        now_secs(),
+    )
 }
 
 pub fn due_for_renewal(iat: u64) -> bool {
@@ -259,11 +269,17 @@ fn render(lang: Lang, next: &str, ask_user: bool, problem: Option<Problem>) -> S
     let (pw_attrs, error) = match problem {
         Some(Problem::Cookies) => (
             " aria-describedby=\"pw-err\"".to_string(),
-            format!("<p class=\"gate-err\" id=\"pw-err\" role=\"alert\">{}</p>", t(Problem::Cookies.key())),
+            format!(
+                "<p class=\"gate-err\" id=\"pw-err\" role=\"alert\">{}</p>",
+                t(Problem::Cookies.key())
+            ),
         ),
         Some(p) => (
             " aria-invalid=\"true\" aria-describedby=\"pw-err\" autofocus".to_string(),
-            format!("<p class=\"gate-err\" id=\"pw-err\" role=\"alert\">{}</p>", t(p.key())),
+            format!(
+                "<p class=\"gate-err\" id=\"pw-err\" role=\"alert\">{}</p>",
+                t(p.key())
+            ),
         ),
         None => (String::new(), String::new()),
     };
@@ -301,7 +317,10 @@ fn page_response(status: StatusCode, html: String) -> Response {
         status,
         [
             (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
-            (header::HeaderName::from_static("x-robots-tag"), HeaderValue::from_static("noindex")),
+            (
+                header::HeaderName::from_static("x-robots-tag"),
+                HeaderValue::from_static("noindex"),
+            ),
         ],
         Html(html),
     )
@@ -321,14 +340,20 @@ struct GateQuery {
 /// `GET /gate`: the password page, or straight on to `next` when the cookie
 /// is already valid (or there is no form gate).
 pub async fn page(State(state): State<Shared>, uri: Uri, headers: HeaderMap) -> Response {
-    let q = Query::<GateQuery>::try_from_uri(&uri).map(|q| q.0).unwrap_or_default();
+    let q = Query::<GateQuery>::try_from_uri(&uri)
+        .map(|q| q.0)
+        .unwrap_or_default();
     let next = sanitize_next(q.next.as_deref().unwrap_or("/"));
     if !state.config.form_gate() || cookie_iat(&state, &headers).is_some() {
         return see_other(location_of(&next));
     }
     let chosen = q.lang.as_deref().and_then(Lang::from_code);
     let lang = chosen.unwrap_or_else(|| i18n::lang_from_headers(&headers));
-    let ask_user = state.config.basic_auth.as_ref().is_some_and(|b| b.has_user());
+    let ask_user = state
+        .config
+        .basic_auth
+        .as_ref()
+        .is_some_and(|b| b.has_user());
     let problem = (q.cookies.as_deref() == Some("0")).then_some(Problem::Cookies);
     let mut resp = page_response(StatusCode::OK, render(lang, &next, ask_user, problem));
     if let Some(l) = chosen {
@@ -353,23 +378,39 @@ struct GateForm {
 /// budget it shares with Basic auth; on success set the cookie and go to
 /// `next`.
 pub async fn submit(State(state): State<Shared>, req: Request<Body>) -> Response {
-    let Some(basic) = state.config.basic_auth.clone().filter(|_| state.config.form_gate()) else {
+    let Some(basic) = state
+        .config
+        .basic_auth
+        .clone()
+        .filter(|_| state.config.form_gate())
+    else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let ip = security::client_ip(&state.config, &req);
     let headers = req.headers().clone();
     let lang = i18n::lang_from_headers(&headers);
     let ask_user = basic.has_user();
-    let form = Form::<GateForm>::from_request(req, &state).await.map(|f| f.0);
+    let form = Form::<GateForm>::from_request(req, &state)
+        .await
+        .map(|f| f.0);
     let next = sanitize_next(form.as_ref().map_or("/", |f| f.next.as_str()));
     if state.password_guesses_exhausted(ip) {
-        let mut resp = page_response(StatusCode::TOO_MANY_REQUESTS, render(lang, &next, ask_user, Some(Problem::Rate)));
-        resp.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("60"));
+        let mut resp = page_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            render(lang, &next, ask_user, Some(Problem::Rate)),
+        );
+        resp.headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static("60"));
         return resp;
     }
     let form = match form {
         Ok(f) if !f.password.is_empty() => f,
-        Ok(_) => return page_response(StatusCode::BAD_REQUEST, render(lang, &next, ask_user, Some(Problem::Empty))),
+        Ok(_) => {
+            return page_response(
+                StatusCode::BAD_REQUEST,
+                render(lang, &next, ask_user, Some(Problem::Empty)),
+            )
+        }
         Err(rejection) => {
             let status = rejection.status();
             return page_response(status, render(lang, &next, ask_user, Some(Problem::Empty)));
@@ -377,7 +418,10 @@ pub async fn submit(State(state): State<Shared>, req: Request<Body>) -> Response
     };
     if !basic.credentials_match(form.username.as_bytes(), form.password.as_bytes()) {
         state.count_wrong_password(ip);
-        return page_response(StatusCode::UNAUTHORIZED, render(lang, &next, ask_user, Some(Problem::Wrong)));
+        return page_response(
+            StatusCode::UNAUTHORIZED,
+            render(lang, &next, ask_user, Some(Problem::Wrong)),
+        );
     }
     let mut resp = see_other(location_of(&next));
     append_cookie(&state, &mut resp);
@@ -418,19 +462,55 @@ mod tests {
             let mut b = v.clone().into_bytes();
             b[i] = if b[i] == b'A' { b'B' } else { b'A' };
             let t = String::from_utf8(b).unwrap();
-            assert_eq!(verify(&t, &KEY, &c, 180 * DAY, NOW), None, "MAC char {i} changed");
+            assert_eq!(
+                verify(&t, &KEY, &c, 180 * DAY, NOW),
+                None,
+                "MAC char {i} changed"
+            );
         }
         let future = mint(&KEY, &c, NOW + 301);
-        assert_eq!(verify(&future, &KEY, &c, 180 * DAY, NOW), None, "iat > now + 300");
+        assert_eq!(
+            verify(&future, &KEY, &c, 180 * DAY, NOW),
+            None,
+            "iat > now + 300"
+        );
         let skewed = mint(&KEY, &c, NOW + 299);
         assert!(verify(&skewed, &KEY, &c, 180 * DAY, NOW).is_some());
-        assert_eq!(verify(&v, &KEY, &c, 180 * DAY, NOW + 181 * DAY), None, "expired");
-        assert_eq!(verify(&v, &KEY, &cred(":another-password"), 180 * DAY, NOW), None, "rotated password");
-        assert_eq!(verify(&v, &KEY, &cred("someone:correct-horse-9"), 180 * DAY, NOW), None, "user added");
-        assert_eq!(verify(&v, &[8u8; 32], &c, 180 * DAY, NOW), None, "rotated key");
+        assert_eq!(
+            verify(&v, &KEY, &c, 180 * DAY, NOW + 181 * DAY),
+            None,
+            "expired"
+        );
+        assert_eq!(
+            verify(&v, &KEY, &cred(":another-password"), 180 * DAY, NOW),
+            None,
+            "rotated password"
+        );
+        assert_eq!(
+            verify(&v, &KEY, &cred("someone:correct-horse-9"), 180 * DAY, NOW),
+            None,
+            "user added"
+        );
+        assert_eq!(
+            verify(&v, &[8u8; 32], &c, 180 * DAY, NOW),
+            None,
+            "rotated key"
+        );
         let relabeled = v.replacen(&NOW.to_string(), &(NOW + 1).to_string(), 1);
-        assert_eq!(verify(&relabeled, &KEY, &c, 180 * DAY, NOW + 1), None, "iat is signed");
-        for junk in ["", "v1", "v1..", "v2.1.x", &format!("v1.{NOW}"), &format!("v1.+{NOW}.x"), &"v1.1.".repeat(40)] {
+        assert_eq!(
+            verify(&relabeled, &KEY, &c, 180 * DAY, NOW + 1),
+            None,
+            "iat is signed"
+        );
+        for junk in [
+            "",
+            "v1",
+            "v1..",
+            "v2.1.x",
+            &format!("v1.{NOW}"),
+            &format!("v1.+{NOW}.x"),
+            &"v1.1.".repeat(40),
+        ] {
             assert_eq!(verify(junk, &KEY, &c, 180 * DAY, NOW), None, "{junk:?}");
         }
     }
@@ -440,8 +520,18 @@ mod tests {
         assert_eq!(sanitize_next("/app?x=1"), "/app?x=1");
         assert_eq!(sanitize_next("/"), "/");
         for bad in [
-            "//evil.com", "/\\evil.com", "https://evil.com", "/gate", "/gate?next=/app", "//evil",
-            "/app\r\nSet-Cookie: x=1", "/a\nb", "", "app", "/a\\b", "/\u{7f}",
+            "//evil.com",
+            "/\\evil.com",
+            "https://evil.com",
+            "/gate",
+            "/gate?next=/app",
+            "//evil",
+            "/app\r\nSet-Cookie: x=1",
+            "/a\nb",
+            "",
+            "app",
+            "/a\\b",
+            "/\u{7f}",
         ] {
             assert_eq!(sanitize_next(bad), "/", "{bad:?}");
         }
@@ -452,22 +542,43 @@ mod tests {
     #[test]
     fn percent_encoding_round_trips_through_the_query() {
         assert_eq!(percent_encode("/"), "%2F");
-        assert_eq!(percent_encode("/app?x=1&y=ă"), "%2Fapp%3Fx%3D1%26y%3D%C4%83");
+        assert_eq!(
+            percent_encode("/app?x=1&y=ă"),
+            "%2Fapp%3Fx%3D1%26y%3D%C4%83"
+        );
     }
 
     #[test]
     fn gate_page_has_no_inline_script_and_escapes_its_values() {
         assert!(security::inline_scripts(GATE_HTML).is_empty());
         assert!(!GATE_HTML.contains("<script"));
-        let html = render(Lang::En, "/app?a=\"><script>x</script>", false, Some(Problem::Wrong));
+        let html = render(
+            Lang::En,
+            "/app?a=\"><script>x</script>",
+            false,
+            Some(Problem::Wrong),
+        );
         assert!(!html.contains("<script"), "next must be escaped");
         assert!(!html.contains("{{"), "every placeholder is filled");
-        for placeholder in ["{{username}}", "{{pw_attrs}}", "{{error}}", "{{lang_links}}", "{{title}}"] {
+        for placeholder in [
+            "{{username}}",
+            "{{pw_attrs}}",
+            "{{error}}",
+            "{{lang_links}}",
+            "{{title}}",
+        ] {
             let next = format!("/x{placeholder}");
             let page = render(Lang::En, &next, false, Some(Problem::Wrong));
             let hidden = format!("name=\"next\" value=\"{next}\">");
-            assert!(page.contains(&hidden), "{placeholder} in next stays literal");
-            assert_eq!(page.matches("name=\"username\"").count(), 1, "{placeholder}");
+            assert!(
+                page.contains(&hidden),
+                "{placeholder} in next stays literal"
+            );
+            assert_eq!(
+                page.matches("name=\"username\"").count(),
+                1,
+                "{placeholder}"
+            );
             assert_eq!(page.matches("aria-invalid").count(), 1, "{placeholder}");
         }
         assert!(html.contains("aria-invalid=\"true\""));
@@ -478,7 +589,10 @@ mod tests {
         let ro = render(Lang::Ro, "/", true, None);
         assert!(ro.contains("<html lang=\"ro\">"));
         assert!(ro.contains(&html_escape(i18n::t(Lang::Ro, "gate.title"))));
-        assert!(ro.contains("autocomplete=\"username\" autocapitalize"), "user:pass asks for the user");
+        assert!(
+            ro.contains("autocomplete=\"username\" autocapitalize"),
+            "user:pass asks for the user"
+        );
         assert!(!ro.contains("aria-invalid"));
         assert!(!ro.contains("role=\"alert\""));
     }

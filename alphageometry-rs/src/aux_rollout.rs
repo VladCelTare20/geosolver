@@ -176,7 +176,9 @@ fn double_point_ok(problem: &Problem, d: &mut Ddar, p: PointId, c: &Construction
     let at_p = |i: PointId| i == new_id || problem.points[i as usize].value == c.coord;
     let degenerate = c.preds.iter().any(|q| {
         !matches!(q.name.as_str(), "coll" | "cyclic")
-            && q.points.chunks(2).any(|w| w.len() == 2 && w[0] != w[1] && at_p(w[0]) && at_p(w[1]))
+            && q.points
+                .chunks(2)
+                .any(|w| w.len() == 2 && w[0] != w[1] && at_p(w[0]) && at_p(w[1]))
     });
     let aug = augment(problem, c);
     if degenerate
@@ -492,7 +494,14 @@ pub(crate) fn search(
     deadline: Option<Instant>,
     sweep: bool,
 ) -> Option<(Option<AuxProof>, SearchStats)> {
-    search_with(problem, verbose, deadline, sweep, usize::MAX, lemmas_enabled())
+    search_with(
+        problem,
+        verbose,
+        deadline,
+        sweep,
+        usize::MAX,
+        lemmas_enabled(),
+    )
 }
 
 /// `AUX_LEMMAS=0` turns the lemma phase off (A/B measurement).
@@ -531,7 +540,11 @@ fn open_lemmas(problem: &Problem, d: &Ddar) -> Vec<crate::predicate::Predicate> 
     use crate::aux_search::pred;
     let n = problem.points.len();
     let v = |i: usize| problem.points[i].value;
-    let scale = Scorer::new(&problem.points.iter().map(|p| p.value).collect::<Vec<_>>(), &[]).scale();
+    let scale = Scorer::new(
+        &problem.points.iter().map(|p| p.value).collect::<Vec<_>>(),
+        &[],
+    )
+    .scale();
     let tol = 1e-9 * scale.max(1.0);
     let goal = problem.goal.as_ref();
     let goal_pts: Vec<PointId> = goal.map(|g| g.points.clone()).unwrap_or_default();
@@ -628,15 +641,23 @@ fn lemma_phase(
         lp.goal = Some(lemma);
         let per = (total / 2).min(until - now);
         let t = Instant::now();
-        let res = guarded(|| search_with(&lp, false, Some(now + per), true, LEMMA_SWEEP, false)).flatten();
+        let res = guarded(|| search_with(&lp, false, Some(now + per), true, LEMMA_SWEEP, false))
+            .flatten();
         let text = lp.goal.as_ref().map(|g| {
-            let names: Vec<&str> = g.points.iter().map(|&i| lp.points[i as usize].name.as_str()).collect();
+            let names: Vec<&str> = g
+                .points
+                .iter()
+                .map(|&i| lp.points[i as usize].name.as_str())
+                .collect();
             format!("{} {}", g.name, names.join(" "))
         });
         if let Some((Some(proof), _)) = res {
             if verbose {
-                let used: Vec<String> =
-                    proof.constructions.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+                let used: Vec<String> = proof
+                    .constructions
+                    .iter()
+                    .map(|c| format!("{} = {}", c.name, c.desc))
+                    .collect();
                 eprintln!(
                     "[aux] lemma {} proved in {:.2}s with {:?}",
                     text.unwrap_or_default(),
@@ -647,7 +668,11 @@ fn lemma_phase(
             aug = crate::aux_search::apply_constructions(&aug, &proof.constructions);
             cons.extend(proof.constructions);
         } else if verbose {
-            eprintln!("[aux] lemma {} not proved ({:.2}s)", text.unwrap_or_default(), t.elapsed().as_secs_f64());
+            eprintln!(
+                "[aux] lemma {} not proved ({:.2}s)",
+                text.unwrap_or_default(),
+                t.elapsed().as_secs_f64()
+            );
         }
     }
     (!cons.is_empty()).then_some((aug, cons))
@@ -761,7 +786,8 @@ fn search_with(
                             t0.elapsed().as_secs_f64()
                         );
                     }
-                    let aug_until = (t0 + b.mul_f64(AUGMENTED_END)).min(Instant::now() + AUGMENTED_CAP);
+                    let aug_until =
+                        (t0 + b.mul_f64(AUGMENTED_END)).min(Instant::now() + AUGMENTED_CAP);
                     let res = search_with(&aug, verbose, Some(aug_until), true, usize::MAX, false);
                     if let Some((found, st)) = res {
                         s.runs.fetch_add(st.runs, Ordering::Relaxed);
@@ -772,7 +798,10 @@ fn search_with(
                         }
                     }
                     if verbose {
-                        eprintln!("[aux] back to the original rollouts at {:.2}s", t0.elapsed().as_secs_f64());
+                        eprintln!(
+                            "[aux] back to the original rollouts at {:.2}s",
+                            t0.elapsed().as_secs_f64()
+                        );
                     }
                 }
             }

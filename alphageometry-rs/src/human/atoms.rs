@@ -87,7 +87,9 @@ pub struct Builder<'c, 'a> {
 pub fn human_row(cx: &Ctx, key: AtomKey, a: &[PointId]) -> Option<Vec<(Table, LinComb)>> {
     let t = cx.t;
     let half = Rat::new(1, 2);
-    let ang = |x: PointId, y: PointId, z: PointId| -> Option<LinComb> { Some(&t.dir(y, z)? - &t.dir(y, x)?) };
+    let ang = |x: PointId, y: PointId, z: PointId| -> Option<LinComb> {
+        Some(&t.dir(y, z)? - &t.dir(y, x)?)
+    };
     let ex = |c: LinComb| t.exact(Table::Angle, &c);
     let rows = match key {
         AtomKey::Inscribed => {
@@ -107,7 +109,11 @@ pub fn human_row(cx: &Ctx, key: AtomKey, a: &[PointId]) -> Option<Vec<(Table, Li
             vec![(Table::Angle, ex(&lhs - &rhs))]
         }
         AtomKey::PerpBisector | AtomKey::Orthocentre => {
-            let (l, m) = if key == AtomKey::PerpBisector { ((a[0], a[1]), (a[2], a[3])) } else { ((a[3], a[0]), (a[1], a[2])) };
+            let (l, m) = if key == AtomKey::PerpBisector {
+                ((a[0], a[1]), (a[2], a[3]))
+            } else {
+                ((a[3], a[0]), (a[1], a[2]))
+            };
             let mut r = &t.dir(l.0, l.1)? - &t.dir(m.0, m.1)?;
             r.add_term(crate::elimination::ANGLE_UNIT, -&half);
             vec![(Table::Angle, ex(r))]
@@ -144,16 +150,45 @@ pub fn human_row(cx: &Ctx, key: AtomKey, a: &[PointId]) -> Option<Vec<(Table, Li
 
 impl<'c, 'a> Builder<'c, 'a> {
     pub fn new(cx: &'c Ctx<'a>) -> Builder<'c, 'a> {
-        Builder { cx, atoms: Vec::new() }
+        Builder {
+            cx,
+            atoms: Vec::new(),
+        }
     }
 
-    pub fn push(&mut self, src: AtomSrc, args: Vec<PointId>, rows: Vec<(Table, LinComb)>, cost: u32, sources: BTreeSet<FactId>, tmpl: FactId, avail: FactId) {
+    pub fn push(
+        &mut self,
+        src: AtomSrc,
+        args: Vec<PointId>,
+        rows: Vec<(Table, LinComb)>,
+        cost: u32,
+        sources: BTreeSet<FactId>,
+        tmpl: FactId,
+        avail: FactId,
+    ) {
         for (k, (table, row)) in rows.into_iter().enumerate() {
             if row.is_zero() {
                 continue;
             }
-            let q = if table == Table::Angle { self.cx.quot.q(&row) } else { row.clone() };
-            self.atoms.push(Atom { src, args: args.clone(), table, row, q, cost, sources: sources.clone(), tmpl, avail, row_idx: k as u16, via: Vec::new(), pts: Vec::new() });
+            let q = if table == Table::Angle {
+                self.cx.quot.q(&row)
+            } else {
+                row.clone()
+            };
+            self.atoms.push(Atom {
+                src,
+                args: args.clone(),
+                table,
+                row,
+                q,
+                cost,
+                sources: sources.clone(),
+                tmpl,
+                avail,
+                row_idx: k as u16,
+                via: Vec::new(),
+                pts: Vec::new(),
+            });
         }
     }
 
@@ -167,14 +202,43 @@ impl<'c, 'a> Builder<'c, 'a> {
             let class = cx.class[g as usize];
             let srcs = cx.fact_sources(g);
             match class {
-                FactClass::Hyp => self.push(AtomSrc::Hyp(g), vec![], rows, 1, BTreeSet::new(), g + 1, g + 1),
+                FactClass::Hyp => self.push(
+                    AtomSrc::Hyp(g),
+                    vec![],
+                    rows,
+                    1,
+                    BTreeSet::new(),
+                    g + 1,
+                    g + 1,
+                ),
                 FactClass::HypReg => {
                     let is_line = matches!(cx.t.facts[g as usize].reason, Reason::Collinear(_));
                     for (k, (tb, r)) in rows.into_iter().enumerate() {
-                        let q = if tb == Table::Angle { cx.quot.q(&r) } else { r.clone() };
+                        let q = if tb == Table::Angle {
+                            cx.quot.q(&r)
+                        } else {
+                            r.clone()
+                        };
                         let glue = is_line && tb == Table::Angle;
-                        let (src, cost) = if glue { (AtomSrc::Glue(g), 0) } else { (AtomSrc::Engine(g), 2) };
-                        self.atoms.push(Atom { src, args: vec![], table: tb, row: r, q, cost, sources: BTreeSet::new(), tmpl: g + 1, avail: g + 1, row_idx: k as u16, via: Vec::new(), pts: Vec::new() });
+                        let (src, cost) = if glue {
+                            (AtomSrc::Glue(g), 0)
+                        } else {
+                            (AtomSrc::Engine(g), 2)
+                        };
+                        self.atoms.push(Atom {
+                            src,
+                            args: vec![],
+                            table: tb,
+                            row: r,
+                            q,
+                            cost,
+                            sources: BTreeSet::new(),
+                            tmpl: g + 1,
+                            avail: g + 1,
+                            row_idx: k as u16,
+                            via: Vec::new(),
+                            pts: Vec::new(),
+                        });
                     }
                 }
                 _ => {
@@ -190,7 +254,14 @@ impl<'c, 'a> Builder<'c, 'a> {
         }
     }
 
-    fn add_human(&mut self, key: AtomKey, args: Vec<PointId>, cost: u32, sources: BTreeSet<FactId>, tmpl: FactId) {
+    fn add_human(
+        &mut self,
+        key: AtomKey,
+        args: Vec<PointId>,
+        cost: u32,
+        sources: BTreeSet<FactId>,
+        tmpl: FactId,
+    ) {
         if tmpl == NEVER {
             return;
         }
@@ -204,7 +275,10 @@ impl<'c, 'a> Builder<'c, 'a> {
 
     pub fn sweep(&mut self, from: usize) {
         let cx = self.cx;
-        let mut finals: Vec<Basis> = Table::ALL.iter().map(|tb| Basis::new(&cx.piv[tb.idx()], false)).collect();
+        let mut finals: Vec<Basis> = Table::ALL
+            .iter()
+            .map(|tb| Basis::new(&cx.piv[tb.idx()], false))
+            .collect();
         for tb in Table::ALL {
             for (i, (g, r)) in cx.t.rows[tb.idx()].iter().enumerate() {
                 if cx.in_cl[*g as usize] {
@@ -222,7 +296,10 @@ impl<'c, 'a> Builder<'c, 'a> {
                 pending[a.table.idx()].push(i);
             }
         }
-        let mut inc: Vec<Basis> = Table::ALL.iter().map(|tb| Basis::new(&cx.piv[tb.idx()], false)).collect();
+        let mut inc: Vec<Basis> = Table::ALL
+            .iter()
+            .map(|tb| Basis::new(&cx.piv[tb.idx()], false))
+            .collect();
         let mut by_fact: BTreeMap<FactId, Vec<(Table, usize)>> = BTreeMap::new();
         for tb in Table::ALL {
             for (i, (g, _)) in cx.t.rows[tb.idx()].iter().enumerate() {
@@ -262,11 +339,20 @@ impl<'c, 'a> Builder<'c, 'a> {
         let n = t.n as PointId;
         let start = self.atoms.len();
         for o in 0..n {
-            if t.subst.get(o as usize).copied() != Some(o) && !cx.closure.iter().any(|&f| fact_mentions(cx, f, o)) {
+            if t.subst.get(o as usize).copied() != Some(o)
+                && !cx.closure.iter().any(|&f| fact_mentions(cx, f, o))
+            {
                 continue;
             }
-            let mut others: Vec<(f64, PointId)> = (0..n).filter(|&p| p != o && t.dm(o, p).is_some()).map(|p| (t.dist(o, p), p)).collect();
-            others.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(std::cmp::Ordering::Equal).then(x.1.cmp(&y.1)));
+            let mut others: Vec<(f64, PointId)> = (0..n)
+                .filter(|&p| p != o && t.dm(o, p).is_some())
+                .map(|p| (t.dist(o, p), p))
+                .collect();
+            others.sort_by(|x, y| {
+                x.0.partial_cmp(&y.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(x.1.cmp(&y.1))
+            });
             for i in 0..others.len() {
                 for j in i + 1..others.len() {
                     let (ri, rj) = (others[i].0, others[j].0);
@@ -299,8 +385,16 @@ impl<'c, 'a> Builder<'c, 'a> {
                             s.extend(src);
                         }
                         let plain = |g: FactId| {
-                            matches!(super::classify::fact_stmt(cx, g), super::model::Stmt::Cong { .. } | super::model::Stmt::Congruent { .. } | super::model::Stmt::Coincide { .. } | super::model::Stmt::OnCircle { .. })
-                                || cx.t.rows_of(Table::Ratio, g).any(|r| cx.t.canon_ratio(r).terms.len() == 2)
+                            matches!(
+                                super::classify::fact_stmt(cx, g),
+                                super::model::Stmt::Cong { .. }
+                                    | super::model::Stmt::Congruent { .. }
+                                    | super::model::Stmt::Coincide { .. }
+                                    | super::model::Stmt::OnCircle { .. }
+                            ) || cx
+                                .t
+                                .rows_of(Table::Ratio, g)
+                                .any(|r| cx.t.canon_ratio(r).terms.len() == 2)
                         };
                         if derived.iter().any(|&g| !plain(g)) {
                             self.atoms[i].avail = NEVER;
@@ -317,11 +411,20 @@ impl<'c, 'a> Builder<'c, 'a> {
         start
     }
 
-    pub fn groups(&self, radii_from: usize) -> BTreeMap<PointId, Vec<(PointId, PointId, FactId, BTreeSet<FactId>)>> {
-        let mut out: BTreeMap<PointId, Vec<(PointId, PointId, FactId, BTreeSet<FactId>)>> = BTreeMap::new();
+    pub fn groups(
+        &self,
+        radii_from: usize,
+    ) -> BTreeMap<PointId, Vec<(PointId, PointId, FactId, BTreeSet<FactId>)>> {
+        let mut out: BTreeMap<PointId, Vec<(PointId, PointId, FactId, BTreeSet<FactId>)>> =
+            BTreeMap::new();
         for a in &self.atoms[radii_from..] {
             if a.src == AtomSrc::Human(AtomKey::Radii) && a.avail != NEVER {
-                out.entry(a.args[0]).or_default().push((a.args[1], a.args[2], a.avail, a.sources.clone()));
+                out.entry(a.args[0]).or_default().push((
+                    a.args[1],
+                    a.args[2],
+                    a.avail,
+                    a.sources.clone(),
+                ));
             }
         }
         out
@@ -337,7 +440,11 @@ impl<'c, 'a> Builder<'c, 'a> {
                 return Some((0, BTreeSet::new()));
             }
             let (x, y) = (a.min(b), a.max(b));
-            groups.get(&o)?.iter().find(|r| r.0 == x && r.1 == y).map(|r| (r.2, r.3.clone()))
+            groups
+                .get(&o)?
+                .iter()
+                .find(|r| r.0 == x && r.1 == y)
+                .map(|r| (r.2, r.3.clone()))
         };
         let merge = |xs: &[&(FactId, BTreeSet<FactId>)]| -> (FactId, BTreeSet<FactId>) {
             let mut h = 0;
@@ -372,7 +479,9 @@ impl<'c, 'a> Builder<'c, 'a> {
                         for l in k + 1..s.len() {
                             let key = [s[i], s[j], s[k], s[l]];
                             let cand = (c.fact + 1, c.src.clone());
-                            let better = inscribed.get(&key).is_none_or(|old| (cand.1.len(), cand.0) < (old.1.len(), old.0));
+                            let better = inscribed
+                                .get(&key)
+                                .is_none_or(|old| (cand.1.len(), cand.0) < (old.1.len(), old.0));
                             if better {
                                 inscribed.insert(key, cand);
                             }
@@ -390,13 +499,16 @@ impl<'c, 'a> Builder<'c, 'a> {
                     for k in j + 1..m.len() {
                         for l in k + 1..m.len() {
                             let q = [m[i], m[j], m[k], m[l]];
-                            let parts: Vec<(FactId, BTreeSet<FactId>)> = q[1..].iter().filter_map(|&p| eq(*o, q[0], p)).collect();
+                            let parts: Vec<(FactId, BTreeSet<FactId>)> =
+                                q[1..].iter().filter_map(|&p| eq(*o, q[0], p)).collect();
                             if parts.len() != 3 {
                                 continue;
                             }
                             let refs: Vec<&(FactId, BTreeSet<FactId>)> = parts.iter().collect();
                             let cand = merge(&refs);
-                            let better = inscribed.get(&q).is_none_or(|old| (cand.1.len(), cand.0) < (old.1.len(), old.0));
+                            let better = inscribed
+                                .get(&q)
+                                .is_none_or(|old| (cand.1.len(), cand.0) < (old.1.len(), old.0));
                             if better {
                                 inscribed.insert(q, cand);
                             }
@@ -417,12 +529,16 @@ impl<'c, 'a> Builder<'c, 'a> {
                 for &b in &m[ia + 1..] {
                     let Some(ab) = eq(o, a, b) else { continue };
                     self.add_human(AtomKey::Isosceles, vec![o, a, b], 2, ab.1.clone(), ab.0);
-                    let diam = cx.line_through(&[a, o, b], NEVER).map(|l| (l.fact + 1, l.src.clone()));
+                    let diam = cx
+                        .line_through(&[a, o, b], NEVER)
+                        .map(|l| (l.fact + 1, l.src.clone()));
                     for &z in m {
                         if z == a || z == b {
                             continue;
                         }
-                        let (Some(az), Some(bz)) = (eq(o, a, z), eq(o, b, z)) else { continue };
+                        let (Some(az), Some(bz)) = (eq(o, a, z), eq(o, b, z)) else {
+                            continue;
+                        };
                         if let Some(d) = &diam {
                             let (h, s) = merge(&[&ab, &az, &bz, d]);
                             self.add_human(AtomKey::Thales, vec![a, b, z, o], 1, s, h);
@@ -430,7 +546,13 @@ impl<'c, 'a> Builder<'c, 'a> {
                             let (h, s) = merge(&[&ab, &az, &bz]);
                             let inscribed = super::theorems::interior_degrees(t, a, z, b);
                             let central = super::theorems::interior_degrees(t, a, o, b);
-                            let args = if (inscribed - (180.0 - central / 2.0)).abs() < 1e-6 && (inscribed - central / 2.0).abs() > 1e-6 { vec![o, a, b, z, z] } else { vec![o, a, b, z] };
+                            let args = if (inscribed - (180.0 - central / 2.0)).abs() < 1e-6
+                                && (inscribed - central / 2.0).abs() > 1e-6
+                            {
+                                vec![o, a, b, z, z]
+                            } else {
+                                vec![o, a, b, z]
+                            };
                             self.add_human(AtomKey::CentralAngle, args, 2, s, h);
                         }
                     }
@@ -446,10 +568,16 @@ impl<'c, 'a> Builder<'c, 'a> {
                 let (mx, my) = (&members[&x], &members[&y]);
                 for (ia, &a) in mx.iter().enumerate() {
                     for &b in &mx[ia + 1..] {
-                        if !my.contains(&a) || !my.contains(&b) || [a, b].contains(&x) || [a, b].contains(&y) {
+                        if !my.contains(&a)
+                            || !my.contains(&b)
+                            || [a, b].contains(&x)
+                            || [a, b].contains(&y)
+                        {
                             continue;
                         }
-                        let (Some(e1), Some(e2)) = (eq(x, a, b), eq(y, a, b)) else { continue };
+                        let (Some(e1), Some(e2)) = (eq(x, a, b), eq(y, a, b)) else {
+                            continue;
+                        };
                         let (h, s) = merge(&[&e1, &e2]);
                         self.add_human(AtomKey::PerpBisector, vec![x, y, a, b], 1, s, h);
                     }
@@ -457,10 +585,15 @@ impl<'c, 'a> Builder<'c, 'a> {
             }
         }
         let mut power_seen: BTreeSet<(PointId, [PointId; 4])> = BTreeSet::new();
-        let mut circle_sets: Vec<(Vec<PointId>, FactId, BTreeSet<FactId>)> = cx.circles.iter().map(|c| (c.pts.clone(), c.fact + 1, c.src.clone())).collect();
+        let mut circle_sets: Vec<(Vec<PointId>, FactId, BTreeSet<FactId>)> = cx
+            .circles
+            .iter()
+            .map(|c| (c.pts.clone(), c.fact + 1, c.src.clone()))
+            .collect();
         for (o, m) in &members {
             if m.len() >= 4 {
-                let parts: Vec<(FactId, BTreeSet<FactId>)> = m[1..].iter().filter_map(|&p| eq(*o, m[0], p)).collect();
+                let parts: Vec<(FactId, BTreeSet<FactId>)> =
+                    m[1..].iter().filter_map(|&p| eq(*o, m[0], p)).collect();
                 if parts.len() == m.len() - 1 {
                     let refs: Vec<&(FactId, BTreeSet<FactId>)> = parts.iter().collect();
                     let (h, s) = merge(&refs);
@@ -495,7 +628,13 @@ impl<'c, 'a> Builder<'c, 'a> {
                         let mut so = src.clone();
                         so.extend(s1.iter().copied());
                         so.extend(s2.iter().copied());
-                        self.add_human(AtomKey::PowerOfPoint, vec![x, *a, *b, *c, *d], 1, so, (*h).max(*h1).max(*h2));
+                        self.add_human(
+                            AtomKey::PowerOfPoint,
+                            vec![x, *a, *b, *c, *d],
+                            1,
+                            so,
+                            (*h).max(*h1).max(*h2),
+                        );
                     }
                 }
             }
@@ -528,7 +667,13 @@ impl<'c, 'a> Builder<'c, 'a> {
                         }
                         let mut s = s1.clone();
                         s.extend(s2.iter().copied());
-                        self.add_human(AtomKey::Midline, vec![*m, *n2, q, r, p], 1, s, (*h1).max(*h2));
+                        self.add_human(
+                            AtomKey::Midline,
+                            vec![*m, *n2, q, r, p],
+                            1,
+                            s,
+                            (*h1).max(*h2),
+                        );
                     }
                 }
             }
@@ -537,7 +682,15 @@ impl<'c, 'a> Builder<'c, 'a> {
         start
     }
 
-    pub fn perps(&self) -> Vec<((PointId, PointId), (PointId, PointId), FactId, BTreeSet<FactId>, Option<usize>)> {
+    pub fn perps(
+        &self,
+    ) -> Vec<(
+        (PointId, PointId),
+        (PointId, PointId),
+        FactId,
+        BTreeSet<FactId>,
+        Option<usize>,
+    )> {
         let cx = self.cx;
         let mut out = Vec::new();
         for (i, a) in self.atoms.iter().enumerate() {
@@ -549,15 +702,33 @@ impl<'c, 'a> Builder<'c, 'a> {
                     if let Some(p) = cx.hyp_pred.get(&f) {
                         if p.name == "perp" && p.points.len() == 4 {
                             let pts = &p.points;
-                            out.push(((pts[0], pts[1]), (pts[2], pts[3]), a.avail, BTreeSet::new(), None));
+                            out.push((
+                                (pts[0], pts[1]),
+                                (pts[2], pts[3]),
+                                a.avail,
+                                BTreeSet::new(),
+                                None,
+                            ));
                         }
                     }
                 }
                 AtomSrc::Human(AtomKey::PerpBisector) => {
-                    out.push(((a.args[0], a.args[1]), (a.args[2], a.args[3]), a.avail, a.sources.clone(), Some(i)));
+                    out.push((
+                        (a.args[0], a.args[1]),
+                        (a.args[2], a.args[3]),
+                        a.avail,
+                        a.sources.clone(),
+                        Some(i),
+                    ));
                 }
                 AtomSrc::Human(AtomKey::Thales) => {
-                    out.push(((a.args[2], a.args[0]), (a.args[2], a.args[1]), a.avail, a.sources.clone(), Some(i)));
+                    out.push((
+                        (a.args[2], a.args[0]),
+                        (a.args[2], a.args[1]),
+                        a.avail,
+                        a.sources.clone(),
+                        Some(i),
+                    ));
                 }
                 _ => {}
             }
@@ -570,7 +741,10 @@ impl<'c, 'a> Builder<'c, 'a> {
         let t = cx.t;
         let start = self.atoms.len();
         let perps = self.perps();
-        let cls = |l: (PointId, PointId)| t.var(Table::Angle, l.0, l.1).and_then(|v| cx.quot.class_of(v));
+        let cls = |l: (PointId, PointId)| {
+            t.var(Table::Angle, l.0, l.1)
+                .and_then(|v| cx.quot.class_of(v))
+        };
         for i in 0..perps.len() {
             for j in 0..perps.len() {
                 if i >= j {
@@ -578,7 +752,12 @@ impl<'c, 'a> Builder<'c, 'a> {
                 }
                 let (l1, m1, h1, s1, v1) = &perps[i];
                 let (l2, m2, h2, s2, v2) = &perps[j];
-                let combos = [(*l1, *m1, *l2, *m2), (*l1, *m1, *m2, *l2), (*m1, *l1, *l2, *m2), (*m1, *l1, *m2, *l2)];
+                let combos = [
+                    (*l1, *m1, *l2, *m2),
+                    (*l1, *m1, *m2, *l2),
+                    (*m1, *l1, *l2, *m2),
+                    (*m1, *l1, *m2, *l2),
+                ];
                 for (a, ma, b, mb) in combos {
                     if cls(ma).is_none() || cls(ma) != cls(mb) || cls(a) == cls(b) {
                         continue;
@@ -586,9 +765,19 @@ impl<'c, 'a> Builder<'c, 'a> {
                     let mut s = s1.clone();
                     s.extend(s2.iter().copied());
                     let from = self.atoms.len();
-                    self.add_human(AtomKey::Parallel, vec![a.0, a.1, b.0, b.1, ma.0, ma.1], 1, s, (*h1).max(*h2));
+                    self.add_human(
+                        AtomKey::Parallel,
+                        vec![a.0, a.1, b.0, b.1, ma.0, ma.1],
+                        1,
+                        s,
+                        (*h1).max(*h2),
+                    );
                     let shared = a.0 == b.0 || a.0 == b.1 || a.1 == b.0 || a.1 == b.1;
-                    let via: Vec<usize> = if shared { Vec::new() } else { [*v1, *v2].into_iter().flatten().collect() };
+                    let via: Vec<usize> = if shared {
+                        Vec::new()
+                    } else {
+                        [*v1, *v2].into_iter().flatten().collect()
+                    };
                     for at in &mut self.atoms[from..] {
                         at.via = via.clone();
                     }
@@ -608,7 +797,12 @@ impl<'c, 'a> Builder<'c, 'a> {
                         let b = if l2.0 == h { l2.1 } else { l2.0 };
                         let sm1: BTreeSet<PointId> = [m1.0, m1.1].into_iter().collect();
                         let sm2: BTreeSet<PointId> = [m2.0, m2.1].into_iter().collect();
-                        if a == b || sm1.contains(&a) || sm2.contains(&b) || !sm1.contains(&b) || !sm2.contains(&a) {
+                        if a == b
+                            || sm1.contains(&a)
+                            || sm2.contains(&b)
+                            || !sm1.contains(&b)
+                            || !sm2.contains(&a)
+                        {
                             continue;
                         }
                         let c1: Vec<PointId> = sm1.iter().copied().filter(|&x| x != b).collect();
@@ -619,7 +813,13 @@ impl<'c, 'a> Builder<'c, 'a> {
                         let c = c1[0];
                         let mut s = perps[i].3.clone();
                         s.extend(perps[j].3.iter().copied());
-                        self.add_human(AtomKey::Orthocentre, vec![h, a, b, c], 1, s, perps[i].2.max(perps[j].2));
+                        self.add_human(
+                            AtomKey::Orthocentre,
+                            vec![h, a, b, c],
+                            1,
+                            s,
+                            perps[i].2.max(perps[j].2),
+                        );
                     }
                 }
             }
@@ -637,7 +837,9 @@ impl<'c, 'a> Builder<'c, 'a> {
             m.sort_unstable();
             for (l, mm, h, s, _) in &perps {
                 for (pl, pm) in [(*l, *mm), (*mm, *l)] {
-                    let pt = [pl.0, pl.1].into_iter().find(|p| [pm.0, pm.1].contains(p) && m.contains(p));
+                    let pt = [pl.0, pl.1]
+                        .into_iter()
+                        .find(|p| [pm.0, pm.1].contains(p) && m.contains(p));
                     let Some(p) = pt else { continue };
                     let other_m = if pm.0 == p { pm.1 } else { pm.0 };
                     if other_m != *o {
@@ -649,7 +851,10 @@ impl<'c, 'a> Builder<'c, 'a> {
                             if y == p || z == p || y == z || x == y || x == z {
                                 continue;
                             }
-                            let ok = [p, y, z].iter().all(|&q| q == m[0] || rs.iter().any(|r| r.0 == m[0].min(q) && r.1 == m[0].max(q)));
+                            let ok = [p, y, z].iter().all(|&q| {
+                                q == m[0]
+                                    || rs.iter().any(|r| r.0 == m[0].min(q) && r.1 == m[0].max(q))
+                            });
                             if !ok {
                                 continue;
                             }
@@ -674,12 +879,19 @@ impl<'c, 'a> Builder<'c, 'a> {
 
 fn fact_mentions(cx: &Ctx, f: FactId, p: PointId) -> bool {
     match &cx.t.facts[f as usize].reason {
-        Reason::Concyclic(v) | Reason::Collinear(v) | Reason::Theorem(_, v) | Reason::Formula(_, _, v) => v.contains(&p),
+        Reason::Concyclic(v)
+        | Reason::Collinear(v)
+        | Reason::Theorem(_, v)
+        | Reason::Formula(_, _, v) => v.contains(&p),
         Reason::SimilarTriangles(a, b) => [a.0, a.1, a.2, b.0, b.1, b.2].contains(&p),
         Reason::EqualRadius(o, v) => *o == p || v.contains(&p),
         Reason::PointMerge(a, b) | Reason::TangentMerge(a, b) => *a == p || *b == p,
-        Reason::TransferAddMul(a, b) | Reason::TransferArcChord(a, b) => [a.0, a.1, b.0, b.1].contains(&p),
-        Reason::Assumption(_) | Reason::Construction(_) => cx.hyp_pred.get(&f).is_some_and(|q| q.points.contains(&p)),
+        Reason::TransferAddMul(a, b) | Reason::TransferArcChord(a, b) => {
+            [a.0, a.1, b.0, b.1].contains(&p)
+        }
+        Reason::Assumption(_) | Reason::Construction(_) => {
+            cx.hyp_pred.get(&f).is_some_and(|q| q.points.contains(&p))
+        }
     }
 }
 
@@ -711,7 +923,11 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
     }
     b.atoms.retain(|a| a.avail != NEVER);
     for a in b.atoms.iter_mut() {
-        let via: Option<Vec<usize>> = a.via.iter().map(|&v| map.get(v).copied().flatten()).collect();
+        let via: Option<Vec<usize>> = a
+            .via
+            .iter()
+            .map(|&v| map.get(v).copied().flatten())
+            .collect();
         a.via = via.unwrap_or_default();
     }
     prefer_isosceles(cx, &mut b.atoms);
@@ -723,14 +939,24 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
 
 fn prefer_isosceles(cx: &Ctx, atoms: &mut [Atom]) {
     let key = |a: &Atom| super::library::quot_row(cx, a.table, &a.row);
-    let iso: Vec<(LinComb, FactId)> = atoms.iter().filter(|a| a.table == Table::Angle && matches!(a.src, AtomSrc::Human(AtomKey::Isosceles | AtomKey::Radii))).map(|a| (key(a), a.avail)).collect();
+    let iso: Vec<(LinComb, FactId)> = atoms
+        .iter()
+        .filter(|a| {
+            a.table == Table::Angle
+                && matches!(a.src, AtomSrc::Human(AtomKey::Isosceles | AtomKey::Radii))
+        })
+        .map(|a| (key(a), a.avail))
+        .collect();
     for a in atoms.iter_mut() {
         if a.table != Table::Angle || !matches!(a.src, AtomSrc::Human(AtomKey::CentralAngle)) {
             continue;
         }
         let k = key(a);
         let n = k.negated();
-        if iso.iter().any(|(r, avail)| *avail <= a.avail && (*r == k || *r == n)) {
+        if iso
+            .iter()
+            .any(|(r, avail)| *avail <= a.avail && (*r == k || *r == n))
+        {
             a.cost += 1;
         }
     }

@@ -34,7 +34,10 @@ pub fn check(problem: &Problem, input: &str) -> Result<(), String> {
     for pred in &problem.preds {
         shape(pred, false)?;
     }
-    let goal = problem.goal.as_ref().ok_or("the problem has no goal (add `? <relation>`)")?;
+    let goal = problem
+        .goal
+        .as_ref()
+        .ok_or("the problem has no goal (add `? <relation>`)")?;
     shape(goal, true)?;
     for pred in &problem.preds {
         if hypothesis_holds(problem, pred) == Some(false) {
@@ -58,11 +61,15 @@ fn point_token(input: &str, name: &str) -> String {
 fn written(problem: &Problem, p: &Predicate) -> String {
     let mut t = vec![p.name.clone()];
     t.extend(p.points.iter().map(|&i| problem.point_name(i).to_string()));
-    t.extend(p.constants.iter().map(|c| match (c.numer_i64(), c.denom_i64()) {
-        (Some(n), Some(1)) => n.to_string(),
-        (Some(n), Some(d)) => format!("{n}/{d}"),
-        _ => format!("{c:?}"),
-    }));
+    t.extend(
+        p.constants
+            .iter()
+            .map(|c| match (c.numer_i64(), c.denom_i64()) {
+                (Some(n), Some(1)) => n.to_string(),
+                (Some(n), Some(d)) => format!("{n}/{d}"),
+                _ => format!("{c:?}"),
+            }),
+    );
     t.join(" ")
 }
 
@@ -82,7 +89,13 @@ fn shape(p: &Predicate, goal: bool) -> Result<(), String> {
         Ok(())
     };
     let malformed = |why: &str| Err(format!("malformed relation `{name}`: {why}"));
-    let no_consts = || if nc == 0 { Ok(()) } else { malformed("it takes no numeric constant") };
+    let no_consts = || {
+        if nc == 0 {
+            Ok(())
+        } else {
+            malformed("it takes no numeric constant")
+        }
+    };
     let positive = |c: &Rat| !c.is_negative() && !c.is_zero();
     match name {
         "coll" => {
@@ -127,7 +140,9 @@ fn shape(p: &Predicate, goal: bool) -> Result<(), String> {
         }
         "distmeq" => {
             if nc < 2 || np != 2 * (nc - 1) || !positive(&p.constants[nc - 1]) {
-                return malformed("it takes one exponent per pair of points, then a positive constant");
+                return malformed(
+                    "it takes one exponent per pair of points, then a positive constant",
+                );
             }
             Ok(())
         }
@@ -138,10 +153,16 @@ fn shape(p: &Predicate, goal: bool) -> Result<(), String> {
             Ok(())
         }
         "cyclic_with_centers" => {
-            let k = p.constants.first().filter(|c| c.denom_i64() == Some(1)).and_then(Rat::numer_i64);
+            let k = p
+                .constants
+                .first()
+                .filter(|c| c.denom_i64() == Some(1))
+                .and_then(Rat::numer_i64);
             match k {
                 Some(k) if nc == 1 && k >= 1 && (k as usize) < np => Ok(()),
-                _ => malformed("it takes the number of centers, at least one center and at least one point"),
+                _ => malformed(
+                    "it takes the number of centers, at least one center and at least one point",
+                ),
             }
         }
         "midp" if goal => {
@@ -157,13 +178,25 @@ fn shape(p: &Predicate, goal: bool) -> Result<(), String> {
 }
 
 fn coords(problem: &Problem, p: &Predicate) -> Vec<Vec2> {
-    p.points.iter().map(|&i| problem.points[i as usize].value).collect()
+    p.points
+        .iter()
+        .map(|&i| problem.points[i as usize].value)
+        .collect()
 }
 
 fn scale(problem: &Problem) -> f64 {
     let n = problem.points.len().max(1) as f64;
-    let c = problem.points.iter().fold(Vec2::new(0.0, 0.0), |a, p| a + p.value) * (1.0 / n);
-    problem.points.iter().map(|p| distance(p.value, c)).fold(0.0, f64::max).max(1e-9)
+    let c = problem
+        .points
+        .iter()
+        .fold(Vec2::new(0.0, 0.0), |a, p| a + p.value)
+        * (1.0 / n);
+    problem
+        .points
+        .iter()
+        .map(|p| distance(p.value, c))
+        .fold(0.0, f64::max)
+        .max(1e-9)
 }
 
 fn distinct(xs: &[Vec2]) -> Vec<Vec2> {
@@ -177,7 +210,13 @@ fn distinct(xs: &[Vec2]) -> Vec<Vec2> {
 }
 
 fn farthest(xs: &[Vec2], from: Vec2) -> Vec2 {
-    xs.iter().copied().fold(from, |best, x| if distance(x, from) > distance(best, from) { x } else { best })
+    xs.iter().copied().fold(from, |best, x| {
+        if distance(x, from) > distance(best, from) {
+            x
+        } else {
+            best
+        }
+    })
 }
 
 fn engine_collinear(xs: &[Vec2]) -> bool {
@@ -229,12 +268,18 @@ pub fn hypothesis_holds(problem: &Problem, p: &Predicate) -> Option<bool> {
             let k = consts.first()?.numer_i64()? as usize;
             let (centers, points) = xs.split_at(k.min(xs.len()));
             let r = distance(*centers.first()?, *points.first()?);
-            let equal = centers.iter().all(|&c| points.iter().all(|&q| (distance(c, q) - r).abs() < tol));
+            let equal = centers
+                .iter()
+                .all(|&c| points.iter().all(|&q| (distance(c, q) - r).abs() < tol));
             Some(equal && engine_concyclic(points))
         }
         "overlap" => Some(distance(xs[0], xs[1]) < tol),
         "s_angle" => {
-            let alias = Predicate { name: "aconst".into(), points: p.points.clone(), constants: consts.clone() };
+            let alias = Predicate {
+                name: "aconst".into(),
+                points: p.points.clone(),
+                constants: consts.clone(),
+            };
             crate::corpus::pred_holds(problem, &alias)
         }
         "angeq" => {
@@ -285,14 +330,27 @@ pub fn conjuncts(problem: &Problem, goal: &Predicate) -> Option<Vec<Predicate>> 
 pub fn goal_holds(problem: &Problem, goal: &Predicate) -> Option<bool> {
     let check = |g: &Predicate| match g.name.as_str() {
         "s_angle" => {
-            let alias = Predicate { name: "aconst".into(), points: g.points.clone(), constants: g.constants.clone() };
+            let alias = Predicate {
+                name: "aconst".into(),
+                points: g.points.clone(),
+                constants: g.constants.clone(),
+            };
             crate::corpus::pred_holds(problem, &alias)
         }
-        "acompute" | "rcompute" | "overlap" | "angeq" | "distmeq" | "distseq" | "cyclic_with_centers" => None,
+        "acompute"
+        | "rcompute"
+        | "overlap"
+        | "angeq"
+        | "distmeq"
+        | "distseq"
+        | "cyclic_with_centers" => None,
         _ => crate::corpus::pred_holds(problem, g),
     };
     match conjuncts(problem, goal) {
-        Some(parts) => parts.iter().map(check).try_fold(true, |all, h| h.map(|h| all && h)),
+        Some(parts) => parts
+            .iter()
+            .map(check)
+            .try_fold(true, |all, h| h.map(|h| all && h)),
         None => check(goal),
     }
 }
@@ -307,14 +365,29 @@ mod tests {
 
     #[test]
     fn malformed_low_level_inputs_are_located_errors() {
-        assert!(err("a@0_0 b@1_0 c@0_1 = foo a b ? coll a b c").starts_with("unknown relation `foo`"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@2_2 = ? para a b").starts_with("`para` expects 4 arguments, got 2"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ? qqq a b c").starts_with("unknown relation `qqq`"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ; m@0.5_0.5 = midp m b c ? coll a b c").starts_with("unknown relation `midp`"));
+        assert!(
+            err("a@0_0 b@1_0 c@0_1 = foo a b ? coll a b c").starts_with("unknown relation `foo`")
+        );
+        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@2_2 = ? para a b")
+            .starts_with("`para` expects 4 arguments, got 2"));
+        assert!(
+            err("a@0_0 = ; b@1_0 = ; c@0_1 = ? qqq a b c").starts_with("unknown relation `qqq`")
+        );
+        assert!(
+            err("a@0_0 = ; b@1_0 = ; c@0_1 = ; m@0.5_0.5 = midp m b c ? coll a b c")
+                .starts_with("unknown relation `midp`")
+        );
         assert!(err("a@0_1.414 = ? angeq").starts_with("malformed relation `angeq`"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@1_1 = cyclic_with_centers a b c d 1pi/3 ? coll a b c").starts_with("malformed relation `cyclic_with_centers`"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ? ncoll a b c").starts_with("unknown relation `ncoll`"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = rconst a b a c -2 ? coll a b c").starts_with("malformed relation `rconst`"));
+        assert!(err(
+            "a@0_0 = ; b@1_0 = ; c@0_1 = ; d@1_1 = cyclic_with_centers a b c d 1pi/3 ? coll a b c"
+        )
+        .starts_with("malformed relation `cyclic_with_centers`"));
+        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ? ncoll a b c")
+            .starts_with("unknown relation `ncoll`"));
+        assert!(
+            err("a@0_0 = ; b@1_0 = ; c@0_1 = rconst a b a c -2 ? coll a b c")
+                .starts_with("malformed relation `rconst`")
+        );
         assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ").contains("no goal"));
     }
 
@@ -322,30 +395,46 @@ mod tests {
     fn non_finite_and_huge_coordinates_are_rejected() {
         let e = err("a@NaN_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c");
         assert!(e.starts_with("bad coordinate `a@NaN_0`"), "{e}");
-        assert!(err("a@inf_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c").starts_with("bad coordinate `a@inf_0`"));
+        assert!(err("a@inf_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c")
+            .starts_with("bad coordinate `a@inf_0`"));
         assert!(err("a@0_1e9 = ; b@1_0 = ; c@0_1 = ? cong a b a c").starts_with("bad coordinate"));
     }
 
     #[test]
     fn hypotheses_must_hold_at_the_given_coordinates() {
         let e = err("a@0_0 = ; b@1_0 = ; c@0_1 = coll a b c ? perp a b a c");
-        assert_eq!(e, "hypothesis `coll a b c` does not hold at the given coordinates");
-        assert!(err("a@0_0 = ; b@2_0 = ; c@0_3 = cong a b a c ? coll a b c").contains("`cong a b a c` does not hold"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@2_0 = ; d@3_1 = cyclic a b c d ? coll a b c").contains("`cyclic a b c d` does not hold"));
-        assert!(err("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@1_1 = para a b a c ? coll a b c").contains("`para a b a c` does not hold"));
-        parse_checked("a@0_0 = ; b@1_0 = ; c@0_1 = perp a b a c, cong a b a c ? cong a b a c").unwrap();
+        assert_eq!(
+            e,
+            "hypothesis `coll a b c` does not hold at the given coordinates"
+        );
+        assert!(err("a@0_0 = ; b@2_0 = ; c@0_3 = cong a b a c ? coll a b c")
+            .contains("`cong a b a c` does not hold"));
+        assert!(
+            err("a@0_0 = ; b@1_0 = ; c@2_0 = ; d@3_1 = cyclic a b c d ? coll a b c")
+                .contains("`cyclic a b c d` does not hold")
+        );
+        assert!(
+            err("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@1_1 = para a b a c ? coll a b c")
+                .contains("`para a b a c` does not hold")
+        );
+        parse_checked("a@0_0 = ; b@1_0 = ; c@0_1 = perp a b a c, cong a b a c ? cong a b a c")
+            .unwrap();
         parse_checked("a@0_0 = ; b@2_0 = ; m@1_0 = coll a b m, cong m a m b ? coll a b m").unwrap();
     }
 
     #[test]
     fn more_than_max_points_is_rejected_before_any_allocation() {
-        let pts: Vec<String> = (0..=MAX_POINTS).map(|i| format!("p{i}@{}_{} = ", i as f64 * 0.01, (i * i) as f64 * 0.001)).collect();
+        let pts: Vec<String> = (0..=MAX_POINTS)
+            .map(|i| format!("p{i}@{}_{} = ", i as f64 * 0.01, (i * i) as f64 * 0.001))
+            .collect();
         let input = format!("{} ? cong p0 p1 p0 p2", pts.join("; "));
         let t = std::time::Instant::now();
         let e = err(&input);
         assert!(e.starts_with("too many points (101)"), "{e}");
         assert!(t.elapsed() < std::time::Duration::from_millis(200));
-        let ok: Vec<String> = (0..MAX_POINTS).map(|i| format!("p{i}@{}_{} = ", i as f64 * 0.01, (i * i) as f64 * 0.001)).collect();
+        let ok: Vec<String> = (0..MAX_POINTS)
+            .map(|i| format!("p{i}@{}_{} = ", i as f64 * 0.01, (i * i) as f64 * 0.001))
+            .collect();
         parse_checked(&format!("{} ? cong p0 p1 p0 p2", ok.join("; "))).unwrap();
     }
 
@@ -358,7 +447,12 @@ mod tests {
             let cols: Vec<&str> = line.split('\t').collect();
             let Some(input) = cols.last() else { continue };
             let p = parse_checked(input).unwrap_or_else(|e| panic!("{}: {e}", cols[1]));
-            assert_ne!(goal_holds(&p, p.goal.as_ref().unwrap()), Some(false), "{}", cols[1]);
+            assert_ne!(
+                goal_holds(&p, p.goal.as_ref().unwrap()),
+                Some(false),
+                "{}",
+                cols[1]
+            );
             n += 1;
         }
         assert!(n >= 26, "{n}");

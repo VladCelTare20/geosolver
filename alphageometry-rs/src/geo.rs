@@ -421,8 +421,14 @@ enum Rel {
 
 #[derive(Clone, Debug)]
 enum Stmt {
-    Bind { names: Vec<String>, expr: Expr },
-    Constrain { name: String, constraints: Vec<Rel> },
+    Bind {
+        names: Vec<String>,
+        expr: Expr,
+    },
+    Constrain {
+        name: String,
+        constraints: Vec<Rel>,
+    },
     /// `assume <rel>, <rel>, …` — free-standing hypotheses over already-declared
     /// points, satisfied by a global solve over the figure's free points. This
     /// is what lets the language state ANY figure ("A B C D = free; assume
@@ -676,7 +682,10 @@ impl Parser {
             match self.next() {
                 Some(Tok::Num(p)) => {
                     crate::metric::count_op(&mut self.ops)?;
-                    Ok(MExpr::Pow(Box::new(base), crate::metric::check_exponent(p)?))
+                    Ok(MExpr::Pow(
+                        Box::new(base),
+                        crate::metric::check_exponent(p)?,
+                    ))
                 }
                 other => Err(format!("expected a numeric exponent, found {other:?}")),
             }
@@ -772,14 +781,20 @@ fn finish_predicate_rel(name: &str, args: Vec<Expr>) -> Result<Rel, String> {
         if args.len() == k {
             Ok(())
         } else {
-            Err(format!("`{name}` expects {k} arguments, got {}", args.len()))
+            Err(format!(
+                "`{name}` expects {k} arguments, got {}",
+                args.len()
+            ))
         }
     };
     let at_least = |k: usize| -> Result<(), String> {
         if args.len() >= k {
             Ok(())
         } else {
-            Err(format!("`{name}` expects at least {k} arguments, got {}", args.len()))
+            Err(format!(
+                "`{name}` expects at least {k} arguments, got {}",
+                args.len()
+            ))
         }
     };
     match name {
@@ -865,15 +880,11 @@ fn as_dist_product(e: &MExpr) -> Option<Vec<(String, String)>> {
 fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
     let id = |s: &String| Expr::Ident(s.clone());
     match (&lhs, &rhs) {
-        (MExpr::Dist(a, b), MExpr::Dist(c, d)) => {
-            Rel::Cong(vec![id(a), id(b), id(c), id(d)])
-        }
+        (MExpr::Dist(a, b), MExpr::Dist(c, d)) => Rel::Cong(vec![id(a), id(b), id(c), id(d)]),
         (MExpr::Dist(a, b), MExpr::Num(v)) | (MExpr::Num(v), MExpr::Dist(a, b)) => {
             Rel::DistConst(id(a), id(b), *v)
         }
-        (MExpr::Angle(a, b, c), MExpr::Num(v)) => {
-            Rel::AngleConst(id(a), id(b), id(c), *v)
-        }
+        (MExpr::Angle(a, b, c), MExpr::Num(v)) => Rel::AngleConst(id(a), id(b), id(c), *v),
         (MExpr::Angle(a, b, c), MExpr::Angle(d, e, f)) => {
             Rel::AngleEq(vec![id(a), id(b), id(c), id(d), id(e), id(f)])
         }
@@ -898,9 +909,7 @@ fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
                 return Rel::AngSumEq(
                     terms
                         .into_iter()
-                        .map(|(c, x, y, z)| {
-                            (c, Expr::Ident(x), Expr::Ident(y), Expr::Ident(z))
-                        })
+                        .map(|(c, x, y, z)| (c, Expr::Ident(x), Expr::Ident(y), Expr::Ident(z)))
                         .collect(),
                     k,
                 );
@@ -2063,7 +2072,10 @@ enum CKind {
     /// Linear combination of geometric angles = constant (degrees);
     /// coefficients per angle, points hold 3 per angle (vertex in the middle).
     /// Becomes the engine's linear `angeq` predicate (branches from the figure).
-    AngSumEq { coefs: Vec<Rat>, konst: Rat },
+    AngSumEq {
+        coefs: Vec<Rat>,
+        konst: Rat,
+    },
     /// A general metric equation, enforced numerically. `unknown` is the name of
     /// the point being solved for (if this constraint defines one).
     MetricEq {
@@ -2332,8 +2344,11 @@ impl Lowered {
             CKind::MetricEq { lhs, rhs, unknown } => {
                 // Evaluate both sides against the scene, with the unknown point at
                 // its candidate position `u`.
-                let mut map: HashMap<&str, Vec2> =
-                    scene.points.iter().map(|p| (p.name.as_str(), p.value)).collect();
+                let mut map: HashMap<&str, Vec2> = scene
+                    .points
+                    .iter()
+                    .map(|p| (p.name.as_str(), p.value))
+                    .collect();
                 if let Some(uname) = unknown {
                     map.insert(uname.as_str(), u);
                 }
@@ -2490,7 +2505,11 @@ fn solve_constrained(
 
     let restarts = if seeded_only { 1 } else { 200_u64 };
     for restart in 0..restarts {
-        let mut p = if restart == 0 { seed_pt } else { rng.point(2.5) };
+        let mut p = if restart == 0 {
+            seed_pt
+        } else {
+            rng.point(2.5)
+        };
         let mut lambda = 1e-2;
         let mut r = residual(p);
         let mut cur = cost(&r);
@@ -2980,8 +2999,7 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
                     let (Expr::Ident(xn), Expr::Ident(yn), Expr::Ident(zn)) = (x, y, z) else {
                         continue;
                     };
-                    let (Some(vx), Some(vy), Some(vz)) = (coord(xn), coord(yn), coord(zn))
-                    else {
+                    let (Some(vx), Some(vy), Some(vz)) = (coord(xn), coord(yn), coord(zn)) else {
                         continue;
                     };
                     let (u, w) = (vx - vy, vz - vy);
@@ -3058,7 +3076,12 @@ fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
 
 pub fn compile(src: &str) -> Result<Compiled, CompileError> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0, ops: 0 };
+    let mut parser = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+        ops: 0,
+    };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty program".to_string().into());
@@ -3176,7 +3199,12 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
 /// re-sampled instances is a genuine identity.
 pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0, ops: 0 };
+    let mut parser = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+        ops: 0,
+    };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
@@ -3270,14 +3298,33 @@ impl SampledFigure {
         }
         let at = |i: PointId| remap[i as usize].expect("a mentioned point is kept");
         SampledFigure {
-            names: self.names.iter().zip(&used).filter(|(_, &u)| u).map(|(n, _)| n.clone()).collect(),
-            coords: self.coords.iter().zip(&used).filter(|(_, &u)| u).map(|(c, _)| *c).collect(),
+            names: self
+                .names
+                .iter()
+                .zip(&used)
+                .filter(|(_, &u)| u)
+                .map(|(n, _)| n.clone())
+                .collect(),
+            coords: self
+                .coords
+                .iter()
+                .zip(&used)
+                .filter(|(_, &u)| u)
+                .map(|(c, _)| *c)
+                .collect(),
             preds: self
                 .preds
                 .into_iter()
-                .map(|p| Predicate { points: p.points.iter().map(|&i| at(i)).collect(), ..p })
+                .map(|p| Predicate {
+                    points: p.points.iter().map(|&i| at(i)).collect(),
+                    ..p
+                })
                 .collect(),
-            scale: self.scale.iter().map(|&(a, b, v)| (at(a), at(b), v)).collect(),
+            scale: self
+                .scale
+                .iter()
+                .map(|&(a, b, v)| (at(a), at(b), v))
+                .collect(),
             metric_hyps: self.metric_hyps,
         }
     }
@@ -3288,7 +3335,12 @@ impl SampledFigure {
 /// figure is found).
 pub fn build_sampled_figure(src: &str) -> Result<SampledFigure, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0, ops: 0 };
+    let mut parser = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+        ops: 0,
+    };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
@@ -3298,7 +3350,8 @@ pub fn build_sampled_figure(src: &str) -> Result<SampledFigure, String> {
 }
 
 fn build_sampled_figure_of(stmts: &[Stmt]) -> Result<SampledFigure, String> {
-    let mut result: Result<SampledFigure, String> = Err("could not build a valid instance".to_string());
+    let mut result: Result<SampledFigure, String> =
+        Err("could not build a valid instance".to_string());
     for seed in 1..=400u64 {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed))) {
             Ok(Ok((scene, _goal, scale))) => {
@@ -3408,10 +3461,18 @@ mod tests {
         assert!(
             compiled.problem.preds.iter().any(|p| p.name == "angeq"),
             "angle-sum should lower to an angeq predicate, got: {:?}",
-            compiled.problem.preds.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
+            compiled
+                .problem
+                .preds
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<_>>()
         );
         assert_eq!(compiled.goal_numerically_holds, Some(true));
-        assert!(prove(src), "DDAR should derive the right angle from the sum");
+        assert!(
+            prove(src),
+            "DDAR should derive the right angle from the sum"
+        );
     }
 
     /// Three-term sums with a constant beyond 180° lower and verify too
@@ -3535,8 +3596,9 @@ mod tests {
     fn assume_positions_free_points_jointly() {
         // Declare four free points and ASSUME they are concyclic — the global
         // solve must place them on one circle.
-        let fig = build_sampled_figure("A = free\nB = free\nC = free\nD = free\nassume cyclic(A,B,C,D)")
-            .expect("build");
+        let fig =
+            build_sampled_figure("A = free\nB = free\nC = free\nD = free\nassume cyclic(A,B,C,D)")
+                .expect("build");
         let c = |n: &str| fig.coords[fig.names.iter().position(|x| x == n).unwrap()];
         let circ = NumCircle::through(c("A"), c("B"), c("C")).expect("circle");
         assert!(circ.distance(c("D")) < 1e-3, "D not on circle(ABC)");
@@ -3547,9 +3609,11 @@ mod tests {
         // ASSUME an arbitrary metric relation (a sum of distances) on free points
         // — the global solver satisfies it, and re-sampled instances keep it.
         for seed in [1u64, 7, 20] {
-            let insts =
-                build_instances("A = free\nB = free\nC = free\nassume dist(A,B) + dist(B,C) = 3", 1)
-                    .unwrap_or_default();
+            let insts = build_instances(
+                "A = free\nB = free\nC = free\nassume dist(A,B) + dist(B,C) = 3",
+                1,
+            )
+            .unwrap_or_default();
             let _ = seed;
             for inst in insts {
                 let m: std::collections::HashMap<_, _> = inst.into_iter().collect();
@@ -3567,7 +3631,10 @@ mod tests {
             48,
         )
         .expect("solve");
-        assert!(report.contains("EUCLIDEAN PROOF") && report.contains("given"), "{report}");
+        assert!(
+            report.contains("EUCLIDEAN PROOF") && report.contains("given"),
+            "{report}"
+        );
     }
 
     #[test]

@@ -7,9 +7,9 @@ use crate::lincomb::{LinComb, VarId};
 use crate::rational::Rat;
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, BinaryHeap};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub const MAX_LINKS: usize = 8;
 pub const BUDGET: usize = 300;
@@ -41,7 +41,11 @@ fn key_vars(cx: &Ctx, table: Table, c: &LinComb) -> Vec<VarId> {
     if table == Table::Angle {
         classes(c).into_iter().map(|x| x.0).collect()
     } else {
-        c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).map(|(v, _)| *v).collect()
+        c.terms
+            .iter()
+            .filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true))
+            .map(|(v, _)| *v)
+            .collect()
     }
 }
 
@@ -56,7 +60,9 @@ pub fn directed_shape(cx: &Ctx, table: Table, c: &LinComb) -> Option<i64> {
                 return Some(0);
             }
             let base = angle_cost(cx, c)?;
-            let doubled = cl.iter().all(|(_, k)| k.numer_i64().is_some_and(|n| n % 2 == 0));
+            let doubled = cl
+                .iter()
+                .all(|(_, k)| k.numer_i64().is_some_and(|n| n % 2 == 0));
             Some(base + if doubled { 14 } else { 0 })
         }
         Table::Ratio => match ratio_shape(cx, c)? {
@@ -68,7 +74,11 @@ pub fn directed_shape(cx: &Ctx, table: Table, c: &LinComb) -> Option<i64> {
 }
 
 fn wide_ratio_shape(cx: &Ctx, c: &LinComb, max: usize) -> Option<i64> {
-    let lhs: Vec<&(VarId, Rat)> = c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).collect();
+    let lhs: Vec<&(VarId, Rat)> = c
+        .terms
+        .iter()
+        .filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true))
+        .collect();
     if !lhs.iter().all(|(_, k)| k.abs() == Rat::one()) || lhs.len() > max {
         return None;
     }
@@ -88,7 +98,13 @@ fn undirected_shape(cx: &Ctx, c: &LinComb) -> Option<i64> {
     if sc >= 4 {
         return None;
     }
-    Some(sc + if super::barem::lin_terms(&e) >= 2 { 9 } else { 0 })
+    Some(
+        sc + if super::barem::lin_terms(&e) >= 2 {
+            9
+        } else {
+            0
+        },
+    )
 }
 
 impl Graph {
@@ -132,7 +148,16 @@ impl Graph {
             g.qs.push(q);
             g.vars.push(vs);
         }
-        g.lambdas = if table == Table::Angle { vec![Rat::one(), Rat::from_int(-1), Rat::from_int(2), Rat::from_int(-2)] } else { vec![Rat::one(), Rat::from_int(-1)] };
+        g.lambdas = if table == Table::Angle {
+            vec![
+                Rat::one(),
+                Rat::from_int(-1),
+                Rat::from_int(2),
+                Rat::from_int(-2),
+            ]
+        } else {
+            vec![Rat::one(), Rat::from_int(-1)]
+        };
         if undirected {
             g.lambdas.extend([Rat::new(1, 2), Rat::new(-1, 2)]);
         }
@@ -172,7 +197,15 @@ impl Graph {
         r
     }
 
-    pub fn search(&self, cx: &Ctx, splits: &[(LinComb, LinComb)], budget: usize, bound: i64, spent: &AtomicUsize, weights: &[i64]) -> Option<Path> {
+    pub fn search(
+        &self,
+        cx: &Ctx,
+        splits: &[(LinComb, LinComb)],
+        budget: usize,
+        bound: i64,
+        spent: &AtomicUsize,
+        weights: &[i64],
+    ) -> Option<Path> {
         let mut best: Option<Path> = None;
         for (si, (l0, r0)) in splits.iter().enumerate() {
             if spent.load(Ordering::Relaxed) >= TOTAL_BUDGET || cx.timed_out() {
@@ -193,7 +226,14 @@ impl Graph {
         best
     }
 
-    fn neighbours(&self, cx: &Ctx, x: &LinComb, vs: &[VarId], out: &mut Vec<(LinComb, usize, Rat)>, weights: &[i64]) {
+    fn neighbours(
+        &self,
+        cx: &Ctx,
+        x: &LinComb,
+        vs: &[VarId],
+        out: &mut Vec<(LinComb, usize, Rat)>,
+        weights: &[i64],
+    ) {
         out.clear();
         let mut cand: Vec<u32> = Vec::new();
         if vs.is_empty() {
@@ -258,7 +298,17 @@ impl Graph {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn one(&self, cx: &Ctx, si: usize, l: &LinComb, r: &LinComb, budget: usize, bound: i64, spent: &AtomicUsize, weights: &[i64]) -> Option<Path> {
+    fn one(
+        &self,
+        cx: &Ctx,
+        si: usize,
+        l: &LinComb,
+        r: &LinComb,
+        budget: usize,
+        bound: i64,
+        spent: &AtomicUsize,
+        weights: &[i64],
+    ) -> Option<Path> {
         struct Side {
             ids: FxHashMap<LinComb, usize>,
             nodes: Vec<LinComb>,
@@ -270,7 +320,16 @@ impl Graph {
             heap: BinaryHeap<Reverse<(i64, usize)>>,
         }
         let side = |x: &LinComb| {
-            let mut s = Side { ids: FxHashMap::default(), nodes: vec![x.clone()], nvars: vec![key_vars(cx, self.table, x)], prev: vec![None], dist: vec![0], depth: vec![0], done: vec![false], heap: BinaryHeap::new() };
+            let mut s = Side {
+                ids: FxHashMap::default(),
+                nodes: vec![x.clone()],
+                nvars: vec![key_vars(cx, self.table, x)],
+                prev: vec![None],
+                dist: vec![0],
+                depth: vec![0],
+                done: vec![false],
+                heap: BinaryHeap::new(),
+            };
             s.ids.insert(x.clone(), 0);
             s.heap.push(Reverse((0, 0)));
             s
@@ -281,14 +340,23 @@ impl Graph {
         let mut expanded = 0usize;
         let mut buf: Vec<(LinComb, usize, Rat)> = Vec::new();
         loop {
-            let tops: Vec<Option<i64>> = sides.iter().map(|s| s.heap.peek().map(|Reverse((d, _))| *d)).collect();
-            let (Some(t0), Some(t1)) = (tops[0], tops[1]) else { break };
+            let tops: Vec<Option<i64>> = sides
+                .iter()
+                .map(|s| s.heap.peek().map(|Reverse((d, _))| *d))
+                .collect();
+            let (Some(t0), Some(t1)) = (tops[0], tops[1]) else {
+                break;
+            };
             let limit = best.map(|b| b.0).unwrap_or(i64::MAX).min(bound);
             if t0 + t1 >= limit {
                 break;
             }
             let (n0, n1) = (sides[0].heap.len(), sides[1].heap.len());
-            let k = if n0 < n1 || (n0 == n1 && t0 <= t1) { 0 } else { 1 };
+            let k = if n0 < n1 || (n0 == n1 && t0 <= t1) {
+                0
+            } else {
+                1
+            };
             let Reverse((d, u)) = sides[k].heap.pop().unwrap();
             if sides[k].done[u] || d > sides[k].dist[u] {
                 continue;
@@ -296,9 +364,15 @@ impl Graph {
             sides[k].done[u] = true;
             let other = 1 - k;
             if let Some(&v) = sides[other].ids.get(&sides[k].nodes[u]) {
-                if sides[other].dist[v] < i64::MAX && sides[k].depth[u] + sides[other].depth[v] <= MAX_LINKS {
+                if sides[other].dist[v] < i64::MAX
+                    && sides[k].depth[u] + sides[other].depth[v] <= MAX_LINKS
+                {
                     let x = &sides[k].nodes[u];
-                    let meet = if *x == *l || *x == *r { 0 } else { self.shape(cx, x).unwrap_or(0) };
+                    let meet = if *x == *l || *x == *r {
+                        0
+                    } else {
+                        self.shape(cx, x).unwrap_or(0)
+                    };
                     let total = d + sides[other].dist[v] - meet;
                     if best.is_none_or(|b| total < b.0) {
                         best = Some(if k == 0 { (total, u, v) } else { (total, v, u) });
@@ -317,9 +391,20 @@ impl Graph {
             let vs = sides[k].nvars[u].clone();
             self.neighbours(cx, &x, &vs, &mut buf, weights);
             if std::env::var_os("HP_ROUTE2").is_some() {
-                eprintln!("expand side {k} node {:?} vars {:?} neighbours {}", x, vs, buf.len());
+                eprintln!(
+                    "expand side {k} node {:?} vars {:?} neighbours {}",
+                    x,
+                    vs,
+                    buf.len()
+                );
                 for (y, ek, lam) in buf.iter().take(12) {
-                    eprintln!("   -> {:?} via atom {} lam {} shape {:?}", y, self.atom[*ek], lam, self.shape(cx, y));
+                    eprintln!(
+                        "   -> {:?} via atom {} lam {} shape {:?}",
+                        y,
+                        self.atom[*ek],
+                        lam,
+                        self.shape(cx, y)
+                    );
                 }
             }
             for (y, ek, lam) in buf.drain(..) {
@@ -357,7 +442,17 @@ impl Graph {
             }
         }
         if std::env::var_os("HP_ROUTE").is_some() {
-            eprintln!("route split {si} ({}): expanded {expanded} nodes {}+{} found {:?}", if self.undirected { "as drawn" } else { "directed" }, sides[0].nodes.len(), sides[1].nodes.len(), best.map(|b| b.0));
+            eprintln!(
+                "route split {si} ({}): expanded {expanded} nodes {}+{} found {:?}",
+                if self.undirected {
+                    "as drawn"
+                } else {
+                    "directed"
+                },
+                sides[0].nodes.len(),
+                sides[1].nodes.len(),
+                best.map(|b| b.0)
+            );
         }
         let (weight, mf, mb) = best?;
         let mut fwd_nodes: Vec<LinComb> = vec![sides[0].nodes[mf].clone()];
@@ -379,7 +474,13 @@ impl Graph {
         if fwd_links.is_empty() || fwd_links.len() > MAX_LINKS {
             return None;
         }
-        Some(Path { split: si, nodes: fwd_nodes, links: fwd_links, weight, undirected: self.undirected })
+        Some(Path {
+            split: si,
+            nodes: fwd_nodes,
+            links: fwd_links,
+            weight,
+            undirected: self.undirected,
+        })
     }
 }
 

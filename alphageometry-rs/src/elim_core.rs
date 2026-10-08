@@ -166,7 +166,12 @@ impl ElimCore {
         // break by variable id (see module docs: this does not affect results).
         let pivot = *lhs_all
             .iter()
-            .min_by_key(|v| (self.rank[**v as usize], self.free_to_usage.get(v).map_or(0, |s| s.len())))
+            .min_by_key(|v| {
+                (
+                    self.rank[**v as usize],
+                    self.free_to_usage.get(v).map_or(0, |s| s.len()),
+                )
+            })
             .unwrap();
         let lhs: Vec<VarId> = lhs_all.into_iter().filter(|v| *v != pivot).collect();
 

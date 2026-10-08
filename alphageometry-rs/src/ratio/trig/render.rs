@@ -19,7 +19,12 @@ impl Figure {
     fn los_chain(&self, tri: [PointId; 3], rows: &[(PointId, PointId, PointId)]) -> String {
         let [a, b, c] = tri;
         let chain = if rows.len() >= 2 {
-            format!("{} = {} = {}", self.los_ratio(a, b, c), self.los_ratio(b, c, a), self.los_ratio(c, a, b))
+            format!(
+                "{} = {} = {}",
+                self.los_ratio(a, b, c),
+                self.los_ratio(b, c, a),
+                self.los_ratio(c, a, b)
+            )
         } else {
             let (x, y, z) = rows[0];
             format!("{} = {}", self.los_ratio(x, y, z), self.los_ratio(y, z, x))
@@ -29,7 +34,10 @@ impl Figure {
 
     fn collinear_all(&self, a: PointId, b: PointId, c: PointId) -> bool {
         (0..self.insts.len()).all(|k| {
-            let (u, v) = (self.insts[k][b as usize] - self.insts[k][a as usize], self.insts[k][c as usize] - self.insts[k][a as usize]);
+            let (u, v) = (
+                self.insts[k][b as usize] - self.insts[k][a as usize],
+                self.insts[k][c as usize] - self.insts[k][a as usize],
+            );
             (u.x * v.y - u.y * v.x).abs() < 1e-9 * (1.0 + u.norm() * v.norm())
         })
     }
@@ -54,7 +62,9 @@ impl Figure {
         let mut taken: BTreeSet<usize> = BTreeSet::new();
         let mut folds: Vec<(Vec<usize>, String, [PointId; 3], PointId)> = Vec::new();
         for &i in order {
-            let Some(Tag::EqSin(LKey::Sin(x1, p1, q1), LKey::Sin(x2, p2, q2), rel)) = &self.steps[i].tag else {
+            let Some(Tag::EqSin(LKey::Sin(x1, p1, q1), LKey::Sin(x2, p2, q2), rel)) =
+                &self.steps[i].tag
+            else {
                 continue;
             };
             if x1 != x2 || taken.contains(&i) {
@@ -69,7 +79,9 @@ impl Figure {
                 continue;
             }
             let (t1, t2) = (tri_key(a, b, x), tri_key(a, x, c));
-            let (Some(r1), Some(r2)) = (los.get(&t1), los.get(&t2)) else { continue };
+            let (Some(r1), Some(r2)) = (los.get(&t1), los.get(&t2)) else {
+                continue;
+            };
             if r1.iter().chain(r2).any(|r| taken.contains(r)) {
                 continue;
             }
@@ -81,7 +93,10 @@ impl Figure {
                     })
                     .collect()
             };
-            let (n, s) = (|p: PointId| self.nm(p), |v, p, q| self.sin_text(sin_key(v, p, q)));
+            let (n, s) = (
+                |p: PointId| self.nm(p),
+                |v, p, q| self.sin_text(sin_key(v, p, q)),
+            );
             let text = format!(
                 "Ratio lemma in △{a}{b}{c} with cevian {a}{x}: {b}{x}/{x}{c} = {ab}·{sba} / ({ac}·{sca}). \
                  By the law of sines in {l1} and in {l2}, and {s1} = {s2} since {rel}.",
@@ -131,7 +146,10 @@ impl Figure {
                 })
                 .collect();
             taken.extend(rs.iter().copied());
-            groups.push((rs.clone(), format!("Law of sines in {}.", self.los_chain(*tri, &rows))));
+            groups.push((
+                rs.clone(),
+                format!("Law of sines in {}.", self.los_chain(*tri, &rows)),
+            ));
         }
         for &i in order {
             if !taken.contains(&i) {

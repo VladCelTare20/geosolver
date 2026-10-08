@@ -39,11 +39,11 @@ use ddar::aux_search::{
     apply_constructions, candidates, solve_max, solve_with_aux, strip_point, AuxProof, WarmBase,
 };
 use ddar::geo::{self, CONSTRUCTIONS, RELATIONS};
-use ddar::{bench, corpus};
 use ddar::metric;
 use ddar::runner::{parse_dataset, solve_problem, solve_problem_with_proof};
 use ddar::svg::{self, FigureOptions, Theme};
 use ddar::Problem;
+use ddar::{bench, corpus};
 
 const DATASET: &str = include_str!("../../problems.tsv");
 
@@ -113,9 +113,24 @@ Fuzz options (--fuzz-false; also --budget [default 15], --jobs, --threads,
 ";
 
 const MODES: &[&str] = &[
-    "--bench", "--geo", "--geo-show", "--aux", "--explore", "--constructions", "--bench-aux",
-    "--verify-warm", "--metric", "--batch", "--max", "--theorems", "--corpus", "--corpus-one",
-    "--corpus-check", "--corpus-show", "--fuzz-false", "--fuzz-one",
+    "--bench",
+    "--geo",
+    "--geo-show",
+    "--aux",
+    "--explore",
+    "--constructions",
+    "--bench-aux",
+    "--verify-warm",
+    "--metric",
+    "--batch",
+    "--max",
+    "--theorems",
+    "--corpus",
+    "--corpus-one",
+    "--corpus-check",
+    "--corpus-show",
+    "--fuzz-false",
+    "--fuzz-one",
 ];
 
 enum ArgKind {
@@ -201,10 +216,15 @@ fn main() {
             "--human" => opts.human = true,
             "--human-json" => opts.human_json = true,
             "--human-stats" => {
-                opts.human_stats = Some(it.next().unwrap_or_else(|| fail("--human-stats needs a file (or - in a child)")))
+                opts.human_stats = Some(
+                    it.next()
+                        .unwrap_or_else(|| fail("--human-stats needs a file (or - in a child)")),
+                )
             }
             "--trig" => {
-                let m = it.next().unwrap_or_else(|| fail("--trig needs off|fallback|lazy|always"));
+                let m = it
+                    .next()
+                    .unwrap_or_else(|| fail("--trig needs off|fallback|lazy|always"));
                 if !matches!(m.as_str(), "off" | "fallback" | "lazy" | "always") {
                     fail("--trig needs off|fallback|lazy|always");
                 }
@@ -231,9 +251,14 @@ fn main() {
             "--jobs" => opts.corpus.jobs = num_arg::<usize>(it.next(), "--jobs").max(1),
             "--threads" => opts.corpus.threads = num_arg::<usize>(it.next(), "--threads").max(1),
             "--mem-mb" => opts.corpus.mem_mb = num_arg(it.next(), "--mem-mb"),
-            "--out" => opts.corpus.out = Some(it.next().unwrap_or_else(|| fail("--out needs a file"))),
+            "--out" => {
+                opts.corpus.out = Some(it.next().unwrap_or_else(|| fail("--out needs a file")))
+            }
             "--proofs" => {
-                opts.corpus.proofs = Some(it.next().unwrap_or_else(|| fail("--proofs needs a directory")))
+                opts.corpus.proofs = Some(
+                    it.next()
+                        .unwrap_or_else(|| fail("--proofs needs a directory")),
+                )
             }
             "--only" => {
                 opts.corpus.only = Some(
@@ -373,7 +398,10 @@ fn solve_and_report(problem: &Problem, opts: &Opts) -> bool {
 
 fn solve_low_level(problem_str: &str, opts: &Opts) {
     let problem = ddar::lowlevel::parse_checked(problem_str).unwrap_or_else(|e| fail(&e));
-    let goal = problem.goal.clone().unwrap_or_else(|| fail("the problem has no goal"));
+    let goal = problem
+        .goal
+        .clone()
+        .unwrap_or_else(|| fail("the problem has no goal"));
     if let Some(goals) = ddar::lowlevel::conjuncts(&problem, &goal) {
         let text = problem.to_ag_string();
         let text = text.rsplit_once(" ? ").map_or("", |(_, g)| g);
@@ -429,14 +457,22 @@ fn list_theorems() {
         }
         println!("    {:<42} {}", t.name, t.statement);
     }
-    let count = |tag: &str| THEOREMS.iter().filter(|t| t.statement.contains(tag)).count();
+    let count = |tag: &str| {
+        THEOREMS
+            .iter()
+            .filter(|t| t.statement.contains(tag))
+            .count()
+    };
     let (additive, ratio, ddar, catalogued) = (
         count("[additive"),
         count("[ratio"),
         count("[DDAR"),
         count("[catalogued"),
     );
-    let derived = THEOREMS.iter().filter(|t| t.statement.contains("derived")).count();
+    let derived = THEOREMS
+        .iter()
+        .filter(|t| t.statement.contains("derived"))
+        .count();
     println!(
         "\n  {} theorems catalogued.\n    • {additive} operational in the additive (squared-length) engine\n    \
          • {ratio} operational in the multiplicative (ratio) engine — the famous results DERIVED\n      \
@@ -522,7 +558,14 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
                     println!("{report}");
                 }
                 if want_human {
-                    human_report("geo", 0, &compiled.problem, &[], compiled.problem.points.len(), opts);
+                    human_report(
+                        "geo",
+                        0,
+                        &compiled.problem,
+                        &[],
+                        compiled.problem.points.len(),
+                        opts,
+                    );
                 }
                 return;
             }
@@ -554,7 +597,11 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
             }
             if want_human {
                 let aug = apply_constructions(&compiled.problem, &proof.constructions);
-                let aux: Vec<String> = proof.constructions.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+                let aux: Vec<String> = proof
+                    .constructions
+                    .iter()
+                    .map(|c| format!("{} = {}", c.name, c.desc))
+                    .collect();
                 human_report("geo", 0, &aug, &aux, compiled.problem.points.len(), opts);
             }
         }
@@ -603,7 +650,6 @@ fn batch_quiet(dir: &str) {
     if paths.is_empty() {
         fail(&format!("no .geo problems found in {dir}"));
     }
-
 
     println!(
         "Universal MAX solve: {} problem(s), across {} cores.\n",
@@ -1021,8 +1067,16 @@ fn corpus_bench(file: Option<&String>, opts: &Opts) {
             o.name,
             o.status,
             o.secs,
-            if o.proved { format!("{} ", o.method) } else { String::new() },
-            if o.aux.is_empty() { String::new() } else { format!("[{}]", o.aux.join("; ")) }
+            if o.proved {
+                format!("{} ", o.method)
+            } else {
+                String::new()
+            },
+            if o.aux.is_empty() {
+                String::new()
+            } else {
+                format!("[{}]", o.aux.join("; "))
+            }
         )
     };
     let results = bench::run_corpus(&cfg, &problems, &progress);
@@ -1050,12 +1104,24 @@ fn corpus_bench(file: Option<&String>, opts: &Opts) {
     }
     let count = |f: &dyn Fn(&bench::Outcome) -> bool| results.iter().filter(|o| f(o)).count();
     let n = results.len();
-    eprintln!("\n== {file}: {n} problems, {:.0}s wall ==", start.elapsed().as_secs_f64());
+    eprintln!(
+        "\n== {file}: {n} problems, {:.0}s wall ==",
+        start.elapsed().as_secs_f64()
+    );
     eprintln!("  parsed (figure built):   {}/{n}", count(&|o| o.parsed));
-    eprintln!("  goal holds numerically:  {}/{n}", count(&|o| o.goal_numeric == Some(true)));
+    eprintln!(
+        "  goal holds numerically:  {}/{n}",
+        count(&|o| o.goal_numeric == Some(true))
+    );
     eprintln!("  PROVED:                  {}/{n}", count(&|o| o.proved));
-    eprintln!("    by DDAR alone:         {}", count(&|o| o.proved && o.method == "ddar"));
-    eprintln!("    with aux points:       {}", count(&|o| o.proved && o.method == "aux"));
+    eprintln!(
+        "    by DDAR alone:         {}",
+        count(&|o| o.proved && o.method == "ddar")
+    );
+    eprintln!(
+        "    with aux points:       {}",
+        count(&|o| o.proved && o.method == "aux")
+    );
     let mut statuses: Vec<(String, usize)> = Vec::new();
     for o in &results {
         match statuses.iter_mut().find(|(s, _)| *s == o.status) {
@@ -1079,7 +1145,11 @@ fn corpus_check(file: Option<&String>, opts: &Opts) {
         match corpus::parse_problem(name, text).and_then(|p| corpus::translate(&p, 1, 200)) {
             Ok(t) if t.goal_holds => {
                 ok += 1;
-                println!("ok          {name}  (seed {}, {} points)", t.seed, t.problem.points.len());
+                println!(
+                    "ok          {name}  (seed {}, {} points)",
+                    t.seed,
+                    t.problem.points.len()
+                );
             }
             Ok(t) => {
                 false_goal += 1;
@@ -1159,7 +1229,9 @@ fn human_report(name: &str, k: usize, p: &Problem, aux: &[String], first: usize,
             return;
         }
     };
-    let (Some(hp), Some(trace)) = (hp, trace) else { return };
+    let (Some(hp), Some(trace)) = (hp, trace) else {
+        return;
+    };
     if opts.human_stats.is_some() {
         let m = &hp.metrics;
         println!(
@@ -1209,10 +1281,13 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
     };
     let file = file.expect("checked by load_corpus");
     let budget = if c.budget_given { c.budget } else { 15.0 };
-    let out = c
-        .out
-        .clone()
-        .unwrap_or_else(|| format!("{}/ddar-fuzz-{}.tsv", std::env::temp_dir().display(), std::process::id()));
+    let out = c.out.clone().unwrap_or_else(|| {
+        format!(
+            "{}/ddar-fuzz-{}.tsv",
+            std::env::temp_dir().display(),
+            std::process::id()
+        )
+    });
     let cases_path = format!("{out}.cases.txt");
     let proofs_dir = std::path::PathBuf::from(format!("{out}.proofs"));
     let start = Instant::now();
@@ -1228,7 +1303,13 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
     };
     let by_kind: Vec<String> = fuzz::Kind::ALL
         .iter()
-        .map(|k| format!("{} {}", k.tag(), gen.cases.iter().filter(|x| x.kind == *k).count()))
+        .map(|k| {
+            format!(
+                "{} {}",
+                k.tag(),
+                gen.cases.iter().filter(|x| x.kind == *k).count()
+            )
+        })
         .collect();
     eprintln!(
         "fuzz {file}: {} problems -> {} cases ({}) in {:.1}s; {} variants held on some figure and were dropped; {} problems skipped",
@@ -1269,11 +1350,20 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
         if let Some(case) = kinds.get(o.name.as_str()) {
             let v = fuzz::verdict(case, o);
             if v != "ok" || k.is_multiple_of(50) || k == n {
-                eprintln!("[{k:>4}/{n}] {:<52} {:<11} {:<15} {v}", o.name, case.kind.tag(), o.status);
+                eprintln!(
+                    "[{k:>4}/{n}] {:<52} {:<11} {:<15} {v}",
+                    o.name,
+                    case.kind.tag(),
+                    o.status
+                );
             }
         }
     };
-    let pairs: Vec<(String, String)> = gen.cases.iter().map(|k| (k.name.clone(), k.text.clone())).collect();
+    let pairs: Vec<(String, String)> = gen
+        .cases
+        .iter()
+        .map(|k| (k.name.clone(), k.text.clone()))
+        .collect();
     let results = bench::run_corpus(&run, &pairs, &progress);
     let mut tsv = String::from(fuzz::TSV_HEADER);
     tsv.push('\n');
@@ -1281,10 +1371,14 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
     let mut crashes = 0;
     let mut statuses: std::collections::BTreeMap<String, usize> = Default::default();
     for o in &results {
-        let Some(case) = kinds.get(o.name.as_str()) else { continue };
+        let Some(case) = kinds.get(o.name.as_str()) else {
+            continue;
+        };
         tsv.push_str(&fuzz::tsv_row(case, o));
         tsv.push('\n');
-        *statuses.entry(format!("{}:{}", case.kind.tag(), o.status)).or_default() += 1;
+        *statuses
+            .entry(format!("{}:{}", case.kind.tag(), o.status))
+            .or_default() += 1;
         match fuzz::verdict(case, o) {
             "UNSOUND" => unsound.push((*case, o)),
             "CRASH" => crashes += 1,
@@ -1292,13 +1386,25 @@ fn fuzz_false(file: Option<&String>, opts: &Opts) {
         }
     }
     std::fs::write(&out, &tsv).unwrap_or_else(|e| fail(&format!("writing {out}: {e}")));
-    eprintln!("\n== fuzz {file}: {} cases, {:.0}s wall, results in {out} ==", results.len(), start.elapsed().as_secs_f64());
+    eprintln!(
+        "\n== fuzz {file}: {} cases, {:.0}s wall, results in {out} ==",
+        results.len(),
+        start.elapsed().as_secs_f64()
+    );
     for (s, n) in &statuses {
         eprintln!("  {s:<32} {n}");
     }
     eprintln!("  crashes: {crashes}   UNSOUND: {}", unsound.len());
     for (case, o) in &unsound {
-        eprintln!("\n!! UNSOUND {} [{}] {}\n   {}\n   status {} {}", case.name, case.kind.tag(), case.mutation, case.text, o.status, o.detail);
+        eprintln!(
+            "\n!! UNSOUND {} [{}] {}\n   {}\n   status {} {}",
+            case.name,
+            case.kind.tag(),
+            case.mutation,
+            case.text,
+            o.status,
+            o.detail
+        );
         if let Ok(p) = std::fs::read_to_string(bench::proof_path(&proofs_dir, &case.name)) {
             eprintln!("{p}");
         }
@@ -1315,7 +1421,9 @@ fn geo_programs(dir: &std::path::Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.is_dir() {
@@ -1368,7 +1476,10 @@ mod tests {
     #[test]
     fn unknown_options_are_rejected_not_parsed_as_problems() {
         assert!(matches!(classify_arg("--bogus"), ArgKind::Unknown));
-        assert!(matches!(classify_arg("a b c = triangle a b c ? perp a b a c"), ArgKind::Positional));
+        assert!(matches!(
+            classify_arg("a b c = triangle a b c ? perp a b a c"),
+            ArgKind::Positional
+        ));
         assert!(matches!(classify_arg("--geo"), ArgKind::Mode));
     }
 }

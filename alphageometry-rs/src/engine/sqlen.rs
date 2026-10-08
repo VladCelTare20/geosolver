@@ -44,7 +44,12 @@ impl Ddar {
         ])
     }
 
-    fn sq_force_new(&mut self, eq: &DistSq, reason: Reason, prem: impl FnOnce(&Ddar) -> Vec<FactId>) -> bool {
+    fn sq_force_new(
+        &mut self,
+        eq: &DistSq,
+        reason: Reason,
+        prem: impl FnOnce(&Ddar) -> Vec<FactId>,
+    ) -> bool {
         if !self.dsq.holds_numerically(eq) || self.dsq.simplify(eq).is_zero() {
             return false;
         }
@@ -102,7 +107,11 @@ impl Ddar {
         let mut pairs: Vec<(usize, usize)> = Vec::new();
         for (k, d) in dirs.iter().enumerate() {
             if let Some(ks) = by_dir.get(&d.add(&half)) {
-                pairs.extend(ks.iter().filter(|&&k2| k2 > k).map(|&k2| (live[k], live[k2])));
+                pairs.extend(
+                    ks.iter()
+                        .filter(|&&k2| k2 > k)
+                        .map(|&k2| (live[k], live[k2])),
+                );
             }
         }
         drop(by_dir);
@@ -130,7 +139,10 @@ impl Ddar {
                     };
                     changed |= self.sq_force_new(
                         &eq,
-                        Reason::Theorem("perpendicular ⇒ squared lengths (Pythagoras)", vec![a0, b, c0, d]),
+                        Reason::Theorem(
+                            "perpendicular ⇒ squared lengths (Pythagoras)",
+                            vec![a0, b, c0, d],
+                        ),
                         |s| s.deps_of_angle_expr(a0, b, c0, d),
                     );
                 }
@@ -201,12 +213,18 @@ impl Ddar {
                         }
                         let Some((b, d, c, lam)) = [(px, py, pz), (py, px, pz), (px, pz, py)]
                             .into_iter()
-                            .find_map(|(b, d, c)| self.rational_ratio(b, c, b, d).map(|l| (b, d, c, l)))
+                            .find_map(|(b, d, c)| {
+                                self.rational_ratio(b, c, b, d).map(|l| (b, d, c, l))
+                            })
                         else {
                             continue;
                         };
                         let (vb, vd, vc) = (self.coord(b), self.coord(d), self.coord(c));
-                        let t = if (vd - vb).dot(vc - vb) > 0.0 { lam } else { -&lam };
+                        let t = if (vd - vb).dot(vc - vb) > 0.0 {
+                            lam
+                        } else {
+                            -&lam
+                        };
                         let one_minus_t = &Rat::one() - &t;
                         let tt = &t * &one_minus_t;
                         for &a in &active {
@@ -264,7 +282,9 @@ impl Ddar {
                     continue;
                 }
                 let mut key = self.dsq.simplify(&self.raw_dist_sq(a, b)).0;
-                let Some((_, lead)) = key.terms.first() else { continue };
+                let Some((_, lead)) = key.terms.first() else {
+                    continue;
+                };
                 let lead = lead.clone();
                 key.mul_assign_scalar(&lead.recip());
                 match first.get(&key) {
@@ -309,9 +329,10 @@ impl Ddar {
                 continue;
             };
             let prem = self.dsq.simplify_deps(&eq).1;
-            let fact = self
-                .log
-                .add(Reason::Theorem("lengths from squared lengths", vec![a0, b0, a, b]), prem);
+            let fact = self.log.add(
+                Reason::Theorem("lengths from squared lengths", vec![a0, b0, a, b]),
+                prem,
+            );
             changed |= self.dmul.force_one(&rel, Some(fact));
         }
         changed
@@ -366,7 +387,9 @@ impl Ddar {
                             if self.num_identical(a, b) || self.num_identical(c, d) {
                                 continue;
                             }
-                            let Some(eq) = self.sq_perp_comb(a, b, c, d) else { continue };
+                            let Some(eq) = self.sq_perp_comb(a, b, c, d) else {
+                                continue;
+                            };
                             let (r, prem) = self.dsq.simplify_deps(&eq);
                             if r.is_zero() {
                                 hit = Some(([a, b, c, d], prem));
@@ -376,7 +399,9 @@ impl Ddar {
                     }
                 }
             }
-            let Some(([a, b, c, d], prem)) = hit else { continue };
+            let Some(([a, b, c, d], prem)) = hit else {
+                continue;
+            };
             let (u, w) = (self.coord(b) - self.coord(a), self.coord(d) - self.coord(c));
             if u.dot(w).abs() > 1e-9 * u.norm() * w.norm() {
                 debug_assert!(false, "squared-length perpendicular fails numerically");

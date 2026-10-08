@@ -111,7 +111,11 @@ impl Scorer {
         }
 
         let rep: Vec<usize> = (0..n)
-            .map(|i| (0..i).find(|&j| distance(pts[i], pts[j]) < tol).unwrap_or(i))
+            .map(|i| {
+                (0..i)
+                    .find(|&j| distance(pts[i], pts[j]) < tol)
+                    .unwrap_or(i)
+            })
             .collect();
         Scorer {
             pts: pts.to_vec(),

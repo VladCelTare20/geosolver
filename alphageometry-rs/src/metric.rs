@@ -176,7 +176,9 @@ pub(crate) fn check_exponent(p: f64) -> Result<f64, String> {
     if p.is_finite() && p.abs() <= MAX_EXPONENT {
         Ok(p)
     } else {
-        Err(format!("exponent {p} is out of range (|exponent| ≤ {MAX_EXPONENT})"))
+        Err(format!(
+            "exponent {p} is out of range (|exponent| ≤ {MAX_EXPONENT})"
+        ))
     }
 }
 
@@ -184,7 +186,9 @@ pub(crate) fn check_exponent(p: f64) -> Result<f64, String> {
 pub(crate) fn count_op(ops: &mut u32) -> Result<(), String> {
     *ops += 1;
     if *ops > MAX_EXPR_OPS {
-        Err(format!("expression too long (max {MAX_EXPR_OPS} operators)"))
+        Err(format!(
+            "expression too long (max {MAX_EXPR_OPS} operators)"
+        ))
     } else {
         Ok(())
     }
@@ -439,7 +443,9 @@ impl MetricError {
     /// an unproved goal (labelled as not a proof), or the failure message.
     pub fn report(&self) -> String {
         match self {
-            MetricError::Refuted(m) | MetricError::Failed(m) | MetricError::TimedOut(m) => m.clone(),
+            MetricError::Refuted(m) | MetricError::Failed(m) | MetricError::TimedOut(m) => {
+                m.clone()
+            }
             MetricError::NoProof { reason, evidence } => format!(
                 "NOT PROVED — no classical Euclidean proof was found ({reason}).\n\n{}",
                 evidence.report
@@ -485,7 +491,12 @@ pub const TIME_LIMIT_REASON: &str = "the search stopped at its time limit";
 /// figure backstop). After a stop the numeric check still runs: a goal holding
 /// in every sample is `NoProof` with `reason` [`TIME_LIMIT_REASON`], one
 /// holding only in the drawn configuration is `TimedOut`.
-pub fn solve_until(cons_src: &str, goal: &str, n: usize, deadline: Option<std::time::Instant>) -> Result<String, MetricError> {
+pub fn solve_until(
+    cons_src: &str,
+    goal: &str,
+    n: usize,
+    deadline: Option<std::time::Instant>,
+) -> Result<String, MetricError> {
     use crate::synthetic::Outcome;
     if let Ok((l, r)) = drawn_sides(cons_src, goal) {
         if !sides_agree(l, r) {
@@ -499,7 +510,9 @@ pub fn solve_until(cons_src: &str, goal: &str, n: usize, deadline: Option<std::t
             });
         }
     }
-    let euclid = crate::budget::within(deadline, || crate::synthetic::prove_euclidean(cons_src, goal));
+    let euclid = crate::budget::within(deadline, || {
+        crate::synthetic::prove_euclidean(cons_src, goal)
+    });
     let reason = match euclid {
         Some(Ok(Outcome::Proved(proof))) => return checked_proof(cons_src, goal, proof),
         Some(Ok(Outcome::Unhandled(reason))) => Some(reason),
@@ -509,7 +522,8 @@ pub fn solve_until(cons_src: &str, goal: &str, n: usize, deadline: Option<std::t
     let Some(reason) = reason else {
         return Err(after_time_limit(cons_src, goal, n));
     };
-    let reason = match crate::budget::within(deadline, || crate::ratio::prove_ratio(cons_src, goal)) {
+    let reason = match crate::budget::within(deadline, || crate::ratio::prove_ratio(cons_src, goal))
+    {
         Some(Ok(Outcome::Proved(proof))) => return checked_proof(cons_src, goal, proof),
         Some(Ok(Outcome::Unhandled(ratio_reason))) => format!("{reason}; {ratio_reason}"),
         Some(Err(e)) => return Err(e.into()),

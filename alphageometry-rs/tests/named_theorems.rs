@@ -117,5 +117,8 @@ fn named_theorem_corpus_proves() {
          Euclidean proof",
         numeric_only.len()
     );
-    assert!(proven >= 93, "expected at least 93 proved corpus programs, found {proven}");
+    assert!(
+        proven >= 93,
+        "expected at least 93 proved corpus programs, found {proven}"
+    );
 }

@@ -3,8 +3,8 @@ use crate::certify::pred_c;
 use crate::proof::FactId;
 
 mod area;
-mod cos;
 mod bridge;
+mod cos;
 mod render;
 pub(super) use render::Tag;
 #[cfg(test)]
@@ -87,7 +87,9 @@ impl Figure {
 
     pub(super) fn angle_text(&self, k: LKey) -> String {
         match k {
-            LKey::Sin(v, p, q) | LKey::Cos(v, p, q) => format!("∠{}{}{}", self.nm(p), self.nm(v), self.nm(q)),
+            LKey::Sin(v, p, q) | LKey::Cos(v, p, q) => {
+                format!("∠{}{}{}", self.nm(p), self.nm(v), self.nm(q))
+            }
             LKey::Len(a, b) => self.seg(a, b),
             LKey::Area(a, b, c) => format!("[{}{}{}]", self.nm(a), self.nm(b), self.nm(c)),
         }
@@ -129,7 +131,9 @@ impl Figure {
             }
         }
         if tris.len() > MAX_TRIANGLES {
-            tris.sort_by_key(|t| std::cmp::Reverse(t.iter().filter(|p| goal_pts.contains(p)).count()));
+            tris.sort_by_key(|t| {
+                std::cmp::Reverse(t.iter().filter(|p| goal_pts.contains(p)).count())
+            });
             tris.truncate(MAX_TRIANGLES);
         }
         let mut atoms: BTreeSet<LKey> = BTreeSet::new();
@@ -194,7 +198,11 @@ impl Figure {
                 } else {
                     vec![
                         vec![pred_c("aconst", &[v, p, v, q], vec![Rat::from_int(deg)])],
-                        vec![pred_c("aconst", &[v, p, v, q], vec![Rat::from_int(180 - deg)])],
+                        vec![pred_c(
+                            "aconst",
+                            &[v, p, v, q],
+                            vec![Rat::from_int(180 - deg)],
+                        )],
                     ]
                 };
                 let value = match deg {
@@ -226,7 +234,11 @@ impl Figure {
                 (!s.iter().all(|x| (x - 1.0).abs() < 1e-9)).then_some((k, s))
             })
             .collect();
-        let same = |a: &[f64], b: &[f64]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-9 * x.max(*y));
+        let same = |a: &[f64], b: &[f64]| {
+            a.iter()
+                .zip(b)
+                .all(|(x, y)| (x - y).abs() < 1e-9 * x.max(*y))
+        };
         let mut sorted: Vec<usize> = (0..vals.len()).collect();
         sorted.sort_by(|&a, &b| vals[a].1[0].total_cmp(&vals[b].1[0]));
         let mut classes: Vec<Vec<usize>> = Vec::new();
@@ -280,7 +292,9 @@ impl Figure {
     }
 
     fn push_equal_sines(&mut self, kx: LKey, ky: LKey) {
-        let (LKey::Sin(v, p, q), LKey::Sin(w, r, s)) = (kx, ky) else { return };
+        let (LKey::Sin(v, p, q), LKey::Sin(w, r, s)) = (kx, ky) else {
+            return;
+        };
         let mut e = LEq::default();
         e.add_term(kx, Rat::one());
         e.add_term(ky, -Rat::one());
@@ -321,7 +335,9 @@ impl Figure {
                         if z == x || z == y {
                             continue;
                         }
-                        let Some(k) = self.sin_atom(z, x, y) else { continue };
+                        let Some(k) = self.sin_atom(z, x, y) else {
+                            continue;
+                        };
                         let mut e = LEq::default();
                         e.add_term(latom(x, y), Rat::one());
                         e.add_prime(2, -Rat::one());
@@ -337,7 +353,10 @@ impl Figure {
                             self.seg(o, x),
                             self.sin_text(k)
                         );
-                        let alts = vec![vec![pred("cong", &[o, x, o, y]), pred("cong", &[o, x, o, z])]];
+                        let alts = vec![vec![
+                            pred("cong", &[o, x, o, y]),
+                            pred("cong", &[o, x, o, z]),
+                        ]];
                         self.push_row(text, e, alts, true, false);
                     }
                 }
@@ -402,7 +421,11 @@ impl Figure {
     /// Drop, repeatedly, every row holding an atom that no other remaining row
     /// and not the goal mentions: such a row has coefficient 0 in any
     /// combination proving the goal, so this is exact.
-    pub(super) fn prune_private_atoms(&self, goal: &LEq, allowed: &BTreeSet<usize>) -> BTreeSet<usize> {
+    pub(super) fn prune_private_atoms(
+        &self,
+        goal: &LEq,
+        allowed: &BTreeSet<usize>,
+    ) -> BTreeSet<usize> {
         let mut keep: BTreeSet<usize> = allowed
             .iter()
             .copied()
@@ -452,7 +475,13 @@ impl Figure {
             if self.trig_checks > MAX_SIN_CERTS {
                 return None;
             }
-            got = self.ddar.borrow_mut().derive_deps(&self.names, &self.insts[0], &self.preds, self.hyps, &alt);
+            got = self.ddar.borrow_mut().derive_deps(
+                &self.names,
+                &self.insts[0],
+                &self.preds,
+                self.hyps,
+                &alt,
+            );
             if got.is_some() {
                 break;
             }
@@ -510,7 +539,11 @@ impl Figure {
             if used.is_empty() {
                 return None;
             }
-            let heads: Vec<usize> = used.iter().copied().filter(|&i| self.steps[i].headline).collect();
+            let heads: Vec<usize> = used
+                .iter()
+                .copied()
+                .filter(|&i| self.steps[i].headline)
+                .collect();
             if heads.len() == 1 && used.iter().all(|&i| i == heads[0] || self.steps[i].support) {
                 rejected.insert(heads[0]);
                 continue;
@@ -529,7 +562,11 @@ impl Figure {
 
     /// [`Figure::certified_prove_core`], with the certified facts printed once
     /// in a lead step that every certified row cites.
-    pub(super) fn certified_prove(&mut self, goal: &LEq, base: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
+    pub(super) fn certified_prove(
+        &mut self,
+        goal: &LEq,
+        base: &BTreeSet<usize>,
+    ) -> Option<BTreeSet<usize>> {
         let (used, deps) = self.certified_prove_core(goal, base)?;
         if !deps.is_empty() {
             let lines = self.ddar.borrow().lines(&deps);
@@ -562,7 +599,9 @@ impl Figure {
         let first = self.steps.len();
         self.gather_trig(pts, goal_pts);
         let base: BTreeSet<usize> = (0..self.steps.len())
-            .filter(|&i| self.steps[i].eq.is_some() && (i >= first || self.steps[i].alts.is_empty()))
+            .filter(|&i| {
+                self.steps[i].eq.is_some() && (i >= first || self.steps[i].alts.is_empty())
+            })
             .collect();
         self.certified_prove(goal, &base)
     }
@@ -645,7 +684,12 @@ impl Figure {
         out
     }
 
-    fn cong_intro(&mut self, intros: &mut BTreeMap<(LAtom, LAtom), usize>, s1: LAtom, s2: LAtom) -> usize {
+    fn cong_intro(
+        &mut self,
+        intros: &mut BTreeMap<(LAtom, LAtom), usize>,
+        s1: LAtom,
+        s2: LAtom,
+    ) -> usize {
         let key = if s1 <= s2 { (s1, s2) } else { (s2, s1) };
         if let Some(&i) = intros.get(&key) {
             return i;
@@ -659,8 +703,11 @@ impl Figure {
             None,
             vec![],
         );
-        self.pending
-            .push((intro, vec![pred("cong", &[key.0 .0, key.0 .1, key.1 .0, key.1 .1])], false));
+        self.pending.push((
+            intro,
+            vec![pred("cong", &[key.0 .0, key.0 .1, key.1 .0, key.1 .1])],
+            false,
+        ));
         intros.insert(key, intro);
         intro
     }
@@ -692,13 +739,22 @@ impl Figure {
                             if on.iter().any(|&p| self.nm(p).starts_with('_')) {
                                 String::new()
                             } else {
-                                format!(" through {}", on.iter().map(|&p| self.nm(p)).collect::<String>())
+                                format!(
+                                    " through {}",
+                                    on.iter().map(|&p| self.nm(p)).collect::<String>()
+                                )
                             }
                         ),
                         vec![AuxFact::Coll(v, r, kid), AuxFact::Cong([o, a, o, kid])],
                         move |i| {
                             let rad = (i[a as usize] - i[o as usize]).norm();
-                            second_meet(i[v as usize], i[r as usize], i[o as usize], rad, i[r as usize])
+                            second_meet(
+                                i[v as usize],
+                                i[r as usize],
+                                i[o as usize],
+                                rad,
+                                i[r as usize],
+                            )
                         },
                     );
                     out.extend(cand);
@@ -730,7 +786,11 @@ impl Figure {
                     let pos = m2.iter().position(|x| *x == LKey::from(s)).unwrap();
                     m2[pos] = s2.into();
                     m2.sort();
-                    let key = if m <= m2 { (m.clone(), m2.clone()) } else { (m2.clone(), m.clone()) };
+                    let key = if m <= m2 {
+                        (m.clone(), m2.clone())
+                    } else {
+                        (m2.clone(), m.clone())
+                    };
                     if !rows.insert(key) {
                         continue;
                     }

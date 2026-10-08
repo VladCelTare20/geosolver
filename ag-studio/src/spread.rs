@@ -66,7 +66,10 @@ pub fn triangle_angles(problem: &Problem, t: [usize; 3]) -> Option<[f64; 3]> {
     let (a, b, c) = (at(t[0])?, at(t[1])?, at(t[2])?);
     let angle = |o: (f64, f64), p: (f64, f64), q: (f64, f64)| {
         let (ux, uy, vx, vy) = (p.0 - o.0, p.1 - o.1, q.0 - o.0, q.1 - o.1);
-        (ux * vy - uy * vx).abs().atan2(ux * vx + uy * vy).to_degrees()
+        (ux * vy - uy * vx)
+            .abs()
+            .atan2(ux * vx + uy * vy)
+            .to_degrees()
     };
     let out = [angle(a, b, c), angle(b, c, a), angle(c, a, b)];
     out.iter().all(|x| x.is_finite()).then_some(out)
@@ -76,7 +79,10 @@ fn triangle_shape(angles: [f64; 3]) -> f64 {
     let mut a = angles;
     a.sort_by(|x, y| y.total_cmp(x));
     let scalene = (a[0] - a[1]).min(a[1] - a[2]);
-    (a[2] / 50.0).min((90.0 - a[0]) / 15.0).min(scalene / 10.0).min(1.0)
+    (a[2] / 50.0)
+        .min((90.0 - a[0]) / 15.0)
+        .min(scalene / 10.0)
+        .min(1.0)
 }
 
 pub fn shape(problem: &Problem, triangles: &[[usize; 3]]) -> f64 {
@@ -87,10 +93,17 @@ pub fn shape(problem: &Problem, triangles: &[[usize; 3]]) -> f64 {
 }
 
 pub fn framing(problem: &Problem, triangles: &[[usize; 3]]) -> f64 {
-    let pts: Vec<(f64, f64)> =
-        problem.points.iter().map(|p| (p.value.x, p.value.y)).filter(|p| p.0.is_finite() && p.1.is_finite()).collect();
+    let pts: Vec<(f64, f64)> = problem
+        .points
+        .iter()
+        .map(|p| (p.value.x, p.value.y))
+        .filter(|p| p.0.is_finite() && p.1.is_finite())
+        .collect();
     let bbox = |pts: &[(f64, f64)]| {
-        pts.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1)))
+        pts.iter()
+            .fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| {
+                (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1))
+            })
     };
     let b = bbox(&pts);
     let extent = (b.2 - b.0).max(b.3 - b.1);
@@ -98,16 +111,32 @@ pub fn framing(problem: &Problem, triangles: &[[usize; 3]]) -> f64 {
         return 1.0;
     }
     let mut drawn = b;
-    let at = |k: u32| problem.points.get(k as usize).map(|p| (p.value.x, p.value.y));
-    for pred in problem.preds.iter().chain(problem.goal.iter()).filter(|p| p.name == "cyclic" && p.points.len() >= 3) {
+    let at = |k: u32| {
+        problem
+            .points
+            .get(k as usize)
+            .map(|p| (p.value.x, p.value.y))
+    };
+    for pred in problem
+        .preds
+        .iter()
+        .chain(problem.goal.iter())
+        .filter(|p| p.name == "cyclic" && p.points.len() >= 3)
+    {
         let q = &pred.points;
         if let (Some(a), Some(b2), Some(c)) = (at(q[0]), at(q[1]), at(q[2])) {
             if let Some((x, y, r)) = crate::present::circumcircle(a, b2, c) {
-                drawn = (drawn.0.min(x - r), drawn.1.min(y - r), drawn.2.max(x + r), drawn.3.max(y + r));
+                drawn = (
+                    drawn.0.min(x - r),
+                    drawn.1.min(y - r),
+                    drawn.2.max(x + r),
+                    drawn.3.max(y + r),
+                );
             }
         }
     }
-    let fit = ((b.2 - b.0).max(extent * 0.3) / (drawn.2 - drawn.0)).min((b.3 - b.1).max(extent * 0.3) / (drawn.3 - drawn.1));
+    let fit = ((b.2 - b.0).max(extent * 0.3) / (drawn.2 - drawn.0))
+        .min((b.3 - b.1).max(extent * 0.3) / (drawn.3 - drawn.1));
     let tri = triangles
         .iter()
         .filter_map(|t| {
@@ -123,9 +152,20 @@ pub fn framing(problem: &Problem, triangles: &[[usize; 3]]) -> f64 {
 
 fn quality(problem: &Problem, triangles: &[[usize; 3]]) -> (f64, f64) {
     let s = spread(problem);
-    let terms = [shape(problem, triangles), (s / GOOD_SPREAD).min(1.0), framing(problem, triangles)];
+    let terms = [
+        shape(problem, triangles),
+        (s / GOOD_SPREAD).min(1.0),
+        framing(problem, triangles),
+    ];
     let worst = terms.iter().copied().fold(f64::INFINITY, f64::min);
-    (if worst <= 0.0 { worst } else { terms.iter().product() }, s)
+    (
+        if worst <= 0.0 {
+            worst
+        } else {
+            terms.iter().product()
+        },
+        s,
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -136,7 +176,8 @@ pub enum Goal {
 
 fn is_ident(s: &str) -> bool {
     let mut cs = s.chars();
-    cs.next().is_some_and(|c| c.is_alphabetic() || c == '_') && cs.all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
+    cs.next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && cs.all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
 }
 
 fn geo_constraints(pred: &Predicate, name: &dyn Fn(u32) -> String) -> Option<Vec<String>> {
@@ -150,14 +191,23 @@ fn geo_constraints(pred: &Predicate, name: &dyn Fn(u32) -> String) -> Option<Vec
         "eqangle" | "eqratio" if ok(8) => Some(vec![format!("{}({})", pred.name, args(p))]),
         "midp" if ok(3) => Some(vec![
             format!("coll({})", args(p)),
-            format!("cong({}, {}, {}, {})", name(p[0]), name(p[1]), name(p[0]), name(p[2])),
+            format!(
+                "cong({}, {}, {}, {})",
+                name(p[0]),
+                name(p[1]),
+                name(p[0]),
+                name(p[2])
+            ),
         ]),
         _ => None,
     }
 }
 
 fn aux_program(fig: &Problem, aux_from: usize, src: &str) -> Option<String> {
-    let base: Vec<&str> = fig.points[..aux_from].iter().map(|p| p.name.as_str()).collect();
+    let base: Vec<&str> = fig.points[..aux_from]
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
     if !base.iter().all(|n| is_ident(n)) {
         return None;
     }
@@ -184,9 +234,10 @@ fn aux_program(fig: &Problem, aux_from: usize, src: &str) -> Option<String> {
 }
 
 fn own_preds(fig: &Problem, i: usize) -> impl Iterator<Item = &Predicate> {
-    fig.preds
-        .iter()
-        .filter(move |pred| pred.points.iter().any(|&p| p as usize == i) && pred.points.iter().all(|&p| (p as usize) <= i))
+    fig.preds.iter().filter(move |pred| {
+        pred.points.iter().any(|&p| p as usize == i)
+            && pred.points.iter().all(|&p| (p as usize) <= i)
+    })
 }
 
 type Pt = (f64, f64);
@@ -224,13 +275,18 @@ fn locus_of(pred: &Predicate, i: u32) -> Option<Locus> {
     }
     match pred.name.as_str() {
         "coll" if distinct.len() >= 2 => Some(Locus::Line(distinct[0], distinct[1])),
-        "cyclic" if distinct.len() >= 3 => Some(Locus::Circle(distinct[0], distinct[1], distinct[2])),
+        "cyclic" if distinct.len() >= 3 => {
+            Some(Locus::Circle(distinct[0], distinct[1], distinct[2]))
+        }
         _ => None,
     }
 }
 
 fn coords(p: &Problem, k: u32) -> Option<Pt> {
-    p.points.get(k as usize).map(|q| (q.value.x, q.value.y)).filter(|q| q.0.is_finite() && q.1.is_finite())
+    p.points
+        .get(k as usize)
+        .map(|q| (q.value.x, q.value.y))
+        .filter(|q| q.0.is_finite() && q.1.is_finite())
 }
 
 fn roots(p: &Problem, loci: (Locus, Locus)) -> Option<Roots> {
@@ -244,9 +300,13 @@ fn roots(p: &Problem, loci: (Locus, Locus)) -> Option<Roots> {
                 return None;
             }
             let t = ((p1.0 - p3.0) * (p3.1 - p4.1) - (p1.1 - p3.1) * (p3.0 - p4.0)) / den;
-            Some((vec![(p1.0 + t * (p2.0 - p1.0), p1.1 + t * (p2.1 - p1.1))], Box::new(|_| 0.0)))
+            Some((
+                vec![(p1.0 + t * (p2.0 - p1.0), p1.1 + t * (p2.1 - p1.1))],
+                Box::new(|_| 0.0),
+            ))
         }
-        (Locus::Line(a, b), Locus::Circle(c1, c2, c3)) | (Locus::Circle(c1, c2, c3), Locus::Line(a, b)) => {
+        (Locus::Line(a, b), Locus::Circle(c1, c2, c3))
+        | (Locus::Circle(c1, c2, c3), Locus::Line(a, b)) => {
             let (pa, pb) = (at(a)?, at(b)?);
             let (ox, oy, r) = circle(c1, c2, c3)?;
             let d = (pb.0 - pa.0, pb.1 - pa.1);
@@ -261,8 +321,14 @@ fn roots(p: &Problem, loci: (Locus, Locus)) -> Option<Roots> {
                 return None;
             }
             let s = (h2 / dd).sqrt();
-            let pts = vec![(foot.0 - s * d.0, foot.1 - s * d.1), (foot.0 + s * d.0, foot.1 + s * d.1)];
-            Some((pts, Box::new(move |x: Pt| (x.0 - foot.0) * d.0 + (x.1 - foot.1) * d.1)))
+            let pts = vec![
+                (foot.0 - s * d.0, foot.1 - s * d.1),
+                (foot.0 + s * d.0, foot.1 + s * d.1),
+            ];
+            Some((
+                pts,
+                Box::new(move |x: Pt| (x.0 - foot.0) * d.0 + (x.1 - foot.1) * d.1),
+            ))
         }
         (Locus::Circle(a1, a2, a3), Locus::Circle(b1, b2, b3)) => {
             let (x1, y1, r1) = circle(a1, a2, a3)?;
@@ -275,8 +341,14 @@ fn roots(p: &Problem, loci: (Locus, Locus)) -> Option<Roots> {
             let a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d);
             let h = (r1 * r1 - a * a).max(0.0).sqrt();
             let m = (x1 + a * dx / d, y1 + a * dy / d);
-            let pts = vec![(m.0 + h * dy / d, m.1 - h * dx / d), (m.0 - h * dy / d, m.1 + h * dx / d)];
-            Some((pts, Box::new(move |x: Pt| dx * (x.1 - y1) - dy * (x.0 - x1))))
+            let pts = vec![
+                (m.0 + h * dy / d, m.1 - h * dx / d),
+                (m.0 - h * dy / d, m.1 + h * dx / d),
+            ];
+            Some((
+                pts,
+                Box::new(move |x: Pt| dx * (x.1 - y1) - dy * (x.0 - x1)),
+            ))
         }
     }
 }
@@ -295,13 +367,18 @@ fn aux_rules(fig: &Problem, aux_from: usize) -> Option<Vec<AuxRule>> {
         .map(|i| {
             let own: Vec<&Predicate> = own_preds(fig, i).collect();
             let loci: Vec<Locus> = own.iter().filter_map(|p| locus_of(p, i as u32)).collect();
-            if loci.len() < 2 || own.iter().any(|p| !matches!(p.name.as_str(), "coll" | "cyclic")) {
+            if loci.len() < 2
+                || own
+                    .iter()
+                    .any(|p| !matches!(p.name.as_str(), "coll" | "cyclic"))
+            {
                 return None;
             }
             let pair = (loci[0], loci[1]);
             let (pts, key) = roots(fig, pair)?;
             let x = coords(fig, i as u32)?;
-            let mine = (0..pts.len()).min_by(|&a, &b| dist(pts[a], x).total_cmp(&dist(pts[b], x)))?;
+            let mine =
+                (0..pts.len()).min_by(|&a, &b| dist(pts[a], x).total_cmp(&dist(pts[b], x)))?;
             if dist(pts[mine], x) > 1e-3 * spread_size(fig, fig.points.len()).max(1e-9) {
                 return None;
             }
@@ -325,7 +402,8 @@ fn place_aux(out: &mut Problem, i: usize, rule: &AuxRule) -> Option<()> {
         (_, 1) => pts[0],
         (Pick::Not(m), _) => {
             let q = coords(out, m)?;
-            *pts.iter().max_by(|a, b| dist(**a, q).total_cmp(&dist(**b, q)))?
+            *pts.iter()
+                .max_by(|a, b| dist(**a, q).total_cmp(&dist(**b, q)))?
         }
         (Pick::Side(side), _) => *pts.iter().find(|x| (key(**x) >= 0.0) == side)?,
     };
@@ -367,14 +445,19 @@ fn candidate(
     rules: Option<&[AuxRule]>,
     goal: Goal,
 ) -> Option<Problem> {
-    let at: HashMap<&str, ddar::numerics::Vec2> = inst.iter().map(|(n, v)| (n.as_str(), *v)).collect();
+    let at: HashMap<&str, ddar::numerics::Vec2> =
+        inst.iter().map(|(n, v)| (n.as_str(), *v)).collect();
     let mut out = fig.clone();
     for i in 0..out.points.len() {
         if let (Some(rules), true) = (rules, i >= aux_from) {
             place_aux(&mut out, i, &rules[i - aux_from])?;
             continue;
         }
-        let key = if i < aux_from { out.points[i].name.clone() } else { format!("zzaux{i}") };
+        let key = if i < aux_from {
+            out.points[i].name.clone()
+        } else {
+            format!("zzaux{i}")
+        };
         let v = *at.get(key.as_str())?;
         if !v.x.is_finite() || !v.y.is_finite() {
             return None;
@@ -400,7 +483,10 @@ pub fn respread(fig: &Problem, aux_from: Option<usize>, src: &str, goal: Goal) -
     }
     let triangles = source_triangles(fig, src);
     let current = quality(fig, &triangles);
-    if current.1 >= GOOD_SPREAD && shape(fig, &triangles) >= GOOD_SHAPE && framing(fig, &triangles) >= GOOD_FRAMING {
+    if current.1 >= GOOD_SPREAD
+        && shape(fig, &triangles) >= GOOD_SHAPE
+        && framing(fig, &triangles) >= GOOD_FRAMING
+    {
         return None;
     }
     let aux_from = aux_from.unwrap_or(fig.points.len()).min(fig.points.len());
@@ -414,7 +500,9 @@ pub fn respread(fig: &Problem, aux_from: Option<usize>, src: &str, goal: Goal) -
         .name("figure-respread".into())
         .spawn(move || {
             for n in BATCHES {
-                let Ok(instances) = ddar::geo::build_instances(&prog, n) else { return };
+                let Ok(instances) = ddar::geo::build_instances(&prog, n) else {
+                    return;
+                };
                 let short = instances.len() < n;
                 if tx.send(instances).is_err() || short {
                     return;
@@ -425,11 +513,18 @@ pub fn respread(fig: &Problem, aux_from: Option<usize>, src: &str, goal: Goal) -
     let deadline = Instant::now() + BUDGET;
     let mut best: Option<((f64, f64), Problem)> = None;
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-        let Ok(instances) = rx.recv_timeout(left) else { break };
+        let Ok(instances) = rx.recv_timeout(left) else {
+            break;
+        };
         for inst in &instances {
-            let Some(cand) = candidate(fig, aux_from, inst, rules.as_deref(), goal) else { continue };
+            let Some(cand) = candidate(fig, aux_from, inst, rules.as_deref(), goal) else {
+                continue;
+            };
             let q = quality(&cand, &triangles);
-            if best.as_ref().is_none_or(|(b, _)| q.0 > b.0 + 1e-9 || (q.0 > b.0 - 1e-9 && q.1 > b.1)) {
+            if best
+                .as_ref()
+                .is_none_or(|(b, _)| q.0 > b.0 + 1e-9 || (q.0 > b.0 - 1e-9 && q.1 > b.1))
+            {
                 best = Some((q, cand));
             }
         }
@@ -459,12 +554,21 @@ prove cyclic(P, Q, P1, Q1)";
         let c = ddar::geo::compile(IMO_2019_P2).unwrap();
         let squeezed = squeeze(&c.problem);
         assert!(spread(&squeezed) < GOOD_SPREAD);
-        let out = respread(&squeezed, None, IMO_2019_P2, Goal::Holds).expect("a better instance exists");
+        let out =
+            respread(&squeezed, None, IMO_2019_P2, Goal::Holds).expect("a better instance exists");
         assert!(spread(&out) > spread(&squeezed) * 1.5);
         for pred in &out.preds {
-            assert_eq!(ddar::geo::numeric_holds(&out, pred), Some(true), "{}", pred.name);
+            assert_eq!(
+                ddar::geo::numeric_holds(&out, pred),
+                Some(true),
+                "{}",
+                pred.name
+            );
         }
-        assert_eq!(ddar::geo::numeric_holds(&out, out.goal.as_ref().unwrap()), Some(true));
+        assert_eq!(
+            ddar::geo::numeric_holds(&out, out.goal.as_ref().unwrap()),
+            Some(true)
+        );
     }
 
     fn squeeze(p: &Problem) -> Problem {
@@ -487,7 +591,10 @@ prove cyclic(P, Q, P1, Q1)";
         let src = "A B C = triangle\nM = midpoint(B, C)\nprove coll(B, M, C)";
         let c = ddar::geo::compile(src).unwrap();
         let tris = source_triangles(&c.problem, src);
-        if spread(&c.problem) >= GOOD_SPREAD && shape(&c.problem, &tris) >= GOOD_SHAPE && framing(&c.problem, &tris) >= GOOD_FRAMING {
+        if spread(&c.problem) >= GOOD_SPREAD
+            && shape(&c.problem, &tris) >= GOOD_SHAPE
+            && framing(&c.problem, &tris) >= GOOD_FRAMING
+        {
             assert!(respread(&c.problem, None, src, Goal::Holds).is_none());
         }
     }
@@ -502,7 +609,10 @@ prove cyclic(P, Q, P1, Q1)";
         assert_eq!(tris.len(), 1);
         let a = triangle_angles(p, tris[0]).unwrap();
         assert!(shape(p, &tris) >= GOOD_SHAPE, "{src}: angles {a:?}");
-        assert!(a.iter().all(|x| (30.0..=81.0).contains(x)), "{src}: angles {a:?}");
+        assert!(
+            a.iter().all(|x| (30.0..=81.0).contains(x)),
+            "{src}: angles {a:?}"
+        );
     }
 
     #[test]
@@ -528,7 +638,10 @@ prove cyclic(P, Q, P1, Q1)";
         let src = "A B C = triangle\nM = midpoint(A, B)\nprove perp(C, M, A, B)";
         let p = drawn(src, Goal::Fails);
         assert_well_shaped(&p, src);
-        assert_eq!(ddar::geo::numeric_holds(&p, p.goal.as_ref().unwrap()), Some(false));
+        assert_eq!(
+            ddar::geo::numeric_holds(&p, p.goal.as_ref().unwrap()),
+            Some(false)
+        );
     }
 
     #[test]
@@ -537,14 +650,18 @@ prove cyclic(P, Q, P1, Q1)";
         let c = ddar::geo::compile(src).unwrap();
         let t = source_triangles(&c.problem, src);
         assert_eq!(t.len(), 1);
-        let names: Vec<&str> = t[0].iter().map(|&i| c.problem.points[i].name.as_str()).collect();
+        let names: Vec<&str> = t[0]
+            .iter()
+            .map(|&i| c.problem.points[i].name.as_str())
+            .collect();
         assert_eq!(names, ["X", "Y", "Z"]);
     }
 
     #[test]
     fn a_figure_with_search_aux_points_is_redrawn_with_them() {
         let _heavy = crate::engine::heavy_search_lock();
-        let sol = crate::engine::solve(IMO_2019_P2, &crate::engine::SolveOptions::default()).unwrap();
+        let sol =
+            crate::engine::solve(IMO_2019_P2, &crate::engine::SolveOptions::default()).unwrap();
         let f = sol.figure.as_ref().unwrap();
         let aux_from = f.aux_from.expect("this proof needs auxiliary points");
         assert!(aux_rules(&f.problem, aux_from).is_some());
@@ -553,9 +670,17 @@ prove cyclic(P, Q, P1, Q1)";
         let a = triangle_angles(&p, tris[0]).unwrap();
         assert!(a.iter().all(|x| (25.0..85.0).contains(x)), "angles {a:?}");
         for pred in &p.preds {
-            assert_eq!(ddar::geo::numeric_holds(&p, pred), Some(true), "{}", pred.name);
+            assert_eq!(
+                ddar::geo::numeric_holds(&p, pred),
+                Some(true),
+                "{}",
+                pred.name
+            );
         }
-        assert_eq!(coincidences(&p, aux_from), coincidences(&f.problem, aux_from));
+        assert_eq!(
+            coincidences(&p, aux_from),
+            coincidences(&f.problem, aux_from)
+        );
     }
 
     #[test]
@@ -566,7 +691,10 @@ prove cyclic(P, Q, P1, Q1)";
         let p = respread(&f.problem, f.aux_from, src, Goal::Holds).expect("redrawn");
         let tris = source_triangles(&p, src);
         let (before, after) = (framing(&f.problem, &tris), framing(&p, &tris));
-        assert!(after >= GOOD_FRAMING && after >= before, "framing {before:.2} -> {after:.2}");
+        assert!(
+            after >= GOOD_FRAMING && after >= before,
+            "framing {before:.2} -> {after:.2}"
+        );
         let a = triangle_angles(&p, tris[0]).unwrap();
         assert!(a.iter().all(|x| (25.0..85.0).contains(x)), "angles {a:?}");
     }

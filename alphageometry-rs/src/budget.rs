@@ -11,7 +11,10 @@ struct Expired;
 /// Unwind out of the enclosing [`within`] once its deadline has passed. A
 /// no-op on a thread outside `within`.
 pub fn check() {
-    if DEADLINE.with(Cell::get).is_some_and(|d| Instant::now() >= d) {
+    if DEADLINE
+        .with(Cell::get)
+        .is_some_and(|d| Instant::now() >= d)
+    {
         std::panic::panic_any(Expired);
     }
 }
@@ -47,7 +50,9 @@ mod tests {
         assert!(Instant::now() >= d);
         assert_eq!(within(None, || 7), Some(7));
         check();
-        let other = std::panic::catch_unwind(|| within(Some(d + Duration::from_secs(60)), || panic!("boom")));
+        let other = std::panic::catch_unwind(|| {
+            within(Some(d + Duration::from_secs(60)), || panic!("boom"))
+        });
         assert!(other.is_err());
         check();
     }

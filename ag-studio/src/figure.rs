@@ -175,7 +175,10 @@ fn metric_pairs(goal: &str) -> MetricPairs {
         while let Some(at) = rest.find(key) {
             let after = &rest[at + key.len()..];
             let Some(close) = after.find(')') else { break };
-            let args: Vec<String> = after[..close].split(',').map(|s| s.trim().to_string()).collect();
+            let args: Vec<String> = after[..close]
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
             if !out_angles && args.len() == 2 {
                 d.push((args[0].clone(), args[1].clone()));
             } else if out_angles && args.len() == 3 {
@@ -193,7 +196,10 @@ fn metric_triangles(goal: &str) -> Vec<(String, String, String)> {
     while let Some(at) = rest.find("area(") {
         let after = &rest[at + 5..];
         let Some(close) = after.find(')') else { break };
-        let args: Vec<String> = after[..close].split(',').map(|s| s.trim().to_string()).collect();
+        let args: Vec<String> = after[..close]
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
         if args.len() == 3 {
             out.push((args[0].clone(), args[1].clone(), args[2].clone()));
         }
@@ -231,7 +237,13 @@ fn arc_path(v: Pt, p1: Pt, p2: Pt, r: f64) -> Option<(String, Vec<Pt>)> {
     for k in 0..=steps {
         let t = a1 + delta * (k as f64) / (steps as f64);
         let p = (v.0 + r * t.cos(), v.1 + r * t.sin());
-        let _ = write!(d, "{}{:.1},{:.1}", if k == 0 { "M" } else { " L" }, p.0, p.1);
+        let _ = write!(
+            d,
+            "{}{:.1},{:.1}",
+            if k == 0 { "M" } else { " L" },
+            p.0,
+            p.1
+        );
         pts.push(p);
     }
     Some((d, pts))
@@ -246,7 +258,10 @@ fn leader(p: Pt, off: Pt, w: f64, crowded: bool, k: f64) -> Option<(Pt, Pt)> {
     if len(off) < ext + DOT_R * k + 4.0 * k {
         return None;
     }
-    Some((add(p, mul(u, DOT_R * k + 1.5 * k)), sub(add(p, off), mul(u, ext))))
+    Some((
+        add(p, mul(u, DOT_R * k + 1.5 * k)),
+        sub(add(p, off), mul(u, ext)),
+    ))
 }
 
 fn is_crowded(p: Pt, dots: &[Pt], k: f64) -> bool {
@@ -300,7 +315,12 @@ fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<
         let mut best: Option<(f64, Pt)> = None;
         for ring in 0..if crowded { 5 } else { 3 } {
             for j in 0..16 {
-                let th = (j as f64) * std::f64::consts::PI / 8.0 + if ring == 1 { std::f64::consts::PI / 16.0 } else { 0.0 };
+                let th = (j as f64) * std::f64::consts::PI / 8.0
+                    + if ring == 1 {
+                        std::f64::consts::PI / 16.0
+                    } else {
+                        0.0
+                    };
                 let dv = (th.cos(), th.sin());
                 let gap = dirs
                     .iter()
@@ -312,10 +332,16 @@ fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<
                         d
                     })
                     .fold(std::f64::consts::PI, f64::min);
-                let reach = (7.0 + ring as f64 * 7.0) * k + (dv.0.abs() * w / 2.0).max(dv.1.abs() * h / 2.0);
+                let reach = (7.0 + ring as f64 * 7.0) * k
+                    + (dv.0.abs() * w / 2.0).max(dv.1.abs() * h / 2.0);
                 let c = add(p, mul(dv, reach));
                 let m = 1.5 * k;
-                let bx = (c.0 - w / 2.0 - m, c.1 - h / 2.0 - m, c.0 + w / 2.0 + m, c.1 + h / 2.0 + m);
+                let bx = (
+                    c.0 - w / 2.0 - m,
+                    c.1 - h / 2.0 - m,
+                    c.0 + w / 2.0 + m,
+                    c.1 + h / 2.0 + m,
+                );
                 let gap_px = LABEL_GAP * k;
                 let mut penalty = ring as f64 * 0.35;
                 for q in &placed {
@@ -331,14 +357,19 @@ fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<
                     }
                 }
                 if let Some((a, b)) = leader(p, sub(c, p), w, crowded, k) {
-                    penalty += 14.0 * placed.iter().filter(|q| seg_hits_box(a, b, **q)).count() as f64;
+                    penalty +=
+                        14.0 * placed.iter().filter(|q| seg_hits_box(a, b, **q)).count() as f64;
                 }
                 let own = len(sub(c, p));
                 for d in dots {
                     if len(sub(*d, p)) < 1e-6 {
                         continue;
                     }
-                    if d.0 > bx.0 - dot_r && d.0 < bx.2 + dot_r && d.1 > bx.1 - dot_r && d.1 < bx.3 + dot_r {
+                    if d.0 > bx.0 - dot_r
+                        && d.0 < bx.2 + dot_r
+                        && d.1 > bx.1 - dot_r
+                        && d.1 < bx.3 + dot_r
+                    {
                         penalty += 10.0;
                     } else if len(sub(c, *d)) < own {
                         penalty += 14.0;
@@ -379,7 +410,11 @@ pub(crate) fn name_markup(name: &str) -> String {
     match (cs.next(), cs.next()) {
         (Some(a), Some(b)) if (a.is_uppercase() || a == 'ω') && b.is_ascii_lowercase() => {
             let rest: String = cs.collect();
-            format!(r#"{}<tspan font-size="75%" baseline-shift="sub">{b}</tspan>{}"#, esc(&a.to_string()), esc(&rest))
+            format!(
+                r#"{}<tspan font-size="75%" baseline-shift="sub">{b}</tspan>{}"#,
+                esc(&a.to_string()),
+                esc(&rest)
+            )
         }
         _ => esc(name),
     }
@@ -412,7 +447,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     let n = problem.points.len();
     let twins = crate::present::twins(problem);
     let twin: Vec<bool> = (0..n).map(|i| twins.contains_key(&(i as u32))).collect();
-    let world: Vec<Pt> = problem.points.iter().map(|p| (p.value.x, p.value.y)).collect();
+    let world: Vec<Pt> = problem
+        .points
+        .iter()
+        .map(|p| (p.value.x, p.value.y))
+        .collect();
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for &p in &world {
         if finite(p) {
@@ -426,7 +465,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         (x0, y0, x1, y1) = (0.0, 0.0, 1.0, 1.0);
     }
     let span = (x1 - x0).max(y1 - y0).max(1e-9);
-    let frame = Frame { x0, y1, s: SPAN / span };
+    let frame = Frame {
+        x0,
+        y1,
+        s: SPAN / span,
+    };
     let _ = y0;
     let scr: Vec<Pt> = world.iter().map(|&p| frame.map(p.0, p.1)).collect();
     let raw = |i: u32| problem.point_name(i).to_string();
@@ -468,7 +511,10 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         if d < 1e-6 {
             continue;
         }
-        if let Some(existing) = lines.iter_mut().find(|(a, b, _)| dist_to_line(lo, *a, *b) < 0.5 && dist_to_line(hi, *a, *b) < 0.5) {
+        if let Some(existing) = lines
+            .iter_mut()
+            .find(|(a, b, _)| dist_to_line(lo, *a, *b) < 0.5 && dist_to_line(hi, *a, *b) < 0.5)
+        {
             for i in ids {
                 if !existing.2.contains(&i) {
                     existing.2.push(i);
@@ -490,7 +536,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         }
         lines.push((lo, hi, ids));
     }
-    let covered = |a: Pt, b: Pt| lines.iter().any(|(lo, hi, _)| dist_to_line(a, *lo, *hi) < 0.5 && dist_to_line(b, *lo, *hi) < 0.5);
+    let covered = |a: Pt, b: Pt| {
+        lines
+            .iter()
+            .any(|(lo, hi, _)| dist_to_line(a, *lo, *hi) < 0.5 && dist_to_line(b, *lo, *hi) < 0.5)
+    };
     for (lo, hi, ids) in &lines {
         let ext = mul(sub(*hi, *lo), 0.07);
         let aux = ids.iter().any(|&i| is_aux(i));
@@ -501,37 +551,44 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             dashed: aux,
             width: 1.6,
             pts: ids.iter().map(|&i| dn(i)).collect(),
-            centre: None, anchor: None,
+            centre: None,
+            anchor: None,
         });
     }
 
     // Circles: cyclic sets, and centres with three or more equidistant points.
     let mut circles: Vec<Circle> = Vec::new();
-    let push_circle = |c: Pt, r: f64, on: Vec<u32>, centre: Option<u32>, aux: bool, circles: &mut Vec<Circle>| {
-        if !finite(c) || !r.is_finite() || r < 1e-6 || r > max_r {
-            return;
-        }
-        if let Some(e) = circles.iter_mut().find(|(cc, rr, ..)| len(sub(*cc, c)) < 0.5 && (rr - r).abs() < 0.5) {
-            for i in on {
-                if !e.2.contains(&i) {
-                    e.2.push(i);
+    let push_circle =
+        |c: Pt, r: f64, on: Vec<u32>, centre: Option<u32>, aux: bool, circles: &mut Vec<Circle>| {
+            if !finite(c) || !r.is_finite() || r < 1e-6 || r > max_r {
+                return;
+            }
+            if let Some(e) = circles
+                .iter_mut()
+                .find(|(cc, rr, ..)| len(sub(*cc, c)) < 0.5 && (rr - r).abs() < 0.5)
+            {
+                for i in on {
+                    if !e.2.contains(&i) {
+                        e.2.push(i);
+                    }
                 }
+                if e.3.is_none() {
+                    e.3 = centre;
+                }
+                e.4 = e.4 && aux;
+                return;
             }
-            if e.3.is_none() {
-                e.3 = centre;
-            }
-            e.4 = e.4 && aux;
-            return;
-        }
-        circles.push((c, r, on, centre, aux));
-    };
+            circles.push((c, r, on, centre, aux));
+        };
     let mut centre_groups: HashMap<(u32, i64), (Vec<u32>, bool)> = HashMap::new();
     let mut tick_pairs: Vec<((u32, u32), (u32, u32))> = Vec::new();
     for pred in &problem.preds {
         let aux = pred.points.iter().any(|&i| is_aux(i));
         if pred.name == "cyclic" && pred.points.len() >= 3 {
             let p = &pred.points;
-            if let Some((ux, uy, r)) = circumcircle(scr[p[0] as usize], scr[p[1] as usize], scr[p[2] as usize]) {
+            if let Some((ux, uy, r)) =
+                circumcircle(scr[p[0] as usize], scr[p[1] as usize], scr[p[2] as usize])
+            {
                 let mut on = Vec::new();
                 for &i in p {
                     if !on.contains(&i) {
@@ -620,13 +677,16 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             dashed: aux,
             width: 1.3,
             pts: vec![dn(a), dn(b)],
-            centre: None, anchor: None,
+            centre: None,
+            anchor: None,
         });
     }
 
     let extent = |a: u32, b: u32| -> (Pt, Pt) {
         let (pa, pb) = (scr[a as usize], scr[b as usize]);
-        match lines.iter().find(|(lo, hi, _)| dist_to_line(pa, *lo, *hi) < 0.5 && dist_to_line(pb, *lo, *hi) < 0.5) {
+        match lines.iter().find(|(lo, hi, _)| {
+            dist_to_line(pa, *lo, *hi) < 0.5 && dist_to_line(pb, *lo, *hi) < 0.5
+        }) {
             Some((lo, hi, _)) => {
                 let e = mul(sub(*hi, *lo), 0.07);
                 (sub(*lo, e), add(*hi, e))
@@ -635,9 +695,16 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         }
     };
     let right_angle = |a: u32, b: u32, c: u32, d: u32| -> Option<RightAngle> {
-        let (pa, pb, pc, pd) = (scr[a as usize], scr[b as usize], scr[c as usize], scr[d as usize]);
+        let (pa, pb, pc, pd) = (
+            scr[a as usize],
+            scr[b as usize],
+            scr[c as usize],
+            scr[d as usize],
+        );
         let x = intersect(pa, pb, pc, pd)?;
-        let near = scr.iter().any(|&p| finite(p) && len(sub(p, x)) < SPAN * 0.6);
+        let near = scr
+            .iter()
+            .any(|&p| finite(p) && len(sub(p, x)) < SPAN * 0.6);
         if !near {
             return None;
         }
@@ -656,14 +723,27 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 exts.push((end, x, e1, e2));
             }
         }
-        let far = |e1: Pt, e2: Pt| if len(sub(e1, x)) >= len(sub(e2, x)) { e1 } else { e2 };
+        let far = |e1: Pt, e2: Pt| {
+            if len(sub(e1, x)) >= len(sub(e2, x)) {
+                e1
+            } else {
+                e2
+            }
+        };
         let u = unit(sub(far(pa, pb), x));
         let v = unit(sub(far(pc, pd), x));
         let t = 10.0;
         let p1 = add(x, mul(u, t));
         let p2 = add(add(x, mul(u, t)), mul(v, t));
         let p3 = add(x, mul(v, t));
-        Some((format!("M{:.1},{:.1} L{:.1},{:.1} L{:.1},{:.1}", p1.0, p1.1, p2.0, p2.1, p3.0, p3.1), vec![p1, p2, p3, x], exts))
+        Some((
+            format!(
+                "M{:.1},{:.1} L{:.1},{:.1} L{:.1},{:.1}",
+                p1.0, p1.1, p2.0, p2.1, p3.0, p3.1
+            ),
+            vec![p1, p2, p3, x],
+            exts,
+        ))
     };
     let extension = |(from, to, a, b): (Pt, Pt, u32, u32), aux: bool| El {
         shape: Shape::Line(from, to),
@@ -672,9 +752,14 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         dashed: true,
         width: 1.0,
         pts: vec![dn(a), dn(b)],
-        centre: None, anchor: None,
+        centre: None,
+        anchor: None,
     };
-    for pred in problem.preds.iter().filter(|p| p.name == "perp" && p.points.len() == 4) {
+    for pred in problem
+        .preds
+        .iter()
+        .filter(|p| p.name == "perp" && p.points.len() == 4)
+    {
         let p = &pred.points;
         if let Some((d, mut pts, exts)) = right_angle(p[0], p[1], p[2], p[3]) {
             let aux = p.iter().any(|&i| is_aux(i));
@@ -708,7 +793,10 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 }
             }
         };
-        let edges: Vec<(usize, usize)> = tick_pairs.iter().map(|(a, b)| (idx(*a, &mut seg_ids), idx(*b, &mut seg_ids))).collect();
+        let edges: Vec<(usize, usize)> = tick_pairs
+            .iter()
+            .map(|(a, b)| (idx(*a, &mut seg_ids), idx(*b, &mut seg_ids)))
+            .collect();
         let mut uf = Uf((0..seg_ids.len()).collect());
         for (a, b) in edges {
             uf.join(a, b);
@@ -719,14 +807,20 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             let r = uf.find(i);
             members.entry(r).or_default().push(i);
         }
-        let mut roots: Vec<usize> = members.keys().copied().filter(|r| members[r].len() >= 2).collect();
+        let mut roots: Vec<usize> = members
+            .keys()
+            .copied()
+            .filter(|r| members[r].len() >= 2)
+            .collect();
         roots.sort();
         for (k, r) in roots.iter().enumerate() {
             class_of.insert(*r, (k % 3) + 1);
         }
         for (i, &(a, b)) in seg_ids.iter().enumerate() {
             let r = uf.find(i);
-            let Some(&count) = class_of.get(&r) else { continue };
+            let Some(&count) = class_of.get(&r) else {
+                continue;
+            };
             let (pa, pb) = (scr[a as usize], scr[b as usize]);
             if !finite(pa) || !finite(pb) || len(sub(pa, pb)) < 18.0 {
                 continue;
@@ -748,7 +842,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             els.push(El {
                 shape: Shape::Path(d.trim().to_string(), pts),
                 class: "f-mark",
-                role: if is_aux(a) || is_aux(b) { Role::Aux } else { Role::Base },
+                role: if is_aux(a) || is_aux(b) {
+                    Role::Aux
+                } else {
+                    Role::Base
+                },
                 dashed: false,
                 width: 1.3,
                 pts: vec![dn(a), dn(b)],
@@ -759,23 +857,28 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
     }
 
     // Equal-angle arcs at shared vertices.
-    let angle_arc = |a: u32, b: u32, c: u32, d: u32, r: f64| -> Option<(String, Vec<Pt>, Vec<u32>)> {
-        let (mut a, mut b, mut c, mut d) = (a, b, c, d);
-        if b == c || b == d {
-            std::mem::swap(&mut a, &mut b);
-        }
-        if a == d {
-            std::mem::swap(&mut c, &mut d);
-        }
-        if a != c {
-            return None;
-        }
-        let v = scr[a as usize];
-        let (d1, pts) = arc_path(v, scr[b as usize], scr[d as usize], r)?;
-        Some((d1, pts, vec![a, b, d]))
-    };
+    let angle_arc =
+        |a: u32, b: u32, c: u32, d: u32, r: f64| -> Option<(String, Vec<Pt>, Vec<u32>)> {
+            let (mut a, mut b, mut c, mut d) = (a, b, c, d);
+            if b == c || b == d {
+                std::mem::swap(&mut a, &mut b);
+            }
+            if a == d {
+                std::mem::swap(&mut c, &mut d);
+            }
+            if a != c {
+                return None;
+            }
+            let v = scr[a as usize];
+            let (d1, pts) = arc_path(v, scr[b as usize], scr[d as usize], r)?;
+            Some((d1, pts, vec![a, b, d]))
+        };
     let mut eq_count = 0usize;
-    for pred in problem.preds.iter().filter(|p| p.name == "eqangle" && p.points.len() == 8) {
+    for pred in problem
+        .preds
+        .iter()
+        .filter(|p| p.name == "eqangle" && p.points.len() == 8)
+    {
         eq_count += 1;
         let p = &pred.points;
         let r = 15.0 + 4.0 * ((eq_count - 1) % 3) as f64;
@@ -784,7 +887,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 els.push(El {
                     shape: Shape::Path(d, pts),
                     class: "f-mark",
-                    role: if ids.iter().any(|&i| is_aux(i)) { Role::Aux } else { Role::Base },
+                    role: if ids.iter().any(|&i| is_aux(i)) {
+                        Role::Aux
+                    } else {
+                        Role::Base
+                    },
                     dashed: false,
                     width: 1.3,
                     pts: ids.iter().map(|&i| dn(i)).collect(),
@@ -807,7 +914,8 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                 dashed: false,
                 width: 2.4,
                 pts: vec![dn(a), dn(b)],
-                centre: None, anchor: None,
+                centre: None,
+                anchor: None,
             });
         }
     };
@@ -816,7 +924,9 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         let gp: Vec<String> = p.iter().map(|&i| dn(i)).collect();
         match (goal.name.as_str(), p.len()) {
             ("cyclic", k) if k >= 3 => {
-                if let Some((ux, uy, r)) = circumcircle(scr[p[0] as usize], scr[p[1] as usize], scr[p[2] as usize]) {
+                if let Some((ux, uy, r)) =
+                    circumcircle(scr[p[0] as usize], scr[p[1] as usize], scr[p[2] as usize])
+                {
                     if r < max_r {
                         goal_els.push(El {
                             shape: Shape::Circle((ux, uy), r),
@@ -825,7 +935,8 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                             dashed: true,
                             width: 2.2,
                             pts: gp.clone(),
-                            centre: None, anchor: None,
+                            centre: None,
+                            anchor: None,
                         });
                     }
                 }
@@ -848,20 +959,34 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                     dashed: false,
                     width: 2.4,
                     pts: gp.clone(),
-                    centre: None, anchor: None,
+                    centre: None,
+                    anchor: None,
                 });
             }
             ("perp", 4) => {
                 gseg(p[0], p[1], &mut goal_els);
                 gseg(p[2], p[3], &mut goal_els);
-                let (u, v) = (sub(scr[p[1] as usize], scr[p[0] as usize]), sub(scr[p[3] as usize], scr[p[2] as usize]));
+                let (u, v) = (
+                    sub(scr[p[1] as usize], scr[p[0] as usize]),
+                    sub(scr[p[3] as usize], scr[p[2] as usize]),
+                );
                 let cos = (u.0 * v.0 + u.1 * v.1).abs() / (len(u) * len(v)).max(1e-9);
                 let holds = cos < 0.02;
-                if let Some((d, pts, exts)) = right_angle(p[0], p[1], p[2], p[3]).filter(|_| holds) {
+                if let Some((d, pts, exts)) = right_angle(p[0], p[1], p[2], p[3]).filter(|_| holds)
+                {
                     for e in exts {
                         goal_els.push(extension(e, false));
                     }
-                    goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 1.8, pts: gp.clone(), centre: None, anchor: None });
+                    goal_els.push(El {
+                        shape: Shape::Path(d, pts),
+                        class: "f-goal",
+                        role: Role::Goal,
+                        dashed: false,
+                        width: 1.8,
+                        pts: gp.clone(),
+                        centre: None,
+                        anchor: None,
+                    });
                 }
             }
             ("midp", 3) => {
@@ -881,7 +1006,8 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
                                 dashed: false,
                                 width: 2.0,
                                 pts: ids.iter().map(|&i| dn(i)).collect(),
-                                centre: None, anchor: None,
+                                centre: None,
+                                anchor: None,
                             });
                         }
                         None => {
@@ -912,24 +1038,45 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
             }
         }
         for (a, b, c) in angs {
-            if let (Some(&ia), Some(&ib), Some(&ic)) = (id_of.get(&a), id_of.get(&b), id_of.get(&c)) {
+            if let (Some(&ia), Some(&ib), Some(&ic)) = (id_of.get(&a), id_of.get(&b), id_of.get(&c))
+            {
                 gseg(ib, ia, &mut goal_els);
                 gseg(ib, ic, &mut goal_els);
-                if let Some((d, pts)) = arc_path(scr[ib as usize], scr[ia as usize], scr[ic as usize], 24.0) {
-                    goal_els.push(El { shape: Shape::Path(d, pts), class: "f-goal", role: Role::Goal, dashed: false, width: 2.0, pts: vec![dn(ia), dn(ib), dn(ic)], centre: None, anchor: None });
+                if let Some((d, pts)) =
+                    arc_path(scr[ib as usize], scr[ia as usize], scr[ic as usize], 24.0)
+                {
+                    goal_els.push(El {
+                        shape: Shape::Path(d, pts),
+                        class: "f-goal",
+                        role: Role::Goal,
+                        dashed: false,
+                        width: 2.0,
+                        pts: vec![dn(ia), dn(ib), dn(ic)],
+                        centre: None,
+                        anchor: None,
+                    });
                 }
             }
         }
     }
     els.extend(goal_els);
 
-    let dots: Vec<Pt> = (0..n).filter(|&i| !twin[i]).map(|i| scr[i]).filter(|p| finite(*p)).collect();
+    let dots: Vec<Pt> = (0..n)
+        .filter(|&i| !twin[i])
+        .map(|i| scr[i])
+        .filter(|p| finite(*p))
+        .collect();
     let mut order: Vec<usize> = (0..n).filter(|&i| finite(scr[i]) && !twin[i]).collect();
     let crowd = |p: Pt| dots.iter().filter(|d| len(sub(**d, p)) < 40.0).count();
     order.sort_by_key(|&i| (is_aux(i as u32), std::cmp::Reverse(crowd(scr[i])), i));
     let specs: Vec<(Pt, String)> = order.iter().map(|&i| (scr[i], dn(i as u32))).collect();
     let offsets = place_labels(&specs, &dots, &els, 1.0);
-    let labels: Vec<(usize, String, Pt, Pt)> = order.iter().zip(specs).zip(offsets).map(|((&i, (p, name)), off)| (i, name, p, off)).collect();
+    let labels: Vec<(usize, String, Pt, Pt)> = order
+        .iter()
+        .zip(specs)
+        .zip(offsets)
+        .map(|((&i, (p, name)), off)| (i, name, p, off))
+        .collect();
 
     // Frame the points and labels; lines and arcs may widen it a little, a
     // large circle is clipped rather than allowed to shrink the construction.
@@ -1036,10 +1183,18 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         );
         match &el.shape {
             Shape::Line(a, b) => {
-                let _ = writeln!(s, r#"<line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" {common}/>"#, a.0, a.1, b.0, b.1);
+                let _ = writeln!(
+                    s,
+                    r#"<line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" {common}/>"#,
+                    a.0, a.1, b.0, b.1
+                );
             }
             Shape::Circle(c, r) => {
-                let _ = writeln!(s, r#"<circle cx="{:.1}" cy="{:.1}" r="{:.1}" {common}/>"#, c.0, c.1, r);
+                let _ = writeln!(
+                    s,
+                    r#"<circle cx="{:.1}" cy="{:.1}" r="{:.1}" {common}/>"#,
+                    c.0, c.1, r
+                );
             }
             Shape::Path(d, _) => {
                 let _ = writeln!(s, r#"<path d="{d}" {common}/>"#);
@@ -1054,7 +1209,11 @@ pub fn render(problem: &Problem, aux_from: Option<usize>, names: &Names, ex: &Ex
         let ext = (u.0.abs() * label_width(name) / 2.0).max(u.1.abs() * LABEL_FS * 0.45) + 2.0;
         let shown = len(*off) >= ext + DOT_R + 4.0;
         let a = add(*p, mul(u, DOT_R + 1.5));
-        let b = if shown { sub(add(*p, *off), mul(u, ext)) } else { a };
+        let b = if shown {
+            sub(add(*p, *off), mul(u, ext))
+        } else {
+            a
+        };
         let _ = writeln!(
             s,
             r#"<line class="f-lead" x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{MARK}" stroke-width="0.9" vector-effect="non-scaling-stroke"{} data-p="{}" data-x="{:.1}" data-y="{:.1}" data-dx="{:.1}" data-dy="{:.1}" data-e="{ext:.1}"/>"#,
@@ -1118,7 +1277,11 @@ fn attr_of<'a>(line: &'a str, name: &str) -> Option<&'a str> {
 }
 
 fn num_attr(line: &str, name: &str) -> Option<f64> {
-    attr_of(line, name)?.trim().parse().ok().filter(|v: &f64| v.is_finite())
+    attr_of(line, name)?
+        .trim()
+        .parse()
+        .ok()
+        .filter(|v: &f64| v.is_finite())
 }
 
 fn set_attr(line: &str, name: &str, value: &str) -> String {
@@ -1145,7 +1308,11 @@ fn path_points(d: &str) -> Vec<Pt> {
 /// The figure with labels, dots and leaders laid out again at `k` times
 /// their drawn size.
 pub fn relabel(svg: &str, k: f64) -> String {
-    let k = if k.is_finite() { k.clamp(0.3, 6.0) } else { 1.0 };
+    let k = if k.is_finite() {
+        k.clamp(0.3, 6.0)
+    } else {
+        1.0
+    };
     let lines: Vec<&str> = svg.lines().collect();
     let class = |l: &str| attr_of(l, "class").unwrap_or("").to_string();
     let mut els: Vec<El> = Vec::new();
@@ -1154,25 +1321,49 @@ pub fn relabel(svg: &str, k: f64) -> String {
     let mut label_lines: Vec<&str> = Vec::new();
     for l in &lines {
         let c = class(l);
-        let role = if c.starts_with("f-goal") { Role::Goal } else { Role::Base };
-        let el = |shape| El { shape, class: "f-seg", role, dashed: false, width: 1.0, pts: Vec::new(), centre: None, anchor: None };
+        let role = if c.starts_with("f-goal") {
+            Role::Goal
+        } else {
+            Role::Base
+        };
+        let el = |shape| El {
+            shape,
+            class: "f-seg",
+            role,
+            dashed: false,
+            width: 1.0,
+            pts: Vec::new(),
+            centre: None,
+            anchor: None,
+        };
         if l.starts_with("<circle") && c.starts_with("f-dot") {
             if let (Some(x), Some(y)) = (num_attr(l, "cx"), num_attr(l, "cy")) {
                 dots.push((x, y));
             }
         } else if l.starts_with("<text") && c.starts_with("f-lbl") {
             let name = attr_of(l, "data-p").unwrap_or("");
-            let name = name.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+            let name = name
+                .replace("&quot;", "\"")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&");
             if let (Some(x), Some(y)) = (num_attr(l, "data-x"), num_attr(l, "data-y")) {
                 specs.push(((x, y), name));
                 label_lines.push(l);
             }
         } else if l.starts_with("<line") && c != "f-lead" {
-            if let (Some(x1), Some(y1), Some(x2), Some(y2)) = (num_attr(l, "x1"), num_attr(l, "y1"), num_attr(l, "x2"), num_attr(l, "y2")) {
+            if let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
+                num_attr(l, "x1"),
+                num_attr(l, "y1"),
+                num_attr(l, "x2"),
+                num_attr(l, "y2"),
+            ) {
                 els.push(el(Shape::Line((x1, y1), (x2, y2))));
             }
         } else if l.starts_with("<circle") {
-            if let (Some(x), Some(y), Some(r)) = (num_attr(l, "cx"), num_attr(l, "cy"), num_attr(l, "r")) {
+            if let (Some(x), Some(y), Some(r)) =
+                (num_attr(l, "cx"), num_attr(l, "cy"), num_attr(l, "r"))
+            {
                 els.push(el(Shape::Circle((x, y), r)));
             }
         } else if l.starts_with("<path") {
@@ -1181,11 +1372,18 @@ pub fn relabel(svg: &str, k: f64) -> String {
                     let (x, y) = a.split_once(',')?;
                     Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
                 });
-                els.push(El { anchor, ..el(Shape::Path(String::new(), path_points(d))) });
+                els.push(El {
+                    anchor,
+                    ..el(Shape::Path(String::new(), path_points(d)))
+                });
             }
         }
     }
-    let Some(vb) = attr_of(svg, "viewBox").map(|v| v.split_whitespace().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>()) else {
+    let Some(vb) = attr_of(svg, "viewBox").map(|v| {
+        v.split_whitespace()
+            .filter_map(|x| x.parse::<f64>().ok())
+            .collect::<Vec<_>>()
+    }) else {
         return svg.to_string();
     };
     if specs.is_empty() || vb.len() != 4 {
@@ -1193,7 +1391,12 @@ pub fn relabel(svg: &str, k: f64) -> String {
     }
     let offsets = place_labels(&specs, &dots, &els, k);
     let fs = LABEL_FS * k;
-    let mut bounds = (vb[0] + PAD, vb[1] + PAD, vb[0] + vb[2] - PAD, vb[1] + vb[3] - PAD);
+    let mut bounds = (
+        vb[0] + PAD,
+        vb[1] + PAD,
+        vb[0] + vb[2] - PAD,
+        vb[1] + vb[3] - PAD,
+    );
     let mut grow = |p: Pt| {
         bounds.0 = bounds.0.min(p.0);
         bounds.1 = bounds.1.min(p.1);
@@ -1231,7 +1434,10 @@ pub fn relabel(svg: &str, k: f64) -> String {
         let c = class(l);
         if l.starts_with("<svg") {
             head = l.to_string();
-        } else if l.starts_with("</svg") || c == "f-lead" || (l.starts_with("<text") && c.starts_with("f-lbl")) {
+        } else if l.starts_with("</svg")
+            || c == "f-lead"
+            || (l.starts_with("<text") && c.starts_with("f-lbl"))
+        {
             continue;
         } else if l.starts_with("<circle") && c.starts_with("f-dot") {
             dots_out.push_str(&set_attr(l, "r", &format!("{r:.2}")));
@@ -1242,8 +1448,15 @@ pub fn relabel(svg: &str, k: f64) -> String {
         }
     }
     let (vx, vy) = (bounds.0 - PAD, bounds.1 - PAD);
-    let (vw, vh) = (bounds.2 - bounds.0 + 2.0 * PAD, bounds.3 - bounds.1 + 2.0 * PAD);
-    head = set_attr(&head, "viewBox", &format!("{vx:.1} {vy:.1} {vw:.1} {vh:.1}"));
+    let (vw, vh) = (
+        bounds.2 - bounds.0 + 2.0 * PAD,
+        bounds.3 - bounds.1 + 2.0 * PAD,
+    );
+    head = set_attr(
+        &head,
+        "viewBox",
+        &format!("{vx:.1} {vy:.1} {vw:.1} {vh:.1}"),
+    );
     head = set_attr(&head, "width", &format!("{vw:.0}"));
     head = set_attr(&head, "height", &format!("{vh:.0}"));
     format!("{head}\n{body}{leads}{texts}{dots_out}</svg>\n")
@@ -1277,16 +1490,29 @@ mod tests {
             })
             .collect();
         let mut out = Vec::new();
-        for l in lines.iter().filter(|l| l.starts_with("<text") && l.contains("f-lbl")) {
+        for l in lines
+            .iter()
+            .filter(|l| l.starts_with("<text") && l.contains("f-lbl"))
+        {
             let name = attr_of(l, "data-p").unwrap_or("");
-            let (Some(x), Some(y), Some(px), Some(py)) = (num_attr(l, "x"), num_attr(l, "y"), num_attr(l, "data-x"), num_attr(l, "data-y")) else { continue };
+            let (Some(x), Some(y), Some(px), Some(py)) = (
+                num_attr(l, "x"),
+                num_attr(l, "y"),
+                num_attr(l, "data-x"),
+                num_attr(l, "data-y"),
+            ) else {
+                continue;
+            };
             let (w, h) = (label_width(name) * k, LABEL_FS * k * 0.9);
             let c = (x, y - LABEL_FS * k * 0.34);
             let bx = (c.0 - w / 2.0, c.1 - h / 2.0, c.0 + w / 2.0, c.1 + h / 2.0);
             if circles.iter().any(|(cc, r)| circle_hits_box(*cc, *r, bx)) {
                 out.push(format!("{name} on a circle"));
             }
-            if marks.iter().any(|(a, pts)| !own_mark(*a, pts, (px, py), k) && pts.windows(2).any(|w2| seg_hits_box(w2[0], w2[1], bx))) {
+            if marks.iter().any(|(a, pts)| {
+                !own_mark(*a, pts, (px, py), k)
+                    && pts.windows(2).any(|w2| seg_hits_box(w2[0], w2[1], bx))
+            }) {
                 out.push(format!("{name} on a mark"));
             }
         }
@@ -1311,16 +1537,29 @@ mod tests {
     #[test]
     fn right_angles_off_the_drawn_sides_get_a_dashed_leg() {
         let s = svg("A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))");
-        let marks = s.lines().filter(|l| l.starts_with("<path") && l.contains("f-mark")).count();
+        let marks = s
+            .lines()
+            .filter(|l| l.starts_with("<path") && l.contains("f-mark"))
+            .count();
         assert!(marks >= 2, "{s}");
-        assert!(s.contains("class=\"f-ext\""), "the altitude feet lie on extended sides here: {s}");
+        assert!(
+            s.contains("class=\"f-ext\""),
+            "the altitude feet lie on extended sides here: {s}"
+        );
     }
 
     #[test]
     fn area_goals_draw_their_triangles() {
         let s = svg("A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)");
-        let goal: Vec<&str> = s.lines().filter(|l| l.contains("class=\"f-goal\"")).collect();
-        assert!(goal.iter().any(|l| l.contains("data-p=\"A M\"") || l.contains("data-p=\"M A\"")), "{s}");
+        let goal: Vec<&str> = s
+            .lines()
+            .filter(|l| l.contains("class=\"f-goal\""))
+            .collect();
+        assert!(
+            goal.iter()
+                .any(|l| l.contains("data-p=\"A M\"") || l.contains("data-p=\"M A\"")),
+            "{s}"
+        );
     }
 
     #[test]

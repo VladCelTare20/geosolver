@@ -52,7 +52,9 @@ pub fn share_threads(total: usize) {
 }
 
 fn threads_for(total: usize, running: usize) -> usize {
-    total.div_ceil(running.max(1)).max(MIN_WORKER_THREADS.min(total))
+    total
+        .div_ceil(running.max(1))
+        .max(MIN_WORKER_THREADS.min(total))
 }
 
 struct Running;
@@ -155,7 +157,11 @@ impl Request {
     fn options(&self) -> SolveOptions {
         SolveOptions {
             kind: self.kind,
-            theme: if self.light { Theme::Light } else { Theme::Dark },
+            theme: if self.light {
+                Theme::Light
+            } else {
+                Theme::Dark
+            },
             want_proof: self.want_proof,
             title: self.title.clone(),
             panel: self.panel,
@@ -164,7 +170,11 @@ impl Request {
 
     /// The solve's own (cooperative) deadline or budget.
     pub fn limit(&self) -> Duration {
-        let s = if self.secs.is_finite() { self.secs.clamp(0.0, 3600.0) } else { 0.0 };
+        let s = if self.secs.is_finite() {
+            self.secs.clamp(0.0, 3600.0)
+        } else {
+            0.0
+        };
         Duration::from_secs_f64(s)
     }
 
@@ -374,7 +384,9 @@ async fn run_with(
         Ok(Ok(out)) => out,
         Ok(Err(e)) => {
             let status = slot.finish().await;
-            return Outcome::Failed(format!("talking to the solver process failed: {e} ({status})"));
+            return Outcome::Failed(format!(
+                "talking to the solver process failed: {e} ({status})"
+            ));
         }
         Err(_) => {
             slot.finish().await;
@@ -384,7 +396,9 @@ async fn run_with(
     let status = slot.finish().await;
     match parse_reply(&out) {
         Some(reply) => Outcome::Done(Box::new(reply)),
-        None => Outcome::Failed(format!("the solver process ended without a result ({status})")),
+        None => Outcome::Failed(format!(
+            "the solver process ended without a result ({status})"
+        )),
     }
 }
 
@@ -434,7 +448,10 @@ type Resource = libc::c_int;
 /// Lower a resource limit (never above the inherited hard limit).
 #[cfg(unix)]
 fn cap(resource: Resource, soft: u64, hard: u64) -> std::io::Result<()> {
-    let mut cur = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    let mut cur = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
     // SAFETY: plain syscalls on a stack value.
     unsafe {
         if libc::getrlimit(resource, &mut cur) != 0 {
@@ -468,7 +485,11 @@ fn cgroup_memory_max() -> Option<u64> {
     max.trim().parse().ok()
 }
 
-fn memory_overcommit(worker_cap: Option<u64>, slots: usize, cgroup_max: Option<u64>) -> Option<String> {
+fn memory_overcommit(
+    worker_cap: Option<u64>,
+    slots: usize,
+    cgroup_max: Option<u64>,
+) -> Option<String> {
     let (cap, max) = (worker_cap?, cgroup_max?);
     let fits = max.saturating_mul(9) / 10 / slots.max(1) as u64;
     (cap.saturating_mul(slots as u64) > max.saturating_mul(9) / 10).then(|| {
@@ -496,9 +517,7 @@ fn cpu_limit_secs(hard: Duration) -> u64 {
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|n| *n > 0)
-        .unwrap_or_else(|| {
-            std::thread::available_parallelism().map_or(4, |n| n.get() as u64)
-        });
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get() as u64));
     (hard.as_secs_f64() * (threads + 1) as f64).ceil() as u64 + 10
 }
 
@@ -532,8 +551,14 @@ const TEST_ENTRY_ENV: &str = "AGSTUDIO_TEST_WORKER_PROCESS";
 #[cfg(test)]
 fn worker_command() -> std::io::Result<tokio::process::Command> {
     let mut cmd = tokio::process::Command::new(std::env::current_exe()?);
-    cmd.args([TEST_ENTRY, "--exact", "--nocapture", "--test-threads=1", "-q"])
-        .env(TEST_ENTRY_ENV, "1");
+    cmd.args([
+        TEST_ENTRY,
+        "--exact",
+        "--nocapture",
+        "--test-threads=1",
+        "-q",
+    ])
+    .env(TEST_ENTRY_ENV, "1");
     Ok(cmd)
 }
 
@@ -543,7 +568,10 @@ fn worker_command() -> std::io::Result<tokio::process::Command> {
 /// [`Reply`] line to stdout. Returns the process exit status.
 pub fn worker_main() -> i32 {
     let mut raw = Vec::new();
-    if let Err(e) = std::io::stdin().take(MAX_REQUEST_BYTES).read_to_end(&mut raw) {
+    if let Err(e) = std::io::stdin()
+        .take(MAX_REQUEST_BYTES)
+        .read_to_end(&mut raw)
+    {
         eprintln!("solve worker: reading the request failed: {e}");
         return 2;
     }
@@ -600,9 +628,11 @@ fn execute(req: &Request) -> Reply {
         Mode::Best => engine::solve_best(&req.input, &opts, req.limit()),
     };
     let view = match &result {
-        Ok(sol) if req.present || req.report.is_some() => {
-            Some(present::solution_json_by(sol, req.title.as_deref(), Some(present_by)))
-        }
+        Ok(sol) if req.present || req.report.is_some() => Some(present::solution_json_by(
+            sol,
+            req.title.as_deref(),
+            Some(present_by),
+        )),
         _ => None,
     };
     let report = match (&view, req.report) {
@@ -624,7 +654,13 @@ fn execute(req: &Request) -> Reply {
         _ => None,
     };
     let view = if req.present { view } else { None };
-    Reply { result, report, figure_png, view, human }
+    Reply {
+        result,
+        report,
+        figure_png,
+        view,
+        human,
+    }
 }
 
 /// Exit the whole process with [`EXIT_HARD_LIMIT`] once `limit` has passed,
@@ -749,7 +785,11 @@ pub(crate) mod tests {
 
     pub(super) fn hooks(input: &str) {
         if let Some(rest) = input.strip_prefix(SLEEP) {
-            let ms = rest.split_whitespace().next().and_then(|t| t.parse().ok()).unwrap_or(0);
+            let ms = rest
+                .split_whitespace()
+                .next()
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(0);
             std::thread::sleep(Duration::from_millis(ms));
         }
         if let Some(path) = input.strip_prefix(HANG) {
@@ -769,7 +809,8 @@ pub(crate) mod tests {
                 )
             };
             let pid = std::process::id();
-            let text = format!("{limits}\nnice={nice}\npgrp={pgrp}\npid={pid}\ndumpable={dumpable}\n");
+            let text =
+                format!("{limits}\nnice={nice}\npgrp={pgrp}\npid={pid}\ndumpable={dumpable}\n");
             std::fs::write(path.trim(), text).unwrap();
         }
         if input.starts_with(ALLOC) {
@@ -800,7 +841,10 @@ pub(crate) mod tests {
             return;
         };
         let input = format!("{HANG} {}", std::path::Path::new(&pidfile).display());
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(run(&request(&input, 60.0), None));
         std::process::exit(0);
     }
@@ -838,7 +882,10 @@ pub(crate) mod tests {
     pub async fn wait_reaped(pid: i32, within: Duration) -> Duration {
         let t = Instant::now();
         while !reaped(pid) {
-            assert!(t.elapsed() < within, "worker {pid} still exists after {within:?}");
+            assert!(
+                t.elapsed() < within,
+                "worker {pid} still exists after {within:?}"
+            );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         t.elapsed()
@@ -850,7 +897,12 @@ pub(crate) mod tests {
     }
 
     fn request(input: &str, secs: f64) -> Request {
-        Request::new(input, &SolveOptions::default(), Mode::Solve, Duration::from_secs_f64(secs))
+        Request::new(
+            input,
+            &SolveOptions::default(),
+            Mode::Solve,
+            Duration::from_secs_f64(secs),
+        )
     }
 
     async fn bounded<T>(f: impl std::future::Future<Output = T>) -> T {
@@ -871,12 +923,15 @@ pub(crate) mod tests {
         assert!(sol.proved, "{}", sol.note);
         assert_eq!(sol.status, Status::Proved);
         assert!(reply.report_bytes().unwrap().unwrap().starts_with(b"%PDF"));
-        assert!(decode(reply.figure_png.as_deref().unwrap()).unwrap().starts_with(b"\x89PNG"));
+        assert!(decode(reply.figure_png.as_deref().unwrap())
+            .unwrap()
+            .starts_with(b"\x89PNG"));
     }
 
     #[tokio::test]
     async fn input_errors_come_back_as_errors_not_failures() {
-        let Outcome::Done(reply) = bounded(run(&request("this is not geo", 30.0), None)).await else {
+        let Outcome::Done(reply) = bounded(run(&request("this is not geo", 30.0), None)).await
+        else {
             panic!("the worker did not answer");
         };
         assert!(reply.result.is_err());
@@ -894,7 +949,10 @@ pub(crate) mod tests {
         let took = t.elapsed();
         assert!(matches!(outcome, Outcome::TimedOut), "expected a timeout");
         assert!(took >= req.hard_limit(), "killed early: {took:?}");
-        assert!(took < req.hard_limit() + Duration::from_secs(2), "killed late: {took:?}");
+        assert!(
+            took < req.hard_limit() + Duration::from_secs(2),
+            "killed late: {took:?}"
+        );
         let pid = wait_for_pid(&pidfile).await;
         assert!(reaped(pid), "the hung worker {pid} is still around");
         assert_eq!(sem.available_permits(), 1, "the permit was not released");
@@ -916,14 +974,21 @@ pub(crate) mod tests {
         bounded(async {
             loop {
                 if sem.available_permits() == 1 {
-                    assert!(reaped(pid), "permit released before worker {pid} was reaped");
+                    assert!(
+                        reaped(pid),
+                        "permit released before worker {pid} was reaped"
+                    );
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
         .await;
-        assert!(t.elapsed() < Duration::from_secs(2), "slow release: {:?}", t.elapsed());
+        assert!(
+            t.elapsed() < Duration::from_secs(2),
+            "slow release: {:?}",
+            t.elapsed()
+        );
     }
 
     #[tokio::test]
@@ -936,8 +1001,14 @@ pub(crate) mod tests {
         };
         let text = std::fs::read_to_string(&file).unwrap();
         let row = |name: &str| -> Vec<String> {
-            let line = text.lines().find(|l| l.starts_with(name)).unwrap_or_else(|| panic!("{name}: {text}"));
-            line[name.len()..].split_whitespace().map(str::to_string).collect()
+            let line = text
+                .lines()
+                .find(|l| l.starts_with(name))
+                .unwrap_or_else(|| panic!("{name}: {text}"));
+            line[name.len()..]
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
         };
         let mem = (DEFAULT_MEM_MB << 20).to_string();
         assert_eq!(row("Max data size")[..2], [mem.clone(), mem], "{text}");
@@ -945,26 +1016,48 @@ pub(crate) mod tests {
         assert_ne!(row("Max cpu time")[0], "unlimited", "{text}");
         assert_eq!(row("Max core file size")[0], "0", "{text}");
         assert!(text.contains(&format!("nice={WORKER_NICE}")), "{text}");
-        assert!(text.contains("dumpable=0"), "a crash must not reach the coredump handler: {text}");
-        let field = |k: &str| text.lines().find_map(|l| l.strip_prefix(k)).unwrap().to_string();
-        assert_eq!(field("pgrp="), field("pid="), "the worker must lead its own process group");
+        assert!(
+            text.contains("dumpable=0"),
+            "a crash must not reach the coredump handler: {text}"
+        );
+        let field = |k: &str| {
+            text.lines()
+                .find_map(|l| l.strip_prefix(k))
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(
+            field("pgrp="),
+            field("pid="),
+            "the worker must lead its own process group"
+        );
     }
 
     #[test]
     fn workers_that_could_outgrow_the_service_memory_limit_are_warned_about() {
         let mb = |n: u64| n << 20;
-        let warning = memory_overcommit(Some(mb(2048)), 4, Some(mb(6144))).expect("4 × 2048 MB > 6 GB");
+        let warning =
+            memory_overcommit(Some(mb(2048)), 4, Some(mb(6144))).expect("4 × 2048 MB > 6 GB");
         assert!(warning.contains("at most 1382"), "{warning}");
         assert!(memory_overcommit(Some(mb(1382)), 4, Some(mb(6144))).is_none());
-        assert!(memory_overcommit(Some(mb(2048)), 4, None).is_none(), "no cgroup limit, nothing to exceed");
-        assert!(memory_overcommit(None, 4, Some(mb(6144))).is_none(), "uncapped workers: the cgroup is the only cap");
+        assert!(
+            memory_overcommit(Some(mb(2048)), 4, None).is_none(),
+            "no cgroup limit, nothing to exceed"
+        );
+        assert!(
+            memory_overcommit(None, 4, Some(mb(6144))).is_none(),
+            "uncapped workers: the cgroup is the only cap"
+        );
     }
 
     #[tokio::test]
     async fn a_worker_that_exceeds_its_memory_cap_fails_fast() {
         let t = Instant::now();
         let outcome = bounded(run(&request(ALLOC, 30.0), None)).await;
-        assert!(matches!(outcome, Outcome::Failed(_)), "an 8 GiB allocation must kill the worker");
+        assert!(
+            matches!(outcome, Outcome::Failed(_)),
+            "an 8 GiB allocation must kill the worker"
+        );
         assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
     }
 
@@ -974,14 +1067,23 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pidfile = dir.path().join("pid");
         let mut server = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([SERVER_ENTRY, "--exact", "--nocapture", "--test-threads=1", "-q"])
+            .args([
+                SERVER_ENTRY,
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ])
             .env(SERVER_ENV, &pidfile)
             .stdout(std::process::Stdio::null())
             .spawn()
             .unwrap();
         let pid = wait_for_pid(&pidfile).await;
         server.kill().unwrap();
-        assert!(server.wait_timeout(Duration::from_secs(10)).unwrap().is_some());
+        assert!(server
+            .wait_timeout(Duration::from_secs(10))
+            .unwrap()
+            .is_some());
         let took = wait_reaped(pid, Duration::from_secs(3)).await;
         eprintln!("orphaned worker {pid} gone {took:?} after its server was SIGKILLed");
     }
@@ -1009,8 +1111,14 @@ pub(crate) mod tests {
         let imo = include_str!("../../alphageometry-rs/examples/imo/2023_p2.geo");
         let outcome = bounded(run_with(&request(imo, 30.0), None, with_threads("100000"))).await;
         match outcome {
-            Outcome::Failed(e) => assert!(e.contains(&format!("exit status: {EXIT_NO_THREADS}")), "{e}"),
-            Outcome::Done(r) => panic!("a dead thread pool was reported as a result: {:?}", r.result.map(|s| s.note)),
+            Outcome::Failed(e) => assert!(
+                e.contains(&format!("exit status: {EXIT_NO_THREADS}")),
+                "{e}"
+            ),
+            Outcome::Done(r) => panic!(
+                "a dead thread pool was reported as a result: {:?}",
+                r.result.map(|s| s.note)
+            ),
             Outcome::TimedOut => panic!("timed out"),
         }
     }
@@ -1020,7 +1128,13 @@ pub(crate) mod tests {
         use wait_timeout::ChildExt;
         let t = Instant::now();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([WATCHDOG_ENTRY, "--exact", "--nocapture", "--test-threads=1", "-q"])
+            .args([
+                WATCHDOG_ENTRY,
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ])
             .env(WATCHDOG_ENV, "1")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
@@ -1035,7 +1149,12 @@ pub(crate) mod tests {
             }
         };
         let mut err = String::new();
-        child.stderr.take().unwrap().read_to_string(&mut err).unwrap();
+        child
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut err)
+            .unwrap();
         assert_eq!(status.code(), Some(EXIT_HARD_LIMIT), "{err}");
         assert!(err.contains("overran its hard time limit"), "{err}");
         assert!(t.elapsed() < Duration::from_secs(15));
@@ -1057,7 +1176,11 @@ pub(crate) mod tests {
     #[test]
     fn the_reply_is_the_last_line_of_output() {
         let reply = Reply {
-            result: Ok(time_limit_solution("x", InputKind::Geo, Duration::from_secs(3))),
+            result: Ok(time_limit_solution(
+                "x",
+                InputKind::Geo,
+                Duration::from_secs(3),
+            )),
             report: None,
             figure_png: None,
             view: None,

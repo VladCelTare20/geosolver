@@ -11,7 +11,11 @@ pub struct Basis {
 
 impl Basis {
     pub fn new(pivotable: &[bool], track: bool) -> Basis {
-        Basis { rows: FxHashMap::default(), pivotable: pivotable.to_vec(), track }
+        Basis {
+            rows: FxHashMap::default(),
+            pivotable: pivotable.to_vec(),
+            track,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -27,7 +31,11 @@ impl Basis {
     }
 
     fn top_below(&self, v: &LinComb, bound: Option<VarId>) -> Option<(VarId, Rat)> {
-        v.terms.iter().rev().find(|(var, c)| bound.is_none_or(|b| *var < b) && self.can_pivot(*var) && !c.is_zero()).map(|(var, c)| (*var, c.clone()))
+        v.terms
+            .iter()
+            .rev()
+            .find(|(var, c)| bound.is_none_or(|b| *var < b) && self.can_pivot(*var) && !c.is_zero())
+            .map(|(var, c)| (*var, c.clone()))
     }
 
     pub fn reduce(&self, v: &mut LinComb, combo: &mut LinComb) {
@@ -53,7 +61,11 @@ impl Basis {
 
     pub fn insert(&mut self, idx: u32, row: &LinComb) -> bool {
         let mut v = row.clone();
-        let mut combo = if self.track { LinComb::singleton(idx, Rat::one()) } else { LinComb::zero() };
+        let mut combo = if self.track {
+            LinComb::singleton(idx, Rat::one())
+        } else {
+            LinComb::zero()
+        };
         self.reduce(&mut v, &mut combo);
         let Some((p, c)) = self.top_below(&v, None) else {
             return false;
@@ -76,7 +88,14 @@ impl Basis {
         if !v.is_zero() {
             return None;
         }
-        Some(combo.terms.iter().filter(|(_, c)| !c.is_zero()).map(|(i, c)| (*i, -c)).collect())
+        Some(
+            combo
+                .terms
+                .iter()
+                .filter(|(_, c)| !c.is_zero())
+                .map(|(i, c)| (*i, -c))
+                .collect(),
+        )
     }
 }
 
@@ -85,7 +104,8 @@ pub fn solve_rows(pivotable: &[bool], rows: &[&LinComb], t: &LinComb) -> Option<
     for (i, r) in rows.iter().enumerate() {
         b.insert(i as u32, r);
     }
-    b.solve(t).map(|v| v.into_iter().map(|(i, c)| (i as usize, c)).collect())
+    b.solve(t)
+        .map(|v| v.into_iter().map(|(i, c)| (i as usize, c)).collect())
 }
 
 pub fn in_span(pivotable: &[bool], rows: &[&LinComb], t: &LinComb) -> bool {
@@ -150,7 +170,10 @@ pub struct Echelon {
 
 impl Echelon {
     pub fn new(pivotable: &[bool]) -> Echelon {
-        Echelon { rows: FxHashMap::default(), pivotable: pivotable.to_vec() }
+        Echelon {
+            rows: FxHashMap::default(),
+            pivotable: pivotable.to_vec(),
+        }
     }
 
     fn key(&self, v: VarId) -> (bool, VarId) {
@@ -159,7 +182,11 @@ impl Echelon {
 
     fn reduce(&self, v: &mut LinComb) -> Option<(VarId, Rat)> {
         loop {
-            let (var, c) = v.terms.iter().max_by_key(|(var, _)| self.key(*var)).map(|(var, c)| (*var, c.clone()))?;
+            let (var, c) = v
+                .terms
+                .iter()
+                .max_by_key(|(var, _)| self.key(*var))
+                .map(|(var, c)| (*var, c.clone()))?;
             if !self.key(var).0 {
                 return Some((var, c));
             }
@@ -175,7 +202,9 @@ impl Echelon {
 
     pub fn insert(&mut self, row: &LinComb) -> bool {
         let mut v = row.clone();
-        let Some((var, c)) = self.reduce(&mut v) else { return false };
+        let Some((var, c)) = self.reduce(&mut v) else {
+            return false;
+        };
         if !self.key(var).0 {
             return false;
         }

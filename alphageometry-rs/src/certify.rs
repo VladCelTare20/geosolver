@@ -133,8 +133,9 @@ impl Certifier {
         let ddar = self.closure.as_mut()?.as_mut()?;
         let mut deps = Vec::new();
         for g in goals {
-            let found =
-                crate::quiet_panic::quiet(|| catch_unwind(AssertUnwindSafe(|| ddar.check_pred_deps(g))));
+            let found = crate::quiet_panic::quiet(|| {
+                catch_unwind(AssertUnwindSafe(|| ddar.check_pred_deps(g)))
+            });
             match found {
                 Ok(Some(d)) => deps.extend(d),
                 Ok(None) => return None,

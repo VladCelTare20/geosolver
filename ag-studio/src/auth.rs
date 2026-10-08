@@ -39,7 +39,11 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
     #[cfg(test)]
     ARGON2_VERIFIES.with(|c| c.set(c.get() + 1));
     PasswordHash::new(hash)
-        .map(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
+        .map(|parsed| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok()
+        })
         .unwrap_or(false)
 }
 
@@ -156,7 +160,11 @@ pub fn current_user(db: &db::Db, headers: &HeaderMap, secure: bool) -> Option<db
 
 /// [`current_user`] on the blocking pool, so a slow DB lock never stalls an
 /// async worker. Requests without a session cookie skip the pool entirely.
-pub async fn current_user_async(db: &db::Db, headers: &HeaderMap, secure: bool) -> Option<db::User> {
+pub async fn current_user_async(
+    db: &db::Db,
+    headers: &HeaderMap,
+    secure: bool,
+) -> Option<db::User> {
     parse_sid(headers, secure)?;
     let (db, headers) = (db.clone(), headers.clone());
     tokio::task::spawn_blocking(move || current_user(&db, &headers, secure))
@@ -216,7 +224,11 @@ mod tests {
         assert!(set.contains("Path=/"));
         assert!(!set.contains("Domain"));
         let clear = clear_cookie_header(true);
-        assert!(clear.starts_with("__Host-sid=;") && clear.contains("Secure") && clear.contains("Max-Age=0"));
+        assert!(
+            clear.starts_with("__Host-sid=;")
+                && clear.contains("Secure")
+                && clear.contains("Max-Age=0")
+        );
     }
 
     fn cookie(v: &str) -> HeaderMap {
@@ -246,12 +258,18 @@ mod tests {
     #[test]
     fn parse_sid_rejects_duplicates_and_malformed_ids() {
         let other = SID.replace('0', "f");
-        assert_eq!(parse_sid(&cookie(&format!("sid={SID}; sid={other}")), false), None);
+        assert_eq!(
+            parse_sid(&cookie(&format!("sid={SID}; sid={other}")), false),
+            None
+        );
         let mut split = cookie(&format!("sid={SID}"));
         split.append(header::COOKIE, format!("sid={other}").parse().unwrap());
         assert_eq!(parse_sid(&split, false), None);
         assert_eq!(parse_sid(&cookie("sid=deadbeef"), false), None);
-        assert_eq!(parse_sid(&cookie(&format!("sid={}", SID.replace('a', "g"))), false), None);
+        assert_eq!(
+            parse_sid(&cookie(&format!("sid={}", SID.replace('a', "g"))), false),
+            None
+        );
     }
 
     #[test]

@@ -24,27 +24,111 @@ const SCRIPTS: [(&str, &str); 5] = [
 ];
 
 const LATE_CSS_VALUES: &[&str] = &[
-    "color-mix(", "oklch(", "oklab(", "lab(", "lch(", "light-dark(", "color(", "round(", "mod(", "rem(",
-    "anchor(", "anchor-size(", "calc-size(", "dvh", "svh", "lvh", "dvw", "svw", "lvw", "dvi", "svi",
-    "lvi", "dvb", "svb", "lvb", "dvmin", "dvmax", "svmin", "svmax", "lvmin", "lvmax", "cqw", "cqh",
-    "cqi", "cqb", "cqmin", "cqmax", "rlh", "1lh",
+    "color-mix(",
+    "oklch(",
+    "oklab(",
+    "lab(",
+    "lch(",
+    "light-dark(",
+    "color(",
+    "round(",
+    "mod(",
+    "rem(",
+    "anchor(",
+    "anchor-size(",
+    "calc-size(",
+    "dvh",
+    "svh",
+    "lvh",
+    "dvw",
+    "svw",
+    "lvw",
+    "dvi",
+    "svi",
+    "lvi",
+    "dvb",
+    "svb",
+    "lvb",
+    "dvmin",
+    "dvmax",
+    "svmin",
+    "svmax",
+    "lvmin",
+    "lvmax",
+    "cqw",
+    "cqh",
+    "cqi",
+    "cqb",
+    "cqmin",
+    "cqmax",
+    "rlh",
+    "1lh",
 ];
 const LATE_SELECTORS: &[&str] = &[
-    ":has(", ":user-invalid", ":user-valid", "::target-text", ":popover-open", ":state(", "::details-content",
-    ":open", "::scroll-marker", "::scroll-button", "::picker(", "::view-transition", ":active-view-transition",
+    ":has(",
+    ":user-invalid",
+    ":user-valid",
+    "::target-text",
+    ":popover-open",
+    ":state(",
+    "::details-content",
+    ":open",
+    "::scroll-marker",
+    "::scroll-button",
+    "::picker(",
+    "::view-transition",
+    ":active-view-transition",
 ];
 const BANNED_AT_RULES: &[&str] = &[
-    "@layer", "@scope", "@property", "@starting-style", "@view-transition", "@position-try", "@function",
+    "@layer",
+    "@scope",
+    "@property",
+    "@starting-style",
+    "@view-transition",
+    "@position-try",
+    "@function",
     "@custom-media",
 ];
 const BANNED_JS: &[&str] = &[
-    ".findLast(", ".findLastIndex(", ".toSorted(", ".toReversed(", ".toSpliced(", "Object.groupBy",
-    "Map.groupBy", "Array.fromAsync", "Promise.withResolvers", "Promise.try", "AbortSignal.timeout",
-    "AbortSignal.any", "requestIdleCallback", "Intl.Segmenter", "Intl.DurationFormat", "showPopover",
-    "togglePopover", "hidePopover", "startViewTransition", "checkVisibility", "navigator.userActivation",
-    "CloseWatcher", "scheduler.", "setHTMLUnsafe", "EyeDropper", ".union(", ".intersection(",
-    ".isWellFormed(", ".toWellFormed(", "Iterator.from", "structuredClone", "showModal", "import(",
-    "import.meta", "static {", "Error.isError", "RegExp.escape", "Float16Array", "Atomics.pause",
+    ".findLast(",
+    ".findLastIndex(",
+    ".toSorted(",
+    ".toReversed(",
+    ".toSpliced(",
+    "Object.groupBy",
+    "Map.groupBy",
+    "Array.fromAsync",
+    "Promise.withResolvers",
+    "Promise.try",
+    "AbortSignal.timeout",
+    "AbortSignal.any",
+    "requestIdleCallback",
+    "Intl.Segmenter",
+    "Intl.DurationFormat",
+    "showPopover",
+    "togglePopover",
+    "hidePopover",
+    "startViewTransition",
+    "checkVisibility",
+    "navigator.userActivation",
+    "CloseWatcher",
+    "scheduler.",
+    "setHTMLUnsafe",
+    "EyeDropper",
+    ".union(",
+    ".intersection(",
+    ".isWellFormed(",
+    ".toWellFormed(",
+    "Iterator.from",
+    "structuredClone",
+    "showModal",
+    "import(",
+    "import.meta",
+    "static {",
+    "Error.isError",
+    "RegExp.escape",
+    "Float16Array",
+    "Atomics.pause",
     ".at(-",
 ];
 
@@ -148,20 +232,33 @@ fn parse_block(css: &str, supports: bool, sheet: &mut Sheet) {
                     sheet.at_rules.push(head.clone());
                     let inner_supports = supports || head.starts_with("@supports");
                     if head.starts_with("@keyframes") || head.starts_with("@-webkit-keyframes") {
-                        let mut frames = Sheet { rules: Vec::new(), at_rules: Vec::new() };
+                        let mut frames = Sheet {
+                            rules: Vec::new(),
+                            at_rules: Vec::new(),
+                        };
                         parse_block(body, true, &mut frames);
                         sheet.rules.extend(frames.rules.into_iter().map(|mut r| {
                             r.selector = format!("{head} {}", r.selector);
                             r
                         }));
                     } else if head.starts_with("@font-face") {
-                        sheet.rules.push(StyleRule { selector: head, decls: split_decls(body), supports, nested: false });
+                        sheet.rules.push(StyleRule {
+                            selector: head,
+                            decls: split_decls(body),
+                            supports,
+                            nested: false,
+                        });
                     } else {
                         parse_block(body, inner_supports, sheet);
                     }
                 } else {
                     let nested = body.contains('{');
-                    sheet.rules.push(StyleRule { selector: head, decls: split_decls(body), supports, nested });
+                    sheet.rules.push(StyleRule {
+                        selector: head,
+                        decls: split_decls(body),
+                        supports,
+                        nested,
+                    });
                 }
                 i = end + 1;
                 start = i;
@@ -174,7 +271,10 @@ fn parse_block(css: &str, supports: bool, sheet: &mut Sheet) {
 }
 
 fn sheet(css: &str) -> Sheet {
-    let mut s = Sheet { rules: Vec::new(), at_rules: Vec::new() };
+    let mut s = Sheet {
+        rules: Vec::new(),
+        at_rules: Vec::new(),
+    };
     parse_block(&strip_css_comments(css), false, &mut s);
     s
 }
@@ -205,11 +305,18 @@ fn late_value(v: &str) -> Option<&'static str> {
     let low = v.to_ascii_lowercase();
     LATE_CSS_VALUES.iter().copied().find(|f| {
         if f.ends_with('(') {
-            low.match_indices(f).any(|(i, _)| i == 0 || !low.as_bytes()[i - 1].is_ascii_alphanumeric() && low.as_bytes()[i - 1] != b'-')
+            low.match_indices(f).any(|(i, _)| {
+                i == 0
+                    || !low.as_bytes()[i - 1].is_ascii_alphanumeric()
+                        && low.as_bytes()[i - 1] != b'-'
+            })
         } else {
             low.match_indices(f).any(|(i, _)| {
                 let before = i > 0 && low.as_bytes()[i - 1].is_ascii_digit();
-                let after = low.as_bytes().get(i + f.len()).is_none_or(|c| !c.is_ascii_alphanumeric());
+                let after = low
+                    .as_bytes()
+                    .get(i + f.len())
+                    .is_none_or(|c| !c.is_ascii_alphanumeric());
                 before && after
             })
         }
@@ -245,7 +352,9 @@ fn css_values_newer_than_the_baseline_have_a_fallback() {
                 if r.supports {
                     continue;
                 }
-                let fallback = r.decls[..k].iter().any(|(p, v)| p == prop && late_value(v).is_none());
+                let fallback = r.decls[..k]
+                    .iter()
+                    .any(|(p, v)| p == prop && late_value(v).is_none());
                 if !fallback {
                     bad.push(format!("{name}: `{}` {{ {prop}: {val} }} uses {f} with no earlier `{prop}` fallback and no @supports", r.selector));
                 }
@@ -294,8 +403,19 @@ fn no_css_nesting_or_late_at_rules() {
 #[test]
 fn container_queries_have_a_media_query_fallback() {
     for (name, s) in all_sheets() {
-        let containers = s.at_rules.iter().filter(|a| a.starts_with("@container")).count();
-        let fallbacks = s.at_rules.iter().filter(|a| a.replace(' ', "").starts_with("@supportsnot(container-type:inline-size)")).count();
+        let containers = s
+            .at_rules
+            .iter()
+            .filter(|a| a.starts_with("@container"))
+            .count();
+        let fallbacks = s
+            .at_rules
+            .iter()
+            .filter(|a| {
+                a.replace(' ', "")
+                    .starts_with("@supportsnot(container-type:inline-size)")
+            })
+            .count();
         assert!(fallbacks >= containers, "{name}: {containers} @container rule(s) but {fallbacks} `@supports not (container-type: inline-size)` fallback(s)");
     }
 }
@@ -337,7 +457,11 @@ fn js_code(src: &str) -> (String, Vec<String>) {
             last_sig = b'"';
             continue;
         }
-        let regex_ok = b"(,=:[!&|?{};+-*%<>~^".contains(&last_sig) || matches!(last_word.as_str(), "return" | "typeof" | "case" | "in" | "of");
+        let regex_ok = b"(,=:[!&|?{};+-*%<>~^".contains(&last_sig)
+            || matches!(
+                last_word.as_str(),
+                "return" | "typeof" | "case" | "in" | "of"
+            );
         if c == b'/' && regex_ok {
             let start = i;
             i += 1;
@@ -397,7 +521,10 @@ fn inline_scripts(html: &str) -> Vec<String> {
 #[test]
 fn scripts_use_no_api_or_syntax_newer_than_the_baseline() {
     let mut bad = Vec::new();
-    let mut sources: Vec<(String, String)> = SCRIPTS.iter().map(|(n, s)| (n.to_string(), s.to_string())).collect();
+    let mut sources: Vec<(String, String)> = SCRIPTS
+        .iter()
+        .map(|(n, s)| (n.to_string(), s.to_string()))
+        .collect();
     for (name, html) in PAGES {
         for (k, s) in inline_scripts(html).into_iter().enumerate() {
             sources.push((format!("{name} inline #{k}"), s));
@@ -419,10 +546,16 @@ fn scripts_use_no_api_or_syntax_newer_than_the_baseline() {
                 bad.push(format!("{name}: regex v flag {r}"));
             }
         }
-        if code.contains("navigator.share(") && !code.contains("navigator.share)") && !code.contains("!navigator.share") {
+        if code.contains("navigator.share(")
+            && !code.contains("navigator.share)")
+            && !code.contains("!navigator.share")
+        {
             bad.push(format!("{name}: navigator.share without a presence check"));
         }
-        if code.contains(".inert") && !code.contains("\"inert\" in HTMLElement.prototype") && !code.contains("\"\" in HTMLElement.prototype") {
+        if code.contains(".inert")
+            && !code.contains("\"inert\" in HTMLElement.prototype")
+            && !code.contains("\"\" in HTMLElement.prototype")
+        {
             bad.push(format!("{name}: .inert without the no-inert fallback"));
         }
     }
@@ -434,8 +567,13 @@ fn inline_page_scripts_are_es5() {
     for (name, html) in PAGES {
         for s in inline_scripts(html) {
             let (code, _) = js_code(&s);
-            for f in ["=>", "let ", "const ", "class ", "...", "?.", "??", "async ", "await "] {
-                assert!(!code.contains(f), "{name}: inline script uses `{f}`; an old browser must be able to run it");
+            for f in [
+                "=>", "let ", "const ", "class ", "...", "?.", "??", "async ", "await ",
+            ] {
+                assert!(
+                    !code.contains(f),
+                    "{name}: inline script uses `{f}`; an old browser must be able to run it"
+                );
             }
         }
     }
@@ -444,38 +582,84 @@ fn inline_page_scripts_are_es5() {
 #[test]
 fn every_scripted_page_has_the_old_browser_guard_and_a_noscript_note() {
     for (name, html) in PAGES.iter().filter(|(n, _)| *n != "gate.html") {
-        assert!(html.contains("C.supports(\"aspect-ratio\",\"1 / 1\")"), "{name}: guard script missing");
-        assert!(html.contains("id=\"gs-old\""), "{name}: unsupported-browser note missing");
-        assert!(html.contains("id=\"gs-fail\""), "{name}: did-not-load note missing");
-        assert!(html.contains("<noscript><div class=\"gs-note gs-show gs-both\""), "{name}: <noscript> note missing");
+        assert!(
+            html.contains("C.supports(\"aspect-ratio\",\"1 / 1\")"),
+            "{name}: guard script missing"
+        );
+        assert!(
+            html.contains("id=\"gs-old\""),
+            "{name}: unsupported-browser note missing"
+        );
+        assert!(
+            html.contains("id=\"gs-fail\""),
+            "{name}: did-not-load note missing"
+        );
+        assert!(
+            html.contains("<noscript><div class=\"gs-note gs-show gs-both\""),
+            "{name}: <noscript> note missing"
+        );
         let guard = html.find("C.supports(\"aspect-ratio\"").unwrap();
         let first_src = html.find("<script src=").unwrap_or(html.len());
-        assert!(guard < first_src, "{name}: the guard must run before any external script");
+        assert!(
+            guard < first_src,
+            "{name}: the guard must run before any external script"
+        );
         for lang in ["lang=\"en\"><h2>", "lang=\"ro\"><h2>"] {
-            assert!(html.matches(lang).count() >= 3, "{name}: every note needs EN and RO text");
+            assert!(
+                html.matches(lang).count() >= 3,
+                "{name}: every note needs EN and RO text"
+            );
         }
     }
-    assert!(GATE_HTML.contains("id=\"gs-old\""), "gate.html: CSS-only old-browser note missing");
+    assert!(
+        GATE_HTML.contains("id=\"gs-old\""),
+        "gate.html: CSS-only old-browser note missing"
+    );
     assert!(GATE_HTML.contains("@supports (aspect-ratio: 1 / 1) { #gs-old { display: none; } }"));
-    for (name, js) in [("app.js", APP_JS), ("landing.js", LANDING_JS), ("auth.js", AUTH_JS)] {
-        assert!(js.contains("GS.booted = true;"), "{name} must mark the page booted");
+    for (name, js) in [
+        ("app.js", APP_JS),
+        ("landing.js", LANDING_JS),
+        ("auth.js", AUTH_JS),
+    ] {
+        assert!(
+            js.contains("GS.booted = true;"),
+            "{name} must mark the page booted"
+        );
     }
 }
 
 #[test]
 fn the_checker_catches_what_it_should() {
     let s = sheet(".a { height: 100dvh; } .b { height: 100vh; height: 100dvh; } @supports (height: 1dvh) { .c { height: 1dvh; } } .d, .e:has(x) { color: red; } .f { .g { color: red; } }");
-    let flagged: Vec<_> = s.rules.iter().filter(|r| {
-        r.decls.iter().enumerate().any(|(k, (p, v))| late_value(v).is_some() && !r.supports && !r.decls[..k].iter().any(|(q, w)| q == p && late_value(w).is_none()))
-    }).map(|r| r.selector.clone()).collect();
+    let flagged: Vec<_> = s
+        .rules
+        .iter()
+        .filter(|r| {
+            r.decls.iter().enumerate().any(|(k, (p, v))| {
+                late_value(v).is_some()
+                    && !r.supports
+                    && !r.decls[..k]
+                        .iter()
+                        .any(|(q, w)| q == p && late_value(w).is_none())
+            })
+        })
+        .map(|r| r.selector.clone())
+        .collect();
     assert_eq!(flagged, vec![".a".to_string()]);
-    assert!(s.rules.iter().any(|r| r.selector.contains(":has(") && top_level_selectors(&r.selector).len() == 2));
+    assert!(s
+        .rules
+        .iter()
+        .any(|r| r.selector.contains(":has(") && top_level_selectors(&r.selector).len() == 2));
     assert!(s.rules.iter().any(|r| r.nested));
-    assert_eq!(late_value("2px solid color-mix(in srgb, red 5%, blue)"), Some("color-mix("));
+    assert_eq!(
+        late_value("2px solid color-mix(in srgb, red 5%, blue)"),
+        Some("color-mix(")
+    );
     assert_eq!(late_value("calc(100svh - 4px)"), Some("svh"));
     assert_eq!(late_value("var(--vh-dyn)"), None);
     assert_eq!(late_value("translate(-50%)"), None);
-    let (code, re) = js_code("var a = 'x.findLast(' + b; // .toSorted(\nvar r = /(?<=a)b/g; c = d / e / f;");
+    let (code, re) =
+        js_code("var a = 'x.findLast(' + b; // .toSorted(\nvar r = /(?<=a)b/g; c = d / e / f;");
     assert!(!code.contains("findLast") && !code.contains("toSorted"));
     assert_eq!(re, vec!["/(?<=a)b/g".to_string()]);
 }

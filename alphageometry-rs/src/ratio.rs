@@ -30,10 +30,10 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::certify::{derivation_block, pred, with_refs, Certifier};
 use crate::geo::SampledFigure;
 use crate::metric::MExpr;
 use crate::numerics::{intersect_ll, NumCircle, NumLine, Vec2};
-use crate::certify::{derivation_block, pred, with_refs, Certifier};
 use crate::predicate::{PointId, Predicate};
 use crate::rational::Rat;
 use crate::synthetic::{equal_radius_circles, rat_of, Outcome};
@@ -122,7 +122,10 @@ impl LEq {
         }
     }
     fn first_atom(&self) -> Option<LKey> {
-        self.terms.iter().find(|(_, c)| !c.is_zero()).map(|(a, _)| *a)
+        self.terms
+            .iter()
+            .find(|(_, c)| !c.is_zero())
+            .map(|(a, _)| *a)
     }
 }
 
@@ -252,7 +255,13 @@ impl Figure {
         (u.dot(v) / d).clamp(-1.0, 1.0).acos()
     }
 
-    fn push(&mut self, text: String, eq: Option<LEq>, premises: Vec<usize>, headline: bool) -> usize {
+    fn push(
+        &mut self,
+        text: String,
+        eq: Option<LEq>,
+        premises: Vec<usize>,
+        headline: bool,
+    ) -> usize {
         self.steps.push(Step {
             text,
             eq,
@@ -524,11 +533,7 @@ impl Figure {
                 continue;
             }
             self.push(
-                format!(
-                    "|{}| = |{}| (given).",
-                    self.seg(a, b),
-                    self.seg(x, y)
-                ),
+                format!("|{}| = |{}| (given).", self.seg(a, b), self.seg(x, y)),
                 Some(eq),
                 vec![],
                 false,
@@ -538,7 +543,9 @@ impl Figure {
 
     fn emit_absolute(&mut self) {
         for (a, b, v) in self.abs_len.clone() {
-            let Some(primes) = ln_primes(&v) else { continue };
+            let Some(primes) = ln_primes(&v) else {
+                continue;
+            };
             let mut eq = LEq::default();
             eq.add_term(latom(a, b), Rat::one());
             for (p, e) in primes {
@@ -691,7 +698,11 @@ impl Figure {
                                 }
                                 if self.similar_in_all([aa, p, cc], [dd, p, bb]) {
                                     let inside = self.between(a, p, b);
-                                    let at_p = if inside { "vertical angles" } else { "the same angle" };
+                                    let at_p = if inside {
+                                        "vertical angles"
+                                    } else {
+                                        "the same angle"
+                                    };
                                     let at_chord = if inside {
                                         "inscribed angles on the same arc"
                                     } else {
@@ -1017,18 +1028,19 @@ impl Figure {
                 vec![],
                 false,
             );
-            let vertical = |f: &Figure, x: PointId, p: PointId, fx: PointId, y: PointId, fy: PointId| {
-                format!(
-                    "∠{x}{p}{fx} = ∠{y}{p}{fy} ({rel} at {p}) and the right angles at \
+            let vertical =
+                |f: &Figure, x: PointId, p: PointId, fx: PointId, y: PointId, fy: PointId| {
+                    format!(
+                        "∠{x}{p}{fx} = ∠{y}{p}{fy} ({rel} at {p}) and the right angles at \
                      {fx}, {fy}",
-                    rel = f.angle_at(x, p, y),
-                    x = f.nm(x),
-                    p = f.nm(p),
-                    fx = f.nm(fx),
-                    y = f.nm(y),
-                    fy = f.nm(fy),
-                )
-            };
+                        rel = f.angle_at(x, p, y),
+                        x = f.nm(x),
+                        p = f.nm(p),
+                        fx = f.nm(fx),
+                        y = f.nm(y),
+                        fy = f.nm(fy),
+                    )
+                };
             let rd = vertical(self, b, d, fb, c, fc);
             self.emit_similar([b, d, fb], [c, d, fc], &rd, vec![intro]);
             let re = vertical(self, c, e, fc, a, fa);
@@ -1040,9 +1052,7 @@ impl Figure {
 
     /// Triangles `ABC` with side-points `D∈BC, E∈CA, F∈AB` (all collinearities
     /// asserted), the common shape of Menelaus and Ceva.
-    fn side_cevian_triples(
-        &self,
-    ) -> Vec<(PointId, PointId, PointId, PointId, PointId, PointId)> {
+    fn side_cevian_triples(&self) -> Vec<(PointId, PointId, PointId, PointId, PointId, PointId)> {
         let n = self.names.len() as PointId;
         let mut out = Vec::new();
         for a in 0..n {
@@ -1132,8 +1142,11 @@ impl Figure {
         // If a lone headline citation carries the proof, retry without headlines
         // to force an elementary derivation (anti-circularity).
         if used.len() == 1 && self.steps[*used.iter().next().unwrap()].headline {
-            let elementary: BTreeSet<usize> =
-                all.iter().copied().filter(|&i| !self.steps[i].headline).collect();
+            let elementary: BTreeSet<usize> = all
+                .iter()
+                .copied()
+                .filter(|&i| !self.steps[i].headline)
+                .collect();
             used = self.prove_with(goal, &elementary)?;
         }
         // Greedy minimisation.
@@ -1168,7 +1181,11 @@ impl Figure {
         }
         // Drop the pure-equation steps that carry no prose (their justification is
         // the similar-triangle intro they cite); keep intros and cited lemmas.
-        let mut order: Vec<usize> = keep.iter().copied().filter(|&i| !self.steps[i].text.is_empty()).collect();
+        let mut order: Vec<usize> = keep
+            .iter()
+            .copied()
+            .filter(|&i| !self.steps[i].text.is_empty())
+            .collect();
         order.sort_by_key(|&i| (!self.steps[i].lead, i));
         let trig = keep.iter().any(|&i| {
             self.steps[i]
@@ -1314,7 +1331,10 @@ fn scale(eq: &mut LEq, k: &Rat) {
 
 impl Figure {
     fn pt(&self, name: &str) -> Option<PointId> {
-        self.names.iter().position(|n| n == name).map(|i| i as PointId)
+        self.names
+            .iter()
+            .position(|n| n == name)
+            .map(|i| i as PointId)
     }
 }
 
@@ -1380,7 +1400,10 @@ impl PEq {
         }
     }
     fn first(&self) -> Option<PAtom> {
-        self.terms.iter().find(|(_, c)| !c.is_zero()).map(|(a, _)| a.clone())
+        self.terms
+            .iter()
+            .find(|(_, c)| !c.is_zero())
+            .map(|(a, _)| a.clone())
     }
 }
 
@@ -1456,8 +1479,16 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
             Some(unit(vec![latom(a, b).into()], Rat::one()))
         }
         MExpr::Neg(x) => Some(mono_scale(&mono_lower(x, fig)?, &-Rat::one())),
-        MExpr::Add(x, y) => Some(mono_add(&mono_lower(x, fig)?, &mono_lower(y, fig)?, &Rat::one())),
-        MExpr::Sub(x, y) => Some(mono_add(&mono_lower(x, fig)?, &mono_lower(y, fig)?, &-Rat::one())),
+        MExpr::Add(x, y) => Some(mono_add(
+            &mono_lower(x, fig)?,
+            &mono_lower(y, fig)?,
+            &Rat::one(),
+        )),
+        MExpr::Sub(x, y) => Some(mono_add(
+            &mono_lower(x, fig)?,
+            &mono_lower(y, fig)?,
+            &-Rat::one(),
+        )),
         MExpr::Mul(x, y) => mono_mul(&mono_lower(x, fig)?, &mono_lower(y, fig)?),
         MExpr::Div(x, y) => {
             let b = mono_lower(y, fig)?;
@@ -1471,11 +1502,17 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
             Some(mono_scale(&mono_lower(x, fig)?, &c.recip()))
         }
         MExpr::Sin(x) | MExpr::Cos(x) => {
-            let MExpr::Angle(a, b, c) = &**x else { return None };
+            let MExpr::Angle(a, b, c) = &**x else {
+                return None;
+            };
             let (a, b, c) = (fig.pt(a)?, fig.pt(b)?, fig.pt(c)?);
             let k = fig.sin_atom(b, a, c)?;
             let LKey::Sin(v, p, q) = k else { return None };
-            let k = if matches!(e, MExpr::Cos(_)) { LKey::Cos(v, p, q) } else { k };
+            let k = if matches!(e, MExpr::Cos(_)) {
+                LKey::Cos(v, p, q)
+            } else {
+                k
+            };
             Some(unit(vec![k], Rat::one()))
         }
         MExpr::Area(a, b, c) => {
@@ -1707,7 +1744,8 @@ impl Figure {
                 None,
                 vec![],
             );
-            self.pending.push((intro, vec![pred("coll", &[x, y, z])], false));
+            self.pending
+                .push((intro, vec![pred("coll", &[x, y, z])], false));
             for &l in goal_segs {
                 let mut e = PEq::default();
                 e.add(pmul(latom(x, y), l), Rat::one());
@@ -1782,18 +1820,19 @@ impl Figure {
 
     fn pprove_with(&self, goal: &PEq, allowed: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
         let mut rows: Vec<(PEq, PAtom, BTreeSet<usize>)> = Vec::new();
-        let reduce = |eq: &mut PEq, rows: &[(PEq, PAtom, BTreeSet<usize>)], deps: &mut BTreeSet<usize>| {
-            for (req, piv, rdeps) in rows {
-                if let Some(cf) = eq.terms.get(piv).cloned() {
-                    if cf.is_zero() {
-                        continue;
+        let reduce =
+            |eq: &mut PEq, rows: &[(PEq, PAtom, BTreeSet<usize>)], deps: &mut BTreeSet<usize>| {
+                for (req, piv, rdeps) in rows {
+                    if let Some(cf) = eq.terms.get(piv).cloned() {
+                        if cf.is_zero() {
+                            continue;
+                        }
+                        let factor = &cf / req.terms.get(piv).unwrap();
+                        eq.sub_scaled(req, &factor);
+                        deps.extend(rdeps.iter().copied());
                     }
-                    let factor = &cf / req.terms.get(piv).unwrap();
-                    eq.sub_scaled(req, &factor);
-                    deps.extend(rdeps.iter().copied());
                 }
-            }
-        };
+            };
         for (i, step) in self.psteps.iter().enumerate() {
             if !allowed.contains(&i) {
                 continue;
@@ -1833,7 +1872,13 @@ impl Figure {
         Some(used)
     }
 
-    fn prender(&self, used: &BTreeSet<usize>, goal_text: &str, goal_val: f64, aux: &[String]) -> String {
+    fn prender(
+        &self,
+        used: &BTreeSet<usize>,
+        goal_text: &str,
+        goal_val: f64,
+        aux: &[String],
+    ) -> String {
         let mut keep: BTreeSet<usize> = BTreeSet::new();
         let mut stack: Vec<usize> = used.iter().copied().collect();
         while let Some(i) = stack.pop() {
@@ -1927,9 +1972,10 @@ impl Figure {
             let heads: BTreeSet<usize> = lone.iter().copied().collect();
             if heads.len() == 1
                 && used.iter().any(|&i| self.psteps[i].support)
-                && used
-                    .iter()
-                    .all(|&i| self.psteps[i].support || self.psteps[i].premises.iter().any(|p| heads.contains(p)))
+                && used.iter().all(|&i| {
+                    self.psteps[i].support
+                        || self.psteps[i].premises.iter().any(|p| heads.contains(p))
+                })
             {
                 rejected.extend(heads);
                 continue;
@@ -1968,13 +2014,20 @@ impl Figure {
                     .flat_map(|&i| self.psteps[i].premises.iter().copied())
                     .filter(|p| certified.contains_key(p))
                     .collect();
-                let carried: Vec<usize> =
-                    used.iter().copied().filter(|&i| !self.psteps[i].facts.is_empty()).collect();
+                let carried: Vec<usize> = used
+                    .iter()
+                    .copied()
+                    .filter(|&i| !self.psteps[i].facts.is_empty())
+                    .collect();
                 if !used_intros.is_empty() || !carried.is_empty() {
                     let mut deps: Vec<crate::proof::FactId> = used_intros
                         .iter()
                         .flat_map(|i| certified[i].iter().copied())
-                        .chain(carried.iter().flat_map(|&i| self.psteps[i].facts.iter().copied()))
+                        .chain(
+                            carried
+                                .iter()
+                                .flat_map(|&i| self.psteps[i].facts.iter().copied()),
+                        )
                         .collect();
                     used_intros.extend(carried);
                     deps.sort_unstable();
@@ -2020,7 +2073,12 @@ impl Figure {
         self.pending.clear();
         let mut used = None;
         if degree == 2 {
-            let goal_segs: BTreeSet<LAtom> = goal.terms.keys().flatten().filter_map(|k| k.len()).collect();
+            let goal_segs: BTreeSet<LAtom> = goal
+                .terms
+                .keys()
+                .flatten()
+                .filter_map(|k| k.len())
+                .collect();
             self.gather_generic_similar(relevant);
             self.gather_bisector_products();
             self.gather_product_relations(&goal_segs);
@@ -2047,7 +2105,9 @@ impl Figure {
         let goal_map = mono_add(&lm, &rm, &-Rat::one());
         let degree = goal_map.keys().next()?.len();
         if degree == 0
-            || !goal_map.keys().all(|m| m.len() == degree && m.iter().all(|k| matches!(k, LKey::Len(..))))
+            || !goal_map
+                .keys()
+                .all(|m| m.len() == degree && m.iter().all(|k| matches!(k, LKey::Len(..))))
         {
             return None;
         }
@@ -2094,9 +2154,12 @@ fn collect_points_m(e: &MExpr, out: &mut BTreeSet<String>) {
             out.insert(b.clone());
             out.insert(c.clone());
         }
-        MExpr::Neg(x) | MExpr::Sqrt(x) | MExpr::Sin(x) | MExpr::Cos(x) | MExpr::Tan(x) | MExpr::Pow(x, _) => {
-            collect_points_m(x, out)
-        }
+        MExpr::Neg(x)
+        | MExpr::Sqrt(x)
+        | MExpr::Sin(x)
+        | MExpr::Cos(x)
+        | MExpr::Tan(x)
+        | MExpr::Pow(x, _) => collect_points_m(x, out),
         MExpr::Add(x, y) | MExpr::Sub(x, y) | MExpr::Mul(x, y) | MExpr::Div(x, y) => {
             collect_points_m(x, out);
             collect_points_m(y, out);
@@ -2108,7 +2171,9 @@ fn collect_points_m(e: &MExpr, out: &mut BTreeSet<String>) {
 /// The construction's user-named points among the first `n` (not the `_k`
 /// helpers the compiler introduces, nor feet dropped later).
 fn named_points(fig: &Figure, n: usize) -> Vec<PointId> {
-    (0..n as PointId).filter(|&p| !fig.names[p as usize].starts_with('_')).collect()
+    (0..n as PointId)
+        .filter(|&p| !fig.names[p as usize].starts_with('_'))
+        .collect()
 }
 
 fn goal_points(lhs: &MExpr, rhs: &MExpr, fig: &Figure) -> BTreeSet<PointId> {
@@ -2247,7 +2312,12 @@ impl Figure {
                     }
                     push!(self.build_cand(
                         "K".to_string(),
-                        format!("Let {} be the foot of the perpendicular from {} to {}.", "K", nm(p), seg(a, b)),
+                        format!(
+                            "Let {} be the foot of the perpendicular from {} to {}.",
+                            "K",
+                            nm(p),
+                            seg(a, b)
+                        ),
                         vec![AuxFact::Coll(a, kid, b), AuxFact::Perp([p, kid, a, b])],
                         move |i| {
                             let (pa, va, vb) = (i[p as usize], i[a as usize], i[b as usize]);
@@ -2265,9 +2335,19 @@ impl Figure {
                 for &c in &g[bi + 1..] {
                     push!(self.build_cand(
                         "K".to_string(),
-                        format!("Let {} be the circumcentre of {}{}{}.", "K", nm(a), nm(b), nm(c)),
-                        vec![AuxFact::Cong([kid, a, kid, b]), AuxFact::Cong([kid, b, kid, c])],
-                        move |i| NumCircle::through(i[a as usize], i[b as usize], i[c as usize]).map(|circ| circ.center),
+                        format!(
+                            "Let {} be the circumcentre of {}{}{}.",
+                            "K",
+                            nm(a),
+                            nm(b),
+                            nm(c)
+                        ),
+                        vec![
+                            AuxFact::Cong([kid, a, kid, b]),
+                            AuxFact::Cong([kid, b, kid, c])
+                        ],
+                        move |i| NumCircle::through(i[a as usize], i[b as usize], i[c as usize])
+                            .map(|circ| circ.center),
                     ));
                 }
             }
@@ -2282,7 +2362,12 @@ impl Figure {
                         }
                         push!(self.build_cand(
                             "K".to_string(),
-                            format!("Let {} be the intersection of {} and {}.", "K", seg(a, b), seg(c, d)),
+                            format!(
+                                "Let {} be the intersection of {} and {}.",
+                                "K",
+                                seg(a, b),
+                                seg(c, d)
+                            ),
                             vec![AuxFact::Coll(a, kid, b), AuxFact::Coll(c, kid, d)],
                             move |i| {
                                 intersect_ll(
@@ -2311,12 +2396,22 @@ impl Figure {
                     cyc.push(kid);
                     push!(self.build_cand(
                         "K".to_string(),
-                        format!("Let {} be the second meet of line {} with the circle.", "K", seg(v, r)),
+                        format!(
+                            "Let {} be the second meet of line {} with the circle.",
+                            "K",
+                            seg(v, r)
+                        ),
                         vec![AuxFact::Coll(v, r, kid), AuxFact::Cyclic(cyc)],
                         move |i| {
                             let circ =
                                 NumCircle::through(i[o0 as usize], i[o1 as usize], i[o2 as usize])?;
-                            second_meet(i[v as usize], i[r as usize], circ.center, circ.r, i[r as usize])
+                            second_meet(
+                                i[v as usize],
+                                i[r as usize],
+                                circ.center,
+                                circ.r,
+                                i[r as usize],
+                            )
                         },
                     ));
                 }
@@ -2339,14 +2434,22 @@ impl Figure {
                                     continue;
                                 }
                                 for sgn in [1.0f64, -1.0] {
-                                    let Some(copied) = self.copied_angle(v, r, p, q, kid, sgn) else {
+                                    let Some(copied) = self.copied_angle(v, r, p, q, kid, sgn)
+                                    else {
                                         continue;
                                     };
                                     push!(self.build_cand(
                                         "K".to_string(),
                                         format!(
                                             "Let {} be the point on {} with ∠{}{}{} = ∠{}{}{}.",
-                                            "K", seg(s, t), nm(r), nm(v), "K", nm(p), nm(v), nm(q)
+                                            "K",
+                                            seg(s, t),
+                                            nm(r),
+                                            nm(v),
+                                            "K",
+                                            nm(p),
+                                            nm(v),
+                                            nm(q)
                                         ),
                                         vec![AuxFact::Coll(s, kid, t), copied],
                                         move |i| angle_copy(i, [v, r, p, q, s, t], sgn),
@@ -2405,7 +2508,11 @@ impl Figure {
         // is what the sum-of-products engine proves). Bail fast otherwise.
         let degree2 = mono_lower(lhs, self)
             .and_then(|l| mono_lower(rhs, self).map(|r| mono_add(&l, &r, &-Rat::one())))
-            .map(|g| !g.is_empty() && g.keys().all(|m| m.len() == 2 && m.iter().all(|k| matches!(k, LKey::Len(..)))))
+            .map(|g| {
+                !g.is_empty()
+                    && g.keys()
+                        .all(|m| m.len() == 2 && m.iter().all(|k| matches!(k, LKey::Len(..))))
+            })
             .unwrap_or(false);
         if !degree2 {
             return None;
@@ -2425,7 +2532,9 @@ impl Figure {
             let mut rel = gpts.clone();
             rel.push(kid);
             let intro = cand.intro.replace('K', &cand.name);
-            if let Some(p) = f.prove_products(lhs, rhs, goal, &rel, std::slice::from_ref(&intro), false) {
+            if let Some(p) =
+                f.prove_products(lhs, rhs, goal, &rel, std::slice::from_ref(&intro), false)
+            {
                 return Some(p);
             }
         }
@@ -2492,7 +2601,10 @@ fn sampled_instances(cons_src: &str) -> Result<(SampledFigure, Vec<Vec<Vec2>>), 
     sampled_instances_for(cons_src, None)
 }
 
-fn sampled_instances_for(cons_src: &str, goal: Option<[&MExpr; 2]>) -> Result<(SampledFigure, Vec<Vec<Vec2>>), String> {
+fn sampled_instances_for(
+    cons_src: &str,
+    goal: Option<[&MExpr; 2]>,
+) -> Result<(SampledFigure, Vec<Vec<Vec2>>), String> {
     let mut sampled = crate::geo::build_sampled_figure(cons_src)?;
     if let Some(sides) = goal {
         let mut keep = std::collections::BTreeSet::new();
@@ -2536,7 +2648,11 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
             eq.sub_scaled(&re, &Rat::one());
             if !eq.is_zero() {
                 hyp_steps.push((
-                    format!("Given: {} = {} (hypothesis).", l.to_display(), r.to_display()),
+                    format!(
+                        "Given: {} = {} (hypothesis).",
+                        l.to_display(),
+                        r.to_display()
+                    ),
                     eq,
                 ));
             }
@@ -2638,7 +2754,11 @@ mod tests {
         let fig = Figure::gather(&sampled, vec![sampled.coords.clone()]);
         let g: Vec<PointId> = (0..names.len() as PointId).collect();
         let cands = fig.aux_candidates(&g);
-        assert!(cands.len() <= MAX_AUX_CANDIDATES, "{} candidates", cands.len());
+        assert!(
+            cands.len() <= MAX_AUX_CANDIDATES,
+            "{} candidates",
+            cands.len()
+        );
     }
 
     #[test]

@@ -60,7 +60,10 @@ pub fn lock(db: &Db) -> MutexGuard<'_, Connection> {
 }
 
 fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }
 
 /// Open (creating if absent) and migrate the database at `path`.
@@ -164,14 +167,21 @@ pub fn backup(src: &Path, dest: &Path) -> Result<BackupSummary, String> {
     if !src.is_file() {
         return Err(format!("no database at {}", src.display()));
     }
-    let dest_str = dest.to_str().ok_or_else(|| format!("{} is not valid UTF-8", dest.display()))?;
+    let dest_str = dest
+        .to_str()
+        .ok_or_else(|| format!("{} is not valid UTF-8", dest.display()))?;
     let mut create = std::fs::OpenOptions::new();
     create.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut create, 0o600);
-    create.open(dest).map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
+    create
+        .open(dest)
+        .map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
     let made = (|| -> rusqlite::Result<BackupSummary> {
-        let live = Connection::open_with_flags(src, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        let live = Connection::open_with_flags(
+            src,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
         live.busy_timeout(std::time::Duration::from_secs(10))?;
         let version: i64 = live.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version > SCHEMA_VERSION {
@@ -182,11 +192,17 @@ pub fn backup(src: &Path, dest: &Path) -> Result<BackupSummary, String> {
         }
         live.execute("VACUUM INTO ?1", [dest_str])?;
         drop(live);
-        let copy = Connection::open_with_flags(dest, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        let copy = Connection::open_with_flags(
+            dest,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
         let _mode: String = copy.query_row("PRAGMA journal_mode = DELETE", [], |r| r.get(0))?;
         let check: String = copy.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
         if check != "ok" {
-            return Err(failure(rusqlite::ffi::SQLITE_CORRUPT, format!("integrity check of the copy: {check}")));
+            return Err(failure(
+                rusqlite::ffi::SQLITE_CORRUPT,
+                format!("integrity check of the copy: {check}"),
+            ));
         }
         let count = |table: &str| -> rusqlite::Result<i64> {
             let exists = copy
@@ -198,7 +214,11 @@ pub fn backup(src: &Path, dest: &Path) -> Result<BackupSummary, String> {
             copy.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
         };
         let (users, history) = (count("users")?, count("history")?);
-        Ok(BackupSummary { users, history, bytes: 0 })
+        Ok(BackupSummary {
+            users,
+            history,
+            bytes: 0,
+        })
     })();
     match made {
         Ok(mut s) => {
@@ -287,12 +307,18 @@ pub fn server_secret(conn: &Connection, name: &str, fresh: [u8; 32]) -> rusqlite
         "INSERT OR IGNORE INTO server_secrets (name, value) VALUES (?1, ?2)",
         rusqlite::params![name, &fresh[..]],
     )?;
-    let stored: Vec<u8> =
-        conn.query_row("SELECT value FROM server_secrets WHERE name = ?1", [name], |r| r.get(0))?;
+    let stored: Vec<u8> = conn.query_row(
+        "SELECT value FROM server_secrets WHERE name = ?1",
+        [name],
+        |r| r.get(0),
+    )?;
     match <[u8; 32]>::try_from(stored.as_slice()) {
         Ok(k) => Ok(k),
         Err(_) => {
-            eprintln!("db: server secret `{name}` had {} bytes, not 32; replacing it", stored.len());
+            eprintln!(
+                "db: server secret `{name}` had {} bytes, not 32; replacing it",
+                stored.len()
+            );
             conn.execute(
                 "UPDATE server_secrets SET value = ?2 WHERE name = ?1",
                 rusqlite::params![name, &fresh[..]],
@@ -311,7 +337,11 @@ fn row_to_user(r: &rusqlite::Row) -> rusqlite::Result<User> {
 }
 
 /// Create a user; fails (`SQLITE_CONSTRAINT`) on a duplicate username.
-pub fn create_user(conn: &Connection, username: &str, password_hash: &str) -> rusqlite::Result<i64> {
+pub fn create_user(
+    conn: &Connection,
+    username: &str,
+    password_hash: &str,
+) -> rusqlite::Result<i64> {
     if find_user_by_name(conn, username)?.is_some() {
         return Err(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE),
@@ -337,7 +367,12 @@ pub fn find_user_by_name(conn: &Connection, username: &str) -> rusqlite::Result<
 
 /// Create a session for `user_id` that expires `ttl_secs` from now.
 /// `id` is the client-facing token; only its hash touches the database.
-pub fn insert_session(conn: &Connection, id: &str, user_id: i64, ttl_secs: i64) -> rusqlite::Result<()> {
+pub fn insert_session(
+    conn: &Connection,
+    id: &str,
+    user_id: i64,
+    ttl_secs: i64,
+) -> rusqlite::Result<()> {
     let created = now();
     conn.execute(
         "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)",
@@ -367,7 +402,10 @@ pub fn delete_session(conn: &Connection, id: &str) -> rusqlite::Result<()> {
 /// abandoned logins — the DB-backed counterpart to `RateLimiter::sweep`'s
 /// in-memory cleanup. Returns the number of rows removed.
 pub fn sweep_expired_sessions(conn: &Connection) -> rusqlite::Result<usize> {
-    conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", params![now()])
+    conn.execute(
+        "DELETE FROM sessions WHERE expires_at <= ?1",
+        params![now()],
+    )
 }
 
 /// A solve to record: the verdict columns, plus optionally the display goal and
@@ -395,11 +433,23 @@ pub fn insert_history(
     insert_history_full(
         conn,
         user_id,
-        &NewHistory { input, title, proved, method, status, goal: None, solution: None },
+        &NewHistory {
+            input,
+            title,
+            proved,
+            method,
+            status,
+            goal: None,
+            solution: None,
+        },
     )
 }
 
-pub fn insert_history_full(conn: &Connection, user_id: i64, h: &NewHistory) -> rusqlite::Result<i64> {
+pub fn insert_history_full(
+    conn: &Connection,
+    user_id: i64,
+    h: &NewHistory,
+) -> rusqlite::Result<i64> {
     conn.execute(
         "DELETE FROM history WHERE user_id = ?1 AND input = ?2 AND title IS ?3 AND method IS ?4 AND status IS ?5",
         params![user_id, h.input, h.title, h.method, h.status],
@@ -456,7 +506,12 @@ pub fn list_history(
 /// row, `Some(None)` if the row predates stored solutions.
 /// Swap the stored result of one of `user_id`'s entries for `h` (same input
 /// only), keeping its id and position. False when no such row matches.
-pub fn replace_history(conn: &Connection, user_id: i64, id: i64, h: &NewHistory) -> rusqlite::Result<bool> {
+pub fn replace_history(
+    conn: &Connection,
+    user_id: i64,
+    id: i64,
+    h: &NewHistory,
+) -> rusqlite::Result<bool> {
     let n = conn.execute(
         "UPDATE history SET title = ?1, proved = ?2, method = ?3, status = ?4, goal = ?5, solution = ?6 \
          WHERE id = ?7 AND user_id = ?8 AND input = ?9",
@@ -465,7 +520,11 @@ pub fn replace_history(conn: &Connection, user_id: i64, id: i64, h: &NewHistory)
     Ok(n > 0)
 }
 
-pub fn history_solution(conn: &Connection, user_id: i64, id: i64) -> rusqlite::Result<Option<Option<String>>> {
+pub fn history_solution(
+    conn: &Connection,
+    user_id: i64,
+    id: i64,
+) -> rusqlite::Result<Option<Option<String>>> {
     conn.query_row(
         "SELECT solution FROM history WHERE id = ?1 AND user_id = ?2",
         params![id, user_id],
@@ -519,7 +578,15 @@ mod tests {
             solution: s,
         };
         insert_history_full(&conn, uid, &h(Some(sol))).unwrap();
-        insert_history_full(&conn, uid, &NewHistory { input: "y", ..h(Some("not json")) }).unwrap();
+        insert_history_full(
+            &conn,
+            uid,
+            &NewHistory {
+                input: "y",
+                ..h(Some("not json"))
+            },
+        )
+        .unwrap();
         let rows = list_history(&conn, uid, 10, None).unwrap();
         assert_eq!(rows[1].note.as_deref(), Some("time_limit"));
         assert_eq!(rows[0].note, None);
@@ -581,9 +648,26 @@ mod tests {
         let conn = mem();
         let a = create_user(&conn, "alice", "h").unwrap();
         let b = create_user(&conn, "bob", "h").unwrap();
-        insert_history(&conn, a, "p1", Some("t1"), true, Some("ddar"), Some("proved")).unwrap();
-        insert_history(&conn, a, "p2", None, false, Some("euclidean"), Some("holds-numerically"))
-            .unwrap();
+        insert_history(
+            &conn,
+            a,
+            "p1",
+            Some("t1"),
+            true,
+            Some("ddar"),
+            Some("proved"),
+        )
+        .unwrap();
+        insert_history(
+            &conn,
+            a,
+            "p2",
+            None,
+            false,
+            Some("euclidean"),
+            Some("holds-numerically"),
+        )
+        .unwrap();
         insert_history(&conn, b, "p3", None, true, None, None).unwrap();
         let hist = list_history(&conn, a, 1000, None).unwrap();
         assert_eq!(hist.len(), 2);
@@ -605,10 +689,22 @@ mod tests {
         insert_history(&conn, b, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
         insert_history(&conn, a, "p1", None, true, Some("ddar"), Some("proved")).unwrap();
         let hist = list_history(&conn, a, 1000, None).unwrap();
-        assert_eq!(hist.iter().map(|h| h.input.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+        assert_eq!(
+            hist.iter().map(|h| h.input.as_str()).collect::<Vec<_>>(),
+            ["p1", "p2"]
+        );
         assert_eq!(list_history(&conn, b, 1000, None).unwrap().len(), 1);
         insert_history(&conn, a, "p1", None, true, Some("ddar+aux"), Some("proved")).unwrap();
-        insert_history(&conn, a, "p1", None, false, Some("ddar"), Some("not-proved")).unwrap();
+        insert_history(
+            &conn,
+            a,
+            "p1",
+            None,
+            false,
+            Some("ddar"),
+            Some("not-proved"),
+        )
+        .unwrap();
         assert_eq!(list_history(&conn, a, 1000, None).unwrap().len(), 4);
     }
 
@@ -640,7 +736,9 @@ mod tests {
         insert_session(&conn, sid, uid, 3600).unwrap();
         // The plaintext token never appears in the table…
         let raw: Option<String> = conn
-            .query_row("SELECT id FROM sessions WHERE id = ?1", params![sid], |r| r.get(0))
+            .query_row("SELECT id FROM sessions WHERE id = ?1", params![sid], |r| {
+                r.get(0)
+            })
             .optional()
             .unwrap();
         assert!(raw.is_none());
@@ -716,7 +814,10 @@ mod tests {
         let Ok(mut st) = conn.prepare("SELECT username FROM users ORDER BY id") else {
             return Vec::new();
         };
-        st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+        st.query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
     }
 
     #[test]
@@ -739,7 +840,9 @@ mod tests {
         assert_eq!(std::fs::metadata(sidecar(&path, "-wal")).unwrap().len(), 0);
         let copy = standalone_copy(&path, dir.path());
         assert_eq!(usernames(&copy), ["alice"]);
-        let n: i64 = copy.query_row("SELECT count(*) FROM server_secrets", [], |r| r.get(0)).unwrap();
+        let n: i64 = copy
+            .query_row("SELECT count(*) FROM server_secrets", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -749,7 +852,16 @@ mod tests {
         let path = dir.path().join("live.db");
         let db = open(&path).unwrap();
         let uid = create_user(&lock(&db), "alice", "h").unwrap();
-        insert_history(&lock(&db), uid, "program", None, true, Some("ddar"), Some("proved")).unwrap();
+        insert_history(
+            &lock(&db),
+            uid,
+            "program",
+            None,
+            true,
+            Some("ddar"),
+            Some("proved"),
+        )
+        .unwrap();
         let dest = dir.path().join("backup.db");
         let s = backup(&path, &dest).unwrap();
         assert_eq!((s.users, s.history), (1, 1));
@@ -759,7 +871,9 @@ mod tests {
         assert_eq!(mode_of(&dest), 0o600);
         let copy = standalone_copy(&dest, dir.path());
         assert_eq!(usernames(&copy), ["alice"]);
-        let v: i64 = copy.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = copy
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
         create_user(&lock(&db), "bob", "h").unwrap();
         let again = backup(&path, &dest).unwrap_err();
@@ -783,7 +897,9 @@ mod tests {
         let path = dir.path().join("v.db");
         drop(open(&path).unwrap());
         let conn = Connection::open(&path).unwrap();
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
     }
 
@@ -803,7 +919,9 @@ mod tests {
         let db = open(&path).unwrap();
         let conn = lock(&db);
         assert!(find_user_by_name(&conn, "old").unwrap().is_some());
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
     }
 
@@ -819,7 +937,10 @@ mod tests {
             ))
             .unwrap();
         }
-        let e = open(&path).err().expect("a newer schema must not be opened").to_string();
+        let Err(e) = open(&path) else {
+            panic!("a newer schema must not be opened")
+        };
+        let e = e.to_string();
         assert!(e.contains("newer"), "{e}");
         let conn = Connection::open(&path).unwrap();
         let has_users = conn
@@ -867,7 +988,10 @@ mod tests {
         let conn = mem();
         create_user(&conn, "alice", "h").unwrap();
         assert!(create_user(&conn, "Alice", "h2").is_err());
-        assert_eq!(find_user_by_name(&conn, "ALICE").unwrap().unwrap().username, "alice");
+        assert_eq!(
+            find_user_by_name(&conn, "ALICE").unwrap().unwrap().username,
+            "alice"
+        );
     }
 
     #[test]

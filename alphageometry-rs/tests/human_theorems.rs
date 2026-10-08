@@ -16,24 +16,40 @@ struct Fix {
 
 fn fixture(src: &str) -> Fix {
     let c = compile(src).expect("compiles");
-    let (_, trace, deps) = ddar::runner::solve_problem_with_trace(&c.problem).expect("solves").expect("proved directly");
-    Fix { trace, goal: c.problem.goal.clone().expect("goal"), deps }
+    let (_, trace, deps) = ddar::runner::solve_problem_with_trace(&c.problem)
+        .expect("solves")
+        .expect("proved directly");
+    Fix {
+        trace,
+        goal: c.problem.goal.clone().expect("goal"),
+        deps,
+    }
 }
 
 impl Fix {
     fn id(&self, n: &str) -> PointId {
-        self.trace.names.iter().position(|x| x.eq_ignore_ascii_case(n)).unwrap_or_else(|| panic!("no point {n} in {:?}", self.trace.names)) as PointId
+        self.trace
+            .names
+            .iter()
+            .position(|x| x.eq_ignore_ascii_case(n))
+            .unwrap_or_else(|| panic!("no point {n} in {:?}", self.trace.names)) as PointId
     }
     fn ids(&self, ns: &[&str]) -> Vec<PointId> {
         ns.iter().map(|n| self.id(n)).collect()
     }
     fn ctx(&self) -> Ctx<'_> {
-        let elsewhere = Predicate { name: self.goal.name.clone(), points: Vec::new(), constants: Vec::new() };
+        let elsewhere = Predicate {
+            name: self.goal.name.clone(),
+            points: Vec::new(),
+            constants: Vec::new(),
+        };
         Ctx::new(&self.trace, &elsewhere, &self.deps, &[], None)
     }
     fn generated(&self, key: AtomKey, args: &[PointId]) -> bool {
         let cx = self.ctx();
-        build_all(&cx).iter().any(|a| a.src == AtomSrc::Human(key) && a.args == args)
+        build_all(&cx)
+            .iter()
+            .any(|a| a.src == AtomSrc::Human(key) && a.args == args)
     }
     fn accepted(&self, key: AtomKey, args: &[PointId]) -> bool {
         let cx = self.ctx();
@@ -274,15 +290,24 @@ fn every_library_theorem_fires_on_its_figure_and_not_without_its_hypotheses() {
             failures.push(format!("{}: checker rejects {key:?} {args:?}", c.name));
         }
         if !f.generated(key, &a) {
-            failures.push(format!("{}: writer does not generate {key:?} {args:?}", c.name));
+            failures.push(format!(
+                "{}: writer does not generate {key:?} {args:?}",
+                c.name
+            ));
         }
         for (k, n) in c.neg {
             let a = f.ids(n);
             if f.accepted(*k, &a) {
-                failures.push(format!("{}: checker accepts false instance {k:?} {n:?}", c.name));
+                failures.push(format!(
+                    "{}: checker accepts false instance {k:?} {n:?}",
+                    c.name
+                ));
             }
             if f.generated(*k, &a) {
-                failures.push(format!("{}: writer generates false instance {k:?} {n:?}", c.name));
+                failures.push(format!(
+                    "{}: writer generates false instance {k:?} {n:?}",
+                    c.name
+                ));
             }
         }
     }
@@ -294,28 +319,76 @@ fn configuration_hypotheses_are_read_from_the_figure() {
     let f = fixture("A B C = triangle\nD = midpoint(A, B)\nE = midpoint(A, C)\nF = reflect(E, A)\nprove para(D, E, B, C)");
     let p = |n: &str| f.id(n);
     let t = &f.trace;
-    assert!(config_holds(t, &Hyp::SplitAlike(p("A"), p("D"), p("B"), p("E"), p("C"))));
-    assert!(!config_holds(t, &Hyp::SplitAlike(p("A"), p("D"), p("B"), p("F"), p("C"))));
+    assert!(config_holds(
+        t,
+        &Hyp::SplitAlike(p("A"), p("D"), p("B"), p("E"), p("C"))
+    ));
+    assert!(!config_holds(
+        t,
+        &Hyp::SplitAlike(p("A"), p("D"), p("B"), p("F"), p("C"))
+    ));
     assert!(config_holds(t, &Hyp::Between(p("D"), p("A"), p("B"))));
     assert!(!config_holds(t, &Hyp::Outside(p("D"), p("A"), p("B"))));
     assert!(config_holds(t, &Hyp::Outside(p("F"), p("E"), p("C"))));
     assert!(!config_holds(t, &Hyp::Between(p("A"), p("A"), p("B"))));
     assert!(!config_holds(t, &Hyp::Triangle(p("A"), p("D"), p("B"))));
-    assert!(!config_holds(t, &Hyp::Distinct(vec![p("A"), p("D"), p("A")])));
-    assert!(!config_holds(t, &Hyp::OutsideParity([(p("D"), p("A"), p("B")), (p("E"), p("A"), p("C")), (p("F"), p("E"), p("C"))], false)));
-    assert!(config_holds(t, &Hyp::OutsideParity([(p("D"), p("A"), p("B")), (p("E"), p("A"), p("C")), (p("F"), p("E"), p("C"))], true)));
+    assert!(!config_holds(
+        t,
+        &Hyp::Distinct(vec![p("A"), p("D"), p("A")])
+    ));
+    assert!(!config_holds(
+        t,
+        &Hyp::OutsideParity(
+            [
+                (p("D"), p("A"), p("B")),
+                (p("E"), p("A"), p("C")),
+                (p("F"), p("E"), p("C"))
+            ],
+            false
+        )
+    ));
+    assert!(config_holds(
+        t,
+        &Hyp::OutsideParity(
+            [
+                (p("D"), p("A"), p("B")),
+                (p("E"), p("A"), p("C")),
+                (p("F"), p("E"), p("C"))
+            ],
+            true
+        )
+    ));
 }
 
 fn imo_2012_p1() -> Fix {
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../corpus/imo_ag_30.txt")).expect("corpus");
-    let (_, body) = ddar::corpus::read_corpus(&text).expect("parses").into_iter().find(|(n, _)| n == "translated_imo_2012_p1").expect("problem");
-    let problem = ddar::corpus::translate_text("translated_imo_2012_p1", &body, 1).expect("translates").problem;
-    let (_, trace, deps) = ddar::runner::solve_problem_with_trace(&problem).expect("solves").expect("proved directly");
-    Fix { trace, goal: problem.goal.clone().unwrap(), deps }
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../corpus/imo_ag_30.txt"
+    ))
+    .expect("corpus");
+    let (_, body) = ddar::corpus::read_corpus(&text)
+        .expect("parses")
+        .into_iter()
+        .find(|(n, _)| n == "translated_imo_2012_p1")
+        .expect("problem");
+    let problem = ddar::corpus::translate_text("translated_imo_2012_p1", &body, 1)
+        .expect("translates")
+        .problem;
+    let (_, trace, deps) = ddar::runner::solve_problem_with_trace(&problem)
+        .expect("solves")
+        .expect("proved directly");
+    Fix {
+        trace,
+        goal: problem.goal.clone().unwrap(),
+        deps,
+    }
 }
 
 fn strict() -> Opts {
-    Opts { deadline: Some(Instant::now() + Duration::from_secs(30)), strict: true }
+    Opts {
+        deadline: Some(Instant::now() + Duration::from_secs(30)),
+        strict: true,
+    }
 }
 
 fn theorem_reasons(hp: &human::HumanProof) -> Vec<(usize, usize, usize, usize)> {
@@ -326,7 +399,9 @@ fn theorem_reasons(hp: &human::HumanProof) -> Vec<(usize, usize, usize, usize)> 
                 for (li, l) in links.iter().enumerate() {
                     for (ri, r) in l.reasons.iter().enumerate() {
                         if let Reason::Atom { key, .. } = r {
-                            if ddar::human::theorems::is_theorem(*key) && l.combination.iter().any(|c| c.reason as usize == ri) {
+                            if ddar::human::theorems::is_theorem(*key)
+                                && l.combination.iter().any(|c| c.reason as usize == ri)
+                            {
                                 out.push((bi, si, li, ri));
                             }
                         }
@@ -343,11 +418,29 @@ fn a_proof_built_from_theorems_verifies_and_shows_no_similar_triangles() {
     let f = imo_2012_p1();
     let hp = human::write(&f.trace, &f.goal, &f.deps, &[], &strict());
     assert!(hp.available);
-    assert!(hp.metrics.library, "the theorem search did not win on IMO 2012 P1");
+    assert!(
+        hp.metrics.library,
+        "the theorem search did not win on IMO 2012 P1"
+    );
     assert!(human::verify(&f.trace, &f.goal, &f.deps, &[], &hp).is_empty());
-    assert!(hp.metrics.similar_steps <= 2, "{}", human::render_en(&f.trace, &hp, &[]));
-    assert!(!hp.blocks.iter().any(|b| matches!(b.stmt, ddar::human::Stmt::Sim { .. } | ddar::human::Stmt::Congruent { .. })), "{}", human::render_en(&f.trace, &hp, &[]));
-    assert!(hp.metrics.theorem_steps >= 4, "{}", human::render_en(&f.trace, &hp, &[]));
+    assert!(
+        hp.metrics.similar_steps <= 2,
+        "{}",
+        human::render_en(&f.trace, &hp, &[])
+    );
+    assert!(
+        !hp.blocks.iter().any(|b| matches!(
+            b.stmt,
+            ddar::human::Stmt::Sim { .. } | ddar::human::Stmt::Congruent { .. }
+        )),
+        "{}",
+        human::render_en(&f.trace, &hp, &[])
+    );
+    assert!(
+        hp.metrics.theorem_steps >= 4,
+        "{}",
+        human::render_en(&f.trace, &hp, &[])
+    );
     assert!(!theorem_reasons(&hp).is_empty());
 }
 
@@ -361,8 +454,12 @@ fn checker_rejects_a_corrupted_theorem_instance() {
     let n = f.trace.n as PointId;
     let mut rejected = 0;
     let mut tried = 0;
-    let Sentence::Chain { links, .. } = &hp.blocks[bi].body[si] else { unreachable!() };
-    let Reason::Atom { key, args, .. } = &links[li].reasons[ri] else { unreachable!() };
+    let Sentence::Chain { links, .. } = &hp.blocks[bi].body[si] else {
+        unreachable!()
+    };
+    let Reason::Atom { key, args, .. } = &links[li].reasons[ri] else {
+        unreachable!()
+    };
     let (key, args) = (*key, args.clone());
     let mut variants: Vec<(AtomKey, Vec<PointId>)> = Vec::new();
     for pos in 0..args.len() {
@@ -404,16 +501,28 @@ fn checker_rejects_a_corrupted_theorem_instance() {
 #[test]
 fn the_theorem_search_is_deterministic() {
     let f = imo_2012_p1();
-    let a = human::view::engine_json(&f.trace, &human::write(&f.trace, &f.goal, &f.deps, &[], &Opts::default()), &f.trace.closure(&f.deps));
+    let a = human::view::engine_json(
+        &f.trace,
+        &human::write(&f.trace, &f.goal, &f.deps, &[], &Opts::default()),
+        &f.trace.closure(&f.deps),
+    );
     for _ in 0..2 {
-        let b = human::view::engine_json(&f.trace, &human::write(&f.trace, &f.goal, &f.deps, &[], &Opts::default()), &f.trace.closure(&f.deps));
+        let b = human::view::engine_json(
+            &f.trace,
+            &human::write(&f.trace, &f.goal, &f.deps, &[], &Opts::default()),
+            &f.trace.closure(&f.deps),
+        );
         assert_eq!(a, b);
     }
     let handles: Vec<_> = (0..3)
         .map(|_| {
             std::thread::spawn(move || {
                 let f = imo_2012_p1();
-                human::view::engine_json(&f.trace, &human::write(&f.trace, &f.goal, &f.deps, &[], &Opts::default()), &f.trace.closure(&f.deps))
+                human::view::engine_json(
+                    &f.trace,
+                    &human::write(&f.trace, &f.goal, &f.deps, &[], &Opts::default()),
+                    &f.trace.closure(&f.deps),
+                )
             })
         })
         .collect();
@@ -426,12 +535,22 @@ fn the_theorem_search_is_deterministic() {
 fn the_theorem_search_respects_its_deadline_and_never_lies() {
     let f = imo_2012_p1();
     for ms in [0u64, 1, 5, 20] {
-        let opts = Opts { deadline: Some(Instant::now() + Duration::from_millis(ms)), strict: false };
+        let opts = Opts {
+            deadline: Some(Instant::now() + Duration::from_millis(ms)),
+            strict: false,
+        };
         let start = Instant::now();
         let hp = human::write(&f.trace, &f.goal, &f.deps, &[], &opts);
-        assert!(start.elapsed() < Duration::from_millis(ms + 1500), "{ms} ms deadline took {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_millis(ms + 1500),
+            "{ms} ms deadline took {:?}",
+            start.elapsed()
+        );
         if hp.available {
-            assert!(human::verify(&f.trace, &f.goal, &f.deps, &[], &hp).is_empty(), "{ms} ms deadline produced a proof that fails the check");
+            assert!(
+                human::verify(&f.trace, &f.goal, &f.deps, &[], &hp).is_empty(),
+                "{ms} ms deadline produced a proof that fails the check"
+            );
         }
     }
 }

@@ -64,11 +64,24 @@ pub fn edge_cost(w: &Writer, parts: &[Part], focus: &BTreeSet<PointId>) -> i64 {
     c + 2 * atoms + 6 * (atoms - 6).max(0) + 3 * aux.len() as i64
 }
 
-fn deps_total(w: &Writer, total: &BTreeMap<FactId, i64>, deps: &BTreeSet<FactId>, me: FactId) -> i64 {
-    deps.iter().filter(|&&d| d != me && w.nodes.contains_key(&d)).map(|d| total.get(d).copied().unwrap_or(0)).sum()
+fn deps_total(
+    w: &Writer,
+    total: &BTreeMap<FactId, i64>,
+    deps: &BTreeSet<FactId>,
+    me: FactId,
+) -> i64 {
+    deps.iter()
+        .filter(|&&d| d != me && w.nodes.contains_key(&d))
+        .map(|d| total.get(d).copied().unwrap_or(0))
+        .sum()
 }
 
-pub fn set_extra(w: &mut Writer, total: &BTreeMap<FactId, i64>, me: FactId, skip: &BTreeSet<FactId>) {
+pub fn set_extra(
+    w: &mut Writer,
+    total: &BTreeMap<FactId, i64>,
+    me: FactId,
+    skip: &BTreeSet<FactId>,
+) {
     let cx = w.cx;
     let mut extra = vec![0u32; w.atoms.len()];
     for (i, a) in w.atoms.iter().enumerate() {
@@ -93,7 +106,14 @@ fn via_cost(w: &Writer, a: &super::atoms::Atom) -> i64 {
     a.via
         .iter()
         .map(|&v| match w.atoms[v].key() {
-            Some(AtomKey::PerpBisector | AtomKey::Thales | AtomKey::Midline | AtomKey::Orthocentre | AtomKey::Radii | AtomKey::Isosceles) => 6,
+            Some(
+                AtomKey::PerpBisector
+                | AtomKey::Thales
+                | AtomKey::Midline
+                | AtomKey::Orthocentre
+                | AtomKey::Radii
+                | AtomKey::Isosceles,
+            ) => 6,
             _ => VIA_COST,
         })
         .sum()
@@ -109,7 +129,14 @@ fn kind_cost(a: &super::atoms::Atom) -> i64 {
     }
 }
 
-fn route_weights(w: &Writer, f: FactId, h: FactId, exclude: Option<FactId>, focus: &BTreeSet<PointId>, total: &BTreeMap<FactId, i64>) -> Vec<i64> {
+fn route_weights(
+    w: &Writer,
+    f: FactId,
+    h: FactId,
+    exclude: Option<FactId>,
+    focus: &BTreeSet<PointId>,
+    total: &BTreeMap<FactId, i64>,
+) -> Vec<i64> {
     let cx = w.cx;
     let mut out = vec![route::OFF; w.atoms.len()];
     for (i, a) in w.atoms.iter().enumerate() {
@@ -135,7 +162,11 @@ fn route_weights(w: &Writer, f: FactId, h: FactId, exclude: Option<FactId>, focu
         if cyclic {
             continue;
         }
-        out[i] = eff(a, focus, &w.claim_cost, cx) as i64 + 2 + via_cost(w, a) + kind_cost(a) + prem.min(EXTRA_CAP);
+        out[i] = eff(a, focus, &w.claim_cost, cx) as i64
+            + 2
+            + via_cost(w, a)
+            + kind_cost(a)
+            + prem.min(EXTRA_CAP);
     }
     out
 }
@@ -146,7 +177,13 @@ pub struct Graphs {
 
 impl Graphs {
     pub fn new() -> Graphs {
-        Graphs { g: [std::cell::OnceCell::new(), std::cell::OnceCell::new(), std::cell::OnceCell::new()] }
+        Graphs {
+            g: [
+                std::cell::OnceCell::new(),
+                std::cell::OnceCell::new(),
+                std::cell::OnceCell::new(),
+            ],
+        }
     }
     fn get(&self, w: &Writer, table: Table, undirected: bool) -> &route::Graph {
         let i = match (table, undirected) {
@@ -168,20 +205,36 @@ pub fn route_splits(w: &Writer, form: &mut Target) -> Vec<(LinComb, LinComb)> {
     let cx = w.cx;
     match form.table {
         Table::Angle => {
-            let raw: Vec<(LinComb, LinComb)> = form.splits.iter().map(|s| (cx.quot.q(&s.lraw), cx.quot.q(&s.rraw))).collect();
+            let raw: Vec<(LinComb, LinComb)> = form
+                .splits
+                .iter()
+                .map(|s| (cx.quot.q(&s.lraw), cx.quot.q(&s.rraw)))
+                .collect();
             fix_exact(cx, form, &raw)
         }
         _ => {
             let row = cx.t.canon_ratio(&form.row);
             for (a, end) in ratio_splits(cx, &row) {
                 for (l, r) in [(a.clone(), end.clone()), (end, a)] {
-                    if form.splits.iter().any(|s| cx.t.canon_ratio(&s.lraw) == l && cx.t.canon_ratio(&s.rraw) == r) {
+                    if form
+                        .splits
+                        .iter()
+                        .any(|s| cx.t.canon_ratio(&s.lraw) == l && cx.t.canon_ratio(&s.rraw) == r)
+                    {
                         continue;
                     }
-                    form.splits.push(Split { l: ratio_expr(cx, &l), r: ratio_expr(cx, &r), lraw: l, rraw: r });
+                    form.splits.push(Split {
+                        l: ratio_expr(cx, &l),
+                        r: ratio_expr(cx, &r),
+                        lraw: l,
+                        rraw: r,
+                    });
                 }
             }
-            form.splits.iter().map(|s| (s.lraw.clone(), s.rraw.clone())).collect()
+            form.splits
+                .iter()
+                .map(|s| (s.lraw.clone(), s.rraw.clone()))
+                .collect()
         }
     }
 }
@@ -191,15 +244,33 @@ pub fn undirected_splits(w: &Writer, form: &Target) -> Vec<(LinComb, LinComb)> {
     let t = cx.t;
     let undirect = |e: &Expr| -> Option<LinComb> {
         match e {
-            Expr::Angle { a, b, c, .. } => super::expr::eval(t, &Expr::Angle { a: *a, b: *b, c: *c, directed: false }).map(|x| x.1),
-            Expr::Const { degrees } => Some(LinComb::singleton(crate::elimination::ANGLE_UNIT, degrees / &crate::rational::Rat::from_int(180))),
+            Expr::Angle { a, b, c, .. } => super::expr::eval(
+                t,
+                &Expr::Angle {
+                    a: *a,
+                    b: *b,
+                    c: *c,
+                    directed: false,
+                },
+            )
+            .map(|x| x.1),
+            Expr::Const { degrees } => Some(LinComb::singleton(
+                crate::elimination::ANGLE_UNIT,
+                degrees / &crate::rational::Rat::from_int(180),
+            )),
             _ => None,
         }
     };
     let mut out = Vec::new();
     for s in &form.splits {
         let (Some(l), Some(r)) = (undirect(&s.l), undirect(&s.r)) else {
-            out.push((LinComb::zero(), LinComb::singleton(crate::elimination::ANGLE_UNIT, crate::rational::Rat::new(1, 3))));
+            out.push((
+                LinComb::zero(),
+                LinComb::singleton(
+                    crate::elimination::ANGLE_UNIT,
+                    crate::rational::Rat::new(1, 3),
+                ),
+            ));
             continue;
         };
         let (vl, vr) = (t.value(Table::Angle, &l), t.value(Table::Angle, &r));
@@ -208,7 +279,13 @@ pub fn undirected_splits(w: &Writer, form: &Target) -> Vec<(LinComb, LinComb)> {
         } else if (vl + vr - 1.0).abs() < 1e-7 {
             &LinComb::singleton(crate::elimination::ANGLE_UNIT, crate::rational::Rat::one()) - &r
         } else {
-            out.push((LinComb::zero(), LinComb::singleton(crate::elimination::ANGLE_UNIT, crate::rational::Rat::new(1, 3))));
+            out.push((
+                LinComb::zero(),
+                LinComb::singleton(
+                    crate::elimination::ANGLE_UNIT,
+                    crate::rational::Rat::new(1, 3),
+                ),
+            ));
             continue;
         };
         out.push((cx.quot.q(&l), cx.quot.q(&r)));
@@ -221,7 +298,11 @@ fn route_edge_cost(w: &Writer, p: &Path, focus: &BTreeSet<PointId>, table: Table
     let mut c = 0i64;
     for (k, g) in p.links.iter().enumerate() {
         for (i, lam) in g {
-            c += eff(&w.atoms[*i], focus, &w.claim_cost, cx) as i64 + 2 + via_cost(w, &w.atoms[*i]) + kind_cost(&w.atoms[*i]) + if lam.abs().is_one() { 0 } else { 8 };
+            c += eff(&w.atoms[*i], focus, &w.claim_cost, cx) as i64
+                + 2
+                + via_cost(w, &w.atoms[*i])
+                + kind_cost(&w.atoms[*i])
+                + if lam.abs().is_one() { 0 } else { 8 };
         }
         if k + 1 < p.links.len() && !p.undirected {
             c += route::directed_shape(cx, table, &p.nodes[k + 1]).unwrap_or(0);
@@ -230,19 +311,42 @@ fn route_edge_cost(w: &Writer, p: &Path, focus: &BTreeSet<PointId>, table: Table
     c
 }
 
-pub fn route_node(w: &Writer, f: FactId, total: &BTreeMap<FactId, i64>, graphs: &Graphs) -> Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> {
+pub fn route_node(
+    w: &Writer,
+    f: FactId,
+    total: &BTreeMap<FactId, i64>,
+    graphs: &Graphs,
+) -> Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> {
     let cx = w.cx;
     let node = w.nodes.get(&f)?;
     let h = node.horizon;
     let focus = w.focus_of(f);
-    let (obls, exclude) = if f == GOAL { (w.goal_obls(node.extra.first().copied()), node.extra.first().copied()) } else { (w.node_obls(f)?, Some(f)) };
+    let (obls, exclude) = if f == GOAL {
+        (
+            w.goal_obls(node.extra.first().copied()),
+            node.extra.first().copied(),
+        )
+    } else {
+        (w.node_obls(f)?, Some(f))
+    };
     let weights = route_weights(w, f, h, exclude, &focus, total);
     if std::env::var_os("HP_ROUTE_EDGES").is_some() {
         for (i, wt) in weights.iter().enumerate() {
             let a = &w.atoms[i];
-            let pick = std::env::var("HP_ROUTE_EDGES").ok().is_some_and(|v| v.split(',').any(|x| x == i.to_string()));
-            if pick || (*wt != route::OFF && matches!(a.key(), Some(AtomKey::Centroid | AtomKey::Midline | AtomKey::Intercept))) {
-                eprintln!("node {f} edge {i} {:?} {:?} sources {:?} via {:?} weight {wt}", a.src, a.args, a.sources, a.via);
+            let pick = std::env::var("HP_ROUTE_EDGES")
+                .ok()
+                .is_some_and(|v| v.split(',').any(|x| x == i.to_string()));
+            if pick
+                || (*wt != route::OFF
+                    && matches!(
+                        a.key(),
+                        Some(AtomKey::Centroid | AtomKey::Midline | AtomKey::Intercept)
+                    ))
+            {
+                eprintln!(
+                    "node {f} edge {i} {:?} {:?} sources {:?} via {:?} weight {wt}",
+                    a.src, a.args, a.sources, a.via
+                );
             }
         }
     }
@@ -272,7 +376,8 @@ pub fn route_node(w: &Writer, f: FactId, total: &BTreeMap<FactId, i64>, graphs: 
                         if !w.in_admissible_span(form.table, &form.row, h, exclude) {
                             continue;
                         }
-                        if let Some((sup, c)) = w.certify(form.table, &form.row, h, &focus, exclude) {
+                        if let Some((sup, c)) = w.certify(form.table, &form.row, h, &focus, exclude)
+                        {
                             if got.as_ref().is_none_or(|g| c < g.1) {
                                 let mut chosen = form.clone();
                                 chosen.alts.clear();
@@ -284,7 +389,11 @@ pub fn route_node(w: &Writer, f: FactId, total: &BTreeMap<FactId, i64>, graphs: 
                         Some((sup, c, chosen)) => {
                             key += c + 4 * sup.len() as i64;
                             cost += c;
-                            parts.push(Part { target: chosen, support: sup, route: None });
+                            parts.push(Part {
+                                target: chosen,
+                                support: sup,
+                                route: None,
+                            });
                         }
                         None => {
                             ok = false;
@@ -306,11 +415,20 @@ pub fn route_node(w: &Writer, f: FactId, total: &BTreeMap<FactId, i64>, graphs: 
     Some((label, parts, c, req))
 }
 
-fn route_target(w: &Writer, t: &Target, weights: &[i64], graphs: &Graphs, focus: &BTreeSet<PointId>, bound0: i64) -> Option<(i64, Part, i64)> {
+fn route_target(
+    w: &Writer,
+    t: &Target,
+    weights: &[i64],
+    graphs: &Graphs,
+    focus: &BTreeSet<PointId>,
+    bound0: i64,
+) -> Option<(i64, Part, i64)> {
     let cx = w.cx;
     let mut best: Option<(i64, Part, i64)> = None;
     for form in std::iter::once(t).chain(t.alts.iter()).take(MAX_FORMS) {
-        if !matches!(form.table, Table::Angle | Table::Ratio) || w.route_spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET {
+        if !matches!(form.table, Table::Angle | Table::Ratio)
+            || w.route_spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET
+        {
             continue;
         }
         let mut form = form.clone();
@@ -320,7 +438,11 @@ fn route_target(w: &Writer, t: &Target, weights: &[i64], graphs: &Graphs, focus:
             for (i, s) in form.splits.iter().enumerate() {
                 let names = |q: PointId| super::text::disp(cx.t.name(q));
                 let nm = super::text::FnNames(&names);
-                eprintln!("  split {i}: {} = {}", super::text::expr(&nm, &s.l), super::text::expr(&nm, &s.r));
+                eprintln!(
+                    "  split {i}: {} = {}",
+                    super::text::expr(&nm, &s.l),
+                    super::text::expr(&nm, &s.r)
+                );
             }
         }
         let mut found: Vec<Path> = Vec::new();
@@ -328,7 +450,14 @@ fn route_target(w: &Writer, t: &Target, weights: &[i64], graphs: &Graphs, focus:
         if form.table == Table::Angle {
             let usplits = undirected_splits(w, &form);
             let g = graphs.get(w, Table::Angle, true);
-            if let Some(mut p) = g.search(cx, &usplits, route::UNDIRECTED_BUDGET, cap.saturating_add(UNDIRECTED_BONUS), &w.route_spent, weights) {
+            if let Some(mut p) = g.search(
+                cx,
+                &usplits,
+                route::UNDIRECTED_BUDGET,
+                cap.saturating_add(UNDIRECTED_BONUS),
+                &w.route_spent,
+                weights,
+            ) {
                 p.weight -= UNDIRECTED_BONUS;
                 found.push(p);
             }
@@ -342,16 +471,35 @@ fn route_target(w: &Writer, t: &Target, weights: &[i64], graphs: &Graphs, focus:
             if std::env::var_os("HP_ROUTE").is_some() {
                 let names = |q: PointId| super::text::disp(cx.t.name(q));
                 let nm = super::text::FnNames(&names);
-                eprintln!("  target {} ({:?}, {}): weight {}", super::text::stmt(&nm, &form.stmt), form.table, if p.undirected { "as drawn" } else { "directed" }, p.weight);
+                eprintln!(
+                    "  target {} ({:?}, {}): weight {}",
+                    super::text::stmt(&nm, &form.stmt),
+                    form.table,
+                    if p.undirected { "as drawn" } else { "directed" },
+                    p.weight
+                );
                 for g in &p.links {
                     let a = &w.atoms[g[0].0];
-                    eprintln!("    {:?} {:?} lam {}", a.src, a.args.iter().map(|q| names(*q)).collect::<Vec<_>>(), g[0].1);
+                    eprintln!(
+                        "    {:?} {:?} lam {}",
+                        a.src,
+                        a.args.iter().map(|q| names(*q)).collect::<Vec<_>>(),
+                        g[0].1
+                    );
                 }
             }
             if best.as_ref().is_none_or(|b| p.weight < b.0) {
                 let c = route_edge_cost(w, &p, focus, form.table);
                 let support = route::support(&p);
-                best = Some((p.weight, Part { target: form.clone(), support, route: Some(p) }, c));
+                best = Some((
+                    p.weight,
+                    Part {
+                        target: form.clone(),
+                        support,
+                        route: Some(p),
+                    },
+                    c,
+                ));
             }
         }
     }
@@ -359,8 +507,15 @@ fn route_target(w: &Writer, t: &Target, weights: &[i64], graphs: &Graphs, focus:
 }
 
 fn needs_route(w: &Writer, parts: &[Part]) -> bool {
-    let atoms: Vec<&(usize, crate::rational::Rat)> = parts.iter().flat_map(|p| p.support.iter()).filter(|(i, _)| w.atoms[*i].cost > 0).collect();
-    atoms.len() >= 3 || atoms.iter().any(|(i, lam)| !lam.abs().is_one() || w.atoms[*i].cost >= 3)
+    let atoms: Vec<&(usize, crate::rational::Rat)> = parts
+        .iter()
+        .flat_map(|p| p.support.iter())
+        .filter(|(i, _)| w.atoms[*i].cost > 0)
+        .collect();
+    atoms.len() >= 3
+        || atoms
+            .iter()
+            .any(|(i, lam)| !lam.abs().is_one() || w.atoms[*i].cost >= 3)
 }
 
 pub fn optimise(w: &mut Writer) -> Search {
@@ -382,7 +537,8 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
         if f == GOAL {
             let cap = route::TOTAL_BUDGET - route::GOAL_RESERVE;
             if w.route_spent.load(std::sync::atomic::Ordering::Relaxed) > cap {
-                w.route_spent.store(cap, std::sync::atomic::Ordering::Relaxed);
+                w.route_spent
+                    .store(cap, std::sync::atomic::Ordering::Relaxed);
             }
         }
         let node = w.nodes[&f].clone();
@@ -399,15 +555,28 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
         }
         let focus = w.focus_of(f);
         let req = 4 * node.requires.iter().filter(|&&r| !cx.is_hyp(r)).count() as i64;
-        let cur = edge_cost(w, parts, &focus) + present + req + deps_total(w, &out.total, &node.deps, f);
+        let cur =
+            edge_cost(w, parts, &focus) + present + req + deps_total(w, &out.total, &node.deps, f);
         let mut best = cur;
         if recert {
             set_extra(w, &out.total, f, &none);
         }
-        let obls = if f == GOAL { w.goal_obls(node.extra.first().copied()) } else { w.node_obls(f).unwrap_or_default() };
-        let exclude = if f == GOAL { node.extra.first().copied() } else { Some(f) };
+        let obls = if f == GOAL {
+            w.goal_obls(node.extra.first().copied())
+        } else {
+            w.node_obls(f).unwrap_or_default()
+        };
+        let exclude = if f == GOAL {
+            node.extra.first().copied()
+        } else {
+            Some(f)
+        };
         out.examined += 1;
-        let recertified = if recert { w.certify_obls(&obls, node.horizon, &focus, exclude) } else { None };
+        let recertified = if recert {
+            w.certify_obls(&obls, node.horizon, &focus, exclude)
+        } else {
+            None
+        };
         if let Some((label, parts2, _, req2)) = recertified {
             let mut deps = w.deps_of(&parts2);
             for &r in &req2 {
@@ -432,9 +601,17 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
             }
         }
         clear_extra(w);
-        let wants_route = f == GOAL || w.nodes[&f].parts.as_ref().is_some_and(|ps| needs_route(w, ps));
+        let wants_route = f == GOAL
+            || w.nodes[&f]
+                .parts
+                .as_ref()
+                .is_some_and(|ps| needs_route(w, ps));
         let t_route = std::time::Instant::now();
-        let routed = if wants_route { route_node(w, f, &out.total, &graphs) } else { None };
+        let routed = if wants_route {
+            route_node(w, f, &out.total, &graphs)
+        } else {
+            None
+        };
         route_time += t_route.elapsed().as_secs_f64();
         if let Some((label, parts3, ec3, req3)) = routed {
             let mut deps = w.deps_of(&parts3);
@@ -446,7 +623,10 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
             deps.remove(&f);
             let alt = ec3 + present + deps_total(w, &out.total, &deps, f);
             if std::env::var_os("HP_ROUTE").is_some() {
-                eprintln!("route node {f}: route {alt} vs best {best} ({} links)", parts3[0].route.as_ref().map(|p| p.links.len()).unwrap_or(0));
+                eprintln!(
+                    "route node {f}: route {alt} vs best {best} ({} links)",
+                    parts3[0].route.as_ref().map(|p| p.links.len()).unwrap_or(0)
+                );
             }
             if alt <= best + ROUTE_SLACK {
                 best = alt.min(best);
@@ -463,7 +643,13 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
     }
     out.complete = true;
     if std::env::var_os("HP_TIME").is_some() {
-        eprintln!("route search: {:.1} ms, {} expansions, {} nodes, {} atoms", route_time * 1e3, w.route_spent.load(std::sync::atomic::Ordering::Relaxed), w.nodes.len(), w.atoms.len());
+        eprintln!(
+            "route search: {:.1} ms, {} expansions, {} nodes, {} atoms",
+            route_time * 1e3,
+            w.route_spent.load(std::sync::atomic::Ordering::Relaxed),
+            w.nodes.len(),
+            w.atoms.len()
+        );
     }
     out
 }

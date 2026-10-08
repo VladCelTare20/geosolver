@@ -64,7 +64,15 @@ pub fn disp_opt(raw: &str, letters: bool) -> String {
             _ => return None,
         })
     };
-    let sub: Option<String> = if letters && !tail.is_empty() && tail.chars().count() <= 2 && tail.chars().all(|c| c.is_lowercase()) { tail.chars().map(low).collect() } else { None };
+    let sub: Option<String> = if letters
+        && !tail.is_empty()
+        && tail.chars().count() <= 2
+        && tail.chars().all(|c| c.is_lowercase())
+    {
+        tail.chars().map(low).collect()
+    } else {
+        None
+    };
     match sub {
         Some(s) => head.push_str(&s),
         None => head.push_str(&tail),
@@ -87,7 +95,10 @@ thread_local! {
 }
 
 pub fn with_steps<R>(blocks: &[Block], f: impl FnOnce() -> R) -> R {
-    let v: Vec<(u16, u16, Stmt)> = blocks.iter().map(|b| (b.id, b.step, b.stmt.clone())).collect();
+    let v: Vec<(u16, u16, Stmt)> = blocks
+        .iter()
+        .map(|b| (b.id, b.step, b.stmt.clone()))
+        .collect();
     let old = STEPS.with(|c| c.replace(v));
     let r = f();
     STEPS.with(|c| c.replace(old));
@@ -95,7 +106,12 @@ pub fn with_steps<R>(blocks: &[Block], f: impl FnOnce() -> R) -> R {
 }
 
 fn step_of(block: u16) -> Option<(u16, Stmt)> {
-    STEPS.with(|c| c.borrow().iter().find(|x| x.0 == block).map(|x| (x.1, x.2.clone())))
+    STEPS.with(|c| {
+        c.borrow()
+            .iter()
+            .find(|x| x.0 == block)
+            .map(|x| (x.1, x.2.clone()))
+    })
 }
 
 fn by_step(text: String, block: u16) -> String {
@@ -106,10 +122,32 @@ fn by_step(text: String, block: u16) -> String {
 }
 
 pub fn with_notation<R>(setup: &[SetupLine], f: impl FnOnce() -> R) -> R {
-    let n = setup.iter().find_map(|s| if let SetupLine::Notation { triangle, circumcentre } = s { Some((*triangle, *circumcentre)) } else { None });
+    let n = setup.iter().find_map(|s| {
+        if let SetupLine::Notation {
+            triangle,
+            circumcentre,
+        } = s
+        {
+            Some((*triangle, *circumcentre))
+        } else {
+            None
+        }
+    });
     let circles: CircleNames = setup
         .iter()
-        .filter_map(|s| if let SetupLine::Circle { name, through, centre, .. } = s { (!name.is_empty()).then(|| (name.clone(), through.clone(), *centre)) } else { None })
+        .filter_map(|s| {
+            if let SetupLine::Circle {
+                name,
+                through,
+                centre,
+                ..
+            } = s
+            {
+                (!name.is_empty()).then(|| (name.clone(), through.clone(), *centre))
+            } else {
+                None
+            }
+        })
         .collect();
     let old = NOTATION.with(|c| c.replace(n));
     let old_c = CIRCLES.with(|c| c.replace(circles));
@@ -123,11 +161,21 @@ pub fn circle_name(pts: &[PointId]) -> Option<String> {
     if pts.len() < 3 {
         return None;
     }
-    CIRCLES.with(|c| c.borrow().iter().find(|(_, through, _)| pts.iter().all(|p| through.contains(p))).map(|x| x.0.clone()))
+    CIRCLES.with(|c| {
+        c.borrow()
+            .iter()
+            .find(|(_, through, _)| pts.iter().all(|p| through.contains(p)))
+            .map(|x| x.0.clone())
+    })
 }
 
 pub fn circle_by_centre(o: PointId) -> Option<String> {
-    CIRCLES.with(|c| c.borrow().iter().find(|(_, _, centre)| *centre == Some(o)).map(|x| x.0.clone()))
+    CIRCLES.with(|c| {
+        c.borrow()
+            .iter()
+            .find(|(_, _, centre)| *centre == Some(o))
+            .map(|x| x.0.clone())
+    })
 }
 
 pub fn subscript_digits(s: &str) -> String {
@@ -136,7 +184,15 @@ pub fn subscript_digits(s: &str) -> String {
 
 fn vertex_angle(n: &dyn PointNames, e: &Expr) -> Option<String> {
     let ((a, b, c), _) = NOTATION.with(|c| c.get())?;
-    let Expr::Angle { a: x, b: v, c: z, directed: false } = e else { return None };
+    let Expr::Angle {
+        a: x,
+        b: v,
+        c: z,
+        directed: false,
+    } = e
+    else {
+        return None;
+    };
     let tri = [a, b, c];
     if !tri.contains(v) || !tri.contains(x) || !tri.contains(z) || x == z || x == v || z == v {
         return None;
@@ -145,7 +201,9 @@ fn vertex_angle(n: &dyn PointNames, e: &Expr) -> Option<String> {
 }
 
 fn radius(a: PointId, b: PointId) -> bool {
-    NOTATION.with(|c| c.get()).is_some_and(|((p, q, r), o)| o.is_some_and(|o| (a == o && [p, q, r].contains(&b)) || (b == o && [p, q, r].contains(&a))))
+    NOTATION.with(|c| c.get()).is_some_and(|((p, q, r), o)| {
+        o.is_some_and(|o| (a == o && [p, q, r].contains(&b)) || (b == o && [p, q, r].contains(&a)))
+    })
 }
 
 pub trait PointNames {
@@ -154,7 +212,10 @@ pub trait PointNames {
         ps.iter().map(|&p| self.get(p)).collect::<Vec<_>>().join("")
     }
     fn list(&self, ps: &[PointId]) -> String {
-        ps.iter().map(|&p| self.get(p)).collect::<Vec<_>>().join(", ")
+        ps.iter()
+            .map(|&p| self.get(p))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -188,18 +249,31 @@ impl Names {
         for s in setup {
             if let SetupLine::Helper { point, meaning } = s {
                 let cand: Vec<String> = match meaning {
-                    HelperMeaning::Midpoint { .. } => ["M", "N", "K", "L"].iter().map(|x| x.to_string()).collect(),
-                    HelperMeaning::Reflection { of, .. } => vec![format!("{}′", map.get(of).cloned().unwrap_or_else(|| disp(t.name(*of))))],
-                    HelperMeaning::Perp { .. } | HelperMeaning::Para { .. } => ["U", "V", "W", "Q", "Z", "Y"].iter().map(|x| x.to_string()).collect(),
+                    HelperMeaning::Midpoint { .. } => {
+                        ["M", "N", "K", "L"].iter().map(|x| x.to_string()).collect()
+                    }
+                    HelperMeaning::Reflection { of, .. } => vec![format!(
+                        "{}′",
+                        map.get(of).cloned().unwrap_or_else(|| disp(t.name(*of)))
+                    )],
+                    HelperMeaning::Perp { .. } | HelperMeaning::Para { .. } => {
+                        ["U", "V", "W", "Q", "Z", "Y"]
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect()
+                    }
                     HelperMeaning::Point => Vec::new(),
                 };
-                let name = cand.into_iter().find(|c| !used.contains(c)).unwrap_or_else(|| loop {
-                    generic += 1;
-                    let c = format!("P{}", subscript(&generic.to_string()));
-                    if !used.contains(&c) {
-                        break c;
-                    }
-                });
+                let name = cand
+                    .into_iter()
+                    .find(|c| !used.contains(c))
+                    .unwrap_or_else(|| loop {
+                        generic += 1;
+                        let c = format!("P{}", subscript(&generic.to_string()));
+                        if !used.contains(&c) {
+                            break c;
+                        }
+                    });
                 used.push(name.clone());
                 map.insert(*point, name);
             }
@@ -226,7 +300,6 @@ impl Names {
     pub fn get(&self, p: PointId) -> String {
         self.map.get(&p).cloned().unwrap_or_else(|| format!("P{p}"))
     }
-
 }
 
 pub fn deg(r: &Rat) -> String {
@@ -252,16 +325,38 @@ fn main_vertex(n: &dyn PointNames, a: PointId, b: PointId, c: PointId) -> bool {
         let t = [x, y, z];
         let mut names: Vec<String> = t.iter().map(|&p| n.get(p)).collect();
         names.sort();
-        names == ["A", "B", "C"] && t.contains(&a) && t.contains(&b) && t.contains(&c) && a != b && b != c && a != c
+        names == ["A", "B", "C"]
+            && t.contains(&a)
+            && t.contains(&b)
+            && t.contains(&c)
+            && a != b
+            && b != c
+            && a != c
     })
 }
 
 pub fn expr(n: &dyn PointNames, e: &Expr) -> String {
     match e {
-        Expr::Angle { directed: false, .. } if vertex_angle(n, e).is_some() => vertex_angle(n, e).unwrap_or_default(),
-        Expr::Angle { a, b, c, directed: false } if main_vertex(n, *a, *b, *c) => format!("∠{}", n.get(*b)),
-        Expr::Angle { a, b, c, directed } => format!("{}{}", if *directed { "∡" } else { "∠" }, n.pts(&[*a, *b, *c])),
-        Expr::LineAngle { l1, l2, directed } => format!("{}({}, {})", if *directed { "∡" } else { "∠" }, n.pts(&[l1.0, l1.1]), n.pts(&[l2.0, l2.1])),
+        Expr::Angle {
+            directed: false, ..
+        } if vertex_angle(n, e).is_some() => vertex_angle(n, e).unwrap_or_default(),
+        Expr::Angle {
+            a,
+            b,
+            c,
+            directed: false,
+        } if main_vertex(n, *a, *b, *c) => format!("∠{}", n.get(*b)),
+        Expr::Angle { a, b, c, directed } => format!(
+            "{}{}",
+            if *directed { "∡" } else { "∠" },
+            n.pts(&[*a, *b, *c])
+        ),
+        Expr::LineAngle { l1, l2, directed } => format!(
+            "{}({}, {})",
+            if *directed { "∡" } else { "∠" },
+            n.pts(&[l1.0, l1.1]),
+            n.pts(&[l2.0, l2.1])
+        ),
         Expr::Const { degrees } => deg(degrees),
         Expr::Lin { terms } => {
             let mut out = String::new();
@@ -299,7 +394,9 @@ pub fn expr(n: &dyn PointNames, e: &Expr) -> String {
         Expr::Seg { a, b } => n.pts(&[*a, *b]),
         Expr::Sq { a, b } => format!("{}²", n.pts(&[*a, *b])),
         Expr::Prod { factors } => {
-            let trig = factors.iter().any(|(x, _)| matches!(x, Expr::Sin { .. } | Expr::Cos { .. }));
+            let trig = factors
+                .iter()
+                .any(|(x, _)| matches!(x, Expr::Sin { .. } | Expr::Cos { .. }));
             let show = |x: &Expr, k: i32| -> String {
                 match x {
                     Expr::Seg { a, b } if trig && radius(*a, *b) => pow_text("R".into(), k),
@@ -317,13 +414,28 @@ pub fn expr(n: &dyn PointNames, e: &Expr) -> String {
                 }
                 out
             };
-            let mut num: Vec<(String, bool)> = factors.iter().filter(|(_, k)| *k > 0).map(|(x, k)| (show(x, *k), matches!(x, Expr::Num { .. }))).collect();
-            let mut den: Vec<String> = factors.iter().filter(|(_, k)| *k < 0).map(|(x, k)| show(x, -*k)).collect();
-            while let (Some(i), Some(j)) = (num.iter().position(|x| x.0 == "R"), den.iter().position(|x| x == "R")) {
+            let mut num: Vec<(String, bool)> = factors
+                .iter()
+                .filter(|(_, k)| *k > 0)
+                .map(|(x, k)| (show(x, *k), matches!(x, Expr::Num { .. })))
+                .collect();
+            let mut den: Vec<String> = factors
+                .iter()
+                .filter(|(_, k)| *k < 0)
+                .map(|(x, k)| show(x, -*k))
+                .collect();
+            while let (Some(i), Some(j)) = (
+                num.iter().position(|x| x.0 == "R"),
+                den.iter().position(|x| x == "R"),
+            ) {
                 num.remove(i);
                 den.remove(j);
             }
-            let num_s = if num.is_empty() { "1".to_string() } else { join(num) };
+            let num_s = if num.is_empty() {
+                "1".to_string()
+            } else {
+                join(num)
+            };
             if den.is_empty() {
                 num_s
             } else if den.len() == 1 {
@@ -366,13 +478,45 @@ pub fn stmt(n: &dyn PointNames, s: &Stmt) -> String {
         Stmt::EqAngle { lhs, rhs } => format!("{} = {}", expr(n, lhs), expr(n, rhs)),
         Stmt::AngleConst { angle, degrees } => format!("{} = {}", expr(n, angle), deg(degrees)),
         Stmt::Cong { s1, s2 } => format!("{} = {}", n.pts(&[s1.0, s1.1]), n.pts(&[s2.0, s2.1])),
-        Stmt::EqRatio { segs } => segs.chunks(2).map(|c| format!("{} : {}", n.pts(&[c[0].0, c[0].1]), c.get(1).map(|x| n.pts(&[x.0, x.1])).unwrap_or_default())).collect::<Vec<_>>().join(" = "),
-        Stmt::RatioConst { s1, s2, value } => format!("{} = {}·{}", n.pts(&[s1.0, s1.1]), value, n.pts(&[s2.0, s2.1])),
-        Stmt::Sim { t1, t2, .. } => format!("△{} ∼ △{}", n.pts(&[t1.0, t1.1, t1.2]), n.pts(&[t2.0, t2.1, t2.2])),
-        Stmt::Congruent { t1, t2, .. } => format!("△{} ≅ △{}", n.pts(&[t1.0, t1.1, t1.2]), n.pts(&[t2.0, t2.1, t2.2])),
+        Stmt::EqRatio { segs } => segs
+            .chunks(2)
+            .map(|c| {
+                format!(
+                    "{} : {}",
+                    n.pts(&[c[0].0, c[0].1]),
+                    c.get(1).map(|x| n.pts(&[x.0, x.1])).unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" = "),
+        Stmt::RatioConst { s1, s2, value } => format!(
+            "{} = {}·{}",
+            n.pts(&[s1.0, s1.1]),
+            value,
+            n.pts(&[s2.0, s2.1])
+        ),
+        Stmt::Sim { t1, t2, .. } => format!(
+            "△{} ∼ △{}",
+            n.pts(&[t1.0, t1.1, t1.2]),
+            n.pts(&[t2.0, t2.1, t2.2])
+        ),
+        Stmt::Congruent { t1, t2, .. } => format!(
+            "△{} ≅ △{}",
+            n.pts(&[t1.0, t1.1, t1.2]),
+            n.pts(&[t2.0, t2.1, t2.2])
+        ),
         Stmt::OnCircle { p, circle } => format!("{} lies on ({})", n.get(*p), n.pts(circle)),
-        Stmt::Tangent { p, line, circle } => format!("{} is tangent at {} to the circle centred at {}", n.pts(&[line.0, line.1]), n.get(*p), n.pts(circle)),
-        Stmt::RadicalAxis { x, u, v } => format!("{} lies on the radical axis {}", n.get(*x), n.pts(&[*u, *v])),
+        Stmt::Tangent { p, line, circle } => format!(
+            "{} is tangent at {} to the circle centred at {}",
+            n.pts(&[line.0, line.1]),
+            n.get(*p),
+            n.pts(circle)
+        ),
+        Stmt::RadicalAxis { x, u, v } => format!(
+            "{} lies on the radical axis {}",
+            n.get(*x),
+            n.pts(&[*u, *v])
+        ),
         Stmt::Coincide { a, b } => format!("{} coincides with {}", n.get(*a), n.get(*b)),
         Stmt::Formula { text, pts } => {
             let mut out = text.clone();
@@ -386,7 +530,17 @@ pub fn stmt(n: &dyn PointNames, s: &Stmt) -> String {
 }
 
 pub fn hyp_text(n: &dyn PointNames, s: &Stmt) -> String {
-    if let Stmt::EqAngle { lhs: Expr::Angle { a, b, c, .. }, rhs: Expr::Angle { a: a2, b: b2, c: c2, .. } } = s {
+    if let Stmt::EqAngle {
+        lhs: Expr::Angle { a, b, c, .. },
+        rhs:
+            Expr::Angle {
+                a: a2,
+                b: b2,
+                c: c2,
+                ..
+            },
+    } = s
+    {
         if b == b2 && c == a2 {
             return format!("{} bisects ∠{}", n.pts(&[*b, *c]), n.pts(&[*a, *b, *c2]));
         }
@@ -395,7 +549,11 @@ pub fn hyp_text(n: &dyn PointNames, s: &Stmt) -> String {
 }
 
 fn from_steps(from: &[u16]) -> Vec<String> {
-    let mut ks: Vec<u16> = from.iter().filter(|b| **b != CURRENT.with(|c| c.get())).filter_map(|b| step_of(*b).map(|x| x.0)).collect();
+    let mut ks: Vec<u16> = from
+        .iter()
+        .filter(|b| **b != CURRENT.with(|c| c.get()))
+        .filter_map(|b| step_of(*b).map(|x| x.0))
+        .collect();
     ks.sort_unstable();
     ks.dedup();
     ks.iter().map(|k| format!("({k})")).collect()
@@ -403,13 +561,25 @@ fn from_steps(from: &[u16]) -> Vec<String> {
 
 pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> String {
     match r {
-        Reason::Hyp { stmt: Stmt::Cyclic { pts }, .. } if circle_name(pts).is_some() => format!("{} lie on {}", n.list(pts), circle_name(pts).unwrap_or_default()),
+        Reason::Hyp {
+            stmt: Stmt::Cyclic { pts },
+            ..
+        } if circle_name(pts).is_some() => format!(
+            "{} lie on {}",
+            n.list(pts),
+            circle_name(pts).unwrap_or_default()
+        ),
         Reason::Hyp { stmt: s, .. } => hyp_text(n, s),
         Reason::Claim { block, .. } => match step_of(*block) {
             Some((_, st)) => by_step(short_stmt(n, &st), *block),
             None => "an earlier step".into(),
         },
-        Reason::Atom { key, args, stmt: s, from } => {
+        Reason::Atom {
+            key,
+            args,
+            stmt: s,
+            from,
+        } => {
             let base = atom_text(n, *key, args, s);
             let f = from_steps(from);
             if f.is_empty() {
@@ -418,10 +588,21 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
                 format!("{base}, by {}", join_and(&f))
             }
         }
-        Reason::Fact { stmt: s, block, because, .. } => {
+        Reason::Fact {
+            stmt: s,
+            block,
+            because,
+            ..
+        } => {
             let base = match s {
-                Stmt::Coll { pts } if pts.len() == 3 && block.is_some() => format!("{} on {}", n.get(pts[2]), n.pts(&pts[..2])),
-                Stmt::Cyclic { pts } if circle_name(pts).is_some() => format!("{} lie on {}", n.list(pts), circle_name(pts).unwrap_or_default()),
+                Stmt::Coll { pts } if pts.len() == 3 && block.is_some() => {
+                    format!("{} on {}", n.get(pts[2]), n.pts(&pts[..2]))
+                }
+                Stmt::Cyclic { pts } if circle_name(pts).is_some() => format!(
+                    "{} lie on {}",
+                    n.list(pts),
+                    circle_name(pts).unwrap_or_default()
+                ),
                 _ => short_stmt(n, s),
             };
             if let Some(b) = block {
@@ -441,7 +622,11 @@ pub fn reason(n: &dyn PointNames, r: &Reason, claims: &BTreeMap<u16, u16>) -> St
                         }
                         format!("by {}", join_and(&f))
                     }
-                    Reason::Fact { stmt: s2, because: bb, .. } if same_stmt(s2, s) && bb.is_empty() => continue,
+                    Reason::Fact {
+                        stmt: s2,
+                        because: bb,
+                        ..
+                    } if same_stmt(s2, s) && bb.is_empty() => continue,
                     _ => reason(n, b, claims),
                 };
                 if !inner.contains(&t) {
@@ -568,11 +753,39 @@ pub fn atom_sentence(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) 
             p(&[a[4], a[2], a[3]]),
             stmt(n, s)
         ),
-        AtomKey::Orthocentre => format!("the altitudes of △{} meet at {}, so {}", p(&[a[1], a[2], a[3]]), n.get(a[0]), stmt(n, s)),
-        AtomKey::Centroid => format!("{} is the centroid of △{}, so {}", n.get(a[0]), p(&[a[1], a[2], a[3]]), stmt(n, s)),
-        AtomKey::MedianHypotenuse => format!("{} is the midpoint of the hypotenuse {} of right △{}, so {}", n.get(a[0]), p(&[a[1], a[2]]), p(&[a[1], a[3], a[2]]), stmt(n, s)),
-        AtomKey::Parallel => format!("{} ⟂ {} and {} ⟂ {}, so {}", p(&[a[0], a[1]]), p(&[a[4], a[5]]), p(&[a[2], a[3]]), p(&[a[4], a[5]]), stmt(n, s)),
-        AtomKey::PowerOfPoint => format!("{} (power of the point {} with respect to the circle ({}))", stmt(n, s), n.get(a[0]), p(&a[1..])),
+        AtomKey::Orthocentre => format!(
+            "the altitudes of △{} meet at {}, so {}",
+            p(&[a[1], a[2], a[3]]),
+            n.get(a[0]),
+            stmt(n, s)
+        ),
+        AtomKey::Centroid => format!(
+            "{} is the centroid of △{}, so {}",
+            n.get(a[0]),
+            p(&[a[1], a[2], a[3]]),
+            stmt(n, s)
+        ),
+        AtomKey::MedianHypotenuse => format!(
+            "{} is the midpoint of the hypotenuse {} of right △{}, so {}",
+            n.get(a[0]),
+            p(&[a[1], a[2]]),
+            p(&[a[1], a[3], a[2]]),
+            stmt(n, s)
+        ),
+        AtomKey::Parallel => format!(
+            "{} ⟂ {} and {} ⟂ {}, so {}",
+            p(&[a[0], a[1]]),
+            p(&[a[4], a[5]]),
+            p(&[a[2], a[3]]),
+            p(&[a[4], a[5]]),
+            stmt(n, s)
+        ),
+        AtomKey::PowerOfPoint => format!(
+            "{} (power of the point {} with respect to the circle ({}))",
+            stmt(n, s),
+            n.get(a[0]),
+            p(&a[1..])
+        ),
         _ => return None,
     })
 }
@@ -628,7 +841,10 @@ pub fn aux_text(n: &dyn PointNames, t: &EngineTrace, point: PointId, desc: &str)
         let mut rest = s;
         while !rest.is_empty() {
             let mut matched = false;
-            let mut cands: Vec<(usize, PointId)> = (0..t.n as PointId).filter(|&p| rest.starts_with(t.name(p)) && !t.name(p).is_empty()).map(|p| (t.name(p).len(), p)).collect();
+            let mut cands: Vec<(usize, PointId)> = (0..t.n as PointId)
+                .filter(|&p| rest.starts_with(t.name(p)) && !t.name(p).is_empty())
+                .map(|p| (t.name(p).len(), p))
+                .collect();
             cands.sort_by(|a, b| b.cmp(a));
             if let Some((len, p)) = cands.first() {
                 out.push_str(&n.get(*p));
@@ -646,25 +862,42 @@ pub fn aux_text(n: &dyn PointNames, t: &EngineTrace, point: PointId, desc: &str)
         "foot" => {
             let parts: Vec<&str> = args.split("->").collect();
             if parts.len() == 2 {
-                return format!("Let {me} be the foot of the perpendicular from {} to {}.", tok(parts[0]), tok(parts[1]));
+                return format!(
+                    "Let {me} be the foot of the perpendicular from {} to {}.",
+                    tok(parts[0]),
+                    tok(parts[1])
+                );
             }
         }
         "midpoint" => {
             let parts: Vec<&str> = args.split(',').collect();
             if parts.len() == 2 {
-                return format!("Let {me} be the midpoint of {}{}.", tok(parts[0]), tok(parts[1]));
+                return format!(
+                    "Let {me} be the midpoint of {}{}.",
+                    tok(parts[0]),
+                    tok(parts[1])
+                );
             }
         }
         "intersect" => {
             let parts: Vec<&str> = split_top(args);
             if parts.len() == 2 {
-                return format!("Let {me} be the intersection of {} and {}.", shape(&tok, parts[0]), shape(&tok, parts[1]));
+                return format!(
+                    "Let {me} be the intersection of {} and {}.",
+                    shape(&tok, parts[0]),
+                    shape(&tok, parts[1])
+                );
             }
         }
         "parallelogram" => {
             let parts: Vec<&str> = args.split(',').collect();
             if parts.len() == 3 {
-                return format!("Let {me} complete the parallelogram {}{}{}{me}.", tok(parts[0]), tok(parts[1]), tok(parts[2]));
+                return format!(
+                    "Let {me} complete the parallelogram {}{}{}{me}.",
+                    tok(parts[0]),
+                    tok(parts[1]),
+                    tok(parts[2])
+                );
             }
         }
         _ => {}
@@ -699,7 +932,11 @@ fn shape(tok: &dyn Fn(&str) -> String, s: &str) -> String {
     if let Some(rest) = s.strip_prefix("perp(") {
         let parts = split_top(rest.trim_end_matches(')'));
         if parts.len() == 2 {
-            return format!("the perpendicular from {} to {}", tok(parts[0]), tok(parts[1]));
+            return format!(
+                "the perpendicular from {} to {}",
+                tok(parts[0]),
+                tok(parts[1])
+            );
         }
     }
     format!("line {}", tok(s))
@@ -721,7 +958,12 @@ pub struct Rendered {
     pub lines: Vec<String>,
 }
 
-pub fn render(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], raw_line: &dyn Fn(FactId) -> String) -> Rendered {
+pub fn render(
+    t: &EngineTrace,
+    hp: &HumanProof,
+    aux_desc: &[(PointId, String)],
+    raw_line: &dyn Fn(FactId) -> String,
+) -> Rendered {
     with_proof(hp, || render_inner(t, hp, aux_desc, raw_line))
 }
 
@@ -732,22 +974,48 @@ pub fn with_proof<R>(hp: &HumanProof, f: impl FnOnce() -> R) -> R {
     r
 }
 
-fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)], raw_line: &dyn Fn(FactId) -> String) -> Rendered {
+fn render_inner(
+    t: &EngineTrace,
+    hp: &HumanProof,
+    aux_desc: &[(PointId, String)],
+    raw_line: &dyn Fn(FactId) -> String,
+) -> Rendered {
     let n = Names::new(t, &hp.setup);
     if std::env::var_os("HP_COORDS").is_some() {
-        let pts: Vec<String> = (0..t.n as PointId).filter(|&p| t.coord(p).0.is_finite()).map(|p| format!("{} ({:.3}, {:.3})", n.get(p), t.coord(p).0, t.coord(p).1)).collect();
+        let pts: Vec<String> = (0..t.n as PointId)
+            .filter(|&p| t.coord(p).0.is_finite())
+            .map(|p| format!("{} ({:.3}, {:.3})", n.get(p), t.coord(p).0, t.coord(p).1))
+            .collect();
         eprintln!("COORDS {}", pts.join("; "));
     }
     let mut lines: Vec<String> = Vec::new();
-    let claims: BTreeMap<u16, u16> = hp.blocks.iter().filter_map(|b| if let BlockKind::Claim(k) = b.kind { Some((b.id, k)) } else { None }).collect();
+    let claims: BTreeMap<u16, u16> = hp
+        .blocks
+        .iter()
+        .filter_map(|b| {
+            if let BlockKind::Claim(k) = b.kind {
+                Some((b.id, k))
+            } else {
+                None
+            }
+        })
+        .collect();
     for s in &hp.setup {
         match s {
             SetupLine::DirectedAngles => lines.push(DIRECTED_EN.into()),
             SetupLine::DirectedSteps { steps } => lines.push(directed_steps_en(steps)),
             SetupLine::FigureAngles => lines.push(FIGURE_EN.into()),
-            SetupLine::Notation { triangle, circumcentre } => {
+            SetupLine::Notation {
+                triangle,
+                circumcentre,
+            } => {
                 let tri = n.pts(&[triangle.0, triangle.1, triangle.2]);
-                let angles = format!("{}, {}, {}", n.get(triangle.0), n.get(triangle.1), n.get(triangle.2));
+                let angles = format!(
+                    "{}, {}, {}",
+                    n.get(triangle.0),
+                    n.get(triangle.1),
+                    n.get(triangle.2)
+                );
                 lines.push(match circumcentre {
                     Some(o) => format!(
                         "Write {angles} for the angles of triangle {tri} and R = {}{} = {}{} = {}{} for its circumradius.",
@@ -761,21 +1029,71 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
                     None => format!("Write {angles} for the angles of triangle {tri}."),
                 });
             }
-            SetupLine::Circle { name, through, centre, diameter } => {
-                let nm = if name.is_empty() { format!("({})", n.pts(through)) } else { name.clone() };
-                let aux_pts: Vec<PointId> = hp.setup.iter().filter_map(|s| if let SetupLine::Aux { point, .. } = s { Some(*point) } else { None }).collect();
-                let pos = hp.setup.iter().position(|x| std::ptr::eq(x, s)).unwrap_or(0);
-                let defined: Vec<PointId> = hp.setup[..pos].iter().filter_map(|s| if let SetupLine::Aux { point, .. } = s { Some(*point) } else { None }).collect();
-                let kept: Vec<PointId> = through.iter().copied().filter(|p| !aux_pts.contains(p) || defined.contains(p)).collect();
+            SetupLine::Circle {
+                name,
+                through,
+                centre,
+                diameter,
+            } => {
+                let nm = if name.is_empty() {
+                    format!("({})", n.pts(through))
+                } else {
+                    name.clone()
+                };
+                let aux_pts: Vec<PointId> = hp
+                    .setup
+                    .iter()
+                    .filter_map(|s| {
+                        if let SetupLine::Aux { point, .. } = s {
+                            Some(*point)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let pos = hp
+                    .setup
+                    .iter()
+                    .position(|x| std::ptr::eq(x, s))
+                    .unwrap_or(0);
+                let defined: Vec<PointId> = hp.setup[..pos]
+                    .iter()
+                    .filter_map(|s| {
+                        if let SetupLine::Aux { point, .. } = s {
+                            Some(*point)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let kept: Vec<PointId> = through
+                    .iter()
+                    .copied()
+                    .filter(|p| !aux_pts.contains(p) || defined.contains(p))
+                    .collect();
                 let through = if kept.len() >= 3 { &kept } else { through };
                 let tri: Vec<PointId> = vec![0, 1, 2];
-                let circum = t.n >= 3 && t.orient(0, 1, 2) != 0 && tri.iter().all(|p| through.contains(p));
-                let rest: Vec<PointId> = through.iter().copied().filter(|p| !circum || !tri.contains(p)).collect();
+                let circum =
+                    t.n >= 3 && t.orient(0, 1, 2) != 0 && tri.iter().all(|p| through.contains(p));
+                let rest: Vec<PointId> = through
+                    .iter()
+                    .copied()
+                    .filter(|p| !circum || !tri.contains(p))
+                    .collect();
                 let mut l = match (diameter, circum) {
-                    (Some(d), _) => format!("Let {nm} be the circle with diameter {}", n.pts(&[d.0, d.1])),
-                    (None, true) => format!("Let {nm} be the circumcircle of triangle {}", n.pts(&tri)),
+                    (Some(d), _) => format!(
+                        "Let {nm} be the circle with diameter {}",
+                        n.pts(&[d.0, d.1])
+                    ),
+                    (None, true) => {
+                        format!("Let {nm} be the circumcircle of triangle {}", n.pts(&tri))
+                    }
                     (None, false) => match centre {
-                        Some(c) => format!("Let {nm} be the circle centred at {} through {}", n.get(*c), n.list(through)),
+                        Some(c) => format!(
+                            "Let {nm} be the circle centred at {} through {}",
+                            n.get(*c),
+                            n.list(through)
+                        ),
                         None => format!("Let {nm} be the circle through {}", n.list(through)),
                     },
                 };
@@ -793,18 +1111,48 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
                 l.push('.');
                 lines.push(l);
             }
-            SetupLine::Aux { point, aux_index, wording } => {
-                let desc = aux_desc.get(*aux_index).map(|x| x.1.clone()).unwrap_or_default();
+            SetupLine::Aux {
+                point,
+                aux_index,
+                wording,
+            } => {
+                let desc = aux_desc
+                    .get(*aux_index)
+                    .map(|x| x.1.clone())
+                    .unwrap_or_default();
                 match wording {
-                    Some(w) => lines.push(super::aux::en(&n, &n.get(*point), w, &|p| circle_name(p))),
+                    Some(w) => {
+                        lines.push(super::aux::en(&n, &n.get(*point), w, &|p| circle_name(p)))
+                    }
                     None => lines.push(aux_text(&n, t, *point, &desc)),
                 }
             }
             SetupLine::Helper { point, meaning } => match meaning {
-                HelperMeaning::Midpoint { of } => lines.push(format!("Let {} be the midpoint of {}.", n.get(*point), n.pts(&[of.0, of.1]))),
-                HelperMeaning::Reflection { of, line } => lines.push(format!("Let {} be the reflection of {} in {}.", n.get(*point), n.get(*of), n.pts(&[line.0, line.1]))),
-                HelperMeaning::Perp { through, to } => lines.push(format!("Let {} be a point other than {} on the perpendicular from {} to {}.", n.get(*point), n.get(*through), n.get(*through), n.pts(&[to.0, to.1]))),
-                HelperMeaning::Para { through, to } => lines.push(format!("Let {} be a point other than {} on the parallel to {} through {}.", n.get(*point), n.get(*through), n.pts(&[to.0, to.1]), n.get(*through))),
+                HelperMeaning::Midpoint { of } => lines.push(format!(
+                    "Let {} be the midpoint of {}.",
+                    n.get(*point),
+                    n.pts(&[of.0, of.1])
+                )),
+                HelperMeaning::Reflection { of, line } => lines.push(format!(
+                    "Let {} be the reflection of {} in {}.",
+                    n.get(*point),
+                    n.get(*of),
+                    n.pts(&[line.0, line.1])
+                )),
+                HelperMeaning::Perp { through, to } => lines.push(format!(
+                    "Let {} be a point other than {} on the perpendicular from {} to {}.",
+                    n.get(*point),
+                    n.get(*through),
+                    n.get(*through),
+                    n.pts(&[to.0, to.1])
+                )),
+                HelperMeaning::Para { through, to } => lines.push(format!(
+                    "Let {} be a point other than {} on the parallel to {} through {}.",
+                    n.get(*point),
+                    n.get(*through),
+                    n.pts(&[to.0, to.1]),
+                    n.get(*through)
+                )),
                 HelperMeaning::Point => {}
             },
         }
@@ -812,24 +1160,66 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
     if !lines.is_empty() {
         lines.push(String::new());
     }
-    let plan: Vec<String> = hp.plan.iter().filter_map(|id| hp.blocks.iter().find(|b| b.id == *id)).map(|b| stmt(&n, &b.stmt)).collect();
+    let plan: Vec<String> = hp
+        .plan
+        .iter()
+        .filter_map(|id| hp.blocks.iter().find(|b| b.id == *id))
+        .map(|b| stmt(&n, &b.stmt))
+        .collect();
     if !plan.is_empty() {
-        lines.push(format!("Plan: it suffices to show that {}.", join_and(&plan)));
+        lines.push(format!(
+            "Plan: it suffices to show that {}.",
+            join_and(&plan)
+        ));
         lines.push(String::new());
     }
-    let goal = hp.goal.as_ref().map(|g| goal_text(&n, g, hp.blocks.last().map(|b| &b.stmt)));
+    let goal = hp
+        .goal
+        .as_ref()
+        .map(|g| goal_text(&n, g, hp.blocks.last().map(|b| &b.stmt)));
     for b in &hp.blocks {
         CURRENT.with(|c| c.set(b.id));
         let tri = (0, 0, 0);
-        CRIT.with(|c| c.set((criterion(&Stmt::Sim { t1: tri, t2: tri, opposite: false }, &b.body), criterion(&Stmt::Congruent { t1: tri, t2: tri, opposite: false }, &b.body))));
+        CRIT.with(|c| {
+            c.set((
+                criterion(
+                    &Stmt::Sim {
+                        t1: tri,
+                        t2: tri,
+                        opposite: false,
+                    },
+                    &b.body,
+                ),
+                criterion(
+                    &Stmt::Congruent {
+                        t1: tri,
+                        t2: tri,
+                        opposite: false,
+                    },
+                    &b.body,
+                ),
+            ))
+        });
         let mut out = format!("{}. ", b.step);
         let first_rows = matches!(b.body.first(), Some(s) if displayed(s));
         if first_rows && b.kind != BlockKind::Raw {
             let lead = match b.body.first() {
-                _ if b.kind == BlockKind::Conclusion => goal.clone().unwrap_or_else(|| stmt(&n, &b.stmt)),
+                _ if b.kind == BlockKind::Conclusion => {
+                    goal.clone().unwrap_or_else(|| stmt(&n, &b.stmt))
+                }
                 Some(Sentence::Chain { then: Some(t), .. }) => stmt(&n, t),
-                Some(Sentence::Chain { terms, then: None, .. }) | Some(Sentence::Computation { terms, .. }) if matches!(b.stmt, Stmt::EqAngle { .. } | Stmt::Eq { .. }) && b.body.len() == 1 => {
-                    format!("{} = {}", expr(&n, &terms[0]), expr(&n, terms.last().unwrap()))
+                Some(Sentence::Chain {
+                    terms, then: None, ..
+                })
+                | Some(Sentence::Computation { terms, .. })
+                    if matches!(b.stmt, Stmt::EqAngle { .. } | Stmt::Eq { .. })
+                        && b.body.len() == 1 =>
+                {
+                    format!(
+                        "{} = {}",
+                        expr(&n, &terms[0]),
+                        expr(&n, terms.last().unwrap())
+                    )
                 }
                 _ => stmt(&n, &b.stmt),
             };
@@ -862,7 +1252,14 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
                 let restated = format!("{}, by ", stmt(&n, &b.stmt));
                 let by_tail = out.rfind(&restated).filter(|&i| {
                     let rest = &out[i + restated.len()..];
-                    (i == 0 || out[..i].ends_with(' ') || out[..i].ends_with('\n')) && rest.starts_with('(') && rest.ends_with(").") && rest.trim_end_matches('.').replace(" and ", ",").chars().all(|c| c.is_ascii_digit() || matches!(c, '(' | ')' | ',' | ' '))
+                    (i == 0 || out[..i].ends_with(' ') || out[..i].ends_with('\n'))
+                        && rest.starts_with('(')
+                        && rest.ends_with(").")
+                        && rest
+                            .trim_end_matches('.')
+                            .replace(" and ", ",")
+                            .chars()
+                            .all(|c| c.is_ascii_digit() || matches!(c, '(' | ')' | ',' | ' '))
                 });
                 if let Some(i) = by_tail {
                     let cites = out[i + restated.len()..].trim_end_matches('.').to_string();
@@ -902,10 +1299,18 @@ fn displayed(s: &Sentence) -> bool {
 
 pub fn goal_text(n: &dyn PointNames, g: &GoalWords, st: Option<&Stmt>) -> String {
     match g {
-        GoalWords::OnLine { p, line } => format!("{} lies on the line {}", n.get(*p), n.pts(&[line.0, line.1])),
+        GoalWords::OnLine { p, line } => format!(
+            "{} lies on the line {}",
+            n.get(*p),
+            n.pts(&[line.0, line.1])
+        ),
         GoalWords::Collinear { pts } => format!("{} lie on one line", n.list(pts)),
         GoalWords::Concyclic { pts } => format!("{} lie on one circle", n.list(pts)),
-        GoalWords::Bisects { line, angle } => format!("{} bisects ∠{}", n.pts(&[line.0, line.1]), n.pts(&[angle.0, angle.1, angle.2])),
+        GoalWords::Bisects { line, angle } => format!(
+            "{} bisects ∠{}",
+            n.pts(&[line.0, line.1]),
+            n.pts(&[angle.0, angle.1, angle.2])
+        ),
         GoalWords::Stmt => st.map(|s| stmt(n, s)).unwrap_or_default(),
     }
 }
@@ -914,7 +1319,12 @@ fn link_reasons(n: &dyn PointNames, l: &Link, claims: &BTreeMap<u16, u16>) -> St
     if l.reasons.is_empty() {
         return "angle addition".into();
     }
-    if let [Reason::Lemma { stmt: Stmt::Eq { .. } | Stmt::EqAngle { .. }, block, .. }] = l.reasons.as_slice() {
+    if let [Reason::Lemma {
+        stmt: Stmt::Eq { .. } | Stmt::EqAngle { .. },
+        block,
+        ..
+    }] = l.reasons.as_slice()
+    {
         if let Some((k, _)) = step_of(*block).filter(|_| *block != CURRENT.with(|c| c.get())) {
             return format!("by ({k})");
         }
@@ -922,7 +1332,12 @@ fn link_reasons(n: &dyn PointNames, l: &Link, claims: &BTreeMap<u16, u16>) -> St
     reasons_text(n, &l.reasons, claims).join("; ")
 }
 
-fn rows_text(n: &dyn PointNames, terms: &[Expr], links: &[Link], claims: &BTreeMap<u16, u16>) -> String {
+fn rows_text(
+    n: &dyn PointNames,
+    terms: &[Expr],
+    links: &[Link],
+    claims: &BTreeMap<u16, u16>,
+) -> String {
     let angles = terms.first().is_some_and(super::expr::has_angle);
     let inscribed: Vec<Link>;
     let links = if angles {
@@ -939,7 +1354,10 @@ fn rows_text(n: &dyn PointNames, terms: &[Expr], links: &[Link], claims: &BTreeM
         .skip(1)
         .map(|(i, t)| {
             let head = if i == 1 { first.clone() } else { pad.clone() };
-            (format!("{head} = {}", expr(n, t)), link_reasons(n, &links[i - 1], claims))
+            (
+                format!("{head} = {}", expr(n, t)),
+                link_reasons(n, &links[i - 1], claims),
+            )
         })
         .collect();
     let w = lines.iter().map(|l| l.0.chars().count()).max().unwrap_or(0);
@@ -963,7 +1381,10 @@ pub fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
     if !matches!(own, Stmt::Sim { .. } | Stmt::Congruent { .. }) {
         return None;
     }
-    let ratio = |e: &Expr| !super::expr::has_angle(e) && matches!(e, Expr::Prod { .. } | Expr::Seg { .. } | Expr::Num { .. });
+    let ratio = |e: &Expr| {
+        !super::expr::has_angle(e)
+            && matches!(e, Expr::Prod { .. } | Expr::Seg { .. } | Expr::Num { .. })
+    };
     let (mut angles, mut ratios, mut sides) = (0, 0, 0);
     for s in body {
         match s {
@@ -981,7 +1402,24 @@ pub fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
                 Stmt::Eq { .. } | Stmt::EqRatio { .. } | Stmt::RatioConst { .. } => ratios += 1,
                 Stmt::Cong { .. } => sides += 1,
                 Stmt::Sim { .. } | Stmt::Congruent { .. } => {
-                    sides += reasons.iter().filter(|r| matches!(r, Reason::Hyp { stmt: Stmt::Cong { .. }, .. } | Reason::Fact { stmt: Stmt::Cong { .. }, .. } | Reason::Atom { stmt: Stmt::Cong { .. }, .. })).count();
+                    sides += reasons
+                        .iter()
+                        .filter(|r| {
+                            matches!(
+                                r,
+                                Reason::Hyp {
+                                    stmt: Stmt::Cong { .. },
+                                    ..
+                                } | Reason::Fact {
+                                    stmt: Stmt::Cong { .. },
+                                    ..
+                                } | Reason::Atom {
+                                    stmt: Stmt::Cong { .. },
+                                    ..
+                                }
+                            )
+                        })
+                        .count();
                 }
                 _ => {}
             },
@@ -1010,13 +1448,27 @@ fn inscribed_link(l: &Link) -> Link {
         .reasons
         .iter()
         .map(|r| match r {
-            Reason::Hyp { stmt: st @ Stmt::Cyclic { pts }, .. } | Reason::Fact { stmt: st @ Stmt::Cyclic { pts }, block: None, .. } if pts.len() >= 4 => {
-                Reason::Atom { key: AtomKey::Inscribed, stmt: st.clone(), args: pts.clone(), from: Vec::new() }
+            Reason::Hyp {
+                stmt: st @ Stmt::Cyclic { pts },
+                ..
             }
+            | Reason::Fact {
+                stmt: st @ Stmt::Cyclic { pts },
+                block: None,
+                ..
+            } if pts.len() >= 4 => Reason::Atom {
+                key: AtomKey::Inscribed,
+                stmt: st.clone(),
+                args: pts.clone(),
+                from: Vec::new(),
+            },
             r => r.clone(),
         })
         .collect();
-    Link { reasons, combination: l.combination.clone() }
+    Link {
+        reasons,
+        combination: l.combination.clone(),
+    }
 }
 
 fn radical_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason]) -> Option<String> {
@@ -1027,12 +1479,36 @@ fn radical_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason]) -> Option<Str
             _ => None,
         })
         .collect::<Option<Vec<_>>>()?;
-    let circles: Vec<&Vec<PointId>> = stmts.iter().filter_map(|s| if let Stmt::Cyclic { pts } = s { Some(pts) } else { None }).collect();
-    let lines: Vec<&Vec<PointId>> = stmts.iter().filter_map(|s| if let Stmt::Coll { pts } = s { Some(pts) } else { None }).collect();
-    let ([c1, c2], [l1, l2]) = (circles.as_slice(), lines.as_slice()) else { return None };
+    let circles: Vec<&Vec<PointId>> = stmts
+        .iter()
+        .filter_map(|s| {
+            if let Stmt::Cyclic { pts } = s {
+                Some(pts)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let lines: Vec<&Vec<PointId>> = stmts
+        .iter()
+        .filter_map(|s| {
+            if let Stmt::Coll { pts } = s {
+                Some(pts)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let ([c1, c2], [l1, l2]) = (circles.as_slice(), lines.as_slice()) else {
+        return None;
+    };
     let common: Vec<PointId> = c1.iter().copied().filter(|p| c2.contains(p)).collect();
-    let [x, y] = common.as_slice() else { return None };
-    let z = *l1.iter().find(|p| l2.contains(p) && !c1.contains(p) && !c2.contains(p))?;
+    let [x, y] = common.as_slice() else {
+        return None;
+    };
+    let z = *l1
+        .iter()
+        .find(|p| l2.contains(p) && !c1.contains(p) && !c2.contains(p))?;
     let Stmt::Coll { pts } = st else { return None };
     if !pts.contains(&z) || !pts.contains(x) || !pts.contains(y) {
         return None;
@@ -1057,7 +1533,12 @@ fn cap(s: &str) -> String {
     }
 }
 
-pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, raw_line: &dyn Fn(FactId) -> String) -> String {
+pub fn sentence(
+    n: &dyn PointNames,
+    s: &Sentence,
+    claims: &BTreeMap<u16, u16>,
+    raw_line: &dyn Fn(FactId) -> String,
+) -> String {
     match s {
         Sentence::Chain { terms, links, then, .. } if links.len() >= 2 => {
             let mut out = rows_text(n, terms, links, claims);
@@ -1130,16 +1611,40 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
 
 pub fn perp_lines(r: &Reason) -> Option<[(PointId, PointId); 2]> {
     let st = match r {
-        Reason::Lemma { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Hyp { stmt, .. } => stmt.clone(),
-        Reason::Atom { key: AtomKey::Thales, args, .. } => return Some([(args[2], args[0]), (args[2], args[1])]),
-        Reason::Atom { key: AtomKey::PerpBisector, args, .. } | Reason::Atom { key: AtomKey::Orthocentre, args, .. } => {
-            return if let Stmt::Perp { l1, l2 } = super::claims::atom_stmt(AtomKey::PerpBisector, args) { Some([l1, l2]) } else { None };
+        Reason::Lemma { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Hyp { stmt, .. } => {
+            stmt.clone()
+        }
+        Reason::Atom {
+            key: AtomKey::Thales,
+            args,
+            ..
+        } => return Some([(args[2], args[0]), (args[2], args[1])]),
+        Reason::Atom {
+            key: AtomKey::PerpBisector,
+            args,
+            ..
+        }
+        | Reason::Atom {
+            key: AtomKey::Orthocentre,
+            args,
+            ..
+        } => {
+            return if let Stmt::Perp { l1, l2 } =
+                super::claims::atom_stmt(AtomKey::PerpBisector, args)
+            {
+                Some([l1, l2])
+            } else {
+                None
+            };
         }
         _ => return None,
     };
     match st {
         Stmt::Perp { l1, l2 } => Some([l1, l2]),
-        Stmt::AngleConst { angle: Expr::Angle { a, b, c, .. }, degrees } if degrees == Rat::from_int(90) => Some([(b, a), (b, c)]),
+        Stmt::AngleConst {
+            angle: Expr::Angle { a, b, c, .. },
+            degrees,
+        } if degrees == Rat::from_int(90) => Some([(b, a), (b, c)]),
         _ => None,
     }
 }
@@ -1151,15 +1656,32 @@ pub fn same_line(a: (PointId, PointId), b: (PointId, PointId)) -> bool {
 pub fn parallel_justification(args: &[PointId], extras: &[Reason], i: usize) -> Option<usize> {
     let l = (args[2 * i], args[2 * i + 1]);
     let m = (args[4], args[5]);
-    extras.iter().position(|r| perp_lines(r).is_some_and(|[x, y]| (same_line(x, l) && same_line(y, m)) || (same_line(x, m) && same_line(y, l))))
+    extras.iter().position(|r| {
+        perp_lines(r).is_some_and(|[x, y]| {
+            (same_line(x, l) && same_line(y, m)) || (same_line(x, m) && same_line(y, l))
+        })
+    })
 }
 
-fn parallel_text(n: &dyn PointNames, st: &Stmt, args: &[PointId], extras: &[Reason], claims: &BTreeMap<u16, u16>) -> String {
+fn parallel_text(
+    n: &dyn PointNames,
+    st: &Stmt,
+    args: &[PointId],
+    extras: &[Reason],
+    claims: &BTreeMap<u16, u16>,
+) -> String {
     let parts: Vec<String> = (0..2)
         .map(|i| {
-            let perp = format!("{} ⟂ {}", n.pts(&[args[2 * i], args[2 * i + 1]]), n.pts(&[args[4], args[5]]));
+            let perp = format!(
+                "{} ⟂ {}",
+                n.pts(&[args[2 * i], args[2 * i + 1]]),
+                n.pts(&[args[4], args[5]])
+            );
             match parallel_justification(args, extras, i).map(|k| &extras[k]) {
-                Some(Reason::Lemma { block, .. }) | Some(Reason::Fact { block: Some(block), .. }) => by_step(perp, *block),
+                Some(Reason::Lemma { block, .. })
+                | Some(Reason::Fact {
+                    block: Some(block), ..
+                }) => by_step(perp, *block),
                 Some(r @ Reason::Atom { .. }) => format!("{perp} ({})", reason(n, r, claims)),
                 _ => perp,
             }
@@ -1168,7 +1690,12 @@ fn parallel_text(n: &dyn PointNames, st: &Stmt, args: &[PointId], extras: &[Reas
     format!("{}, so {}.", cap(&join_and(&parts)), stmt(n, st))
 }
 
-fn because_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason], claims: &BTreeMap<u16, u16>) -> String {
+fn because_text(
+    n: &dyn PointNames,
+    st: &Stmt,
+    reasons: &[Reason],
+    claims: &BTreeMap<u16, u16>,
+) -> String {
     let crit = match st {
         Stmt::Sim { .. } => CRIT.with(|c| c.get().0),
         Stmt::Congruent { .. } => CRIT.with(|c| c.get().1),
@@ -1181,20 +1708,30 @@ fn because_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason], claims: &BTre
     if reasons.is_empty() {
         return format!("Hence {}.", with_crit(stmt(n, st)));
     }
-    if let [Reason::Atom { key: AtomKey::Parallel, args, stmt: s2, .. }, extras @ ..] = reasons {
+    if let [Reason::Atom {
+        key: AtomKey::Parallel,
+        args,
+        stmt: s2,
+        ..
+    }, extras @ ..] = reasons
+    {
         if same_stmt(s2, st) && !extras.is_empty() {
             return parallel_text(n, st, args, extras, claims);
         }
     }
     let flat: Vec<Reason>;
     let inner = match reasons {
-        [Reason::Fact { stmt: s2, because, .. }] if same_stmt(s2, st) && !because.is_empty() => because.as_slice(),
+        [Reason::Fact {
+            stmt: s2, because, ..
+        }] if same_stmt(s2, st) && !because.is_empty() => because.as_slice(),
         [_] => reasons,
         _ => {
             flat = reasons
                 .iter()
                 .flat_map(|r| match r {
-                    Reason::Fact { stmt: s2, because, .. } if same_stmt(s2, st) => because.clone(),
+                    Reason::Fact {
+                        stmt: s2, because, ..
+                    } if same_stmt(s2, st) => because.clone(),
                     Reason::Hyp { stmt: s2, .. } if same_stmt(s2, st) => Vec::new(),
                     _ => vec![r.clone()],
                 })
@@ -1206,7 +1743,13 @@ fn because_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason], claims: &BTre
             }
         }
     };
-    if let [Reason::Atom { key: AtomKey::PerpBisector, args, stmt: s2, from }] = inner {
+    if let [Reason::Atom {
+        key: AtomKey::PerpBisector,
+        args,
+        stmt: s2,
+        from,
+    }] = inner
+    {
         let cur = CURRENT.with(|c| c.get());
         let steps: Vec<u16> = from.iter().copied().filter(|b| *b != cur).collect();
         if let ([b], true) = (steps.as_slice(), same_stmt(s2, st) && args.len() >= 4) {
@@ -1225,34 +1768,67 @@ fn because_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason], claims: &BTre
             };
             if let (Some(i), Some((k, _))) = ((0..2).find(|&i| gives(i)), step_of(*b)) {
                 let p = |x: &[PointId]| n.pts(x);
-                let (e0, e1) = (format!("{} = {}", p(&[args[0], args[2]]), p(&[args[0], args[3]])), format!("{} = {}", p(&[args[1], args[2]]), p(&[args[1], args[3]])));
-                let head = if i == 0 { format!("{e0}, by ({k}), and {e1}") } else { format!("{e0} and, by ({k}), {e1}") };
-                return format!("{}, so {} is the perpendicular bisector of {}; hence {}.", cap(&head), p(&[args[0], args[1]]), p(&[args[2], args[3]]), stmt(n, st));
+                let (e0, e1) = (
+                    format!("{} = {}", p(&[args[0], args[2]]), p(&[args[0], args[3]])),
+                    format!("{} = {}", p(&[args[1], args[2]]), p(&[args[1], args[3]])),
+                );
+                let head = if i == 0 {
+                    format!("{e0}, by ({k}), and {e1}")
+                } else {
+                    format!("{e0} and, by ({k}), {e1}")
+                };
+                return format!(
+                    "{}, so {} is the perpendicular bisector of {}; hence {}.",
+                    cap(&head),
+                    p(&[args[0], args[1]]),
+                    p(&[args[2], args[3]]),
+                    stmt(n, st)
+                );
             }
         }
     }
-    if let [Reason::Atom { key, args, stmt: s2, from }] = inner {
+    if let [Reason::Atom {
+        key,
+        args,
+        stmt: s2,
+        from,
+    }] = inner
+    {
         if same_stmt(s2, st) {
             if let Some(t) = atom_sentence(n, *key, args, st) {
                 let f = from_steps(from);
-                return if f.is_empty() { format!("{}.", cap(&t)) } else { format!("By {}, {t}.", join_and(&f)) };
+                return if f.is_empty() {
+                    format!("{}.", cap(&t))
+                } else {
+                    format!("By {}, {t}.", join_and(&f))
+                };
             }
         }
     }
     let own = stmt(n, st);
     let restates = match inner {
         [Reason::Fact { stmt: s2, .. }] => same_stmt(s2, st),
-        [Reason::Atom { stmt: s2, key: AtomKey::Radii, .. }] => same_stmt(s2, st),
+        [Reason::Atom {
+            stmt: s2,
+            key: AtomKey::Radii,
+            ..
+        }] => same_stmt(s2, st),
         _ => false,
     };
     if restates {
         let rs = reasons_text(n, inner, claims);
-        return match rs.first().and_then(|r| r.find(", by (").map(|i| r[i..].to_string())) {
+        return match rs
+            .first()
+            .and_then(|r| r.find(", by (").map(|i| r[i..].to_string()))
+        {
             Some(tail) => format!("{}{tail}.", cap(&own)),
             None => format!("{}.", cap(&own)),
         };
     }
-    let rs: Vec<String> = reasons_text(n, inner, claims).into_iter().filter(|x| *x != own).collect();
+    let rs: Vec<String> = reasons_text(n, inner, claims)
+        .into_iter()
+        .filter(|x| *x != own)
+        .collect();
     let own = with_crit(own);
     if rs.is_empty() {
         format!("{}.", cap(&own))
@@ -1263,13 +1839,29 @@ fn because_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason], claims: &BTre
 
 fn circle_member(r: &Reason) -> bool {
     match r {
-        Reason::Fact { stmt: Stmt::Cyclic { pts }, .. } | Reason::Hyp { stmt: Stmt::Cyclic { pts }, .. } => circle_name(pts).is_some(),
+        Reason::Fact {
+            stmt: Stmt::Cyclic { pts },
+            ..
+        }
+        | Reason::Hyp {
+            stmt: Stmt::Cyclic { pts },
+            ..
+        } => circle_name(pts).is_some(),
         _ => false,
     }
 }
 
 pub fn reasons_text(n: &dyn PointNames, rs: &[Reason], claims: &BTreeMap<u16, u16>) -> Vec<String> {
-    let fact_stmts: Vec<&Stmt> = rs.iter().filter_map(|r| if let Reason::Fact { stmt, .. } = r { Some(stmt) } else { None }).collect();
+    let fact_stmts: Vec<&Stmt> = rs
+        .iter()
+        .filter_map(|r| {
+            if let Reason::Fact { stmt, .. } = r {
+                Some(stmt)
+            } else {
+                None
+            }
+        })
+        .collect();
     let mut out: Vec<String> = Vec::new();
     let member = circle_member;
     let others = rs.iter().any(|r| !member(r));
@@ -1312,9 +1904,18 @@ fn join_and(v: &[String]) -> String {
 pub fn engine_line(t: &EngineTrace, f: FactId) -> String {
     let names: Vec<String> = t.names.iter().map(|x| disp(x)).collect();
     let fact = &t.facts[f as usize];
-    let log = crate::proof::ProofLog { facts: vec![fact.clone()] };
-    let line = log.step_lines(&[0], &names).into_iter().next().unwrap_or_default();
-    let line = line.split_once(". ").map(|x| x.1.to_string()).unwrap_or(line);
+    let log = crate::proof::ProofLog {
+        facts: vec![fact.clone()],
+    };
+    let line = log
+        .step_lines(&[0], &names)
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    let line = line
+        .split_once(". ")
+        .map(|x| x.1.to_string())
+        .unwrap_or(line);
     let _ = ER::Assumption(String::new());
     line
 }

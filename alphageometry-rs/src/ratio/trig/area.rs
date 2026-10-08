@@ -47,7 +47,8 @@ impl Figure {
             d.y.atan2(d.x)
         };
         (0..self.insts.len()).all(|k| {
-            let x = (dir(k, p[0], p[1]) - dir(k, p[2], p[3])) - (dir(k, p[4], p[5]) - dir(k, p[6], p[7]));
+            let x = (dir(k, p[0], p[1]) - dir(k, p[2], p[3]))
+                - (dir(k, p[4], p[5]) - dir(k, p[6], p[7]));
             let r = x.rem_euclid(std::f64::consts::PI);
             r.min(std::f64::consts::PI - r) < 1e-9
         })
@@ -56,7 +57,9 @@ impl Figure {
     /// The `eqangle` making `sin kx = sin ky`, in the orientation the figure
     /// shows in every instance (a configuration branch), if any.
     pub(in crate::ratio) fn equal_sine_fact(&self, kx: LKey, ky: LKey) -> Option<Predicate> {
-        let (LKey::Sin(v, p, q), LKey::Sin(w, r, s)) = (kx, ky) else { return None };
+        let (LKey::Sin(v, p, q), LKey::Sin(w, r, s)) = (kx, ky) else {
+            return None;
+        };
         [[v, p, v, q, w, r, w, s], [v, p, v, q, w, s, w, r]]
             .into_iter()
             .find(|&e| self.eqangle_in_all(e))
@@ -70,7 +73,12 @@ impl Figure {
             let (d1, d2) = (cross(p(0), p(2), p(1)), cross(p(0), p(2), p(3)));
             let (d3, d4) = (cross(p(1), p(3), p(0)), cross(p(1), p(3), p(2)));
             let tol = 1e-9 * (1.0 + (p(2) - p(0)).norm() * (p(3) - p(1)).norm());
-            d1 * d2 < -tol * tol && d3 * d4 < -tol * tol && d1.abs() > tol && d2.abs() > tol && d3.abs() > tol && d4.abs() > tol
+            d1 * d2 < -tol * tol
+                && d3 * d4 < -tol * tol
+                && d1.abs() > tol
+                && d2.abs() > tol
+                && d3.abs() > tol
+                && d4.abs() > tol
         })
     }
 
@@ -82,13 +90,17 @@ impl Figure {
         for (i, &a) in pts.iter().enumerate() {
             for (j, &b) in pts.iter().enumerate().skip(i + 1) {
                 for &c in &pts[j + 1..] {
-                    if self.sin_atom(a, b, c).is_none() || self.sin_atom(b, c, a).is_none() || self.sin_atom(c, a, b).is_none() {
+                    if self.sin_atom(a, b, c).is_none()
+                        || self.sin_atom(b, c, a).is_none()
+                        || self.sin_atom(c, a, b).is_none()
+                    {
                         continue;
                     }
                     for (x, y, z) in [(a, b, c), (b, c, a), (c, a, b)] {
                         let mut e = PEq::default();
                         e.add(vec![area_key(a, b, c)], Rat::from_int(2));
-                        let mut m: Mono = vec![latom(x, y).into(), latom(x, z).into(), sin_key(x, y, z)];
+                        let mut m: Mono =
+                            vec![latom(x, y).into(), latom(x, z).into(), sin_key(x, y, z)];
                         m.sort();
                         e.add(m, -Rat::one());
                         out.push(BaseRow {
@@ -124,7 +136,9 @@ impl Figure {
                             e.add(vec![area_key(p0, p2, p3)], Rat::one());
                             e.add(vec![area_key(p0, p1, p3)], -Rat::one());
                             e.add(vec![area_key(p1, p2, p3)], -Rat::one());
-                            let t = |x: PointId, y: PointId, z: PointId| format!("[{}{}{}]", self.nm(x), self.nm(y), self.nm(z));
+                            let t = |x: PointId, y: PointId, z: PointId| {
+                                format!("[{}{}{}]", self.nm(x), self.nm(y), self.nm(z))
+                            };
                             out.push(BaseRow {
                                 eq: e,
                                 text: format!(
@@ -182,14 +196,22 @@ impl Figure {
                     } else {
                         format!("{}; times {}.", r.text, self.mono_text(&q))
                     };
-                    new_rows.push((e, text, r.pending.clone(), r.headline.then_some(bi), r.support));
+                    new_rows.push((
+                        e,
+                        text,
+                        r.pending.clone(),
+                        r.headline.then_some(bi),
+                        r.support,
+                    ));
                 }
             }
             let factors: BTreeSet<LKey> = m.iter().copied().collect();
             for f in factors {
                 let alts: Vec<(LKey, Predicate, Rat)> = match f {
                     LKey::Sin(..) => {
-                        if let std::collections::btree_map::Entry::Vacant(slot) = sine_class.entry(f) {
+                        if let std::collections::btree_map::Entry::Vacant(slot) =
+                            sine_class.entry(f)
+                        {
                             slot.insert(self.equal_sine_atoms(f));
                         }
                         sine_class[&f]
@@ -204,7 +226,9 @@ impl Figure {
                         }
                         cong[&s]
                             .iter()
-                            .map(|&(c, d)| (LKey::Len(c, d), pred("cong", &[a, b, c, d]), Rat::one()))
+                            .map(|&(c, d)| {
+                                (LKey::Len(c, d), pred("cong", &[a, b, c, d]), Rat::one())
+                            })
                             .collect()
                     }
                     LKey::Cos(..) => self.cos_substitutions(f),
@@ -215,7 +239,11 @@ impl Figure {
                     let pos = m2.iter().position(|x| *x == f).unwrap();
                     m2[pos] = g;
                     m2.sort();
-                    let key = if m <= m2 { (m.clone(), m2.clone()) } else { (m2.clone(), m.clone()) };
+                    let key = if m <= m2 {
+                        (m.clone(), m2.clone())
+                    } else {
+                        (m2.clone(), m.clone())
+                    };
                     if !subst.insert(key) {
                         continue;
                     }
@@ -271,13 +299,17 @@ impl Figure {
 
     /// Sine atoms with the same `|sin|` as `k` in every instance.
     fn equal_sine_atoms(&self, k: LKey) -> Vec<LKey> {
-        let LKey::Sin(v, p, q) = k else { return Vec::new() };
+        let LKey::Sin(v, p, q) = k else {
+            return Vec::new();
+        };
         let n = self.names.len() as PointId;
         let mut out = Vec::new();
         for w in 0..n {
             for r in 0..n {
                 for s in (r + 1)..n {
-                    let Some(g) = self.sin_atom(w, r, s) else { continue };
+                    let Some(g) = self.sin_atom(w, r, s) else {
+                        continue;
+                    };
                     if g == k {
                         continue;
                     }
@@ -296,10 +328,21 @@ impl Figure {
     /// Stage S7 (T6): multiply the goal by one or two sines that are non-zero
     /// in every instance, close the sine-area and area-additivity rows over
     /// it, bridge with the certified log engine, and solve.
-    pub(in crate::ratio) fn prove_by_areas(&self, lhs: &MExpr, rhs: &MExpr, goal_text: &str, pts: &[PointId]) -> Option<String> {
+    pub(in crate::ratio) fn prove_by_areas(
+        &self,
+        lhs: &MExpr,
+        rhs: &MExpr,
+        goal_text: &str,
+        pts: &[PointId],
+    ) -> Option<String> {
         let goal = self.homogeneous_goal(lhs, rhs)?;
         let gpts: Vec<PointId> = {
-            let s: BTreeSet<PointId> = goal.terms.keys().flatten().flat_map(|&k| k.points()).collect();
+            let s: BTreeSet<PointId> = goal
+                .terms
+                .keys()
+                .flatten()
+                .flat_map(|&k| k.points())
+                .collect();
             s.into_iter().collect()
         };
         let degree = goal.terms.keys().next()?.len();
@@ -344,7 +387,9 @@ impl Figure {
             f.gather_trig(pts, &goal_pts);
             let goal_monos: BTreeSet<Mono> = g.terms.keys().cloned().collect();
             f.gather_log_bridges(&pool, &goal_monos);
-            let Some(used) = f.certified_products(&g) else { continue };
+            let Some(used) = f.certified_products(&g) else {
+                continue;
+            };
             if used.is_empty() {
                 continue;
             }

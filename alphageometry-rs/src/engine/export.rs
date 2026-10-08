@@ -6,10 +6,26 @@ impl Ddar {
     pub fn trace(&self) -> EngineTrace {
         let n = self.n;
         let one = |c: &LinComb| (c.terms.len() == 1 && c.terms[0].1.is_one()).then(|| c.terms[0].0);
-        let dir: Vec<Option<VarId>> = self.pair_dir.iter().map(|x| x.as_ref().and_then(|a| one(&a.0))).collect();
-        let dm: Vec<Option<VarId>> = self.pair_dist_mul.iter().map(|x| x.as_ref().and_then(|a| one(&a.0))).collect();
-        let da: Vec<Option<VarId>> = self.pair_dist_add.iter().map(|x| x.as_ref().and_then(|a| one(&a.0))).collect();
-        let ds: Vec<Option<VarId>> = self.pair_dist_sq.iter().map(|x| x.as_ref().and_then(|a| one(&a.0))).collect();
+        let dir: Vec<Option<VarId>> = self
+            .pair_dir
+            .iter()
+            .map(|x| x.as_ref().and_then(|a| one(&a.0)))
+            .collect();
+        let dm: Vec<Option<VarId>> = self
+            .pair_dist_mul
+            .iter()
+            .map(|x| x.as_ref().and_then(|a| one(&a.0)))
+            .collect();
+        let da: Vec<Option<VarId>> = self
+            .pair_dist_add
+            .iter()
+            .map(|x| x.as_ref().and_then(|a| one(&a.0)))
+            .collect();
+        let ds: Vec<Option<VarId>> = self
+            .pair_dist_sq
+            .iter()
+            .map(|x| x.as_ref().and_then(|a| one(&a.0)))
+            .collect();
         let mut var_pair: FxHashMap<VarId, (PointId, PointId)> = FxHashMap::default();
         for a in 0..n {
             for b in 0..n {
@@ -36,12 +52,26 @@ impl Ddar {
         let mut sines: Vec<SineVar> = Vec::new();
         for (key, s) in &self.trig.svar {
             if let (Some(var), Some((v, p, q))) = (one(&s.0), corner_of(key.0, key.1)) {
-                sines.push(SineVar { var, v, p, q, flip: false, shift: Rat::zero() });
+                sines.push(SineVar {
+                    var,
+                    v,
+                    p,
+                    q,
+                    flip: false,
+                    shift: Rat::zero(),
+                });
             }
         }
         for (class, s) in &self.trig.vsvar {
             if let (Some(var), Some(r)) = (one(&s.0), self.trig.vref.get(class)) {
-                sines.push(SineVar { var, v: r.c.v, p: r.c.p, q: r.c.q, flip: r.flip, shift: r.shift.clone() });
+                sines.push(SineVar {
+                    var,
+                    v: r.c.v,
+                    p: r.c.p,
+                    q: r.c.q,
+                    flip: r.flip,
+                    shift: r.shift.clone(),
+                });
             }
         }
         sines.sort_by_key(|s| s.var);

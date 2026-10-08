@@ -40,12 +40,29 @@ pub enum GoalWords {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SetupLine {
     DirectedAngles,
-    DirectedSteps { steps: Vec<u16> },
+    DirectedSteps {
+        steps: Vec<u16>,
+    },
     FigureAngles,
-    Circle { name: String, through: Vec<PointId>, centre: Option<PointId>, diameter: Option<Line> },
-    Aux { point: PointId, aux_index: usize, wording: Option<super::aux::AuxWording> },
-    Helper { point: PointId, meaning: HelperMeaning },
-    Notation { triangle: Tri, circumcentre: Option<PointId> },
+    Circle {
+        name: String,
+        through: Vec<PointId>,
+        centre: Option<PointId>,
+        diameter: Option<Line>,
+    },
+    Aux {
+        point: PointId,
+        aux_index: usize,
+        wording: Option<super::aux::AuxWording>,
+    },
+    Helper {
+        point: PointId,
+        meaning: HelperMeaning,
+    },
+    Notation {
+        triangle: Tri,
+        circumcentre: Option<PointId>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -92,12 +109,36 @@ pub enum ObjRef {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Sentence {
-    Chain { terms: Vec<Expr>, links: Vec<Link>, then: Option<Stmt>, directed: bool },
-    Because { stmt: Stmt, reasons: Vec<Reason>, combination: Vec<Term> },
-    Pooled { stmt: Stmt, reasons: Vec<Reason>, combination: Vec<Term> },
-    Theorem { key: TheoremKey, stmt: Stmt, reasons: Vec<Reason> },
-    Computation { comp: CompKind, terms: Vec<Expr>, links: Vec<Link> },
-    Raw { engine_fact: FactId, cites: Vec<FactId> },
+    Chain {
+        terms: Vec<Expr>,
+        links: Vec<Link>,
+        then: Option<Stmt>,
+        directed: bool,
+    },
+    Because {
+        stmt: Stmt,
+        reasons: Vec<Reason>,
+        combination: Vec<Term>,
+    },
+    Pooled {
+        stmt: Stmt,
+        reasons: Vec<Reason>,
+        combination: Vec<Term>,
+    },
+    Theorem {
+        key: TheoremKey,
+        stmt: Stmt,
+        reasons: Vec<Reason>,
+    },
+    Computation {
+        comp: CompKind,
+        terms: Vec<Expr>,
+        links: Vec<Link>,
+    },
+    Raw {
+        engine_fact: FactId,
+        cites: Vec<FactId>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -124,12 +165,35 @@ pub struct Term {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Reason {
-    Hyp { stmt: Stmt, fact: FactId },
-    Claim { n: u16, block: u16, fact: FactId },
-    Atom { key: AtomKey, stmt: Stmt, args: Vec<PointId>, from: Vec<u16> },
-    Fact { stmt: Stmt, fact: FactId, block: Option<u16>, because: Vec<Reason> },
-    Engine { fact: FactId },
-    Lemma { stmt: Stmt, block: u16, sentence: u16 },
+    Hyp {
+        stmt: Stmt,
+        fact: FactId,
+    },
+    Claim {
+        n: u16,
+        block: u16,
+        fact: FactId,
+    },
+    Atom {
+        key: AtomKey,
+        stmt: Stmt,
+        args: Vec<PointId>,
+        from: Vec<u16>,
+    },
+    Fact {
+        stmt: Stmt,
+        fact: FactId,
+        block: Option<u16>,
+        because: Vec<Reason>,
+    },
+    Engine {
+        fact: FactId,
+    },
+    Lemma {
+        stmt: Stmt,
+        block: u16,
+        sentence: u16,
+    },
 }
 
 pub const PENDING_BLOCK: u16 = u16::MAX;
@@ -233,7 +297,10 @@ impl AtomKey {
         AtomKey::ExteriorAngle,
     ];
     pub fn is_identity_label(self) -> bool {
-        matches!(self, AtomKey::AngleAddition | AtomKey::AngleSum | AtomKey::ExteriorAngle)
+        matches!(
+            self,
+            AtomKey::AngleAddition | AtomKey::AngleSum | AtomKey::ExteriorAngle
+        )
     }
     pub fn as_str(self) -> &'static str {
         match self {
@@ -393,38 +460,118 @@ impl TheoremKey {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Stmt {
-    Coll { pts: Vec<PointId> },
-    Cyclic { pts: Vec<PointId> },
-    Perp { l1: Line, l2: Line },
-    Para { l1: Line, l2: Line },
-    EqAngle { lhs: Expr, rhs: Expr },
-    AngleConst { angle: Expr, degrees: Rat },
-    Cong { s1: Line, s2: Line },
-    EqRatio { segs: Vec<Line> },
-    RatioConst { s1: Line, s2: Line, value: Rat },
-    Sim { t1: Tri, t2: Tri, opposite: bool },
-    Congruent { t1: Tri, t2: Tri, opposite: bool },
-    OnCircle { p: PointId, circle: Vec<PointId> },
-    Tangent { p: PointId, line: Line, circle: Vec<PointId> },
-    RadicalAxis { x: PointId, u: PointId, v: PointId },
-    Coincide { a: PointId, b: PointId },
-    Formula { text: String, pts: Vec<PointId> },
-    Eq { lhs: Expr, rhs: Expr },
+    Coll {
+        pts: Vec<PointId>,
+    },
+    Cyclic {
+        pts: Vec<PointId>,
+    },
+    Perp {
+        l1: Line,
+        l2: Line,
+    },
+    Para {
+        l1: Line,
+        l2: Line,
+    },
+    EqAngle {
+        lhs: Expr,
+        rhs: Expr,
+    },
+    AngleConst {
+        angle: Expr,
+        degrees: Rat,
+    },
+    Cong {
+        s1: Line,
+        s2: Line,
+    },
+    EqRatio {
+        segs: Vec<Line>,
+    },
+    RatioConst {
+        s1: Line,
+        s2: Line,
+        value: Rat,
+    },
+    Sim {
+        t1: Tri,
+        t2: Tri,
+        opposite: bool,
+    },
+    Congruent {
+        t1: Tri,
+        t2: Tri,
+        opposite: bool,
+    },
+    OnCircle {
+        p: PointId,
+        circle: Vec<PointId>,
+    },
+    Tangent {
+        p: PointId,
+        line: Line,
+        circle: Vec<PointId>,
+    },
+    RadicalAxis {
+        x: PointId,
+        u: PointId,
+        v: PointId,
+    },
+    Coincide {
+        a: PointId,
+        b: PointId,
+    },
+    Formula {
+        text: String,
+        pts: Vec<PointId>,
+    },
+    Eq {
+        lhs: Expr,
+        rhs: Expr,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Expr {
-    Angle { a: PointId, b: PointId, c: PointId, directed: bool },
-    LineAngle { l1: Line, l2: Line, directed: bool },
-    Const { degrees: Rat },
-    Lin { terms: Vec<(Rat, Expr)> },
-    Seg { a: PointId, b: PointId },
-    Sq { a: PointId, b: PointId },
-    Prod { factors: Vec<(Expr, i32)> },
-    Sin { angle: Box<Expr> },
-    Cos { angle: Box<Expr> },
-    Num { value: Rat },
+    Angle {
+        a: PointId,
+        b: PointId,
+        c: PointId,
+        directed: bool,
+    },
+    LineAngle {
+        l1: Line,
+        l2: Line,
+        directed: bool,
+    },
+    Const {
+        degrees: Rat,
+    },
+    Lin {
+        terms: Vec<(Rat, Expr)>,
+    },
+    Seg {
+        a: PointId,
+        b: PointId,
+    },
+    Sq {
+        a: PointId,
+        b: PointId,
+    },
+    Prod {
+        factors: Vec<(Expr, i32)>,
+    },
+    Sin {
+        angle: Box<Expr>,
+    },
+    Cos {
+        angle: Box<Expr>,
+    },
+    Num {
+        value: Rat,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]

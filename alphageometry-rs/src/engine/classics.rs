@@ -73,7 +73,11 @@ impl Ddar {
     /// a function of these inputs (its done-sets only skip work), so an
     /// unchanged input means nothing new to find.
     pub(super) fn inputs_changed(&mut self, pass: Pass) -> bool {
-        let (ang, dm, sq) = (self.angle.core.rows(), self.dmul.core.rows(), self.dsq.core.rows());
+        let (ang, dm, sq) = (
+            self.angle.core.rows(),
+            self.dmul.core.rows(),
+            self.dsq.core.rows(),
+        );
         let da = self.dadd.core.rows();
         let (lines, active) = (self.lines.len(), self.active.len());
         let key = match pass {
@@ -134,7 +138,11 @@ impl Ddar {
 
     fn line_meet(&self, l1: usize, l2: usize) -> Option<PointId> {
         let p2 = &self.lines[l2].points;
-        let mut common = self.lines[l1].points.iter().copied().filter(|p| p2.contains(p));
+        let mut common = self.lines[l1]
+            .points
+            .iter()
+            .copied()
+            .filter(|p| p2.contains(p));
         let meet = common.next();
         match common.next() {
             None => meet,
@@ -171,8 +179,12 @@ impl Ddar {
 
     fn numerically_collinear(&self, pts: &[PointId]) -> bool {
         let a0 = pts[0];
-        let b = Self::arg_max_first(pts, |p| crate::numerics::distance(self.coord(a0), self.coord(p)));
-        let c = Self::arg_max_first(pts, |p| crate::numerics::distance(self.coord(p), self.coord(b)));
+        let b = Self::arg_max_first(pts, |p| {
+            crate::numerics::distance(self.coord(a0), self.coord(p))
+        });
+        let c = Self::arg_max_first(pts, |p| {
+            crate::numerics::distance(self.coord(p), self.coord(b))
+        });
         if self.num_identical(b, c) {
             return false;
         }
@@ -221,15 +233,18 @@ impl Ddar {
                     if !self.all_distinct(&[aa, bb, cc]) || self.numerically_flat(aa, bb, cc) {
                         continue;
                     }
-                    changed |= self.converses_on_triangle([lines[i], lines[j], lines[l]], [aa, bb, cc]);
+                    changed |=
+                        self.converses_on_triangle([lines[i], lines[j], lines[l]], [aa, bb, cc]);
                     for m in (l + 1)..k {
                         let (Some(d), Some(e), Some(f)) =
                             (meet[i * k + m], meet[j * k + m], meet[l * k + m])
                         else {
                             continue;
                         };
-                        changed |=
-                            self.menelaus_quadrilateral([lines[i], lines[j], lines[l], lines[m]], [aa, bb, cc, d, e, f]);
+                        changed |= self.menelaus_quadrilateral(
+                            [lines[i], lines[j], lines[l], lines[m]],
+                            [aa, bb, cc, d, e, f],
+                        );
                     }
                 }
             }
@@ -304,7 +319,9 @@ impl Ddar {
                     let n_inside = inside.iter().filter(|&&x| x).count();
                     let inst = [a, b, c, d, e, f];
                     if n_inside % 2 == 0 {
-                        if self.numerically_collinear(&[d, e, f]) && !self.check_collinear(&[d, e, f]) {
+                        if self.numerically_collinear(&[d, e, f])
+                            && !self.check_collinear(&[d, e, f])
+                        {
                             changed |= self.menelaus_converse(sides, inst);
                         }
                     } else {
@@ -330,9 +347,10 @@ impl Ddar {
         };
         prem.extend(sides.iter().filter_map(|&l| self.lines[l].fact));
         let [_, _, _, d, e, f] = inst;
-        let fact = self
-            .log
-            .add(Reason::Theorem("Menelaus' theorem (converse)", inst.to_vec()), prem);
+        let fact = self.log.add(
+            Reason::Theorem("Menelaus' theorem (converse)", inst.to_vec()),
+            prem,
+        );
         self.force_collinear(&[d, e, f], vec![fact])
     }
 
@@ -345,7 +363,9 @@ impl Ddar {
         for missing in 0..3 {
             let (x, y) = cevians[(missing + 1) % 3];
             let (u, v) = cevians[(missing + 2) % 3];
-            let (Some(l1), Some(l2)) = (self.pair_line[self.pk(x, y)], self.pair_line[self.pk(u, v)]) else {
+            let (Some(l1), Some(l2)) =
+                (self.pair_line[self.pk(x, y)], self.pair_line[self.pk(u, v)])
+            else {
                 continue;
             };
             let Some(p) = self.lines[l1]
@@ -433,8 +453,10 @@ impl Ddar {
                 }
             }
         }
-        let mut fire: Vec<((PointId, [PointId; 3]), u8)> =
-            found.into_iter().filter(|(_, m)| m.count_ones() == 2).collect();
+        let mut fire: Vec<((PointId, [PointId; 3]), u8)> = found
+            .into_iter()
+            .filter(|(_, m)| m.count_ones() == 2)
+            .collect();
         fire.sort_unstable();
         let mut changed = false;
         for ((i, tri), mask) in fire {
@@ -464,7 +486,10 @@ impl Ddar {
                 prem.extend(self.deps_of_angle_expr(u, i, u, o[1]));
             }
             let fact = self.log.add(
-                Reason::Theorem("angle bisectors concur (incentre/excentre)", vec![i, tri[0], tri[1], tri[2]]),
+                Reason::Theorem(
+                    "angle bisectors concur (incentre/excentre)",
+                    vec![i, tri[0], tri[1], tri[2]],
+                ),
                 prem,
             );
             changed |= self.angle.force_zero(&rel, Some(fact));
@@ -475,7 +500,11 @@ impl Ddar {
     /// `2·dir(AI) ≡ dir(AB) + dir(AC)` in the cached normal forms.
     fn is_bisector(&self, a: PointId, b: PointId, c: PointId, i: PointId) -> bool {
         let ai = self.cached_dir(a, i);
-        self.cached_dir(a, b).add(self.cached_dir(a, c)).sub(ai).sub(ai).is_zero()
+        self.cached_dir(a, b)
+            .add(self.cached_dir(a, c))
+            .sub(ai)
+            .sub(ai)
+            .is_zero()
     }
 
     /// **Equality case of the triangle inequality**: `|XM| + |MY| = |XY|` in

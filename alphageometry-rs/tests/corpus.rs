@@ -36,9 +36,21 @@ fn quick_corpus_problems_prove_with_engine_proofs() {
         (IMO, "translated_imo_2002_p2a", "ddar"),
         (IMO, "translated_imo_2010_p4", "ddar"),
         (IMO, "translated_imo_2015_p3", "aux"),
-        (JGEX, "examples/complete2/012/complete_004_6_GDD_FULL_81-109_101.gex", "ddar"),
-        (JGEX, "examples/complete2/012/complete_002_6_GDD_FULL_41-60_59.gex", "ddar"),
-        (JGEX, "examples/complete2/012/complete_004_6_GDD_FULL_81-109_90.gex", "ddar"),
+        (
+            JGEX,
+            "examples/complete2/012/complete_004_6_GDD_FULL_81-109_101.gex",
+            "ddar",
+        ),
+        (
+            JGEX,
+            "examples/complete2/012/complete_002_6_GDD_FULL_41-60_59.gex",
+            "ddar",
+        ),
+        (
+            JGEX,
+            "examples/complete2/012/complete_004_6_GDD_FULL_81-109_90.gex",
+            "ddar",
+        ),
     ];
     for (corpus, name, method) in cases {
         let o = solve_one(name, &statement(corpus, name), Duration::from_secs(60));
@@ -46,7 +58,10 @@ fn quick_corpus_problems_prove_with_engine_proofs() {
         assert_eq!(o.status, "proved");
         assert_eq!(o.method, method, "{name}");
         let proof = o.proof.as_deref().expect("a proved result carries a proof");
-        assert!(proof.contains("Proof of") && proof.contains('∎'), "{name}: {proof}");
+        assert!(
+            proof.contains("Proof of") && proof.contains('∎'),
+            "{name}: {proof}"
+        );
         assert!(o.steps.unwrap_or(0) > 0, "{name}");
         assert_eq!(o.aux.is_empty(), method == "ddar", "{name}");
     }
@@ -64,7 +79,8 @@ fn false_corpus_goals_are_never_proved() {
             "cong a p a c",
         ),
         (
-            "a b c = triangle a b c; o = circle o a b c; m = midpoint m b c ? perp o m a b".to_string(),
+            "a b c = triangle a b c; o = circle o a b c; m = midpoint m b c ? perp o m a b"
+                .to_string(),
             "perp o m a b",
         ),
     ];

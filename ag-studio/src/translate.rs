@@ -151,7 +151,8 @@ fn find_claude_from(
                 // The npm `claude.cmd` shim breaks on cmd.exe metacharacters in
                 // a large prompt; the real exe beside it does not.
                 if name == "claude.cmd" {
-                    candidates.push(dir.join("node_modules/@anthropic-ai/claude-code/bin/claude.exe"));
+                    candidates
+                        .push(dir.join("node_modules/@anthropic-ai/claude-code/bin/claude.exe"));
                 }
                 candidates.push(c);
             }
@@ -252,7 +253,11 @@ fn scrub_env(cmd: &mut Command) {
         }
     }
     // Belt and braces for the three that matter most, even if set later.
-    for k in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"] {
+    for k in [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+    ] {
         cmd.env_remove(k);
     }
 }
@@ -261,7 +266,13 @@ fn scrub_env(cmd: &mut Command) {
 /// hooks, CLAUDE.md, skills or MCP servers; only the built-in `tools` listed
 /// (`""` = none), denied anything not pre-approved, no session written to disk,
 /// run in `cwd`.
-fn child_command(bin: &Path, prompt: &str, tools: &str, allowed: Option<&str>, cwd: &Path) -> Command {
+fn child_command(
+    bin: &Path,
+    prompt: &str,
+    tools: &str,
+    allowed: Option<&str>,
+    cwd: &Path,
+) -> Command {
     let mut cmd = Command::new(bin);
     cmd.arg("-p")
         .arg(prompt)
@@ -295,13 +306,19 @@ fn scratch_dir() -> Result<(tempfile::TempDir, PathBuf)> {
         .prefix("agstudio-claude-")
         .tempdir()
         .context("creating a scratch directory for the claude CLI")?;
-    let path = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+    let path = dir
+        .path()
+        .canonicalize()
+        .unwrap_or_else(|_| dir.path().to_path_buf());
     Ok((dir, path))
 }
 
 /// Does CLI output look like its "please sign in" message?
 fn looks_signed_out(s: &str) -> bool {
-    s.contains("Not logged in") || s.contains("/login") || s.contains("auth login") || credential_rejected(s)
+    s.contains("Not logged in")
+        || s.contains("/login")
+        || s.contains("auth login")
+        || credential_rejected(s)
 }
 
 fn credential_rejected(s: &str) -> bool {
@@ -339,7 +356,10 @@ fn cli_said(stdout: &str, stderr: &str) -> String {
 }
 
 fn signed_out(stdout: &str, stderr: &str) -> anyhow::Error {
-    fail(Failure::SignedOut, format!("{NOT_SIGNED_IN} (claude said {})", cli_said(stdout, stderr)))
+    fail(
+        Failure::SignedOut,
+        format!("{NOT_SIGNED_IN} (claude said {})", cli_said(stdout, stderr)),
+    )
 }
 
 /// Make one minimal model call to test that the CLI's credential is accepted
@@ -362,7 +382,11 @@ fn check_credentials_with(bin: &Path, timeout: Duration) -> Result<String> {
         return Err(signed_out(&raw, &err));
     }
     if !output.status.success() || raw.is_empty() {
-        bail!("claude exited unsuccessfully ({}); it said {}", output.status, cli_said(&raw, &err));
+        bail!(
+            "claude exited unsuccessfully ({}); it said {}",
+            output.status,
+            cli_said(&raw, &err)
+        );
     }
     Ok(clip(&raw))
 }
@@ -388,7 +412,9 @@ fn translate_with(bin: &Path, source: &Source, timeout: Duration) -> Result<Tran
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(str::to_ascii_lowercase)
-                .filter(|e| !e.is_empty() && e.len() <= 5 && e.chars().all(|c| c.is_ascii_alphanumeric()))
+                .filter(|e| {
+                    !e.is_empty() && e.len() <= 5 && e.chars().all(|c| c.is_ascii_alphanumeric())
+                })
                 .unwrap_or_else(|| "img".to_string());
             let local = cwd.join(format!("problem.{ext}"));
             std::fs::copy(p, &local)
@@ -425,7 +451,11 @@ fn translate_with(bin: &Path, source: &Source, timeout: Duration) -> Result<Tran
         if looks_signed_out(&raw) || looks_signed_out(&err) {
             return Err(signed_out(&raw, &err));
         }
-        bail!("claude exited unsuccessfully ({}); it said {}", output.status, cli_said(&raw, &err));
+        bail!(
+            "claude exited unsuccessfully ({}); it said {}",
+            output.status,
+            cli_said(&raw, &err)
+        );
     }
     let Some(geo) = extract_geo(&raw) else {
         // The CLI prints a login prompt (with exit 0) when not signed in.
@@ -434,7 +464,10 @@ fn translate_with(bin: &Path, source: &Source, timeout: Duration) -> Result<Tran
         }
         return Err(fail(
             Failure::NoProgram,
-            format!("no .geo code block found in the model's reply:\n{}", raw.trim()),
+            format!(
+                "no .geo code block found in the model's reply:\n{}",
+                raw.trim()
+            ),
         ));
     };
     if let Some(reason) = cannot_translate_reason(&geo) {
@@ -459,8 +492,14 @@ fn cannot_translate_reason(geo: &str) -> Option<String> {
     if has_statements {
         return None;
     }
-    let reason = rest[rest.len() - reason.len()..].trim_start_matches([':', ' ']).trim();
-    Some(if reason.is_empty() { "no reason given".to_string() } else { reason.to_string() })
+    let reason = rest[rest.len() - reason.len()..]
+        .trim_start_matches([':', ' '])
+        .trim();
+    Some(if reason.is_empty() {
+        "no reason given".to_string()
+    } else {
+        reason.to_string()
+    })
 }
 
 /// Spawn a command (in its own process group on Unix), capturing stdout/stderr
@@ -739,7 +778,13 @@ fn humanize_prompt(problem: &str, proof: &str, human: &str, aux: &[String], lang
 /// Rewrite a machine (DDAR) proof into a flowing, human-readable proof in the
 /// requested language, using the local Claude **Opus** subscription. Runs the
 /// same locked-down child as [`translate`], with no tools at all.
-pub fn humanize_proof(problem: &str, proof: &str, human: &str, aux: &[String], lang: Lang) -> Result<String> {
+pub fn humanize_proof(
+    problem: &str,
+    proof: &str,
+    human: &str,
+    aux: &[String],
+    lang: Lang,
+) -> Result<String> {
     let bin = claude_bin().ok_or_else(|| anyhow!(NOT_FOUND))?;
     humanize_with(&bin, problem, proof, human, aux, lang, CHILD_TIMEOUT)
 }
@@ -779,7 +824,11 @@ fn humanize_with(
         if looks_signed_out(&raw) || looks_signed_out(&err) {
             return Err(signed_out(&raw, &err));
         }
-        bail!("claude exited unsuccessfully ({}); it said {}", output.status, cli_said(&raw, &err));
+        bail!(
+            "claude exited unsuccessfully ({}); it said {}",
+            output.status,
+            cli_said(&raw, &err)
+        );
     }
     if raw.is_empty() {
         bail!("empty proof from the model");
@@ -812,13 +861,24 @@ mod tests {
     #[test]
     fn humanize_prompt_leads_with_the_human_proof_when_there_is_one() {
         for lang in [Lang::En, Lang::Ro] {
-            let p = humanize_prompt("prob", "001. assumption: perp A H B C", "Claim 1. A, B, F, N are concyclic.", &[], lang);
+            let p = humanize_prompt(
+                "prob",
+                "001. assumption: perp A H B C",
+                "Claim 1. A, B, F, N are concyclic.",
+                &[],
+                lang,
+            );
             let human = p.find("Claim 1.").expect("human proof in the prompt");
-            let raw = p.find("001. assumption").expect("raw derivation kept for reference");
+            let raw = p
+                .find("001. assumption")
+                .expect("raw derivation kept for reference");
             assert!(human < raw, "{p}");
         }
         let p = humanize_prompt("prob", "001. x", "  ", &[], Lang::En);
-        assert!(p.contains("Machine proof to rewrite"), "no human proof: as before");
+        assert!(
+            p.contains("Machine proof to rewrite"),
+            "no human proof: as before"
+        );
     }
 
     #[test]
@@ -915,29 +975,63 @@ mod tests {
     fn assert_locked_down(fake: &FakeClaude, tools: &str) {
         let argv = fake.argv();
         assert_eq!(argv.first().map(String::as_str), Some("-p"), "{argv:?}");
-        assert_eq!(fake.value_after("--tools").as_deref(), Some(tools), "{argv:?}");
-        assert_eq!(fake.value_after("--setting-sources").as_deref(), Some(""), "{argv:?}");
+        assert_eq!(
+            fake.value_after("--tools").as_deref(),
+            Some(tools),
+            "{argv:?}"
+        );
+        assert_eq!(
+            fake.value_after("--setting-sources").as_deref(),
+            Some(""),
+            "{argv:?}"
+        );
         assert_eq!(
             fake.value_after("--mcp-config").as_deref(),
             Some(EMPTY_MCP_CONFIG),
             "{argv:?}"
         );
-        assert_eq!(fake.value_after("--permission-mode").as_deref(), Some("dontAsk"));
-        for flag in ["--strict-mcp-config", "--no-session-persistence", "--safe-mode"] {
+        assert_eq!(
+            fake.value_after("--permission-mode").as_deref(),
+            Some("dontAsk")
+        );
+        for flag in [
+            "--strict-mcp-config",
+            "--no-session-persistence",
+            "--safe-mode",
+        ] {
             assert!(argv.iter().any(|a| a == flag), "missing {flag}: {argv:?}");
         }
-        for bad in ["acceptEdits", "bypassPermissions", "--bare", "--dangerously-skip-permissions"] {
+        for bad in [
+            "acceptEdits",
+            "bypassPermissions",
+            "--bare",
+            "--dangerously-skip-permissions",
+        ] {
             assert!(!argv.iter().any(|a| a == bad), "unexpected {bad}: {argv:?}");
         }
         let env = fake.read("env");
-        for var in ["ANTHROPIC_API_KEY=", "ANTHROPIC_AUTH_TOKEN=", "ANTHROPIC_BASE_URL=", "CLAUDECODE="] {
-            assert!(!env.lines().any(|l| l.starts_with(var)), "{var} leaked into the child env");
+        for var in [
+            "ANTHROPIC_API_KEY=",
+            "ANTHROPIC_AUTH_TOKEN=",
+            "ANTHROPIC_BASE_URL=",
+            "CLAUDECODE=",
+        ] {
+            assert!(
+                !env.lines().any(|l| l.starts_with(var)),
+                "{var} leaked into the child env"
+            );
         }
-        assert!(env.lines().any(|l| l.starts_with("HOME=")), "HOME must survive for OAuth");
+        assert!(
+            env.lines().any(|l| l.starts_with("HOME=")),
+            "HOME must survive for OAuth"
+        );
         let cwd = fake.read("cwd");
         let cwd = cwd.trim();
         assert_ne!(Path::new(cwd), std::env::current_dir().unwrap().as_path());
-        assert!(!Path::new(cwd).exists(), "the child's scratch dir must be removed afterwards");
+        assert!(
+            !Path::new(cwd).exists(),
+            "the child's scratch dir must be removed afterwards"
+        );
     }
 
     fn poison_env() {
@@ -950,11 +1044,19 @@ mod tests {
     fn text_translation_runs_with_no_tools_in_an_empty_dir() {
         poison_env();
         let fake = FakeClaude::new(GOOD_REPLY, 0);
-        let t = translate_with(&fake.bin(), &Source::Text("prove Thales".into()), CHILD_TIMEOUT)
-            .unwrap();
+        let t = translate_with(
+            &fake.bin(),
+            &Source::Text("prove Thales".into()),
+            CHILD_TIMEOUT,
+        )
+        .unwrap();
         assert!(t.geo.contains("prove coll"));
         assert_locked_down(&fake, "");
-        assert_eq!(fake.read("ls").trim(), "", "the text-mode cwd must be empty");
+        assert_eq!(
+            fake.read("ls").trim(),
+            "",
+            "the text-mode cwd must be empty"
+        );
         assert!(fake.value_after("--allowedTools").is_none());
     }
 
@@ -980,8 +1082,16 @@ mod tests {
     fn humanize_runs_with_no_tools_in_an_empty_dir() {
         poison_env();
         let fake = FakeClaude::new("Solution. Trivial. ∎", 0);
-        let out = humanize_with(&fake.bin(), "prob", "001. x", "", &[], Lang::En, CHILD_TIMEOUT)
-            .unwrap();
+        let out = humanize_with(
+            &fake.bin(),
+            "prob",
+            "001. x",
+            "",
+            &[],
+            Lang::En,
+            CHILD_TIMEOUT,
+        )
+        .unwrap();
         assert!(out.starts_with("Solution."));
         assert_locked_down(&fake, "");
     }
@@ -1027,15 +1137,32 @@ mod tests {
     fn failures_carry_a_kind_the_web_layer_can_word() {
         let kind = |reply: &str, code: i32| {
             let fake = FakeClaude::new(reply, code);
-            let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+            let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT)
+                .err()
+                .unwrap();
             failure(&e)
         };
-        assert_eq!(kind("```geo\n# cannot translate: 3D\n```", 0), Some(Failure::NoProgram));
-        assert_eq!(kind("I cannot help with that.", 0), Some(Failure::NoProgram));
-        assert_eq!(kind("Not logged in · Please run /login", 0), Some(Failure::SignedOut));
+        assert_eq!(
+            kind("```geo\n# cannot translate: 3D\n```", 0),
+            Some(Failure::NoProgram)
+        );
+        assert_eq!(
+            kind("I cannot help with that.", 0),
+            Some(Failure::NoProgram)
+        );
+        assert_eq!(
+            kind("Not logged in · Please run /login", 0),
+            Some(Failure::SignedOut)
+        );
         assert_eq!(kind("Please run /login", 1), Some(Failure::SignedOut));
         assert_eq!(kind("boom", 1), None);
-        assert_eq!(kind("Failed to authenticate. API Error: 401 Invalid bearer token", 1), Some(Failure::SignedOut));
+        assert_eq!(
+            kind(
+                "Failed to authenticate. API Error: 401 Invalid bearer token",
+                1
+            ),
+            Some(Failure::SignedOut)
+        );
         assert_eq!(
             kind("Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"OAuth access token is invalid\"}}", 1),
             Some(Failure::SignedOut)
@@ -1045,30 +1172,57 @@ mod tests {
     #[test]
     fn a_failed_run_logs_what_the_cli_printed_on_stdout() {
         let fake = FakeClaude::new("Something went wrong: API Error: 529 overloaded", 1);
-        let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+        let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT)
+            .err()
+            .unwrap();
         let shown = format!("{e:#}");
         assert!(shown.contains("API Error: 529 overloaded"), "{shown}");
         assert_eq!(failure(&e), None);
-        let rejected = FakeClaude::new("Failed to authenticate. API Error: 401 Invalid bearer token", 1);
-        let e = translate_with(&rejected.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+        let rejected = FakeClaude::new(
+            "Failed to authenticate. API Error: 401 Invalid bearer token",
+            1,
+        );
+        let e = translate_with(&rejected.bin(), &Source::Text("x".into()), CHILD_TIMEOUT)
+            .err()
+            .unwrap();
         assert!(format!("{e:#}").contains("Invalid bearer token"), "{e:#}");
-        let e = humanize_with(&rejected.bin(), "p", "001. x", "", &[], Lang::En, CHILD_TIMEOUT).err().unwrap();
+        let e = humanize_with(
+            &rejected.bin(),
+            "p",
+            "001. x",
+            "",
+            &[],
+            Lang::En,
+            CHILD_TIMEOUT,
+        )
+        .err()
+        .unwrap();
         assert_eq!(failure(&e), Some(Failure::SignedOut), "{e:#}");
         assert!(format!("{e:#}").contains("Invalid bearer token"), "{e:#}");
         let long = "x".repeat(5000);
         let fake = FakeClaude::new(&long, 1);
-        let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT).err().unwrap();
+        let e = translate_with(&fake.bin(), &Source::Text("x".into()), CHILD_TIMEOUT)
+            .err()
+            .unwrap();
         assert!(format!("{e:#}").len() < 1000, "the CLI's output is clipped");
     }
 
     #[test]
     fn the_credential_check_reports_a_rejected_token_as_signed_out() {
-        let fake = FakeClaude::new("Failed to authenticate. API Error: 401 Invalid bearer token", 1);
-        let e = check_credentials_with(&fake.bin(), CHILD_TIMEOUT).err().unwrap();
+        let fake = FakeClaude::new(
+            "Failed to authenticate. API Error: 401 Invalid bearer token",
+            1,
+        );
+        let e = check_credentials_with(&fake.bin(), CHILD_TIMEOUT)
+            .err()
+            .unwrap();
         assert_eq!(failure(&e), Some(Failure::SignedOut));
         assert!(format!("{e:#}").contains("Invalid bearer token"), "{e:#}");
         let ok = FakeClaude::new("OK", 0);
-        assert_eq!(check_credentials_with(&ok.bin(), CHILD_TIMEOUT).unwrap(), "OK");
+        assert_eq!(
+            check_credentials_with(&ok.bin(), CHILD_TIMEOUT).unwrap(),
+            "OK"
+        );
         assert_eq!(ok.value_after("--tools").as_deref(), Some(""));
         assert!(ok.argv().iter().any(|a| a == "--model"));
     }
@@ -1078,9 +1232,13 @@ mod tests {
         let fake = FakeClaude::new(GOOD_REPLY, 0);
         std::fs::write(fake.bin(), "#!/bin/sh\nsleep 30\n").unwrap();
         let t = std::time::Instant::now();
-        let e = translate_with(&fake.bin(), &Source::Text("x".into()), Duration::from_millis(800))
-            .err()
-            .unwrap();
+        let e = translate_with(
+            &fake.bin(),
+            &Source::Text("x".into()),
+            Duration::from_millis(800),
+        )
+        .err()
+        .unwrap();
         assert_eq!(failure(&e), Some(Failure::TimedOut), "{e:#}");
         assert!(format!("{e:#}").contains("timed out after"), "{e:#}");
         assert!(t.elapsed() < Duration::from_secs(10));
@@ -1092,18 +1250,29 @@ mod tests {
         let pidfile = dir.path().join("grandchild.pid");
         let mut cmd = Command::new("sh");
         cmd.arg("-c")
-            .arg(format!("sleep 30 & echo $! > '{}'; wait", pidfile.display()))
+            .arg(format!(
+                "sleep 30 & echo $! > '{}'; wait",
+                pidfile.display()
+            ))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let t = std::time::Instant::now();
-        let err = run_with_timeout(cmd, Duration::from_millis(1500)).err().unwrap();
+        let err = run_with_timeout(cmd, Duration::from_millis(1500))
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("timed out"), "{err}");
         assert!(t.elapsed() < Duration::from_secs(10));
         let pid = std::fs::read_to_string(&pidfile).unwrap();
         // Dead = gone or a zombie awaiting its (re)parent's reap.
         let alive = || {
             std::fs::read_to_string(format!("/proc/{}/stat", pid.trim()))
-                .map(|st| !st.rsplit(')').next().unwrap_or("").trim_start().starts_with('Z'))
+                .map(|st| {
+                    !st.rsplit(')')
+                        .next()
+                        .unwrap_or("")
+                        .trim_start()
+                        .starts_with('Z')
+                })
                 .unwrap_or(false)
         };
         let until = std::time::Instant::now() + Duration::from_secs(3);
@@ -1120,17 +1289,30 @@ mod tests {
         let pidfile = dir.path().join("straggler.pid");
         let mut cmd = Command::new("sh");
         cmd.arg("-c")
-            .arg(format!("sleep 60 & echo $! > '{}'; echo done", pidfile.display()))
+            .arg(format!(
+                "sleep 60 & echo $! > '{}'; echo done",
+                pidfile.display()
+            ))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let t = std::time::Instant::now();
         let out = run_with_timeout(cmd, Duration::from_secs(30)).unwrap();
-        assert!(t.elapsed() < OUTPUT_DRAIN * 2 + Duration::from_secs(2), "{:?}", t.elapsed());
+        assert!(
+            t.elapsed() < OUTPUT_DRAIN * 2 + Duration::from_secs(2),
+            "{:?}",
+            t.elapsed()
+        );
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "done");
         let pid = std::fs::read_to_string(&pidfile).unwrap();
         let gone = |pid: &str| {
             std::fs::read_to_string(format!("/proc/{pid}/stat"))
-                .map(|st| st.rsplit(')').next().unwrap_or("").trim_start().starts_with('Z'))
+                .map(|st| {
+                    st.rsplit(')')
+                        .next()
+                        .unwrap_or("")
+                        .trim_start()
+                        .starts_with('Z')
+                })
                 .unwrap_or(true)
         };
         let until = std::time::Instant::now() + Duration::from_secs(3);
@@ -1150,20 +1332,42 @@ mod tests {
         let all = |_: &Path| true;
         let path_var = std::env::join_paths([a.path()]).unwrap();
 
-        let got = find_claude_from(Some(env_bin.clone().into()), Some(path_var.clone()), std::slice::from_ref(&fallback), all);
+        let got = find_claude_from(
+            Some(env_bin.clone().into()),
+            Some(path_var.clone()),
+            std::slice::from_ref(&fallback),
+            all,
+        );
         assert_eq!(got, Some(env_bin.clone()));
-        let got = find_claude_from(None, Some(path_var.clone()), std::slice::from_ref(&fallback), all);
+        let got = find_claude_from(
+            None,
+            Some(path_var.clone()),
+            std::slice::from_ref(&fallback),
+            all,
+        );
         assert_eq!(got, Some(on_path.clone()));
         let got = find_claude_from(None, None, std::slice::from_ref(&fallback), all);
         assert_eq!(got, Some(fallback.clone()));
         // An explicit AGSTUDIO_CLAUDE_BIN that does not run is not silently replaced.
         let none = |p: &Path| p != env_bin.as_path();
-        assert_eq!(find_claude_from(Some(env_bin.clone().into()), Some(path_var), &[fallback], none), None);
+        assert_eq!(
+            find_claude_from(
+                Some(env_bin.clone().into()),
+                Some(path_var),
+                &[fallback],
+                none
+            ),
+            None
+        );
     }
 
     #[test]
     fn an_api_key_alone_does_not_count_as_signed_in() {
-        assert!(!env_login_hint(|k| (k == "ANTHROPIC_API_KEY").then(|| "sk".into())));
-        assert!(env_login_hint(|k| (k == "CLAUDE_CODE_OAUTH_TOKEN").then(|| "t".into())));
+        assert!(!env_login_hint(
+            |k| (k == "ANTHROPIC_API_KEY").then(|| "sk".into())
+        ));
+        assert!(env_login_hint(
+            |k| (k == "CLAUDE_CODE_OAUTH_TOKEN").then(|| "t".into())
+        ));
     }
 }

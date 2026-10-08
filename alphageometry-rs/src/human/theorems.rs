@@ -22,10 +22,16 @@ pub enum Hyp {
 
 impl Hyp {
     pub fn is_config(&self) -> bool {
-        !matches!(self, Hyp::Line(_) | Hyp::Circle(_) | Hyp::Eq(..) | Hyp::EqOrHalf(..))
+        !matches!(
+            self,
+            Hyp::Line(_) | Hyp::Circle(_) | Hyp::Eq(..) | Hyp::EqOrHalf(..)
+        )
     }
     pub fn reads_figure(&self) -> bool {
-        matches!(self, Hyp::Between(..) | Hyp::Outside(..) | Hyp::SplitAlike(..) | Hyp::OutsideParity(..))
+        matches!(
+            self,
+            Hyp::Between(..) | Hyp::Outside(..) | Hyp::SplitAlike(..) | Hyp::OutsideParity(..)
+        )
     }
 }
 
@@ -61,13 +67,29 @@ pub const LIBRARY: [AtomKey; 23] = [
     AtomKey::Reim,
 ];
 
-pub const TRIG: [AtomKey; 4] = [AtomKey::LawOfSines, AtomKey::ExtLawOfSines, AtomKey::SineSupplement, AtomKey::SineComplement];
+pub const TRIG: [AtomKey; 4] = [
+    AtomKey::LawOfSines,
+    AtomKey::ExtLawOfSines,
+    AtomKey::SineSupplement,
+    AtomKey::SineComplement,
+];
 
 pub fn is_identity(key: AtomKey) -> bool {
-    matches!(key, AtomKey::LawOfSines | AtomKey::ExtLawOfSines | AtomKey::SineSupplement | AtomKey::SineComplement)
+    matches!(
+        key,
+        AtomKey::LawOfSines
+            | AtomKey::ExtLawOfSines
+            | AtomKey::SineSupplement
+            | AtomKey::SineComplement
+    )
 }
 
-pub const CONGRUENCE: [AtomKey; 4] = [AtomKey::CongruentSss, AtomKey::CongruentSas, AtomKey::CongruentAsa, AtomKey::CongruentRhs];
+pub const CONGRUENCE: [AtomKey; 4] = [
+    AtomKey::CongruentSss,
+    AtomKey::CongruentSas,
+    AtomKey::CongruentAsa,
+    AtomKey::CongruentRhs,
+];
 
 pub fn is_theorem(key: AtomKey) -> bool {
     LIBRARY.contains(&key) || TRIG.contains(&key) || CONGRUENCE.contains(&key)
@@ -80,8 +102,17 @@ pub fn is_congruence(key: AtomKey) -> bool {
 pub fn cost(key: AtomKey) -> u32 {
     match key {
         AtomKey::LawOfSines | AtomKey::ExtLawOfSines | AtomKey::Menelaus | AtomKey::Ceva => 2,
-        AtomKey::PowerConverse | AtomKey::InterceptConverse | AtomKey::BisectorConverse | AtomKey::ExtBisectorConverse | AtomKey::ExtBisectorRatio | AtomKey::MenelausConverse | AtomKey::CevaConverse => 2,
-        AtomKey::CongruentSss | AtomKey::CongruentSas | AtomKey::CongruentAsa | AtomKey::CongruentRhs => 2,
+        AtomKey::PowerConverse
+        | AtomKey::InterceptConverse
+        | AtomKey::BisectorConverse
+        | AtomKey::ExtBisectorConverse
+        | AtomKey::ExtBisectorRatio
+        | AtomKey::MenelausConverse
+        | AtomKey::CevaConverse => 2,
+        AtomKey::CongruentSss
+        | AtomKey::CongruentSas
+        | AtomKey::CongruentAsa
+        | AtomKey::CongruentRhs => 2,
         _ => 1,
     }
 }
@@ -142,19 +173,36 @@ impl Rows<'_> {
     }
     fn sine(&self, v: PointId, p: PointId, q: PointId) -> Option<LinComb> {
         let (lo, hi) = (p.min(q), p.max(q));
-        let s = self.t.sines.iter().filter(|s| s.v == v && s.p.min(s.q) == lo && s.p.max(s.q) == hi && s.shift.mod_one().is_zero()).map(|s| s.var).min()?;
+        let s = self
+            .t
+            .sines
+            .iter()
+            .filter(|s| {
+                s.v == v && s.p.min(s.q) == lo && s.p.max(s.q) == hi && s.shift.mod_one().is_zero()
+            })
+            .map(|s| s.var)
+            .min()?;
         Some(LinComb::singleton(self.t.sine_canon(s), Rat::one()))
     }
     fn cosine(&self, v: PointId, p: PointId, q: PointId) -> Option<LinComb> {
         let (lo, hi) = (p.min(q), p.max(q));
-        let s = self.t.sines.iter().filter(|s| s.v == v && s.p.min(s.q) == lo && s.p.max(s.q) == hi && s.shift.mod_one() == half()).map(|s| s.var).min()?;
+        let s = self
+            .t
+            .sines
+            .iter()
+            .filter(|s| {
+                s.v == v && s.p.min(s.q) == lo && s.p.max(s.q) == hi && s.shift.mod_one() == half()
+            })
+            .map(|s| s.var)
+            .min()?;
         Some(LinComb::singleton(self.t.sine_canon(s), Rat::one()))
     }
 }
 
 pub fn interior_degrees(t: &EngineTrace, p: PointId, v: PointId, q: PointId) -> f64 {
     let (u, w) = (sub(t, p, v), sub(t, q, v));
-    let c = (u.0 * w.0 + u.1 * w.1) / ((u.0 * u.0 + u.1 * u.1).sqrt() * (w.0 * w.0 + w.1 * w.1).sqrt()).max(1e-300);
+    let c = (u.0 * w.0 + u.1 * w.1)
+        / ((u.0 * u.0 + u.1 * u.1).sqrt() * (w.0 * w.0 + w.1 * w.1).sqrt()).max(1e-300);
     c.clamp(-1.0, 1.0).acos().to_degrees()
 }
 
@@ -204,8 +252,18 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
         AtomKey::EqualTangents if n(4) => {
             let (p, t1, t2, o) = (a[0], a[1], a[2], a[3]);
             Spec {
-                hyps: vec![Hyp::Eq(Table::Ratio, r.cong(o, t1, o, t2)?), Hyp::Eq(Table::Angle, r.perp((p, t1), (o, t1))?), Hyp::Eq(Table::Angle, r.perp((p, t2), (o, t2))?), dist(a), Hyp::Triangle(p, t1, t2)],
-                rows: vec![(Table::Ratio, r.cong(p, t1, p, t2)?), (Table::Angle, r.ex(&r.ang(t1, p, o)? - &r.ang(o, p, t2)?)), (Table::Angle, r.ex(&r.ang(t1, o, p)? - &r.ang(p, o, t2)?))],
+                hyps: vec![
+                    Hyp::Eq(Table::Ratio, r.cong(o, t1, o, t2)?),
+                    Hyp::Eq(Table::Angle, r.perp((p, t1), (o, t1))?),
+                    Hyp::Eq(Table::Angle, r.perp((p, t2), (o, t2))?),
+                    dist(a),
+                    Hyp::Triangle(p, t1, t2),
+                ],
+                rows: vec![
+                    (Table::Ratio, r.cong(p, t1, p, t2)?),
+                    (Table::Angle, r.ex(&r.ang(t1, p, o)? - &r.ang(o, p, t2)?)),
+                    (Table::Angle, r.ex(&r.ang(t1, o, p)? - &r.ang(p, o, t2)?)),
+                ],
             }
         }
         AtomKey::TangentSecant if n(5) => {
@@ -213,52 +271,111 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
             let mut row = r.dm(x, tt)?;
             row.mul_assign_scalar(&Rat::from_int(2));
             Spec {
-                hyps: vec![Hyp::Eq(Table::Ratio, r.cong(o, tt, o, p)?), Hyp::Eq(Table::Ratio, r.cong(o, tt, o, q)?), Hyp::Eq(Table::Angle, r.perp((x, tt), (o, tt))?), line(&[x, p, q]), dist(a)],
+                hyps: vec![
+                    Hyp::Eq(Table::Ratio, r.cong(o, tt, o, p)?),
+                    Hyp::Eq(Table::Ratio, r.cong(o, tt, o, q)?),
+                    Hyp::Eq(Table::Angle, r.perp((x, tt), (o, tt))?),
+                    line(&[x, p, q]),
+                    dist(a),
+                ],
                 rows: vec![(Table::Ratio, &(&row - &r.dm(x, p)?) - &r.dm(x, q)?)],
             }
         }
         AtomKey::PowerConverse if n(5) => {
             let (x, p, q, c, d) = (a[0], a[1], a[2], a[3], a[4]);
             Spec {
-                hyps: vec![line(&[x, p, q]), line(&[x, c, d]), Hyp::Eq(Table::Ratio, r.ratio(&[(x, p), (x, q)], &[(x, c), (x, d)])?), dist(a), Hyp::Triangle(x, p, c), Hyp::SplitAlike(x, p, q, c, d)],
+                hyps: vec![
+                    line(&[x, p, q]),
+                    line(&[x, c, d]),
+                    Hyp::Eq(Table::Ratio, r.ratio(&[(x, p), (x, q)], &[(x, c), (x, d)])?),
+                    dist(a),
+                    Hyp::Triangle(x, p, c),
+                    Hyp::SplitAlike(x, p, q, c, d),
+                ],
                 rows: vec![(Table::Angle, r.inscribed(p, q, c, d)?)],
             }
         }
         AtomKey::Intercept if n(5) => {
             let (o, p, q, c, d) = (a[0], a[1], a[2], a[3], a[4]);
             Spec {
-                hyps: vec![line(&[o, p, q]), line(&[o, c, d]), Hyp::Eq(Table::Angle, r.para((p, c), (q, d))?), Hyp::Triangle(o, p, c), dist(a)],
-                rows: vec![(Table::Ratio, r.ratio(&[(o, p), (o, d)], &[(o, q), (o, c)])?), (Table::Ratio, r.ratio(&[(o, p), (q, d)], &[(o, q), (p, c)])?)],
+                hyps: vec![
+                    line(&[o, p, q]),
+                    line(&[o, c, d]),
+                    Hyp::Eq(Table::Angle, r.para((p, c), (q, d))?),
+                    Hyp::Triangle(o, p, c),
+                    dist(a),
+                ],
+                rows: vec![
+                    (Table::Ratio, r.ratio(&[(o, p), (o, d)], &[(o, q), (o, c)])?),
+                    (Table::Ratio, r.ratio(&[(o, p), (q, d)], &[(o, q), (p, c)])?),
+                ],
             }
         }
         AtomKey::InterceptConverse if n(5) => {
             let (o, p, q, c, d) = (a[0], a[1], a[2], a[3], a[4]);
             Spec {
-                hyps: vec![line(&[o, p, q]), line(&[o, c, d]), Hyp::Eq(Table::Ratio, r.ratio(&[(o, p), (o, d)], &[(o, q), (o, c)])?), Hyp::Triangle(o, p, c), dist(a), Hyp::SplitAlike(o, p, q, c, d)],
+                hyps: vec![
+                    line(&[o, p, q]),
+                    line(&[o, c, d]),
+                    Hyp::Eq(Table::Ratio, r.ratio(&[(o, p), (o, d)], &[(o, q), (o, c)])?),
+                    Hyp::Triangle(o, p, c),
+                    dist(a),
+                    Hyp::SplitAlike(o, p, q, c, d),
+                ],
                 rows: vec![(Table::Angle, r.para((p, c), (q, d))?)],
             }
         }
-        AtomKey::BisectorRatio | AtomKey::ExtBisectorRatio | AtomKey::BisectorConverse | AtomKey::ExtBisectorConverse if n(4) => {
+        AtomKey::BisectorRatio
+        | AtomKey::ExtBisectorRatio
+        | AtomKey::BisectorConverse
+        | AtomKey::ExtBisectorConverse
+            if n(4) =>
+        {
             let (v, b, c, d) = (a[0], a[1], a[2], a[3]);
             let angle = r.ex(&r.ang(b, v, d)? - &r.ang(d, v, c)?);
             let ratio = r.ratio(&[(d, b), (v, c)], &[(d, c), (v, b)])?;
-            let side = if matches!(key, AtomKey::BisectorRatio | AtomKey::BisectorConverse) { Hyp::Between(d, b, c) } else { Hyp::Outside(d, b, c) };
-            let (hyp, row) = if matches!(key, AtomKey::BisectorRatio | AtomKey::ExtBisectorRatio) { (Hyp::Eq(Table::Angle, angle), (Table::Ratio, ratio)) } else { (Hyp::Eq(Table::Ratio, ratio), (Table::Angle, angle)) };
-            Spec { hyps: vec![line(&[b, d, c]), hyp, Hyp::Triangle(v, b, c), dist(a), side], rows: vec![row] }
+            let side = if matches!(key, AtomKey::BisectorRatio | AtomKey::BisectorConverse) {
+                Hyp::Between(d, b, c)
+            } else {
+                Hyp::Outside(d, b, c)
+            };
+            let (hyp, row) = if matches!(key, AtomKey::BisectorRatio | AtomKey::ExtBisectorRatio) {
+                (Hyp::Eq(Table::Angle, angle), (Table::Ratio, ratio))
+            } else {
+                (Hyp::Eq(Table::Ratio, ratio), (Table::Angle, angle))
+            };
+            Spec {
+                hyps: vec![line(&[b, d, c]), hyp, Hyp::Triangle(v, b, c), dist(a), side],
+                rows: vec![row],
+            }
         }
-        AtomKey::Menelaus | AtomKey::MenelausConverse | AtomKey::Ceva if n(6) || (key == AtomKey::Ceva && n(7)) => {
+        AtomKey::Menelaus | AtomKey::MenelausConverse | AtomKey::Ceva
+            if n(6) || (key == AtomKey::Ceva && n(7)) =>
+        {
             let (p, q, c, d, e, f) = (a[0], a[1], a[2], a[3], a[4], a[5]);
             let prod = r.ratio(&[(d, q), (e, c), (f, p)], &[(d, c), (e, p), (f, q)])?;
-            let mut hyps = vec![line(&[q, d, c]), line(&[c, e, p]), line(&[p, f, q]), Hyp::Triangle(p, q, c), dist(a)];
+            let mut hyps = vec![
+                line(&[q, d, c]),
+                line(&[c, e, p]),
+                line(&[p, f, q]),
+                Hyp::Triangle(p, q, c),
+                dist(a),
+            ];
             match key {
                 AtomKey::Menelaus => {
                     hyps.push(line(&[d, e, f]));
-                    Spec { hyps, rows: vec![(Table::Ratio, prod)] }
+                    Spec {
+                        hyps,
+                        rows: vec![(Table::Ratio, prod)],
+                    }
                 }
                 AtomKey::MenelausConverse => {
                     hyps.push(Hyp::Eq(Table::Ratio, prod));
                     hyps.push(Hyp::OutsideParity([(d, q, c), (e, c, p), (f, p, q)], true));
-                    Spec { hyps, rows: vec![(Table::Angle, r.coll(d, e, f)?)] }
+                    Spec {
+                        hyps,
+                        rows: vec![(Table::Angle, r.coll(d, e, f)?)],
+                    }
                 }
                 _ => {
                     if a.len() != 7 {
@@ -266,7 +383,10 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
                     }
                     let x = a[6];
                     hyps.extend([line(&[p, x, d]), line(&[q, x, e]), line(&[c, x, f])]);
-                    Spec { hyps, rows: vec![(Table::Ratio, prod)] }
+                    Spec {
+                        hyps,
+                        rows: vec![(Table::Ratio, prod)],
+                    }
                 }
             }
         }
@@ -294,7 +414,17 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
             if let Some(two) = r.konst(2) {
                 rows.push((Table::Ratio, &(&r.dm(q, c)? - &r.dm(m, nn)?) - &two));
             }
-            Spec { hyps: vec![Hyp::Eq(Table::Ratio, r.cong(m, p, m, q)?), line(&[p, m, q]), line(&[p, nn, c]), Hyp::Eq(Table::Angle, r.para((m, nn), (q, c))?), Hyp::Triangle(p, q, c), dist(a)], rows }
+            Spec {
+                hyps: vec![
+                    Hyp::Eq(Table::Ratio, r.cong(m, p, m, q)?),
+                    line(&[p, m, q]),
+                    line(&[p, nn, c]),
+                    Hyp::Eq(Table::Angle, r.para((m, nn), (q, c))?),
+                    Hyp::Triangle(p, q, c),
+                    dist(a),
+                ],
+                rows,
+            }
         }
         AtomKey::Centroid if n(6) => {
             let (g, p, q, c, ma, mb) = (a[0], a[1], a[2], a[3], a[4], a[5]);
@@ -310,7 +440,10 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
                     Hyp::Triangle(p, q, c),
                     dist(a),
                 ],
-                rows: vec![(Table::Ratio, &(&r.dm(p, g)? - &r.dm(g, ma)?) - &two), (Table::Ratio, &(&r.dm(q, g)? - &r.dm(g, mb)?) - &two)],
+                rows: vec![
+                    (Table::Ratio, &(&r.dm(p, g)? - &r.dm(g, ma)?) - &two),
+                    (Table::Ratio, &(&r.dm(q, g)? - &r.dm(g, mb)?) - &two),
+                ],
             }
         }
         AtomKey::Pythagoras | AtomKey::PythagorasConverse if n(3) => {
@@ -318,26 +451,48 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
             let sq = &(&r.sq(p, v)? + &r.sq(v, q)?) - &r.sq(p, q)?;
             let perp = r.perp((v, p), (v, q))?;
             if key == AtomKey::Pythagoras {
-                Spec { hyps: vec![Hyp::Eq(Table::Angle, perp), Hyp::Triangle(p, v, q)], rows: vec![(Table::Sq, sq)] }
+                Spec {
+                    hyps: vec![Hyp::Eq(Table::Angle, perp), Hyp::Triangle(p, v, q)],
+                    rows: vec![(Table::Sq, sq)],
+                }
             } else {
-                Spec { hyps: vec![Hyp::Eq(Table::Sq, sq), Hyp::Triangle(p, v, q)], rows: vec![(Table::Angle, perp)] }
+                Spec {
+                    hyps: vec![Hyp::Eq(Table::Sq, sq), Hyp::Triangle(p, v, q)],
+                    rows: vec![(Table::Angle, perp)],
+                }
             }
         }
         AtomKey::IsoscelesConverse if n(3) => {
             let (o, p, q) = (a[0], a[1], a[2]);
-            Spec { hyps: vec![Hyp::Eq(Table::Angle, r.ex(&r.ang(o, p, q)? - &r.ang(p, q, o)?)), Hyp::Triangle(o, p, q)], rows: vec![(Table::Ratio, r.cong(o, p, o, q)?)] }
+            Spec {
+                hyps: vec![
+                    Hyp::Eq(Table::Angle, r.ex(&r.ang(o, p, q)? - &r.ang(p, q, o)?)),
+                    Hyp::Triangle(o, p, q),
+                ],
+                rows: vec![(Table::Ratio, r.cong(o, p, o, q)?)],
+            }
         }
         AtomKey::PerpBisectorLocus if n(4) => {
             let (x, p, q, m) = (a[0], a[1], a[2], a[3]);
             Spec {
-                hyps: vec![Hyp::Eq(Table::Ratio, r.cong(m, p, m, q)?), line(&[p, m, q]), Hyp::Eq(Table::Angle, r.perp((x, m), (p, q))?), dist(a)],
+                hyps: vec![
+                    Hyp::Eq(Table::Ratio, r.cong(m, p, m, q)?),
+                    line(&[p, m, q]),
+                    Hyp::Eq(Table::Angle, r.perp((x, m), (p, q))?),
+                    dist(a),
+                ],
                 rows: vec![(Table::Ratio, r.cong(x, p, x, q)?)],
             }
         }
         AtomKey::MedianHypotenuse if n(4) => {
             let (m, p, q, x) = (a[0], a[1], a[2], a[3]);
             Spec {
-                hyps: vec![Hyp::Eq(Table::Angle, r.perp((x, p), (x, q))?), Hyp::Eq(Table::Ratio, r.cong(m, p, m, q)?), line(&[p, m, q]), dist(a)],
+                hyps: vec![
+                    Hyp::Eq(Table::Angle, r.perp((x, p), (x, q))?),
+                    Hyp::Eq(Table::Ratio, r.cong(m, p, m, q)?),
+                    line(&[p, m, q]),
+                    dist(a),
+                ],
                 rows: vec![(Table::Ratio, r.cong(m, x, m, p)?)],
             }
         }
@@ -362,24 +517,44 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
         AtomKey::Miquel if n(7) => {
             let (p, q, c, d, e, f, m) = (a[0], a[1], a[2], a[3], a[4], a[5], a[6]);
             Spec {
-                hyps: vec![line(&[q, d, c]), line(&[c, e, p]), line(&[p, f, q]), Hyp::Circle(vec![p, e, f, m]), Hyp::Circle(vec![q, f, d, m]), Hyp::Triangle(p, q, c), dist(a)],
+                hyps: vec![
+                    line(&[q, d, c]),
+                    line(&[c, e, p]),
+                    line(&[p, f, q]),
+                    Hyp::Circle(vec![p, e, f, m]),
+                    Hyp::Circle(vec![q, f, d, m]),
+                    Hyp::Triangle(p, q, c),
+                    dist(a),
+                ],
                 rows: vec![(Table::Angle, r.inscribed(c, d, e, m)?)],
             }
         }
         AtomKey::Reim if n(6) => {
             let (x, y, p, q, c, d) = (a[0], a[1], a[2], a[3], a[4], a[5]);
             Spec {
-                hyps: vec![Hyp::Circle(vec![x, y, p, q]), Hyp::Circle(vec![x, y, c, d]), line(&[p, x, c]), line(&[q, y, d]), dist(a)],
+                hyps: vec![
+                    Hyp::Circle(vec![x, y, p, q]),
+                    Hyp::Circle(vec![x, y, c, d]),
+                    line(&[p, x, c]),
+                    line(&[q, y, d]),
+                    dist(a),
+                ],
                 rows: vec![(Table::Angle, r.para((p, q), (c, d))?)],
             }
         }
         AtomKey::SineSupplement | AtomKey::SineComplement if args_case(a).is_some() => {
-            if trig_case(t, key, a) != args_case(a) || (key == AtomKey::SineSupplement && args_case(a) == Some(2)) {
+            if trig_case(t, key, a) != args_case(a)
+                || (key == AtomKey::SineSupplement && args_case(a) == Some(2))
+            {
                 return None;
             }
             let a1 = r.ang(a[1], a[0], a[2])?;
             let a2 = r.ang(a[4], a[3], a[5])?;
-            let shift = if key == AtomKey::SineComplement { half() } else { Rat::zero() };
+            let shift = if key == AtomKey::SineComplement {
+                half()
+            } else {
+                Rat::zero()
+            };
             let mut row = None;
             for c in [&a1 - &a2, &a1 + &a2] {
                 let mut c = c;
@@ -389,39 +564,79 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
                     break;
                 }
             }
-            let other = if key == AtomKey::SineComplement { r.cosine(a[3], a[4], a[5])? } else { r.sine(a[3], a[4], a[5])? };
+            let other = if key == AtomKey::SineComplement {
+                r.cosine(a[3], a[4], a[5])?
+            } else {
+                r.sine(a[3], a[4], a[5])?
+            };
             Spec {
-                hyps: vec![Hyp::EqOrHalf(Table::Angle, row?), Hyp::Triangle(a[0], a[1], a[2]), Hyp::Triangle(a[3], a[4], a[5])],
+                hyps: vec![
+                    Hyp::EqOrHalf(Table::Angle, row?),
+                    Hyp::Triangle(a[0], a[1], a[2]),
+                    Hyp::Triangle(a[3], a[4], a[5]),
+                ],
                 rows: vec![(Table::Ratio, &r.sine(a[0], a[1], a[2])? - &other)],
             }
         }
         AtomKey::LawOfSines if n(3) => {
             let (p, q, c) = (a[0], a[1], a[2]);
             let row = &(&(&r.dm(q, c)? - &r.dm(c, p)?) - &r.sine(p, q, c)?) + &r.sine(q, c, p)?;
-            Spec { hyps: vec![Hyp::Triangle(p, q, c)], rows: vec![(Table::Ratio, row)] }
+            Spec {
+                hyps: vec![Hyp::Triangle(p, q, c)],
+                rows: vec![(Table::Ratio, row)],
+            }
         }
         AtomKey::ExtLawOfSines if n(4) => {
             let (p, q, c, o) = (a[0], a[1], a[2], a[3]);
             let row = &(&(&r.dm(q, c)? - &r.konst(2)?) - &r.dm(o, p)?) - &r.sine(p, q, c)?;
-            Spec { hyps: vec![Hyp::Eq(Table::Ratio, r.cong(o, p, o, q)?), Hyp::Eq(Table::Ratio, r.cong(o, p, o, c)?), Hyp::Triangle(p, q, c)], rows: vec![(Table::Ratio, row)] }
+            Spec {
+                hyps: vec![
+                    Hyp::Eq(Table::Ratio, r.cong(o, p, o, q)?),
+                    Hyp::Eq(Table::Ratio, r.cong(o, p, o, c)?),
+                    Hyp::Triangle(p, q, c),
+                ],
+                rows: vec![(Table::Ratio, row)],
+            }
         }
-        AtomKey::CongruentSss | AtomKey::CongruentSas | AtomKey::CongruentAsa | AtomKey::CongruentRhs if n(6) => {
+        AtomKey::CongruentSss
+        | AtomKey::CongruentSas
+        | AtomKey::CongruentAsa
+        | AtomKey::CongruentRhs
+            if n(6) =>
+        {
             let (p, q, c, x, y, z) = (a[0], a[1], a[2], a[3], a[4], a[5]);
             let same = t.orient(p, q, c) == t.orient(x, y, z);
-            let corner = |u: PointId, v: PointId, w: PointId, uu: PointId, vv: PointId, ww: PointId| -> Option<LinComb> {
+            let corner = |u: PointId,
+                          v: PointId,
+                          w: PointId,
+                          uu: PointId,
+                          vv: PointId,
+                          ww: PointId|
+             -> Option<LinComb> {
                 let l = r.ang(u, v, w)?;
                 let m = r.ang(uu, vv, ww)?;
                 Some(r.ex(if same { &l - &m } else { &l + &m }))
             };
-            let sides = [r.cong(p, q, x, y)?, r.cong(q, c, y, z)?, r.cong(c, p, z, x)?];
-            let angles = [corner(q, p, c, y, x, z)?, corner(p, q, c, x, y, z)?, corner(p, c, q, x, z, y)?];
+            let sides = [
+                r.cong(p, q, x, y)?,
+                r.cong(q, c, y, z)?,
+                r.cong(c, p, z, x)?,
+            ];
+            let angles = [
+                corner(q, p, c, y, x, z)?,
+                corner(p, q, c, x, y, z)?,
+                corner(p, c, q, x, z, y)?,
+            ];
             let (hs, ha): (Vec<usize>, Vec<usize>) = match key {
                 AtomKey::CongruentSss => (vec![0, 1, 2], vec![]),
                 AtomKey::CongruentSas => (vec![0, 1], vec![1]),
                 AtomKey::CongruentAsa => (vec![0], vec![0, 1]),
                 _ => (vec![0, 2], vec![]),
             };
-            let mut hyps: Vec<Hyp> = hs.iter().map(|&i| Hyp::Eq(Table::Ratio, sides[i].clone())).collect();
+            let mut hyps: Vec<Hyp> = hs
+                .iter()
+                .map(|&i| Hyp::Eq(Table::Ratio, sides[i].clone()))
+                .collect();
             hyps.extend(ha.iter().map(|&i| Hyp::Eq(Table::Angle, angles[i].clone())));
             if key == AtomKey::CongruentRhs {
                 hyps.push(Hyp::Eq(Table::Angle, r.perp((q, p), (q, c))?));
@@ -453,7 +668,10 @@ pub fn spec(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Spec> {
         }
         _ => return None,
     };
-    if s.rows.iter().any(|(tb, row)| row.is_zero() || !t.holds(*tb, row)) {
+    if s.rows
+        .iter()
+        .any(|(tb, row)| row.is_zero() || !t.holds(*tb, row))
+    {
         return None;
     }
     Some(s)
@@ -491,12 +709,23 @@ fn strictly_outside(t: &EngineTrace, p: PointId, a: PointId, b: PointId) -> bool
 pub fn config_holds(t: &EngineTrace, h: &Hyp) -> bool {
     match h {
         Hyp::Distinct(v) => (0..v.len()).all(|i| (i + 1..v.len()).all(|j| distinct(t, v[i], v[j]))),
-        Hyp::Triangle(a, b, c) => distinct(t, *a, *b) && distinct(t, *b, *c) && distinct(t, *a, *c) && t.orient(*a, *b, *c) != 0,
+        Hyp::Triangle(a, b, c) => {
+            distinct(t, *a, *b)
+                && distinct(t, *b, *c)
+                && distinct(t, *a, *c)
+                && t.orient(*a, *b, *c) != 0
+        }
         Hyp::Between(p, a, b) => strictly_between(t, *p, *a, *b),
         Hyp::Outside(p, a, b) => strictly_outside(t, *p, *a, *b),
         Hyp::SplitAlike(o, a, b, c, d) => {
-            let x = (strictly_between(t, *o, *a, *b), strictly_outside(t, *o, *a, *b));
-            let y = (strictly_between(t, *o, *c, *d), strictly_outside(t, *o, *c, *d));
+            let x = (
+                strictly_between(t, *o, *a, *b),
+                strictly_outside(t, *o, *a, *b),
+            );
+            let y = (
+                strictly_between(t, *o, *c, *d),
+                strictly_outside(t, *o, *c, *d),
+            );
             (x.0 || x.1) && x == y
         }
         Hyp::OutsideParity(v, odd) => {
@@ -517,52 +746,185 @@ pub fn config_holds(t: &EngineTrace, h: &Hyp) -> bool {
 pub fn stmt(key: AtomKey, a: &[PointId]) -> Option<Stmt> {
     let seg = |x: PointId, y: PointId| Expr::Seg { a: x, b: y };
     let prod = |v: Vec<(Expr, i32)>| Expr::Prod { factors: v };
-    let ang = |x: PointId, y: PointId, z: PointId| Expr::Angle { a: x, b: y, c: z, directed: true };
+    let ang = |x: PointId, y: PointId, z: PointId| Expr::Angle {
+        a: x,
+        b: y,
+        c: z,
+        directed: true,
+    };
     Some(match key {
-        AtomKey::EqualTangents => Stmt::Cong { s1: (a[0], a[1]), s2: (a[0], a[2]) },
-        AtomKey::TangentSecant => Stmt::Eq { lhs: prod(vec![(seg(a[0], a[1]), 2)]), rhs: prod(vec![(seg(a[0], a[2]), 1), (seg(a[0], a[3]), 1)]) },
-        AtomKey::PowerConverse => Stmt::Cyclic { pts: a[1..5].to_vec() },
-        AtomKey::Intercept => Stmt::EqRatio { segs: vec![(a[0], a[1]), (a[0], a[2]), (a[0], a[3]), (a[0], a[4])] },
-        AtomKey::InterceptConverse => Stmt::Para { l1: (a[1], a[3]), l2: (a[2], a[4]) },
-        AtomKey::BisectorRatio | AtomKey::ExtBisectorRatio => Stmt::EqRatio { segs: vec![(a[3], a[1]), (a[3], a[2]), (a[0], a[1]), (a[0], a[2])] },
-        AtomKey::BisectorConverse | AtomKey::ExtBisectorConverse => Stmt::EqAngle { lhs: ang(a[1], a[0], a[3]), rhs: ang(a[3], a[0], a[2]) },
-        AtomKey::Menelaus | AtomKey::Ceva => Stmt::Eq {
-            lhs: prod(vec![(seg(a[3], a[1]), 1), (seg(a[4], a[2]), 1), (seg(a[5], a[0]), 1)]),
-            rhs: prod(vec![(seg(a[3], a[2]), 1), (seg(a[4], a[0]), 1), (seg(a[5], a[1]), 1)]),
+        AtomKey::EqualTangents => Stmt::Cong {
+            s1: (a[0], a[1]),
+            s2: (a[0], a[2]),
         },
-        AtomKey::MenelausConverse => Stmt::Coll { pts: vec![a[3], a[4], a[5]] },
-        AtomKey::CevaConverse => Stmt::Coll { pts: vec![a[2], a[6], a[5]] },
-        AtomKey::MidlineConverse => Stmt::Cong { s1: (a[1], a[2]), s2: (a[1], a[4]) },
-        AtomKey::Centroid => Stmt::RatioConst { s1: (a[1], a[0]), s2: (a[0], a[4]), value: Rat::from_int(2) },
-        AtomKey::Pythagoras => Stmt::Eq { lhs: Expr::Lin { terms: vec![(Rat::one(), Expr::Sq { a: a[0], b: a[1] }), (Rat::one(), Expr::Sq { a: a[1], b: a[2] })] }, rhs: Expr::Sq { a: a[0], b: a[2] } },
-        AtomKey::PythagorasConverse => Stmt::Perp { l1: (a[1], a[0]), l2: (a[1], a[2]) },
-        AtomKey::IsoscelesConverse => Stmt::Cong { s1: (a[0], a[1]), s2: (a[0], a[2]) },
-        AtomKey::PerpBisectorLocus => Stmt::Cong { s1: (a[0], a[1]), s2: (a[0], a[2]) },
-        AtomKey::MedianHypotenuse => Stmt::Cong { s1: (a[0], a[3]), s2: (a[0], a[1]) },
-        AtomKey::Simson => Stmt::Coll { pts: vec![a[4], a[5], a[6]] },
-        AtomKey::Miquel => Stmt::Cyclic { pts: vec![a[2], a[3], a[4], a[6]] },
-        AtomKey::Reim => Stmt::Para { l1: (a[2], a[3]), l2: (a[4], a[5]) },
+        AtomKey::TangentSecant => Stmt::Eq {
+            lhs: prod(vec![(seg(a[0], a[1]), 2)]),
+            rhs: prod(vec![(seg(a[0], a[2]), 1), (seg(a[0], a[3]), 1)]),
+        },
+        AtomKey::PowerConverse => Stmt::Cyclic {
+            pts: a[1..5].to_vec(),
+        },
+        AtomKey::Intercept => Stmt::EqRatio {
+            segs: vec![(a[0], a[1]), (a[0], a[2]), (a[0], a[3]), (a[0], a[4])],
+        },
+        AtomKey::InterceptConverse => Stmt::Para {
+            l1: (a[1], a[3]),
+            l2: (a[2], a[4]),
+        },
+        AtomKey::BisectorRatio | AtomKey::ExtBisectorRatio => Stmt::EqRatio {
+            segs: vec![(a[3], a[1]), (a[3], a[2]), (a[0], a[1]), (a[0], a[2])],
+        },
+        AtomKey::BisectorConverse | AtomKey::ExtBisectorConverse => Stmt::EqAngle {
+            lhs: ang(a[1], a[0], a[3]),
+            rhs: ang(a[3], a[0], a[2]),
+        },
+        AtomKey::Menelaus | AtomKey::Ceva => Stmt::Eq {
+            lhs: prod(vec![
+                (seg(a[3], a[1]), 1),
+                (seg(a[4], a[2]), 1),
+                (seg(a[5], a[0]), 1),
+            ]),
+            rhs: prod(vec![
+                (seg(a[3], a[2]), 1),
+                (seg(a[4], a[0]), 1),
+                (seg(a[5], a[1]), 1),
+            ]),
+        },
+        AtomKey::MenelausConverse => Stmt::Coll {
+            pts: vec![a[3], a[4], a[5]],
+        },
+        AtomKey::CevaConverse => Stmt::Coll {
+            pts: vec![a[2], a[6], a[5]],
+        },
+        AtomKey::MidlineConverse => Stmt::Cong {
+            s1: (a[1], a[2]),
+            s2: (a[1], a[4]),
+        },
+        AtomKey::Centroid => Stmt::RatioConst {
+            s1: (a[1], a[0]),
+            s2: (a[0], a[4]),
+            value: Rat::from_int(2),
+        },
+        AtomKey::Pythagoras => Stmt::Eq {
+            lhs: Expr::Lin {
+                terms: vec![
+                    (Rat::one(), Expr::Sq { a: a[0], b: a[1] }),
+                    (Rat::one(), Expr::Sq { a: a[1], b: a[2] }),
+                ],
+            },
+            rhs: Expr::Sq { a: a[0], b: a[2] },
+        },
+        AtomKey::PythagorasConverse => Stmt::Perp {
+            l1: (a[1], a[0]),
+            l2: (a[1], a[2]),
+        },
+        AtomKey::IsoscelesConverse => Stmt::Cong {
+            s1: (a[0], a[1]),
+            s2: (a[0], a[2]),
+        },
+        AtomKey::PerpBisectorLocus => Stmt::Cong {
+            s1: (a[0], a[1]),
+            s2: (a[0], a[2]),
+        },
+        AtomKey::MedianHypotenuse => Stmt::Cong {
+            s1: (a[0], a[3]),
+            s2: (a[0], a[1]),
+        },
+        AtomKey::Simson => Stmt::Coll {
+            pts: vec![a[4], a[5], a[6]],
+        },
+        AtomKey::Miquel => Stmt::Cyclic {
+            pts: vec![a[2], a[3], a[4], a[6]],
+        },
+        AtomKey::Reim => Stmt::Para {
+            l1: (a[2], a[3]),
+            l2: (a[4], a[5]),
+        },
         AtomKey::LawOfSines => {
-            let s = |v: PointId, p: PointId, q: PointId| Expr::Sin { angle: Box::new(Expr::Angle { a: p, b: v, c: q, directed: false }) };
-            Stmt::Eq { lhs: prod(vec![(seg(a[1], a[2]), 1), (s(a[0], a[1], a[2]), -1)]), rhs: prod(vec![(seg(a[2], a[0]), 1), (s(a[1], a[2], a[0]), -1)]) }
+            let s = |v: PointId, p: PointId, q: PointId| Expr::Sin {
+                angle: Box::new(Expr::Angle {
+                    a: p,
+                    b: v,
+                    c: q,
+                    directed: false,
+                }),
+            };
+            Stmt::Eq {
+                lhs: prod(vec![(seg(a[1], a[2]), 1), (s(a[0], a[1], a[2]), -1)]),
+                rhs: prod(vec![(seg(a[2], a[0]), 1), (s(a[1], a[2], a[0]), -1)]),
+            }
         }
-        AtomKey::CongruentSss | AtomKey::CongruentSas | AtomKey::CongruentAsa | AtomKey::CongruentRhs => Stmt::Congruent { t1: (a[0], a[1], a[2]), t2: (a[3], a[4], a[5]), opposite: false },
+        AtomKey::CongruentSss
+        | AtomKey::CongruentSas
+        | AtomKey::CongruentAsa
+        | AtomKey::CongruentRhs => Stmt::Congruent {
+            t1: (a[0], a[1], a[2]),
+            t2: (a[3], a[4], a[5]),
+            opposite: false,
+        },
         AtomKey::SineSupplement | AtomKey::SineComplement => {
-            let u = |x: PointId, y: PointId, z: PointId| Expr::Angle { a: x, b: y, c: z, directed: false };
+            let u = |x: PointId, y: PointId, z: PointId| Expr::Angle {
+                a: x,
+                b: y,
+                c: z,
+                directed: false,
+            };
             let (x, y) = (u(a[1], a[0], a[2]), u(a[4], a[3], a[5]));
-            let k = |d: i64| (Rat::one(), Expr::Const { degrees: Rat::from_int(d) });
+            let k = |d: i64| {
+                (
+                    Rat::one(),
+                    Expr::Const {
+                        degrees: Rat::from_int(d),
+                    },
+                )
+            };
             let rhs = match (key, args_case(a)?) {
                 (AtomKey::SineSupplement, 0) => y,
-                (AtomKey::SineSupplement, 1) => Expr::Lin { terms: vec![k(180), (Rat::from_int(-1), y)] },
-                (_, 0) => Expr::Lin { terms: vec![k(90), (Rat::from_int(-1), y)] },
-                (_, 1) => Expr::Lin { terms: vec![(Rat::one(), y), k(90)] },
-                _ => Expr::Lin { terms: vec![(Rat::one(), y), (Rat::from_int(-1), Expr::Const { degrees: Rat::from_int(90) })] },
+                (AtomKey::SineSupplement, 1) => Expr::Lin {
+                    terms: vec![k(180), (Rat::from_int(-1), y)],
+                },
+                (_, 0) => Expr::Lin {
+                    terms: vec![k(90), (Rat::from_int(-1), y)],
+                },
+                (_, 1) => Expr::Lin {
+                    terms: vec![(Rat::one(), y), k(90)],
+                },
+                _ => Expr::Lin {
+                    terms: vec![
+                        (Rat::one(), y),
+                        (
+                            Rat::from_int(-1),
+                            Expr::Const {
+                                degrees: Rat::from_int(90),
+                            },
+                        ),
+                    ],
+                },
             };
             Stmt::Eq { lhs: x, rhs }
         }
         AtomKey::ExtLawOfSines => Stmt::Eq {
             lhs: seg(a[1], a[2]),
-            rhs: prod(vec![(Expr::Num { value: Rat::from_int(2) }, 1), (seg(a[3], a[0]), 1), (Expr::Sin { angle: Box::new(Expr::Angle { a: a[1], b: a[0], c: a[2], directed: false }) }, 1)]),
+            rhs: prod(vec![
+                (
+                    Expr::Num {
+                        value: Rat::from_int(2),
+                    },
+                    1,
+                ),
+                (seg(a[3], a[0]), 1),
+                (
+                    Expr::Sin {
+                        angle: Box::new(Expr::Angle {
+                            a: a[1],
+                            b: a[0],
+                            c: a[2],
+                            directed: false,
+                        }),
+                    },
+                    1,
+                ),
+            ]),
         },
         _ => return None,
     })
@@ -580,13 +942,20 @@ pub struct Figure<'t> {
 }
 
 impl<'t> Figure<'t> {
-    pub fn new(t: &'t EngineTrace, lines: Vec<Vec<PointId>>, circles: Vec<Vec<PointId>>) -> Figure<'t> {
+    pub fn new(
+        t: &'t EngineTrace,
+        lines: Vec<Vec<PointId>>,
+        circles: Vec<Vec<PointId>>,
+    ) -> Figure<'t> {
         let mut merged: Vec<Vec<PointId>> = Vec::new();
         for l in lines {
             if l.len() < 3 {
                 continue;
             }
-            if let Some(m) = merged.iter_mut().find(|m| l.iter().filter(|p| m.contains(p)).count() >= 2) {
+            if let Some(m) = merged
+                .iter_mut()
+                .find(|m| l.iter().filter(|p| m.contains(p)).count() >= 2)
+            {
                 for p in l {
                     if !m.contains(&p) {
                         m.push(p);
@@ -619,14 +988,27 @@ impl<'t> Figure<'t> {
         for v in on.values_mut() {
             v.sort_unstable();
         }
-        let mut cs: Vec<Vec<PointId>> = circles.into_iter().filter(|c| c.len() >= 4).map(|mut c| {
-            c.sort_unstable();
-            c.dedup();
-            c
-        }).collect();
+        let mut cs: Vec<Vec<PointId>> = circles
+            .into_iter()
+            .filter(|c| c.len() >= 4)
+            .map(|mut c| {
+                c.sort_unstable();
+                c.dedup();
+                c
+            })
+            .collect();
         cs.sort();
         cs.dedup();
-        Figure { t, lines: merged, circles: cs, sines: FxHashSet::default(), used_sines: FxHashSet::default(), trig_goal: false, on, eps: tol(t) }
+        Figure {
+            t,
+            lines: merged,
+            circles: cs,
+            sines: FxHashSet::default(),
+            used_sines: FxHashSet::default(),
+            trig_goal: false,
+            on,
+            eps: tol(t),
+        }
     }
 
     pub fn on(&self, a: PointId, b: PointId) -> &[PointId] {
@@ -644,11 +1026,17 @@ impl<'t> Figure<'t> {
     }
 
     pub fn perp(&self, l: (PointId, PointId), m: (PointId, PointId)) -> bool {
-        self.d(l.0, l.1) && self.d(m.0, m.1) && self.line_close(self.angle_of(l.0, l.1) - self.angle_of(m.0, m.1) - std::f64::consts::FRAC_PI_2)
+        self.d(l.0, l.1)
+            && self.d(m.0, m.1)
+            && self.line_close(
+                self.angle_of(l.0, l.1) - self.angle_of(m.0, m.1) - std::f64::consts::FRAC_PI_2,
+            )
     }
 
     pub fn para(&self, l: (PointId, PointId), m: (PointId, PointId)) -> bool {
-        self.d(l.0, l.1) && self.d(m.0, m.1) && self.line_close(self.angle_of(l.0, l.1) - self.angle_of(m.0, m.1))
+        self.d(l.0, l.1)
+            && self.d(m.0, m.1)
+            && self.line_close(self.angle_of(l.0, l.1) - self.angle_of(m.0, m.1))
     }
 
     pub fn d(&self, a: PointId, b: PointId) -> bool {
@@ -667,7 +1055,8 @@ impl<'t> Figure<'t> {
             (x, y, x * x + y * y)
         };
         let (r0, r1, r2) = (m(0), m(1), m(2));
-        let det = r0.0 * (r1.1 * r2.2 - r1.2 * r2.1) - r0.1 * (r1.0 * r2.2 - r1.2 * r2.0) + r0.2 * (r1.0 * r2.1 - r1.1 * r2.0);
+        let det = r0.0 * (r1.1 * r2.2 - r1.2 * r2.1) - r0.1 * (r1.0 * r2.2 - r1.2 * r2.0)
+            + r0.2 * (r1.0 * r2.1 - r1.1 * r2.0);
         let s = r0.2.max(r1.2).max(r2.2).max(1e-12);
         det.abs() < 1e-9 * s * s.sqrt() && self.t.orient(a, b, c) != 0
     }
@@ -677,7 +1066,9 @@ impl<'t> Figure<'t> {
     }
 }
 
-pub fn congruence_candidates(pairs: &[([PointId; 3], [PointId; 3])]) -> Vec<(AtomKey, Vec<PointId>)> {
+pub fn congruence_candidates(
+    pairs: &[([PointId; 3], [PointId; 3])],
+) -> Vec<(AtomKey, Vec<PointId>)> {
     let mut out = Vec::new();
     for (t1, t2) in pairs {
         for k in 0..3 {
@@ -698,7 +1089,9 @@ pub fn congruence_candidates(pairs: &[([PointId; 3], [PointId; 3])]) -> Vec<(Ato
 pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
     let t = fig.t;
     let n = t.n as PointId;
-    let pts: Vec<PointId> = (0..n).filter(|&p| t.subst.get(p as usize).copied().unwrap_or(p) == p && t.coord(p).0.is_finite()).collect();
+    let pts: Vec<PointId> = (0..n)
+        .filter(|&p| t.subst.get(p as usize).copied().unwrap_or(p) == p && t.coord(p).0.is_finite())
+        .collect();
     let mut out: Vec<(AtomKey, Vec<PointId>)> = Vec::new();
     let mut seen: FxHashSet<(AtomKey, Vec<PointId>)> = FxHashSet::default();
     let mut push = |out: &mut Vec<(AtomKey, Vec<PointId>)>, k: AtomKey, v: Vec<PointId>| {
@@ -734,7 +1127,12 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                 }
                 for &p in &pts {
                     for &q in fig.on(x, p) {
-                        if p < q && ![o, tt].contains(&p) && ![o, tt].contains(&q) && fig.eqlen(o, tt, o, p) && fig.eqlen(o, tt, o, q) {
+                        if p < q
+                            && ![o, tt].contains(&p)
+                            && ![o, tt].contains(&q)
+                            && fig.eqlen(o, tt, o, p)
+                            && fig.eqlen(o, tt, o, q)
+                        {
                             push(&mut out, AtomKey::TangentSecant, vec![x, tt, p, q, o]);
                         }
                     }
@@ -759,8 +1157,16 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                                 for (pp, qq) in [(p, q), (q, p)] {
                                     for (cc, dd) in [(c, d), (d, c)] {
                                         if fig.para((pp, cc), (qq, dd)) && pp < qq {
-                                            push(&mut out, AtomKey::Intercept, vec![x, pp, qq, cc, dd]);
-                                            push(&mut out, AtomKey::InterceptConverse, vec![x, pp, qq, cc, dd]);
+                                            push(
+                                                &mut out,
+                                                AtomKey::Intercept,
+                                                vec![x, pp, qq, cc, dd],
+                                            );
+                                            push(
+                                                &mut out,
+                                                AtomKey::InterceptConverse,
+                                                vec![x, pp, qq, cc, dd],
+                                            );
                                         }
                                     }
                                 }
@@ -782,12 +1188,17 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                         if d == b || d == c || !fig.d(v, d) {
                             continue;
                         }
-                        let (ab, ad, ac) = (fig.angle_of(v, b), fig.angle_of(v, d), fig.angle_of(v, c));
+                        let (ab, ad, ac) =
+                            (fig.angle_of(v, b), fig.angle_of(v, d), fig.angle_of(v, c));
                         if !fig.line_close((ad - ab) - (ac - ad)) {
                             continue;
                         }
                         let inside = strictly_between(t, d, b, c);
-                        let (r, cv) = if inside { (AtomKey::BisectorRatio, AtomKey::BisectorConverse) } else { (AtomKey::ExtBisectorRatio, AtomKey::ExtBisectorConverse) };
+                        let (r, cv) = if inside {
+                            (AtomKey::BisectorRatio, AtomKey::BisectorConverse)
+                        } else {
+                            (AtomKey::ExtBisectorRatio, AtomKey::ExtBisectorConverse)
+                        };
                         push(&mut out, r, vec![v, b, c, d]);
                         push(&mut out, cv, vec![v, b, c, d]);
                     }
@@ -800,7 +1211,17 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
         for (i, &a) in pts.iter().enumerate() {
             for (j, &b) in pts.iter().enumerate().skip(i + 1) {
                 for &c in &pts[j + 1..] {
-                    if t.orient(a, b, c) != 0 && [fig.on(a, b).is_empty(), fig.on(b, c).is_empty(), fig.on(c, a).is_empty()].iter().filter(|e| !**e).count() >= 2 {
+                    if t.orient(a, b, c) != 0
+                        && [
+                            fig.on(a, b).is_empty(),
+                            fig.on(b, c).is_empty(),
+                            fig.on(c, a).is_empty(),
+                        ]
+                        .iter()
+                        .filter(|e| !**e)
+                        .count()
+                            >= 2
+                    {
                         v.push([a, b, c]);
                     }
                 }
@@ -822,7 +1243,12 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                         push(&mut out, AtomKey::MenelausConverse, v.to_vec());
                         continue;
                     }
-                    let px: Vec<PointId> = fig.on(a, d).iter().copied().filter(|x| fig.on(b, e).contains(x) && ![a, b, c, d, e, f].contains(x)).collect();
+                    let px: Vec<PointId> = fig
+                        .on(a, d)
+                        .iter()
+                        .copied()
+                        .filter(|x| fig.on(b, e).contains(x) && ![a, b, c, d, e, f].contains(x))
+                        .collect();
                     for x in px {
                         if fig.on(c, f).contains(&x) {
                             let mut w = v.to_vec();
@@ -877,7 +1303,11 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                 if p >= q || p == v || q == v || t.orient(p, v, q) == 0 {
                     continue;
                 }
-                if fig.perp((v, p), (v, q)) && t.var(Table::Sq, p, v).is_some() && t.var(Table::Sq, v, q).is_some() && t.var(Table::Sq, p, q).is_some() {
+                if fig.perp((v, p), (v, q))
+                    && t.var(Table::Sq, p, v).is_some()
+                    && t.var(Table::Sq, v, q).is_some()
+                    && t.var(Table::Sq, p, q).is_some()
+                {
                     push(&mut out, AtomKey::Pythagoras, vec![p, v, q]);
                     push(&mut out, AtomKey::PythagorasConverse, vec![p, v, q]);
                 }
@@ -915,7 +1345,12 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
             for (i, &a) in rest.iter().enumerate() {
                 for (j, &b) in rest.iter().enumerate().skip(i + 1) {
                     for &c in &rest[j + 1..] {
-                        let foot = |u: PointId, w: PointId| -> Option<PointId> { fig.on(u, w).iter().copied().find(|&f| f != x && fig.perp((x, f), (u, w))) };
+                        let foot = |u: PointId, w: PointId| -> Option<PointId> {
+                            fig.on(u, w)
+                                .iter()
+                                .copied()
+                                .find(|&f| f != x && fig.perp((x, f), (u, w)))
+                        };
                         if let (Some(d), Some(e), Some(f)) = (foot(b, c), foot(c, a), foot(a, b)) {
                             push(&mut out, AtomKey::Simson, vec![x, a, b, c, d, e, f]);
                         }
@@ -941,8 +1376,16 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                         if p == q {
                             continue;
                         }
-                        for &c in fig.on(p, x).iter().filter(|c| c2.contains(c) && !common.contains(c)) {
-                            for &d in fig.on(q, y).iter().filter(|d| c2.contains(d) && !common.contains(d)) {
+                        for &c in fig
+                            .on(p, x)
+                            .iter()
+                            .filter(|c| c2.contains(c) && !common.contains(c))
+                        {
+                            for &d in fig
+                                .on(q, y)
+                                .iter()
+                                .filter(|d| c2.contains(d) && !common.contains(d))
+                            {
                                 if i < j {
                                     push(&mut out, AtomKey::Reim, vec![x, y, p, q, c, d]);
                                 }
@@ -953,10 +1396,17 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
                 let (m, f) = (x, y);
                 for &p in c1.iter().filter(|p| !common.contains(p)) {
                     for &e in c1.iter().filter(|e| !common.contains(e) && **e != p) {
-                        for &q in fig.on(p, f).iter().filter(|q| c2.contains(q) && !common.contains(q)) {
+                        for &q in fig
+                            .on(p, f)
+                            .iter()
+                            .filter(|q| c2.contains(q) && !common.contains(q))
+                        {
                             for &d in c2.iter().filter(|d| !common.contains(d) && **d != q) {
                                 for &c in fig.on(p, e) {
-                                    if p < q && fig.on(q, d).contains(&c) && ![m, f, p, e, q, d].contains(&c) {
+                                    if p < q
+                                        && fig.on(q, d).contains(&c)
+                                        && ![m, f, p, e, q, d].contains(&c)
+                                    {
                                         push(&mut out, AtomKey::Miquel, vec![p, q, c, d, e, f, m]);
                                     }
                                 }
@@ -971,12 +1421,23 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
     for x in t.sines.iter().filter(|_| fig.trig_goal) {
         let sh = x.shift.mod_one();
         let cos = sh == half();
-        if !(sh.is_zero() || cos) || x.p == x.q || x.v == x.p || x.v == x.q || t.orient(x.v, x.p, x.q) == 0 {
+        if !(sh.is_zero() || cos)
+            || x.p == x.q
+            || x.v == x.p
+            || x.v == x.q
+            || t.orient(x.v, x.p, x.q) == 0
+        {
             continue;
         }
-        let Some(&val) = t.values[Table::Ratio.idx()].get(x.var as usize) else { continue };
+        let Some(&val) = t.values[Table::Ratio.idx()].get(x.var as usize) else {
+            continue;
+        };
         let e = (x.v, x.p.min(x.q), x.p.max(x.q), cos, val);
-        if val > 1e-9 && !trig.iter().any(|y| (y.0, y.1, y.2, y.3) == (e.0, e.1, e.2, e.3)) {
+        if val > 1e-9
+            && !trig
+                .iter()
+                .any(|y| (y.0, y.1, y.2, y.3) == (e.0, e.1, e.2, e.3))
+        {
             trig.push(e);
         }
     }
@@ -989,11 +1450,17 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
             if i == j || (!y.3 && j < i) || (x.4 - y.4).abs() > 1e-9 * x.4.max(1.0) {
                 continue;
             }
-            let used = |e: &(PointId, PointId, PointId, bool, f64)| e.3 || fig.used_sines.contains(&(e.0, e.1, e.2));
+            let used = |e: &(PointId, PointId, PointId, bool, f64)| {
+                e.3 || fig.used_sines.contains(&(e.0, e.1, e.2))
+            };
             if !used(x) && !used(y) {
                 continue;
             }
-            let key = if y.3 { AtomKey::SineComplement } else { AtomKey::SineSupplement };
+            let key = if y.3 {
+                AtomKey::SineComplement
+            } else {
+                AtomKey::SineSupplement
+            };
             if let Some(args) = trig_identity_args(t, key, &[x.0, x.1, x.2, y.0, y.1, y.2]) {
                 push(&mut out, key, args);
             }
@@ -1008,7 +1475,9 @@ pub fn candidates(fig: &Figure, budget: usize) -> Vec<(AtomKey, Vec<PointId>)> {
             if !has(b, c, a) {
                 continue;
             }
-            if !fig.used_sines.contains(&(a, p.min(q), p.max(q))) && !fig.used_sines.contains(&(b, c.min(a), c.max(a))) {
+            if !fig.used_sines.contains(&(a, p.min(q), p.max(q)))
+                && !fig.used_sines.contains(&(b, c.min(a), c.max(a)))
+            {
                 continue;
             }
             push(&mut out, AtomKey::LawOfSines, vec![a, b, c]);

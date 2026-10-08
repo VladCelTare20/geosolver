@@ -27,7 +27,12 @@ fn run_worker(stdin: &str) -> (Option<i32>, String) {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
     let mut out = String::new();
     let mut stdout = child.stdout.take().unwrap();
     let reader = std::thread::spawn(move || {
@@ -51,7 +56,11 @@ fn the_worker_subcommand_solves_one_request_and_exits() {
     assert_eq!(code, Some(0), "{out}");
     let reply: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
     assert_eq!(reply["result"]["Ok"]["proved"], true, "{reply}");
-    assert_eq!(out.trim().lines().count(), 1, "stdout carries exactly the reply");
+    assert_eq!(
+        out.trim().lines().count(),
+        1,
+        "stdout carries exactly the reply"
+    );
 
     let (code, out) = run_worker(&request("not geo"));
     assert_eq!(code, Some(0));
@@ -96,11 +105,20 @@ fn free_port() -> u16 {
     }
 }
 
-fn http(port: u16, method: &str, path: &str, cookie: Option<&str>, body: Option<&str>) -> (u16, String, String) {
+fn http(
+    port: u16,
+    method: &str,
+    path: &str,
+    cookie: Option<&str>,
+    body: Option<&str>,
+) -> (u16, String, String) {
     let mut sock = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    sock.set_read_timeout(Some(Duration::from_secs(90))).unwrap();
+    sock.set_read_timeout(Some(Duration::from_secs(90)))
+        .unwrap();
     let body = body.unwrap_or("");
-    let cookie = cookie.map(|c| format!("Cookie: {c}\r\n")).unwrap_or_default();
+    let cookie = cookie
+        .map(|c| format!("Cookie: {c}\r\n"))
+        .unwrap_or_default();
     let req = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n{cookie}\
          Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
@@ -111,7 +129,11 @@ fn http(port: u16, method: &str, path: &str, cookie: Option<&str>, body: Option<
     sock.read_to_end(&mut bytes).unwrap();
     let raw = String::from_utf8_lossy(&bytes).into_owned();
     let (head, rest) = raw.split_once("\r\n\r\n").unwrap_or((&raw, ""));
-    let status = head.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     (status, head.to_string(), rest.to_string())
 }
 
@@ -143,7 +165,10 @@ fn a_real_server_solves_through_worker_processes() {
     assert_eq!(st, 200, "{body}");
     let cookie = head
         .lines()
-        .find_map(|l| l.strip_prefix("set-cookie: ").or_else(|| l.strip_prefix("Set-Cookie: ")))
+        .find_map(|l| {
+            l.strip_prefix("set-cookie: ")
+                .or_else(|| l.strip_prefix("Set-Cookie: "))
+        })
         .and_then(|v| v.split(';').next())
         .expect("session cookie")
         .to_string();
@@ -165,7 +190,10 @@ fn usernames(path: &std::path::Path) -> Vec<String> {
     let Ok(mut st) = conn.prepare("SELECT username FROM users ORDER BY id") else {
         return Vec::new();
     };
-    st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+    st.query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
 }
 
 #[cfg(unix)]
@@ -194,19 +222,45 @@ fn backup_copies_a_running_database_and_sigterm_leaves_a_self_contained_file() {
     assert_eq!(st, 200, "{body}");
 
     let dest = dir.path().join("backup.db");
-    let out = Command::new(BIN).args(["backup", dest.to_str().unwrap()]).env("AGSTUDIO_DB", &db).output().unwrap();
-    let said = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    let out = Command::new(BIN)
+        .args(["backup", dest.to_str().unwrap()])
+        .env("AGSTUDIO_DB", &db)
+        .output()
+        .unwrap();
+    let said =
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{said}");
-    assert!(said.contains("1 users") && said.contains("integrity ok"), "{said}");
+    assert!(
+        said.contains("1 users") && said.contains("integrity ok"),
+        "{said}"
+    );
     assert_eq!(usernames(&dest), ["keeper"]);
-    let again = Command::new(BIN).args(["backup", dest.to_str().unwrap()]).env("AGSTUDIO_DB", &db).output().unwrap();
-    assert_eq!(again.status.code(), Some(1), "an existing backup file is never overwritten");
+    let again = Command::new(BIN)
+        .args(["backup", dest.to_str().unwrap()])
+        .env("AGSTUDIO_DB", &db)
+        .output()
+        .unwrap();
+    assert_eq!(
+        again.status.code(),
+        Some(1),
+        "an existing backup file is never overwritten"
+    );
 
     let pid = server.0.id() as libc::pid_t;
     assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
-    let status = server.0.wait_timeout(Duration::from_secs(15)).unwrap().expect("SIGTERM stops the server");
+    let status = server
+        .0
+        .wait_timeout(Duration::from_secs(15))
+        .unwrap()
+        .expect("SIGTERM stops the server");
     let mut log = String::new();
-    server.0.stderr.take().unwrap().read_to_string(&mut log).unwrap();
+    server
+        .0
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut log)
+        .unwrap();
     assert!(status.success(), "{status:?}: {log}");
     assert!(log.contains("database checkpointed"), "{log}");
 
@@ -214,7 +268,9 @@ fn backup_copies_a_running_database_and_sigterm_leaves_a_self_contained_file() {
     std::fs::copy(&db, &main_file_only).unwrap();
     assert_eq!(usernames(&main_file_only), ["keeper"]);
     let conn = rusqlite::Connection::open(&main_file_only).unwrap();
-    let secrets: i64 = conn.query_row("SELECT count(*) FROM server_secrets", [], |r| r.get(0)).unwrap();
+    let secrets: i64 = conn
+        .query_row("SELECT count(*) FROM server_secrets", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(secrets, 1, "the gate key survives a main-file-only copy");
 }
 
@@ -225,6 +281,9 @@ fn version_flag_prints_the_crate_version_and_revision() {
         assert!(out.status.success(), "{flag}");
         let text = String::from_utf8_lossy(&out.stdout);
         let want = format!("agstudio {} (", env!("CARGO_PKG_VERSION"));
-        assert!(text.starts_with(&want) && text.trim_end().ends_with(')'), "{flag}: {text}");
+        assert!(
+            text.starts_with(&want) && text.trim_end().ends_with(')'),
+            "{flag}: {text}"
+        );
     }
 }

@@ -100,7 +100,10 @@ fn emit(out: &Output, resp: &Value) -> std::io::Result<()> {
 async fn finish_writer(writer: std::thread::JoinHandle<()>) {
     let joined = tokio::task::spawn_blocking(move || writer.join());
     if tokio::time::timeout(FINAL_FLUSH, joined).await.is_err() {
-        note!("stdout was not read for {}s after stdin closed; exiting", FINAL_FLUSH.as_secs());
+        note!(
+            "stdout was not read for {}s after stdin closed; exiting",
+            FINAL_FLUSH.as_secs()
+        );
     }
 }
 
@@ -207,7 +210,11 @@ enum Route {
     /// `notifications/cancelled` for the request with this (JSON-encoded) id.
     Cancel(String),
     /// A slow tool call, run as a cancellable task.
-    Tool { id: Value, name: String, args: Value },
+    Tool {
+        id: Value,
+        name: String,
+        args: Value,
+    },
 }
 
 fn route(raw: &[u8]) -> Route {
@@ -347,7 +354,11 @@ fn handle_line(raw: &[u8]) -> Option<Value> {
 fn validate(raw: &[u8]) -> Result<Value, Option<Value>> {
     let Ok(text) = std::str::from_utf8(raw) else {
         note!("rejecting a JSON-RPC line that is not valid UTF-8");
-        return Err(Some(error_response(Value::Null, PARSE_ERROR, "parse error: invalid UTF-8")));
+        return Err(Some(error_response(
+            Value::Null,
+            PARSE_ERROR,
+            "parse error: invalid UTF-8",
+        )));
     };
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -357,7 +368,11 @@ fn validate(raw: &[u8]) -> Result<Value, Option<Value>> {
         Ok(v) => v,
         Err(e) => {
             note!("rejecting malformed JSON-RPC line: {e}");
-            return Err(Some(error_response(Value::Null, PARSE_ERROR, &format!("parse error: {e}"))));
+            return Err(Some(error_response(
+                Value::Null,
+                PARSE_ERROR,
+                &format!("parse error: {e}"),
+            )));
         }
     };
     let Some(obj) = req.as_object() else {
@@ -383,10 +398,22 @@ fn validate(raw: &[u8]) -> Result<Value, Option<Value>> {
     }
     let reply_id = id.cloned().unwrap_or(Value::Null);
     if obj.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        return Err(id.map(|_| error_response(reply_id, INVALID_REQUEST, "invalid request: jsonrpc must be \"2.0\"")));
+        return Err(id.map(|_| {
+            error_response(
+                reply_id,
+                INVALID_REQUEST,
+                "invalid request: jsonrpc must be \"2.0\"",
+            )
+        }));
     }
     if !obj.get("method").is_some_and(Value::is_string) {
-        return Err(id.map(|_| error_response(reply_id, INVALID_REQUEST, "invalid request: missing `method`")));
+        return Err(id.map(|_| {
+            error_response(
+                reply_id,
+                INVALID_REQUEST,
+                "invalid request: missing `method`",
+            )
+        }));
     }
     Ok(req)
 }
@@ -562,10 +589,17 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
             Ok(sol) => (sol, reply.figure_png, reply.human),
             Err(e) => return text_result(&format!("error: {e}"), true),
         },
-        Outcome::TimedOut => (worker::time_limit_solution(&program, job.kind, job.limit()), None, None),
+        Outcome::TimedOut => (
+            worker::time_limit_solution(&program, job.kind, job.limit()),
+            None,
+            None,
+        ),
         Outcome::Failed(e) => {
             note!("solve worker failed: {e}");
-            return text_result("error: the solver process failed (crashed or ran out of memory)", true);
+            return text_result(
+                "error: the solver process failed (crashed or ran out of memory)",
+                true,
+            );
         }
     };
 
@@ -603,7 +637,10 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
         (Some(h), Some(proof)) => {
             text.push_str("\nPROOF\n\n");
             text.push_str(h);
-            text.push_str(&format!("\n\nFULL DERIVATION ({} machine-checked steps)\n", sol.proof_steps.unwrap_or(0)));
+            text.push_str(&format!(
+                "\n\nFULL DERIVATION ({} machine-checked steps)\n",
+                sol.proof_steps.unwrap_or(0)
+            ));
             text.push_str(proof);
         }
         (None, Some(proof)) => {
@@ -743,9 +780,10 @@ fn resolve_export_path(
     };
     let path = dir.join(file_name);
     match std::fs::symlink_metadata(&path) {
-        Ok(m) if m.file_type().is_symlink() => {
-            Err(format!("refusing to write through the symlink {}", path.display()))
-        }
+        Ok(m) if m.file_type().is_symlink() => Err(format!(
+            "refusing to write through the symlink {}",
+            path.display()
+        )),
         Ok(m) if !m.is_file() => Err(format!("{} exists and is not a file", path.display())),
         Ok(_) if !overwrite => Err(format!(
             "{} already exists; pass `overwrite: true` to replace it",
@@ -774,21 +812,34 @@ async fn tool_export_in(args: &Value, dir: &Path, permit: Option<OwnedSemaphoreP
         .and_then(Value::as_str);
     let format = match args.get("format").and_then(Value::as_str) {
         Some(f) => f.to_ascii_lowercase(),
-        None => match name.and_then(|n| Path::new(n).extension()).and_then(|e| e.to_str()) {
+        None => match name
+            .and_then(|n| Path::new(n).extension())
+            .and_then(|e| e.to_str())
+        {
             Some(e) if e.eq_ignore_ascii_case("png") => "png".to_string(),
             _ => "pdf".to_string(),
         },
     };
     if format != "pdf" && format != "png" {
-        return text_result(&format!("error: unknown format {format:?} (use \"pdf\" or \"png\")"), true);
+        return text_result(
+            &format!("error: unknown format {format:?} (use \"pdf\" or \"png\")"),
+            true,
+        );
     }
-    let overwrite = args.get("overwrite").and_then(Value::as_bool).unwrap_or(false);
+    let overwrite = args
+        .get("overwrite")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     // Check the destination before spending time on the solve.
     if let Err(e) = resolve_export_path(dir, name, &format, overwrite) {
         return text_result(&format!("error: {e}"), true);
     }
     let mut job = worker::Request::new(&program, &opts, worker::Mode::Solve, timeout_from(args));
-    job.report = Some(if format == "png" { worker::Format::Png } else { worker::Format::Pdf });
+    job.report = Some(if format == "png" {
+        worker::Format::Png
+    } else {
+        worker::Format::Pdf
+    });
     let reply = match worker::run(&job, permit).await {
         Outcome::Done(reply) => reply,
         Outcome::TimedOut => {
@@ -839,7 +890,6 @@ async fn tool_export_in(args: &Value, dir: &Path, permit: Option<OwnedSemaphoreP
         Err(e) => text_result(&format!("error writing {}: {e}", path.display()), true),
     }
 }
-
 
 fn method_name(m: engine::Method) -> &'static str {
     match m {
@@ -899,7 +949,12 @@ mod tests {
 
     #[test]
     fn batches_and_non_objects_are_invalid_requests() {
-        for s in ["[]", r#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#, "42", "\"x\""] {
+        for s in [
+            "[]",
+            r#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#,
+            "42",
+            "\"x\"",
+        ] {
             let r = line(s).unwrap();
             assert_eq!(r["error"]["code"], -32600, "{s}");
             assert_eq!(r["id"], Value::Null);
@@ -950,18 +1005,34 @@ mod tests {
         let r = tool_solve(&json!({"program": "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)"}), None).await;
         assert_eq!(r["isError"], false, "{r}");
         let text = r["content"][0]["text"].as_str().unwrap();
-        assert!(text.starts_with("NOT PROVEN — no Euclidean proof"), "{text}");
+        assert!(
+            text.starts_with("NOT PROVEN — no Euclidean proof"),
+            "{text}"
+        );
         assert!(!text.starts_with("PROVEN"), "{text}");
         assert!(text.contains("not a proof"), "{text}");
     }
 
     #[tokio::test]
     async fn not_proven_is_a_result_not_a_tool_error() {
-        let r = tool_solve(&json!({"program": "A B C = triangle\nprove perp(A, B, A, C)"}), None).await;
+        let r = tool_solve(
+            &json!({"program": "A B C = triangle\nprove perp(A, B, A, C)"}),
+            None,
+        )
+        .await;
         assert_eq!(r["isError"], false, "{r}");
         // False in the sampled figure: refuted, which is still a normal result.
-        assert!(r["content"][0]["text"].as_str().unwrap().starts_with("REFUTED"), "{r}");
-        assert_eq!(r["content"][1]["mimeType"], "image/png", "the figure comes back too");
+        assert!(
+            r["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("REFUTED"),
+            "{r}"
+        );
+        assert_eq!(
+            r["content"][1]["mimeType"], "image/png",
+            "the figure comes back too"
+        );
         let r = tool_solve(&json!({"program": "this is not geo"}), None).await;
         assert_eq!(r["isError"], true);
     }
@@ -979,7 +1050,12 @@ mod tests {
         )
         .await
         .expect("the tool call must end at its hard limit");
-        assert!(t.elapsed() < std::time::Duration::from_secs(1) + worker::GRACE + std::time::Duration::from_secs(2));
+        assert!(
+            t.elapsed()
+                < std::time::Duration::from_secs(1)
+                    + worker::GRACE
+                    + std::time::Duration::from_secs(2)
+        );
         assert_eq!(r["isError"], false, "{r}");
         let text = r["content"][0]["text"].as_str().unwrap();
         assert!(text.starts_with("NOT PROVEN"), "{text}");
@@ -1031,7 +1107,11 @@ mod tests {
         let (program, pidfile) = hang_input(dir.path(), "pid");
         let (mut client, server_end) = tokio::io::duplex(1 << 16);
         let out = Captured::default();
-        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 2));
+        let server = tokio::spawn(serve_io(
+            tokio::io::BufReader::new(server_end),
+            out.clone(),
+            2,
+        ));
         let send = |v: Value| format!("{v}\n");
 
         let call = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
@@ -1043,7 +1123,10 @@ mod tests {
         client.write_all(send(ping).as_bytes()).await.unwrap();
         let t = std::time::Instant::now();
         assert_eq!(out.wait_for(json!(8)).await["result"], json!({}));
-        assert!(t.elapsed() < std::time::Duration::from_secs(2), "ping waited on the solve");
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(2),
+            "ping waited on the solve"
+        );
 
         let cancel = json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
             "params": {"requestId": 7, "reason": "user gave up"}});
@@ -1084,7 +1167,13 @@ mod tests {
         let rs = out.responses();
         assert_eq!(rs.len(), 2, "{rs:?}");
         let solve = rs.iter().find(|r| r["id"] == 1).unwrap();
-        assert!(solve["result"]["content"][0]["text"].as_str().unwrap().starts_with("PROVEN"), "{solve}");
+        assert!(
+            solve["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("PROVEN"),
+            "{solve}"
+        );
     }
 
     /// A stdout nobody reads: every write blocks until [`Stalled::open`].
@@ -1117,8 +1206,11 @@ mod tests {
     }
 
     fn call(id: Value, name: &str, args: Value) -> String {
-        format!("{}\n", json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
-            "params": {"name": name, "arguments": args}}))
+        format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": {"name": name, "arguments": args}})
+        )
     }
 
     async fn stopped<T>(server: tokio::task::JoinHandle<T>, within: Duration) -> T {
@@ -1139,14 +1231,31 @@ mod tests {
         let (mut client, server_end) = tokio::io::duplex(1 << 16);
         let server_out = out.clone();
         let server = std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-            rt.block_on(serve_io(tokio::io::BufReader::new(server_end), server_out, 2))
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(serve_io(
+                tokio::io::BufReader::new(server_end),
+                server_out,
+                2,
+            ))
         });
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
             let ping = json!({"jsonrpc": "2.0", "id": 1, "method": "ping"});
-            client.write_all(format!("{ping}\n").as_bytes()).await.unwrap();
-            let hang = call(json!(2), "solve_geometry", json!({"program": program, "timeout_secs": 1}));
+            client
+                .write_all(format!("{ping}\n").as_bytes())
+                .await
+                .unwrap();
+            let hang = call(
+                json!(2),
+                "solve_geometry",
+                json!({"program": program, "timeout_secs": 1}),
+            );
             client.write_all(hang.as_bytes()).await.unwrap();
             let pid = wait_for_pid(&pidfile).await;
             let hard = Duration::from_secs(1) + worker::GRACE;
@@ -1157,14 +1266,30 @@ mod tests {
         drop(client);
         let until = std::time::Instant::now() + Duration::from_secs(20);
         while !server.is_finished() {
-            assert!(std::time::Instant::now() < until, "the server did not stop at EOF");
+            assert!(
+                std::time::Instant::now() < until,
+                "the server did not stop at EOF"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         server.join().unwrap().unwrap();
         let rs = out.data.responses();
-        assert_eq!(rs.iter().find(|r| r["id"] == 1).unwrap()["result"], json!({}), "{rs:?}");
-        let solve = rs.iter().find(|r| r["id"] == 2).expect("the killed solve is still answered");
-        assert!(solve["result"]["content"][0]["text"].as_str().unwrap().contains("time limit"), "{solve}");
+        assert_eq!(
+            rs.iter().find(|r| r["id"] == 1).unwrap()["result"],
+            json!({}),
+            "{rs:?}"
+        );
+        let solve = rs
+            .iter()
+            .find(|r| r["id"] == 2)
+            .expect("the killed solve is still answered");
+        assert!(
+            solve["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("time limit"),
+            "{solve}"
+        );
     }
 
     #[cfg(unix)]
@@ -1176,21 +1301,57 @@ mod tests {
         let (program, pidfile) = hang_input(dir.path(), "pid");
         let (mut client, server_end) = tokio::io::duplex(1 << 16);
         let out = Captured::default();
-        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 1));
-        client.write_all(call(json!(1), "solve_geometry", json!({"program": program, "timeout_secs": 60})).as_bytes()).await.unwrap();
+        let server = tokio::spawn(serve_io(
+            tokio::io::BufReader::new(server_end),
+            out.clone(),
+            1,
+        ));
+        client
+            .write_all(
+                call(
+                    json!(1),
+                    "solve_geometry",
+                    json!({"program": program, "timeout_secs": 60}),
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
         let pid = wait_for_pid(&pidfile).await;
 
         let t = std::time::Instant::now();
-        client.write_all(call(json!(2), "solve_geometry", json!({"program": CIRCUMCENTER, "timeout_secs": 1})).as_bytes()).await.unwrap();
+        client
+            .write_all(
+                call(
+                    json!(2),
+                    "solve_geometry",
+                    json!({"program": CIRCUMCENTER, "timeout_secs": 1}),
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
         let busy = out.wait_for(json!(2)).await;
         let waited = t.elapsed();
         assert_eq!(busy["result"]["isError"], true, "{busy}");
-        assert!(busy["result"]["content"][0]["text"].as_str().unwrap().contains("busy"), "{busy}");
+        assert!(
+            busy["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("busy"),
+            "{busy}"
+        );
         assert!(waited >= MIN_QUEUE_WAIT, "{waited:?}");
-        assert!(waited < MIN_QUEUE_WAIT + Duration::from_secs(2), "{waited:?}");
+        assert!(
+            waited < MIN_QUEUE_WAIT + Duration::from_secs(2),
+            "{waited:?}"
+        );
 
         let cancel = json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}});
-        client.write_all(format!("{cancel}\n").as_bytes()).await.unwrap();
+        client
+            .write_all(format!("{cancel}\n").as_bytes())
+            .await
+            .unwrap();
         wait_reaped(pid, Duration::from_secs(3)).await;
         drop(client);
         stopped(server, Duration::from_secs(10)).await.unwrap();
@@ -1205,10 +1366,34 @@ mod tests {
         let (program, pidfile) = hang_input(dir.path(), "pid");
         let (mut client, server_end) = tokio::io::duplex(1 << 16);
         let out = Captured::default();
-        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 1));
-        client.write_all(call(json!(1), "solve_geometry", json!({"program": program, "timeout_secs": 2})).as_bytes()).await.unwrap();
+        let server = tokio::spawn(serve_io(
+            tokio::io::BufReader::new(server_end),
+            out.clone(),
+            1,
+        ));
+        client
+            .write_all(
+                call(
+                    json!(1),
+                    "solve_geometry",
+                    json!({"program": program, "timeout_secs": 2}),
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
         wait_for_pid(&pidfile).await;
-        client.write_all(call(json!(2), "export_report", json!({"program": CIRCUMCENTER, "timeout_secs": 60})).as_bytes()).await.unwrap();
+        client
+            .write_all(
+                call(
+                    json!(2),
+                    "export_report",
+                    json!({"program": CIRCUMCENTER, "timeout_secs": 60}),
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         drop(client);
@@ -1216,11 +1401,29 @@ mod tests {
         let queued = out.wait_for(json!(2)).await;
         assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
         assert_eq!(queued["result"]["isError"], true, "{queued}");
-        assert!(queued["result"]["content"][0]["text"].as_str().unwrap().contains("not started"), "{queued}");
+        assert!(
+            queued["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("not started"),
+            "{queued}"
+        );
         let hard = Duration::from_secs(2) + worker::GRACE;
-        stopped(server, hard + Duration::from_secs(3)).await.unwrap();
-        let running = out.responses().into_iter().find(|r| r["id"] == 1).expect("the running call answers");
-        assert!(running["result"]["content"][0]["text"].as_str().unwrap().contains("time limit"), "{running}");
+        stopped(server, hard + Duration::from_secs(3))
+            .await
+            .unwrap();
+        let running = out
+            .responses()
+            .into_iter()
+            .find(|r| r["id"] == 1)
+            .expect("the running call answers");
+        assert!(
+            running["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("time limit"),
+            "{running}"
+        );
     }
 
     #[cfg(unix)]
@@ -1232,19 +1435,46 @@ mod tests {
         let (program, pidfile) = hang_input(dir.path(), "pid");
         let (mut client, server_end) = tokio::io::duplex(1 << 16);
         let out = Captured::default();
-        let server = tokio::spawn(serve_io(tokio::io::BufReader::new(server_end), out.clone(), 2));
-        client.write_all(call(json!(7), "solve_geometry", json!({"program": program, "timeout_secs": 60})).as_bytes()).await.unwrap();
+        let server = tokio::spawn(serve_io(
+            tokio::io::BufReader::new(server_end),
+            out.clone(),
+            2,
+        ));
+        client
+            .write_all(
+                call(
+                    json!(7),
+                    "solve_geometry",
+                    json!({"program": program, "timeout_secs": 60}),
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
         let pid = wait_for_pid(&pidfile).await;
-        client.write_all(call(json!(7), "solve_geometry", json!({"program": CIRCUMCENTER})).as_bytes()).await.unwrap();
+        client
+            .write_all(
+                call(json!(7), "solve_geometry", json!({"program": CIRCUMCENTER})).as_bytes(),
+            )
+            .await
+            .unwrap();
         let dup = out.wait_for(json!(7)).await;
         assert_eq!(dup["error"]["code"], INVALID_REQUEST, "{dup}");
 
         let cancel = json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7}});
-        client.write_all(format!("{cancel}\n").as_bytes()).await.unwrap();
+        client
+            .write_all(format!("{cancel}\n").as_bytes())
+            .await
+            .unwrap();
         wait_reaped(pid, Duration::from_secs(3)).await;
         drop(client);
         stopped(server, Duration::from_secs(10)).await.unwrap();
-        assert_eq!(out.responses().iter().filter(|r| r["id"] == 7).count(), 1, "{:?}", out.responses());
+        assert_eq!(
+            out.responses().iter().filter(|r| r["id"] == 7).count(),
+            1,
+            "{:?}",
+            out.responses()
+        );
     }
 
     #[test]
@@ -1255,8 +1485,19 @@ mod tests {
         assert_eq!(ok, d.canonicalize().unwrap().join("proof.pdf"));
         let added = resolve_export_path(d, Some("proof"), "png", false).unwrap();
         assert!(added.ends_with("proof.png"));
-        for bad in ["../x.pdf", "/etc/passwd", "a/b.pdf", "..", ".hidden.pdf", "x.png", ""] {
-            assert!(resolve_export_path(d, Some(bad), "pdf", false).is_err(), "{bad}");
+        for bad in [
+            "../x.pdf",
+            "/etc/passwd",
+            "a/b.pdf",
+            "..",
+            ".hidden.pdf",
+            "x.png",
+            "",
+        ] {
+            assert!(
+                resolve_export_path(d, Some(bad), "pdf", false).is_err(),
+                "{bad}"
+            );
         }
         let inside = d.canonicalize().unwrap().join("abs.pdf");
         assert!(resolve_export_path(d, Some(inside.to_str().unwrap()), "pdf", false).is_ok());
@@ -1284,9 +1525,19 @@ mod tests {
         let prog = "A B C = triangle\nO = circumcenter(A, B, C)\nprove cong(O, A, O, B)";
         let r = tool_export_in(&json!({"program": prog, "format": "svg"}), dir.path(), None).await;
         assert_eq!(r["isError"], true, "{r}");
-        let r = tool_export_in(&json!({"program": prog, "filename": "../escape.pdf"}), dir.path(), None).await;
+        let r = tool_export_in(
+            &json!({"program": prog, "filename": "../escape.pdf"}),
+            dir.path(),
+            None,
+        )
+        .await;
         assert_eq!(r["isError"], true, "{r}");
-        let r = tool_export_in(&json!({"program": prog, "filename": "ok.pdf"}), dir.path(), None).await;
+        let r = tool_export_in(
+            &json!({"program": prog, "filename": "ok.pdf"}),
+            dir.path(),
+            None,
+        )
+        .await;
         assert_eq!(r["isError"], false, "{r}");
         let bytes = std::fs::read(dir.path().join("ok.pdf")).unwrap();
         assert!(bytes.starts_with(b"%PDF"));

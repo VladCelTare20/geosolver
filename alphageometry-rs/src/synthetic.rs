@@ -664,7 +664,11 @@ impl Figure {
         d: PointId,
         c: PointId,
     ) -> Option<(Rat, String, Vec<crate::proof::FactId>)> {
-        let (bd, dc, bc) = (self.given_len(b, d), self.given_len(d, c), self.given_len(b, c));
+        let (bd, dc, bc) = (
+            self.given_len(b, d),
+            self.given_len(d, c),
+            self.given_len(b, c),
+        );
         let pos = |r: &Rat| !r.is_zero() && !r.is_negative();
         let t = match (&bd, &dc, &bc) {
             (Some(x), _, Some(z)) if pos(z) => x / z,
@@ -852,9 +856,13 @@ impl Figure {
             crate::budget::check();
             for a in 0..n {
                 for b in (a + 1)..n {
-                    if m == a || m == b || self.midpoints.iter().any(|&(mm, x, y)| {
-                        mm == m && atom(x, y) == atom(a, b)
-                    }) {
+                    if m == a
+                        || m == b
+                        || self
+                            .midpoints
+                            .iter()
+                            .any(|&(mm, x, y)| mm == m && atom(x, y) == atom(a, b))
+                    {
                         continue;
                     }
                     let mid = (self.coord(a) + self.coord(b)) * 0.5;
@@ -1329,17 +1337,19 @@ impl Figure {
     /// segments, either endpoint order within each)?
     fn has_para(&self, w: PointId, x: PointId, y: PointId, z: PointId) -> bool {
         let (s1, s2) = (atom(w, x), atom(y, z));
-        self.paras
-            .iter()
-            .any(|(p, _)| (atom(p[0], p[1]), atom(p[2], p[3])) == (s1, s2) || (atom(p[0], p[1]), atom(p[2], p[3])) == (s2, s1))
+        self.paras.iter().any(|(p, _)| {
+            (atom(p[0], p[1]), atom(p[2], p[3])) == (s1, s2)
+                || (atom(p[0], p[1]), atom(p[2], p[3])) == (s2, s1)
+        })
     }
 
     /// Is `{wx} ⟂ {yz}` an asserted right-angle fact?
     fn has_perp(&self, w: PointId, x: PointId, y: PointId, z: PointId) -> bool {
         let (s1, s2) = (atom(w, x), atom(y, z));
-        self.perps
-            .iter()
-            .any(|(p, _)| (atom(p[0], p[1]), atom(p[2], p[3])) == (s1, s2) || (atom(p[0], p[1]), atom(p[2], p[3])) == (s2, s1))
+        self.perps.iter().any(|(p, _)| {
+            (atom(p[0], p[1]), atom(p[2], p[3])) == (s1, s2)
+                || (atom(p[0], p[1]), atom(p[2], p[3])) == (s2, s1)
+        })
     }
 
     /// Parallelograms `ABCD` (vertices in cyclic order, diagonals `AC`, `BD`)
@@ -1363,12 +1373,18 @@ impl Figure {
                         }
                         // Segments of one line are trivially "parallel"; four
                         // collinear points are no parallelogram.
-                        if self.numerically_collinear(a, b, c) || self.numerically_collinear(a, b, d) {
+                        if self.numerically_collinear(a, b, c)
+                            || self.numerically_collinear(a, b, d)
+                        {
                             continue;
                         }
                         let key = {
                             let (x, y) = (atom(a, c), atom(b, d));
-                            if x <= y { (x, y) } else { (y, x) }
+                            if x <= y {
+                                (x, y)
+                            } else {
+                                (y, x)
+                            }
                         };
                         if seen.insert(key) {
                             out.push([a, b, c, d]);
@@ -1414,7 +1430,11 @@ impl Figure {
                         }
                         let key = {
                             let (x, y) = (atom(a, c), atom(b, d));
-                            if x <= y { (x, y) } else { (y, x) }
+                            if x <= y {
+                                (x, y)
+                            } else {
+                                (y, x)
+                            }
                         };
                         if seen.insert(key) {
                             out.push([a, b, c, d]);
@@ -1436,7 +1456,14 @@ impl Figure {
         let n = self.coords.len() as PointId;
         // Interior division points (b, d, c) with d strictly between b and c,
         // taken from the collinear sets (symbolic evidence that d ∈ line bc).
-        type Triple = (PointId, PointId, PointId, Rat, String, Vec<crate::proof::FactId>);
+        type Triple = (
+            PointId,
+            PointId,
+            PointId,
+            Rat,
+            String,
+            Vec<crate::proof::FactId>,
+        );
         let mut triples: Vec<Triple> = Vec::new();
         for set in self.colls.clone() {
             for i in 0..set.len() {
@@ -1849,10 +1876,19 @@ impl Figure {
             .iter()
             .position(|&i| self.steps[i].derived.is_some())
             .unwrap_or(order.len());
-        let shift = |n: usize| if n >= lead_at && !deps.is_empty() { n + 2 } else { n + 1 };
+        let shift = |n: usize| {
+            if n >= lead_at && !deps.is_empty() {
+                n + 2
+            } else {
+                n + 1
+            }
+        };
         let lead_no = lead_at + 1;
-        let number: BTreeMap<usize, usize> =
-            order.iter().enumerate().map(|(n, &i)| (i, shift(n))).collect();
+        let number: BTreeMap<usize, usize> = order
+            .iter()
+            .enumerate()
+            .map(|(n, &i)| (i, shift(n)))
+            .collect();
 
         let mut out = String::new();
         out.push_str("EUCLIDEAN PROOF\n");
@@ -1866,8 +1902,11 @@ impl Figure {
                 ));
             }
             let step = &self.steps[i];
-            let mut nums: Vec<usize> =
-                step.premises.iter().filter_map(|p| number.get(p).copied()).collect();
+            let mut nums: Vec<usize> = step
+                .premises
+                .iter()
+                .filter_map(|p| number.get(p).copied())
+                .collect();
             if step.derived.is_some() {
                 nums.push(lead_no);
             }
@@ -1879,7 +1918,11 @@ impl Figure {
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}\n", shift(n), with_refs(&step.text, &refs)));
+            out.push_str(&format!(
+                "  {}. {}\n",
+                shift(n),
+                with_refs(&step.text, &refs)
+            ));
         }
         out.push_str(&format!(
             "\n  Combining the equations above gives {goal_text}  (= {}). ∎\n",

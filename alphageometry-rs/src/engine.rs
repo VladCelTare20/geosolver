@@ -238,7 +238,8 @@ impl Ddar {
                 for &b in &self.active {
                     if !self.num_identical(a, b) {
                         let k = self.pk(a, b);
-                        ids.dir_unit_rank[k] = units.binary_search(&ids.dir_unit[k]).unwrap() as u32;
+                        ids.dir_unit_rank[k] =
+                            units.binary_search(&ids.dir_unit[k]).unwrap() as u32;
                     }
                 }
             }
@@ -740,14 +741,23 @@ impl Ddar {
             d.len()
         };
         let name = pred.name.as_str();
-        if ANGLE_PREDS.contains(&name) || DIST_MUL_PREDS.contains(&name) || matches!(name, "distseq" | "acompute" | "rcompute") {
-            pts.chunks(2).any(|c| c.len() < 2 || self.num_identical(c[0], c[1]))
+        if ANGLE_PREDS.contains(&name)
+            || DIST_MUL_PREDS.contains(&name)
+            || matches!(name, "distseq" | "acompute" | "rcompute")
+        {
+            pts.chunks(2)
+                .any(|c| c.len() < 2 || self.num_identical(c[0], c[1]))
         } else if name == "coll" {
             distinct(&pts) < 2
         } else if name == "cyclic" {
             distinct(&pts) < 3
         } else if name == "cyclic_with_centers" {
-            let nc = pred.constants.first().and_then(|c| c.numer_i64()).unwrap_or(0).clamp(0, pts.len() as i64) as usize;
+            let nc = pred
+                .constants
+                .first()
+                .and_then(|c| c.numer_i64())
+                .unwrap_or(0)
+                .clamp(0, pts.len() as i64) as usize;
             distinct(&pts[nc..]) < 3
         } else {
             false
@@ -942,7 +952,10 @@ impl Ddar {
     /// with the facts the reduction used.
     pub fn rcompute_deps(&self, pred: &Predicate) -> Option<(DistMul, Vec<FactId>)> {
         let pts = self.subst_points(pred);
-        if pts.len() != 4 || self.num_identical(pts[0], pts[1]) || self.num_identical(pts[2], pts[3]) {
+        if pts.len() != 4
+            || self.num_identical(pts[0], pts[1])
+            || self.num_identical(pts[2], pts[3])
+        {
             return None;
         }
         let r = self
@@ -1156,8 +1169,7 @@ impl Ddar {
         }
         // Pairwise centres of similitude, keyed by the circle pair.
         // (z, internal?, premises)
-        let mut centres: FxHashMap<(usize, usize), Vec<Centre>> =
-            FxHashMap::default();
+        let mut centres: FxHashMap<(usize, usize), Vec<Centre>> = FxHashMap::default();
         let mut dirs: FxHashMap<(PointId, PointId), Angle> = FxHashMap::default();
         for i in 0..circs.len() {
             for j in (i + 1)..circs.len() {
@@ -1175,7 +1187,9 @@ impl Ddar {
                         .entry((z, o1))
                         .or_insert_with(|| self.get_point_dir(z, o1))
                         .clone();
-                    let d2 = dirs.entry((z, o2)).or_insert_with(|| self.get_point_dir(z, o2));
+                    let d2 = dirs
+                        .entry((z, o2))
+                        .or_insert_with(|| self.get_point_dir(z, o2));
                     if d1 != *d2 {
                         continue;
                     }
@@ -1238,8 +1252,8 @@ impl Ddar {
                         }
                         // Skip when both conclusions are already known.
                         let para_known = self.get_point_dir(o1, p) == self.get_point_dir(o2, q);
-                        let ratio_known = self.get_dist_ratio(z, q, z, p)
-                            == self.get_dist_ratio(z, o2, z, o1);
+                        let ratio_known =
+                            self.get_dist_ratio(z, q, z, p) == self.get_dist_ratio(z, o2, z, o1);
                         if para_known && ratio_known {
                             continue;
                         }
@@ -1299,8 +1313,7 @@ impl Ddar {
                                     Reason::Theorem("Monge–d'Alembert", vec![z1, z2, z3]),
                                     prem,
                                 );
-                                let rel =
-                                    self.raw_dir(z1, z2).sub(&self.raw_dir(z1, z3));
+                                let rel = self.raw_dir(z1, z2).sub(&self.raw_dir(z1, z3));
                                 changed |= self.angle.force_zero(&rel, Some(fact));
                             }
                         }
@@ -1335,7 +1348,13 @@ impl Ddar {
         let circs: Vec<(Vec<PointId>, Option<FactId>, NumCircle)> = self
             .live_circles
             .iter()
-            .map(|&ci| (self.circles[ci].points.clone(), self.circles[ci].fact, self.circles[ci].value))
+            .map(|&ci| {
+                (
+                    self.circles[ci].points.clone(),
+                    self.circles[ci].fact,
+                    self.circles[ci].value,
+                )
+            })
             .collect();
         if dbg {
             eprintln!(
@@ -1343,7 +1362,11 @@ impl Ddar {
                 circs.len(),
                 circs
                     .iter()
-                    .map(|c| c.0.iter().map(|&p| self.name(p).to_string()).collect::<Vec<_>>())
+                    .map(|c| c
+                        .0
+                        .iter()
+                        .map(|&p| self.name(p).to_string())
+                        .collect::<Vec<_>>())
                     .collect::<Vec<_>>()
             );
         }
@@ -1376,9 +1399,7 @@ impl Ddar {
                     // The figure may come from a numeric global solve (assume
                     // hypotheses), so use the candidate-grade tolerance rather
                     // than the exact-arithmetic ATOM.
-                    if NumLine::through(self.coord(u), self.coord(v))
-                        .distance(self.coord(x))
-                        > 1e-6
+                    if NumLine::through(self.coord(u), self.coord(v)).distance(self.coord(x)) > 1e-6
                     {
                         continue;
                     }
@@ -1707,8 +1728,12 @@ impl Ddar {
         }
         let fact = self.log.add(Reason::SimilarTriangles(t1, t2), prem);
 
-        let ratio = |s: &Self, p: PointId, q: PointId, r: PointId, t: PointId| s.raw_dist_mul(r, t).div(&s.raw_dist_mul(p, q));
-        let angle = |s: &Self, p: PointId, q: PointId, r: PointId, t: PointId| s.raw_dir(r, t).sub(&s.raw_dir(p, q));
+        let ratio = |s: &Self, p: PointId, q: PointId, r: PointId, t: PointId| {
+            s.raw_dist_mul(r, t).div(&s.raw_dist_mul(p, q))
+        };
+        let angle = |s: &Self, p: PointId, q: PointId, r: PointId, t: PointId| {
+            s.raw_dir(r, t).sub(&s.raw_dir(p, q))
+        };
         let t1_rat1 = ratio(self, a, b, a, c);
         let t1_ang1 = angle(self, a, b, a, c);
         let t1_rat2 = ratio(self, a, b, b, c);
@@ -1743,7 +1768,9 @@ impl Ddar {
                     continue;
                 }
                 let k = self.pk(a, b);
-                let encountered = self.angle.was_encountered(self.pair_dir[k].as_ref().unwrap())
+                let encountered = self
+                    .angle
+                    .was_encountered(self.pair_dir[k].as_ref().unwrap())
                     || self
                         .dmul
                         .was_encountered(self.pair_dist_mul[k].as_ref().unwrap());
@@ -3032,7 +3059,9 @@ impl PairIds {
         if stamp == self.memo.stamp {
             return id;
         }
-        let id = self.dir.diff(self.dir_id[a * n + c], self.dir_id[a * n + b]);
+        let id = self
+            .dir
+            .diff(self.dir_id[a * n + c], self.dir_id[a * n + b]);
         self.memo.ang[k] = (self.memo.stamp, id);
         id
     }

@@ -39,7 +39,11 @@ fn previously_proved_metric_proofs_are_unchanged() {
         })
         .collect();
     files.sort();
-    assert!(files.len() >= 25, "expected the 25 baseline proofs, found {}", files.len());
+    assert!(
+        files.len() >= 25,
+        "expected the 25 baseline proofs, found {}",
+        files.len()
+    );
     let mut changed = Vec::new();
     for path in files {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();

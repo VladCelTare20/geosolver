@@ -62,15 +62,26 @@ fn aux_finds_construction_on_non_salient_line_2005_p1() {
 fn the_rollout_search_finds_the_same_construction_at_any_thread_count() {
     let text = include_str!("../../corpus/imo_ag_30.txt");
     let corpus = ddar::corpus::read_corpus(text).unwrap();
-    let (name, body) = corpus.iter().find(|(n, _)| n == "translated_imo_2019_p2").unwrap();
+    let (name, body) = corpus
+        .iter()
+        .find(|(n, _)| n == "translated_imo_2019_p2")
+        .unwrap();
     let tr = ddar::corpus::translate_text(name, body, 1).unwrap();
     let mut found = Vec::new();
     for threads in [1, 4, 15] {
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-        let (proof, _) = pool.install(|| ddar::aux_search::solve_max_until(&tr.problem, false, Some(deadline)));
+        let (proof, _) =
+            pool.install(|| ddar::aux_search::solve_max_until(&tr.problem, false, Some(deadline)));
         let proof = proof.unwrap_or_else(|| panic!("{threads} threads: not solved"));
-        let descs: Vec<String> = proof.constructions.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+        let descs: Vec<String> = proof
+            .constructions
+            .iter()
+            .map(|c| format!("{} = {}", c.name, c.desc))
+            .collect();
         found.push((threads, descs));
     }
     assert!(found.windows(2).all(|w| w[0].1 == w[1].1), "{found:?}");

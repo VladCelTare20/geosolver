@@ -14,7 +14,11 @@ use std::time::Duration;
 /// wait at most `secs` for it — an unbounded loop fails the test instead of
 /// hanging the suite. Debug builds get 32 MiB and 5× the time.
 fn bounded<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> T {
-    let (stack, secs) = if cfg!(debug_assertions) { (32 << 20, secs * 5) } else { (2 << 20, secs) };
+    let (stack, secs) = if cfg!(debug_assertions) {
+        (32 << 20, secs * 5)
+    } else {
+        (2 << 20, secs)
+    };
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
         .stack_size(stack)
@@ -44,14 +48,25 @@ const RIGHT_TRAPEZOID_FLAG: &str = "B = free\nC = free\nA = point: perp(A, B, B,
 
 #[test]
 fn false_metric_goals_are_not_proved_by_ddar() {
-    for src in [PYTHAGORAS_WRONG_LEG, FREE_LENGTH_THREE, RIGHT_TRAPEZOID_FLAG] {
-        assert!(!ddar_claims_proof(src), "DDAR claimed a false metric goal:\n{src}");
+    for src in [
+        PYTHAGORAS_WRONG_LEG,
+        FREE_LENGTH_THREE,
+        RIGHT_TRAPEZOID_FLAG,
+    ] {
+        assert!(
+            !ddar_claims_proof(src),
+            "DDAR claimed a false metric goal:\n{src}"
+        );
     }
 }
 
 #[test]
 fn metric_goals_compile_to_a_routable_error() {
-    for src in [PYTHAGORAS_WRONG_LEG, FREE_LENGTH_THREE, RIGHT_TRAPEZOID_FLAG] {
+    for src in [
+        PYTHAGORAS_WRONG_LEG,
+        FREE_LENGTH_THREE,
+        RIGHT_TRAPEZOID_FLAG,
+    ] {
         match compile(src) {
             Err(e) => assert!(e.is_metric_goal(), "expected a metric-goal error, got {e}"),
             Ok(_) => panic!("a metric goal must not compile to a DDAR problem:\n{src}"),
@@ -66,8 +81,10 @@ fn metric_goals_compile_to_a_routable_error() {
 
 #[test]
 fn metric_goals_still_work_as_hypotheses() {
-    let c = compile("A B = segment\nP = point: dist(P,A) = 2*dist(P,B)\nQ = point: dist(A,Q) = 3\n\
-         prove cong(A, B, B, A)")
+    let c = compile(
+        "A B = segment\nP = point: dist(P,A) = 2*dist(P,B)\nQ = point: dist(A,Q) = 3\n\
+         prove cong(A, B, B, A)",
+    )
     .expect("metric relations are fine as hypotheses");
     assert!(solve_problem(&c.problem).unwrap());
 }
@@ -153,10 +170,15 @@ fn short_variadic_relations_are_clean_errors() {
 fn nested_constructions_count_toward_the_point_cap() {
     let mut x = String::from("C");
     for i in 0..150 {
-        x = format!("reflect({x}, line(A, {}))", if i % 2 == 1 { "B" } else { "D" });
+        x = format!(
+            "reflect({x}, line(A, {}))",
+            if i % 2 == 1 { "B" } else { "D" }
+        );
     }
     let src = format!("A = free\nB = free\nC = free\nD = free\nX = {x}\nprove coll(A, B, X)");
-    let r = bounded(20, move || compile(&src).map(|_| ()).map_err(|e| e.to_string()));
+    let r = bounded(20, move || {
+        compile(&src).map(|_| ()).map_err(|e| e.to_string())
+    });
     let e = r.expect_err("hundreds of anonymous points must be rejected");
     assert!(e.contains("too many points"), "{e}");
 }
@@ -164,12 +186,8 @@ fn nested_constructions_count_toward_the_point_cap() {
 #[test]
 fn huge_exponent_is_rejected_quickly() {
     let r = bounded(20, || {
-        metric::solve(
-            "A B C = triangle",
-            "dist(A,B)^100000 = dist(A,C)^2",
-            48,
-        )
-        .map_err(|e| e.to_string())
+        metric::solve("A B C = triangle", "dist(A,B)^100000 = dist(A,C)^2", 48)
+            .map_err(|e| e.to_string())
     });
     assert!(r.is_err(), "{r:?}");
     let r = bounded(20, || {
@@ -185,21 +203,34 @@ fn long_operator_chains_do_not_overflow_the_stack() {
     let chain = vec!["1"; 300_000].join("+");
     let goal = format!("dist(A,B) = {chain}");
     let g2 = goal.clone();
-    let r = bounded(60, move || metric::solve("A B = segment", &g2, 8).map(|_| ()).map_err(|e| e.to_string()));
+    let r = bounded(60, move || {
+        metric::solve("A B = segment", &g2, 8)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
     assert!(r.unwrap_err().contains("too long"));
     let src = format!("A B = segment\nP = point: {goal}\nprove coll(A, B, P)");
-    let r = bounded(60, move || compile(&src).map(|_| ()).map_err(|e| e.to_string()));
+    let r = bounded(60, move || {
+        compile(&src).map(|_| ()).map_err(|e| e.to_string())
+    });
     assert!(r.unwrap_err().contains("too long"));
     let prod = vec!["dist(A,B)"; 300_000].join("*");
     let src = format!("A B C = triangle\nprove {prod} = dist(A,C)");
-    let r = bounded(60, move || compile(&src).map(|_| ()).map_err(|e| e.to_string()));
+    let r = bounded(60, move || {
+        compile(&src).map(|_| ()).map_err(|e| e.to_string())
+    });
     assert!(r.unwrap_err().contains("too long"));
 }
 
 #[test]
 fn extreme_low_level_constants_do_not_wrap_or_panic() {
     let base = "a@0.0_0.0 = ; b@1.0_0.0 = ; c@0.0_1.0 = ? aconst a b a c ";
-    for k in ["1/0", "1pi/0", "-9223372036854775808/-1", "9223372036854775807pi/1"] {
+    for k in [
+        "1/0",
+        "1pi/0",
+        "-9223372036854775808/-1",
+        "9223372036854775807pi/1",
+    ] {
         let r = catch_unwind(|| Problem::parse(&format!("{base}{k}")));
         assert!(r.is_ok(), "parsing `{k}` panicked");
     }
@@ -242,7 +273,10 @@ fn square_still_gets_the_british_flag() {
                 dist(P,B)^2 + dist(P,D)^2 + dist(A,B)^2 + dist(B,C)^2";
     match prove_euclidean(cons, goal) {
         Ok(Outcome::Proved(p)) => assert!(p.contains("British flag"), "{p}"),
-        other => panic!("square lost its rectangle detection: {:?}", other.map(|_| ())),
+        other => panic!(
+            "square lost its rectangle detection: {:?}",
+            other.map(|_| ())
+        ),
     }
 }
 
@@ -266,10 +300,9 @@ fn collinear_points_are_not_a_parallelogram() {
 /// where `k` is on the circle only because that is the goal.
 #[test]
 fn aux_search_does_not_assume_numeric_circle_membership() {
-    let problem = Problem::parse(
-        "o@0.0_0.0 x@1.0_0.0 y@0.0_1.0 = cong o x o y; k@0.6_0.8 = ? cong o k o x",
-    )
-    .unwrap();
+    let problem =
+        Problem::parse("o@0.0_0.0 x@1.0_0.0 y@0.0_1.0 = cong o x o y; k@0.6_0.8 = ? cong o k o x")
+            .unwrap();
     assert!(!solve_problem(&problem).unwrap());
     let (found, _) = ddar::aux_search::solve_with_aux_opts(&problem, 2, 200_000, false, true);
     if let Some(p) = found {
@@ -278,11 +311,17 @@ fn aux_search_does_not_assume_numeric_circle_membership() {
     }
     for c in ddar::aux_search::candidates(&problem, true) {
         let mentions_k = c.args.contains(&3);
-        let circle_claim = c.preds.iter().any(|p| p.name == "cong" && p.points.contains(&0));
+        let circle_claim = c
+            .preds
+            .iter()
+            .any(|p| p.name == "cong" && p.points.contains(&0));
         assert!(
             !(mentions_k
                 && circle_claim
-                && matches!(c.kind, ddar::aux_search::Kind::Antipode | ddar::aux_search::Kind::PoleOfChord)),
+                && matches!(
+                    c.kind,
+                    ddar::aux_search::Kind::Antipode | ddar::aux_search::Kind::PoleOfChord
+                )),
             "candidate `{}` treats k as on circle(o,x)",
             c.desc
         );
@@ -291,8 +330,15 @@ fn aux_search_does_not_assume_numeric_circle_membership() {
 
 #[test]
 fn non_ascii_in_a_metric_goal_is_a_clean_error_not_a_panic() {
-    for goal in ["dist(A,B) = é", "dist(A,B) = 2é", "dist(Aé,B) = 2", "dist(A,B) = 1 ∙ 2"] {
-        let res = catch_unwind(AssertUnwindSafe(|| metric::solve("A = free\nB = free", goal, 8)));
+    for goal in [
+        "dist(A,B) = é",
+        "dist(A,B) = 2é",
+        "dist(Aé,B) = 2",
+        "dist(A,B) = 1 ∙ 2",
+    ] {
+        let res = catch_unwind(AssertUnwindSafe(|| {
+            metric::solve("A = free\nB = free", goal, 8)
+        }));
         assert!(res.is_ok(), "metric prover panicked on {goal:?}");
         assert!(res.unwrap().is_err(), "{goal:?} must be rejected");
     }
@@ -355,7 +401,10 @@ fn fingerprint_bucketing_does_not_prove_false_neighbours() {
         format!("{bisector}prove eqratio(X, B, X, C, A, B, A, C)"),
     ];
     for src in &truths {
-        assert!(ddar_claims_proof(src), "control case no longer proved:\n{src}");
+        assert!(
+            ddar_claims_proof(src),
+            "control case no longer proved:\n{src}"
+        );
     }
     let falsehoods = [
         format!("{orthic}prove cyclic(Fa, Fb, Fc, A)"),
@@ -364,7 +413,10 @@ fn fingerprint_bucketing_does_not_prove_false_neighbours() {
         format!("{excenter}prove cyclic(A, I, C, Ia)"),
     ];
     for src in falsehoods {
-        assert!(!ddar_claims_proof(&src), "DDAR proved a false statement:\n{src}");
+        assert!(
+            !ddar_claims_proof(&src),
+            "DDAR proved a false statement:\n{src}"
+        );
         let problem = compile(&src).unwrap().problem;
         let found = bounded(300, move || {
             ddar::aux_search::solve_with_aux_opts(&problem, 1, 400, false, true).0
@@ -392,10 +444,23 @@ fn similitude_pairing_is_not_read_off_a_tangent_coincidence() {
         e@0.5604388344044076_-0.3156925436975965 = on_line e a c, on_circle e d a; \
         f@-0.060187107189491634_-0.3126212156125929 = on_circle f d a, on_line f b c; \
         x = on_line x a f, on_circum x a d e; y = mirror y a x ? cong a e e f";
-    let o = ddar::fuzz::solve_case("tangent-similitude", special, Duration::from_secs(60), false);
+    let o = ddar::fuzz::solve_case(
+        "tangent-similitude",
+        special,
+        Duration::from_secs(60),
+        false,
+    );
     assert!(o.parsed, "{}", o.detail);
-    assert_eq!(o.goal_numeric, Some(true), "the special figure is equilateral");
-    assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
+    assert_eq!(
+        o.goal_numeric,
+        Some(true),
+        "the special figure is equilateral"
+    );
+    assert!(
+        !o.proved,
+        "DDAR proved a false statement:\n{special}\n{}",
+        o.proof.unwrap_or_default()
+    );
 }
 
 /// Second fuzzer finding of the same rule (jgex `E061-63f` with the tangent
@@ -410,10 +475,19 @@ fn similitude_pairing_is_not_read_off_a_tangent_line() {
         e@0.7484736446910423_-0.09000162729402861 = on_line e a b; \
         p = on_line p d e, on_circum p a c d; q = reflect q a d e; \
         r = on_line r d e, angle_bisector r d c e ? cong d a d e";
-    let o = ddar::fuzz::solve_case("tangent-line-similitude", special, Duration::from_secs(60), false);
+    let o = ddar::fuzz::solve_case(
+        "tangent-line-similitude",
+        special,
+        Duration::from_secs(60),
+        false,
+    );
     assert!(o.parsed, "{}", o.detail);
     assert_eq!(o.goal_numeric, Some(true), "DA = DE on the tangent figure");
-    assert!(!o.proved, "DDAR proved a false statement:\n{special}\n{}", o.proof.unwrap_or_default());
+    assert!(
+        !o.proved,
+        "DDAR proved a false statement:\n{special}\n{}",
+        o.proof.unwrap_or_default()
+    );
 }
 
 /// The classical closure rules (squared lengths, Menelaus/Ceva converses,
@@ -428,7 +502,10 @@ fn classical_rules_do_not_prove_near_misses() {
          Tc = foot(I, line(A, B))\nX = meet(line(A, Ta), line(B, Tb))\nprove coll(C, Tc, X)",
     ];
     for src in truths {
-        assert!(ddar_claims_proof(src), "control case no longer proved:\n{src}");
+        assert!(
+            ddar_claims_proof(src),
+            "control case no longer proved:\n{src}"
+        );
     }
     let falsehoods = [
         "A B C = triangle\nH = point: perp(A, H, B, C)\nprove perp(C, H, A, B)",
@@ -444,8 +521,15 @@ fn classical_rules_do_not_prove_near_misses() {
     ];
     for src in falsehoods {
         let c = compile(src).unwrap();
-        assert_eq!(c.goal_numerically_holds, Some(false), "near-miss must be false:\n{src}");
-        assert!(!ddar_claims_proof(src), "DDAR proved a false statement:\n{src}");
+        assert_eq!(
+            c.goal_numerically_holds,
+            Some(false),
+            "near-miss must be false:\n{src}"
+        );
+        assert!(
+            !ddar_claims_proof(src),
+            "DDAR proved a false statement:\n{src}"
+        );
         let problem = c.problem;
         let found = bounded(300, move || {
             ddar::aux_search::solve_with_aux_opts(&problem, 1, 400, false, true).0
@@ -556,7 +640,10 @@ fn new_aux_kinds_do_not_assume_numeric_coincidences() {
     ];
     for (kind, src) in cases {
         let problem = Problem::parse(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
-        assert!(!solve_problem(&problem).unwrap(), "DDAR proved a coincidence:\n{src}");
+        assert!(
+            !solve_problem(&problem).unwrap(),
+            "DDAR proved a coincidence:\n{src}"
+        );
         let all = candidate_pool(&problem, 0.0);
         assert!(
             all.iter().any(|(_, c)| c.kind == kind),
@@ -564,7 +651,11 @@ fn new_aux_kinds_do_not_assume_numeric_coincidences() {
         );
         let warm = WarmBase::new(&problem).unwrap();
         for (_, c) in all.iter().filter(|(_, c)| c.kind == kind) {
-            assert!(!warm.check(c), "`{}` proves a numeric coincidence:\n{src}", c.desc);
+            assert!(
+                !warm.check(c),
+                "`{}` proves a numeric coincidence:\n{src}",
+                c.desc
+            );
         }
         let found = bounded(120, move || {
             let deadline = std::time::Instant::now() + Duration::from_secs(4);
@@ -581,10 +672,9 @@ fn new_aux_kinds_do_not_assume_numeric_coincidences() {
 /// merely sits on a circle must stay off it whatever combination is tried.
 #[test]
 fn rollouts_do_not_assume_numeric_circle_membership() {
-    let problem = Problem::parse(
-        "o@0.0_0.0 x@1.0_0.0 y@0.0_1.0 = cong o x o y; k@0.6_0.8 = ? cong o k o x",
-    )
-    .unwrap();
+    let problem =
+        Problem::parse("o@0.0_0.0 x@1.0_0.0 y@0.0_1.0 = cong o x o y; k@0.6_0.8 = ? cong o k o x")
+            .unwrap();
     let found = bounded(120, move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(6);
         ddar::aux_search::solve_max_until(&problem, false, Some(deadline)).0
@@ -608,7 +698,10 @@ fn provers_reject(cons: &str, goal: &str) {
         panic!("ratio prover proved a false statement:\n{goal}\n{p}");
     }
     match metric::check_numerically(cons, goal, 48) {
-        Ok(ev) => panic!("{goal}: expected a false statement, it holds numerically: {}", ev.report),
+        Ok(ev) => panic!(
+            "{goal}: expected a false statement, it holds numerically: {}",
+            ev.report
+        ),
         Err(e) => assert!(e.is_refuted(), "{goal}: expected a refutation, got {e}"),
     }
 }
@@ -662,13 +755,18 @@ fn sine_goals_are_not_lone_citations_and_false_ones_fail() {
     let tri = "A B C = triangle";
     let restated = "dist(B,C)*sin(angle(A,B,C)) = dist(A,C)*sin(angle(B,A,C))";
     match metric::solve(tri, restated, 48) {
-        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.numerically_holds(), Some(true)),
+        Err(e @ metric::MetricError::NoProof { .. }) => {
+            assert_eq!(e.numerically_holds(), Some(true))
+        }
         other => panic!("the law of sines must not prove its own restatement: {other:?}"),
     }
     let circ = "A B C = triangle\nO = circumcenter(A, B, C)";
     let proof = metric::solve(circ, "dist(B,C) = 2*dist(O,A)*sin(angle(B,A,C))", 48)
         .expect("BC = 2R sin A is derived");
-    assert!(proof.contains("Law of sines in") && proof.contains("Extended law of sines"), "{proof}");
+    assert!(
+        proof.contains("Law of sines in") && proof.contains("Extended law of sines"),
+        "{proof}"
+    );
     provers_reject(circ, "dist(B,C) = dist(O,A)*sin(angle(B,A,C))");
     provers_reject(circ, "dist(B,C) = 2*dist(O,A)*sin(angle(A,B,C))");
     provers_reject(
@@ -691,9 +789,12 @@ fn cosine_sign_trap_and_restatement() {
         let proof = metric::solve(supp, goal, 48).unwrap_or_else(|e| panic!("{goal}: {e}"));
         assert!(proof.starts_with("EUCLIDEAN PROOF"), "{proof}");
     }
-    let restated = "dist(B,C)^2 = dist(A,B)^2 + dist(A,C)^2 - 2*dist(A,B)*dist(A,C)*cos(angle(B,A,C))";
+    let restated =
+        "dist(B,C)^2 = dist(A,B)^2 + dist(A,C)^2 - 2*dist(A,B)*dist(A,C)*cos(angle(B,A,C))";
     match metric::solve("A B C = triangle", restated, 48) {
-        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.numerically_holds(), Some(true)),
+        Err(e @ metric::MetricError::NoProof { .. }) => {
+            assert_eq!(e.numerically_holds(), Some(true))
+        }
         other => panic!("the law of cosines must not prove its own restatement: {other:?}"),
     }
     provers_reject(
@@ -701,7 +802,8 @@ fn cosine_sign_trap_and_restatement() {
         "dist(B,C)^2 = dist(A,B)^2 + dist(A,C)^2 + 2*dist(A,B)*dist(A,C)*cos(angle(B,A,C))",
     );
     let right = "A = free\nB = free\nC = point: perp(A,B,A,C)\nH = foot(A, line(B,C))";
-    let proof = metric::solve(right, "dist(A,B)*cos(angle(A,B,C)) = dist(B,H)", 48).expect("projection is proved");
+    let proof = metric::solve(right, "dist(A,B)*cos(angle(A,B,C)) = dist(B,H)", 48)
+        .expect("projection is proved");
     assert!(proof.contains("Law of cosines"), "{proof}");
     provers_reject(right, "dist(A,B)*cos(angle(A,B,C)) = dist(C,H)");
 }
@@ -722,7 +824,8 @@ fn ptolemy_second_false_neighbours_are_never_proved() {
          dist(A,C)*(dist(A,B)*dist(A,D) + dist(B,C)*dist(C,D))",
     );
     // The convex general case the sine-area stage proves: its neighbours.
-    let convex = "A B C = triangle\nM = midpoint(A, C)\nD = meet(line(B, M), circumcircle(A, B, C))";
+    let convex =
+        "A B C = triangle\nM = midpoint(A, C)\nD = meet(line(B, M), circumcircle(A, B, C))";
     provers_reject(
         convex,
         "dist(B,D)*(dist(A,B)*dist(B,C) + dist(C,D)*dist(D,A)) = \
@@ -763,7 +866,10 @@ fn ddar_trig_proves(src: &str, trig: bool) -> bool {
 fn ddar_trig_rows_prove_only_what_follows() {
     let right30 = "A = free\nB = free\nC = point: angle(B,A,C) = 30, perp(C,A,C,B)\n\
                    prove dist(B,C) = dist(A,B) / 2";
-    assert!(!ddar_trig_proves(right30, false), "plain DDAR was not expected to prove it");
+    assert!(
+        !ddar_trig_proves(right30, false),
+        "plain DDAR was not expected to prove it"
+    );
     assert!(ddar_trig_proves(right30, true));
     for false_goal in [
         "A = free\nB = free\nC = point: angle(B,A,C) = 30\nprove dist(B,C) = dist(A,B) / 2",
@@ -786,7 +892,10 @@ fn ddar_trig_rows_prove_only_what_follows() {
 fn arc_chord_transfer_reads_no_side_off_a_diameter() {
     let low = "a@-0.52555007828554_0.24644985287467536 b@0.5787628638709572_0.6713292845322588 c@-1.6877412770044946_0.024321009002004373 e@0.3180434353940881_0.5969029357011043 d@-4.170870672315426_13.01620030840955 f@-3.5995943484790898_10.027248923150959 g@4.235681219267257_-8.83344305174873 n@105.73780307188756_44.39131239516121 h@101.82016528801438_53.82165838261104 = coll e b c, cong a c a b, perp d c c a, perp f e a e, coll f c d, coll g e f, coll g b d, cyclic d f g n, cong n f n g, para e g n h, para g n e h, cong e g n h, cong g n e h ? cong g e e f";
     let problem = Problem::parse(low).unwrap();
-    assert!(!solve_problem(&problem).unwrap(), "proved GE = EF without the tangent at B");
+    assert!(
+        !solve_problem(&problem).unwrap(),
+        "proved GE = EF without the tangent at B"
+    );
 }
 
 /// jgex `complete_010_Other_gao_Y_yL182-1` (corpus figure): F = C + A − E is
@@ -959,10 +1068,20 @@ fn double_angle_row_fires_and_needs_its_premises() {
             }
         )
     };
-    assert!(ddar_trig_proves_low(&pts("")), "the double-angle row no longer fires");
-    assert!(!ddar_claims_low(&pts("")), "plain DDAR proves it: the test does not exercise the row");
+    assert!(
+        ddar_trig_proves_low(&pts("")),
+        "the double-angle row no longer fires"
+    );
+    assert!(
+        !ddar_claims_low(&pts("")),
+        "plain DDAR proves it: the test does not exercise the row"
+    );
     for tag in ["NO_ISO", "NO_PERP", "NO_ANG", "WRONG"] {
-        assert!(!ddar_trig_proves_low(&pts(tag)), "proved a false neighbour ({tag}):\n{}", pts(tag));
+        assert!(
+            !ddar_trig_proves_low(&pts(tag)),
+            "proved a false neighbour ({tag}):\n{}",
+            pts(tag)
+        );
     }
 }
 
@@ -1036,7 +1155,11 @@ fn morley_by_trig_rows_only_where_true() {
                 let head: Vec<String> = pts.iter().map(|(n, p)| fmt_pt(n, p.0, p.1)).collect();
                 let src = format!("{} = {preds} ? cong j l j k", head.join(" "));
                 let got = bounded(120, move || ddar_trig_proves_low(&src));
-                assert_eq!((ia + ib + ic) % 3 != 2, truth, "figure {ia} {ib} {ic}: unexpected truth value");
+                assert_eq!(
+                    (ia + ib + ic) % 3 != 2,
+                    truth,
+                    "figure {ia} {ib} {ic}: unexpected truth value"
+                );
                 if truth {
                     assert!(got, "true Morley figure {ia} {ib} {ic} not proved");
                     proved += 1;
@@ -1054,10 +1177,19 @@ fn morley_by_trig_rows_only_where_true() {
                g@0.13200375239858442_-0.1702264702525801 h@-0.24396157915667044_-0.17770908065078395 \
                i@-0.39075010291486945_-0.525836226619042 j@-0.13598988595056216_-0.6644871233213832 \
                k@-0.03509469205440549_-0.5302258581151602 l@-0.20181595541531305_-0.5099786896844436";
-    assert!(ddar_trig_proves_low(&format!("{fig} = {preds} ? cong j l j k")));
-    for dropped in ["eqangle a d a e a e a c, ", "eqangle b f b g b g b a, ", "eqangle c h c i c i c b, "] {
+    assert!(ddar_trig_proves_low(&format!(
+        "{fig} = {preds} ? cong j l j k"
+    )));
+    for dropped in [
+        "eqangle a d a e a e a c, ",
+        "eqangle b f b g b g b a, ",
+        "eqangle c h c i c i c b, ",
+    ] {
         let src = format!("{fig} = {} ? cong j l j k", preds.replace(dropped, ""));
-        assert!(!ddar_trig_proves_low(&src), "proved Morley without `{dropped}`");
+        assert!(
+            !ddar_trig_proves_low(&src),
+            "proved Morley without `{dropped}`"
+        );
     }
 }
 
@@ -1079,15 +1211,28 @@ fn double_points_and_coinciding_circles_prove_nothing_false() {
         z@0.812530082354587_-1.0795706079507439 = eqangle z e z c z f z a, eqratio z e z c z f z a \
         ? perp a c c f";
     let p = Problem::parse(aug).unwrap();
-    assert!(!solve_problem(&p).unwrap(), "radical axis of two circle objects that may be one circle");
+    assert!(
+        !solve_problem(&p).unwrap(),
+        "radical axis of two circle objects that may be one circle"
+    );
     let case = "a@-0.23981029018905176_-0.39281463739256384 c@0.8811080127867896_0.17516087337911768 = \
         segment a c; b@0.8125300823545871_-1.0795706079507439 = eq_triangle b c a; \
         e@0.7439521519223846_-2.3343020892806052 = mirror e c b; d@0.6753742214901821_-3.5890335706104666 = \
         free d; f@1.864870454898226_-1.7663265785089237 = foot f d a b ? perp a c c f";
-    let o = bounded(200, move || ddar::fuzz::solve_case("hs1", case, Duration::from_secs(20), true));
+    let o = bounded(200, move || {
+        ddar::fuzz::solve_case("hs1", case, Duration::from_secs(20), true)
+    });
     assert!(o.parsed, "{}", o.detail);
-    assert_eq!(o.goal_numeric, Some(true), "the goal holds on the pinned figure");
-    assert!(!o.proved, "the aux search proved a false statement:\n{case}\n{}", o.proof.unwrap_or_default());
+    assert_eq!(
+        o.goal_numeric,
+        Some(true),
+        "the goal holds on the pinned figure"
+    );
+    assert!(
+        !o.proved,
+        "the aux search proved a false statement:\n{case}\n{}",
+        o.proof.unwrap_or_default()
+    );
 }
 
 /// Verification finding on wf/final-hard-r1: two circle objects through the same two points
@@ -1103,7 +1248,10 @@ fn radical_axis_needs_two_distinct_circles() {
         b2@1.7102391228277416_-3.4405145409711757 = ; p1@1.4141768296295327_1.0101928670629128 = \
         cyclic a1 a2 b1 p1; q1@2.2357325516682938_-2.0387292836337005 = cyclic a1 a2 b2 q1; \
         x@3.0_0.0 = coll x b1 p1, coll x b2 q1, eqratio x b1 x b2 x q1 x p1 ? coll x a1 a2";
-    assert!(solve_problem(&Problem::parse(control).unwrap()).unwrap(), "radical axis no longer fires");
+    assert!(
+        solve_problem(&Problem::parse(control).unwrap()).unwrap(),
+        "radical axis no longer fires"
+    );
     let decoy = "a@-0.4192717273280908_0.24372487354225303 b@-0.8479310819447494_0.047647597687965115 \
         c@-0.06030967450309488_-0.1487507397252532 h@-0.355965288429601_0.49760434707588064 \
         d@-0.45412037822392215_-0.05055157101864405 e@-0.23979070091559285_0.04748706690849991 \
@@ -1119,7 +1267,10 @@ fn radical_axis_needs_two_distinct_circles() {
         x@-0.13184458450827166_-0.13091306129335806 = coll x b1 p1, coll x b2 q1, \
         eqratio x b1 x b2 x q1 x p1 ? coll x a1 a2";
     let p = Problem::parse(decoy).unwrap();
-    assert!(!solve_problem(&p).unwrap(), "radical axis of two circle objects that are one circle");
+    assert!(
+        !solve_problem(&p).unwrap(),
+        "radical axis of two circle objects that are one circle"
+    );
     let found = bounded(120, move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(4);
         ddar::aux_search::solve_max_until(&p, false, Some(deadline)).0
@@ -1147,12 +1298,21 @@ fn bisector_theorem_needs_a_triangle() {
         let proved = d.check_pred(p.goal.as_ref().unwrap());
         (proved, d.rejected_rows())
     };
-    let degenerate = "b@0.0_0.0 c@3.0_0.0 = ; x@1.0_0.0 = coll x b c; a@5.0_0.0 = eqangle a b a x a x a c \
+    let degenerate =
+        "b@0.0_0.0 c@3.0_0.0 = ; x@1.0_0.0 = coll x b c; a@5.0_0.0 = eqangle a b a x a x a c \
                       ? eqratio x b x c a b a c";
-    assert_eq!(close(degenerate), (false, 0), "proved a ratio false on its own figure");
+    assert_eq!(
+        close(degenerate),
+        (false, 0),
+        "proved a ratio false on its own figure"
+    );
     let generic = "b@0.0_0.0 c@3.0_0.0 = ; a@0.6_2.0 = ; x@1.2018400234482116_0.0 = coll x b c, \
                    eqangle a b a x a x a c ? eqratio x b x c a b a c";
-    assert_eq!(close(generic), (true, 0), "the bisector theorem no longer fires");
+    assert_eq!(
+        close(generic),
+        (true, 0),
+        "the bisector theorem no longer fires"
+    );
 }
 
 /// A goal or hypothesis naming a direction or length of two numerically identical points has
@@ -1161,19 +1321,28 @@ fn bisector_theorem_needs_a_triangle() {
 /// `cong x k x k` with x on k); now it is simply not proved.
 #[test]
 fn degenerate_goals_are_unproved_not_panics() {
-    let tm3 = "o@0.0_0.0 a@0.0_2.0 p@3.0_0.0 b@3.0_1.0 = ; k@2.0_0.0 = cong o k o a, cong p k p b; \
+    let tm3 =
+        "o@0.0_0.0 a@0.0_2.0 p@3.0_0.0 b@3.0_1.0 = ; k@2.0_0.0 = cong o k o a, cong p k p b; \
                x@2.0_0.0 = cong o x o a, cong p x p b ? cong x k x k";
     let p = Problem::parse(tm3).unwrap();
-    let r = catch_unwind(AssertUnwindSafe(|| ddar::runner::solve_problem_with_proof(&p)));
-    assert!(matches!(r, Ok(Ok(None))), "a degenerate goal panicked or was proved");
-    let case = "b@0.14236045802074582_-0.47028866105807154 c@-1.4194196564654133_-1.3243862501986787 = \
+    let r = catch_unwind(AssertUnwindSafe(|| {
+        ddar::runner::solve_problem_with_proof(&p)
+    }));
+    assert!(
+        matches!(r, Ok(Ok(None))),
+        "a degenerate goal panicked or was proved"
+    );
+    let case =
+        "b@0.14236045802074582_-0.47028866105807154 c@-1.4194196564654133_-1.3243862501986787 = \
         segment b c; o@-0.6385295992223338_-0.8973374556283751 = midpoint o b c; \
         a@-1.5275828092207768_-0.9391028029454259 = on_circle a o b; \
         d@-0.39796465619885596_-1.7542437881018609 = on_circle d o b, on_bline d a b; \
         e@-1.1192260559960014_-0.1482774641121476 = on_bline e o a, on_circle e o b; \
         f@-1.1192260559960014_-0.1482774641121476 = on_bline f o a, on_circle f o b; \
         j = on_pline j o a d, on_line j a c ? eqangle e c e j e j e f";
-    let o = bounded(60, move || ddar::fuzz::solve_case("d0", case, Duration::from_secs(3), true));
+    let o = bounded(60, move || {
+        ddar::fuzz::solve_case("d0", case, Duration::from_secs(3), true)
+    });
     assert!(o.parsed, "{}", o.detail);
     assert_ne!(o.status, "engine-panic", "{}", o.detail);
     assert!(!o.proved);
@@ -1185,7 +1354,8 @@ fn degenerate_goals_are_unproved_not_panics() {
 /// double point; the same figure with a false goal does not.
 #[test]
 fn near_identical_points_do_not_panic_the_closure() {
-    let base = "a@-0.8048578064433936_-0.6219504215719476 b@0.8684669896894479_-0.025585732571094866 \
+    let base =
+        "a@-0.8048578064433936_-0.6219504215719476 b@0.8684669896894479_-0.025585732571094866 \
         c@-0.22291632195609368_0.9274971408947663 o@-0.07994750791986127_-0.010205650197596394 \
         p@0.3037711317812146_-0.877665511952185 q@-0.6196887172454079_-1.286155602053097 \
         pa@1.6367329495163112_0.6487204125441275 pb@-1.807721808949386_-0.08463103555013651 \
@@ -1213,10 +1383,14 @@ fn near_identical_points_do_not_panic_the_closure() {
 /// A different radius is still not proved.
 #[test]
 fn proof_steps_cite_the_rows_that_normalised_them() {
-    let proof = |src: &str| ddar::runner::solve_problem_with_proof(&Problem::parse(src).unwrap()).unwrap();
+    let proof =
+        |src: &str| ddar::runner::solve_problem_with_proof(&Problem::parse(src).unwrap()).unwrap();
     let radii = proof("o@0.0_0.0 a@1.0_0.0 = ; t@0.6_0.8 = cong o t o a; x@-0.6_0.8 = cong o x o a ? cong o t o x")
         .expect("equal radii");
-    assert!(radii.contains("cong o t o a") && radii.contains("cong o x o a"), "{radii}");
+    assert!(
+        radii.contains("cong o t o a") && radii.contains("cong o x o a"),
+        "{radii}"
+    );
     let tangent = proof(
         "o@0.0_0.0 a@1.0_0.0 = ; t@0.6_0.8 = cong o t o a; q@0.2_1.1 = perp o t t q; \
          x@0.6_0.8 = cong o x o a, coll x t q ? perp o x x q",
@@ -1232,7 +1406,10 @@ fn ptolemy_with(extra: usize, point: &str, goal_factor: &str) -> (String, String
     for i in 0..extra {
         cons.push_str(&format!("P{i} = {point}\n"));
     }
-    (cons, format!("dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {goal_factor}dist(A,D)*dist(B,C)"))
+    (
+        cons,
+        format!("dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {goal_factor}dist(A,D)*dist(B,C)"),
+    )
 }
 
 fn ptolemy_with_free_points(extra: usize, goal_factor: &str) -> (String, String) {
@@ -1243,7 +1420,9 @@ fn ptolemy_with_free_points(extra: usize, goal_factor: &str) -> (String, String)
 fn points_no_hypothesis_mentions_do_not_slow_the_metric_provers() {
     let (cons, goal) = ptolemy_with_free_points(89, "");
     let t = std::time::Instant::now();
-    let r = bounded(60, move || metric::solve(&cons, &goal, metric::DEFAULT_SAMPLES));
+    let r = bounded(60, move || {
+        metric::solve(&cons, &goal, metric::DEFAULT_SAMPLES)
+    });
     assert!(r.is_ok(), "{r:?}");
     assert!(t.elapsed() < Duration::from_secs(20), "{:?}", t.elapsed());
 }
@@ -1253,13 +1432,22 @@ fn metric_provers_stop_at_their_deadline_and_never_prove_past_it() {
     let (cons, goal) = ptolemy_with(25, "on_circum(A, B, C)", "");
     let t = std::time::Instant::now();
     let r = bounded(60, move || {
-        metric::solve_until(&cons, &goal, metric::DEFAULT_SAMPLES, Some(std::time::Instant::now() + Duration::from_secs(2)))
+        metric::solve_until(
+            &cons,
+            &goal,
+            metric::DEFAULT_SAMPLES,
+            Some(std::time::Instant::now() + Duration::from_secs(2)),
+        )
     });
     let took = t.elapsed();
     assert!(took < Duration::from_secs(12), "{took:?}");
     match r {
-        Err(metric::MetricError::TimedOut(report)) => assert!(report.contains("time limit"), "{report}"),
-        Err(e @ metric::MetricError::NoProof { .. }) => assert_eq!(e.message(), metric::TIME_LIMIT_REASON),
+        Err(metric::MetricError::TimedOut(report)) => {
+            assert!(report.contains("time limit"), "{report}")
+        }
+        Err(e @ metric::MetricError::NoProof { .. }) => {
+            assert_eq!(e.message(), metric::TIME_LIMIT_REASON)
+        }
         other => panic!("expected a time-limited non-proof, got {other:?}"),
     }
     let (cons, goal) = ptolemy_with_free_points(0, "");
@@ -1271,9 +1459,14 @@ fn metric_provers_stop_at_their_deadline_and_never_prove_past_it() {
 fn a_metric_goal_false_in_the_drawn_figure_is_refuted_before_the_provers_run() {
     let (cons, goal) = ptolemy_with_free_points(89, "2*");
     let t = std::time::Instant::now();
-    let r = bounded(60, move || metric::solve_until(&cons, &goal, metric::DEFAULT_SAMPLES, None));
+    let r = bounded(60, move || {
+        metric::solve_until(&cons, &goal, metric::DEFAULT_SAMPLES, None)
+    });
     assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
     assert!(matches!(r, Err(metric::MetricError::Refuted(_))), "{r:?}");
     let (cons, goal) = ptolemy_with_free_points(0, "2*");
-    assert!(matches!(metric::solve(&cons, &goal, metric::DEFAULT_SAMPLES), Err(metric::MetricError::Refuted(_))));
+    assert!(matches!(
+        metric::solve(&cons, &goal, metric::DEFAULT_SAMPLES),
+        Err(metric::MetricError::Refuted(_))
+    ));
 }

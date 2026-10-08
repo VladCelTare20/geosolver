@@ -97,14 +97,21 @@ fn residue_int(n: i128) -> u64 {
 
 fn residue_big(n: &BigInt) -> u64 {
     let r = n % BigInt::from(P);
-    let r = if r < BigInt::zero() { r + BigInt::from(P) } else { r };
+    let r = if r < BigInt::zero() {
+        r + BigInt::from(P)
+    } else {
+        r
+    };
     r.to_u64().expect("residue fits")
 }
 
 pub fn rat(r: &Rat) -> Option<u64> {
     match r {
         Rat::Small(n, 1) => Some(residue_int(*n as i128)),
-        Rat::Small(n, d) => Some(mul(residue_int(*n as i128), inverse(residue_int(*d as i128))?)),
+        Rat::Small(n, d) => Some(mul(
+            residue_int(*n as i128),
+            inverse(residue_int(*d as i128))?,
+        )),
         Rat::Big(b) => Some(mul(
             residue_big(b.numer()),
             inverse(residue_big(b.denom()))?,

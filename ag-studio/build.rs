@@ -11,7 +11,12 @@ fn git(args: &[&str]) -> Option<String> {
 }
 
 fn watch(git_path: &str) {
-    if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", git_path]) {
+    if let Some(p) = git(&[
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        git_path,
+    ]) {
         if PathBuf::from(&p).exists() {
             println!("cargo:rerun-if-changed={p}");
         }

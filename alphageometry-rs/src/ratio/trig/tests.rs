@@ -10,7 +10,9 @@ fn proves(cons: &str, goal: &str) -> bool {
 }
 
 fn all_rows(f: &Figure) -> BTreeSet<usize> {
-    (0..f.steps.len()).filter(|&i| f.steps[i].eq.is_some()).collect()
+    (0..f.steps.len())
+        .filter(|&i| f.steps[i].eq.is_some())
+        .collect()
 }
 
 #[test]
@@ -34,7 +36,11 @@ fn seventy_two_degrees_has_no_known_sine_row() {
     let mut f = figure("A = free\nB = free\nC = point: angle(B, A, C) = 72");
     let atom = f.sin_atom(0, 1, 2).expect("a proper corner");
     f.gather_known_sines(&[atom]);
-    assert!(f.steps.is_empty(), "{:?}", f.steps.iter().map(|s| &s.text).collect::<Vec<_>>());
+    assert!(
+        f.steps.is_empty(),
+        "{:?}",
+        f.steps.iter().map(|s| &s.text).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -61,7 +67,11 @@ fn degenerate_triples_get_no_sine_atom() {
     let pts: Vec<PointId> = (0..f.names.len() as PointId).collect();
     f.gather_trig(&pts, &BTreeSet::new());
     for s in &f.steps {
-        assert!(!s.text.contains("△BCM") && !s.text.contains("△BMC"), "{}", s.text);
+        assert!(
+            !s.text.contains("△BCM") && !s.text.contains("△BMC"),
+            "{}",
+            s.text
+        );
     }
 }
 
@@ -90,24 +100,37 @@ fn power_of_a_point_needs_one_configuration_in_every_instance() {
     outside[p] = outside[x] + (outside[y] - outside[x]) * 2.0;
     let mut f = Figure::gather(&sampled, vec![inside.clone(), outside]);
     f.gather_center_power(&[0, 1, 2, 3, 4]);
-    assert!(f.psteps.is_empty(), "a power row was emitted with the inside/outside branch varying");
+    assert!(
+        f.psteps.is_empty(),
+        "a power row was emitted with the inside/outside branch varying"
+    );
     let mut f = Figure::gather(&sampled, vec![inside.clone(), inside]);
     f.gather_center_power(&[0, 1, 2, 3, 4]);
-    assert!(!f.psteps.is_empty(), "the consistent inside configuration gets its row");
+    assert!(
+        !f.psteps.is_empty(),
+        "the consistent inside configuration gets its row"
+    );
 }
 
 #[test]
 fn irrational_ratios_are_never_bridged() {
     let f = figure("A = free\nB = free\nC = eq_triangle(A, B)\nM = midpoint(A, B)");
     let (a, b, c, m) = (0, 1, 2, 3);
-    assert!(f.exact_ratio(&[latom(c, m).into()], &[latom(a, b).into()]).is_none());
-    assert_eq!(f.exact_ratio(&[latom(a, m).into()], &[latom(a, b).into()]), Some(Rat::new(1, 2)));
+    assert!(f
+        .exact_ratio(&[latom(c, m).into()], &[latom(a, b).into()])
+        .is_none());
+    assert_eq!(
+        f.exact_ratio(&[latom(a, m).into()], &[latom(a, b).into()]),
+        Some(Rat::new(1, 2))
+    );
 }
 
 #[test]
 fn a_rational_ratio_without_a_log_proof_gets_no_bridge() {
     let mut f = figure("A = free\nB = free\nM = midpoint(A, B)");
-    let pool: BTreeSet<Mono> = [vec![latom(0, 2).into()], vec![latom(0, 1).into()]].into_iter().collect();
+    let pool: BTreeSet<Mono> = [vec![latom(0, 2).into()], vec![latom(0, 1).into()]]
+        .into_iter()
+        .collect();
     f.gather_log_bridges(&pool, &pool);
     assert!(f.psteps.is_empty());
 }
@@ -117,10 +140,14 @@ fn symmedian_proof_reads_as_a_ratio_lemma() {
     let cons = "A B C = triangle\nO = circumcenter(A, B, C)\n\
                 T = meet(perp_line(B, line(O, B)), perp_line(C, line(O, C)))\n\
                 X = meet(line(A, T), line(B, C))";
-    let Ok(Outcome::Proved(p)) = prove_ratio(cons, "dist(B,X)*dist(A,C)^2 = dist(X,C)*dist(A,B)^2") else {
+    let Ok(Outcome::Proved(p)) = prove_ratio(cons, "dist(B,X)*dist(A,C)^2 = dist(X,C)*dist(A,B)^2")
+    else {
         panic!("the symmedian ratio is proved");
     };
-    assert!(p.contains("Ratio lemma in △ABC with cevian AX: BX/XC = AB·sin∠BAX / (AC·sin∠CAX)"), "{p}");
+    assert!(
+        p.contains("Ratio lemma in △ABC with cevian AX: BX/XC = AB·sin∠BAX / (AC·sin∠CAX)"),
+        "{p}"
+    );
     assert!(p.contains("Multiplying the sine relations above"), "{p}");
 }
 
@@ -134,9 +161,15 @@ fn area_additivity_needs_the_same_convex_order_in_every_instance() {
     let mut inside = insts[0].clone();
     inside[d] = (inside[a] + inside[b] + inside[c]) * (1.0 / 3.0);
     let f = Figure::gather(&sampled, vec![convex.clone(), inside]);
-    assert!(!f.area_base_rows(&[0, 1, 2, 3]).iter().any(|r| r.text.contains("convex")));
+    assert!(!f
+        .area_base_rows(&[0, 1, 2, 3])
+        .iter()
+        .any(|r| r.text.contains("convex")));
     let f = Figure::gather(&sampled, vec![convex.clone(), convex]);
-    assert!(f.area_base_rows(&[0, 1, 2, 3]).iter().any(|r| r.text.contains("convex")));
+    assert!(f
+        .area_base_rows(&[0, 1, 2, 3])
+        .iter()
+        .any(|r| r.text.contains("convex")));
 }
 
 #[test]
@@ -146,17 +179,26 @@ fn a_ratio_rational_in_one_instance_only_is_not_bridged() {
     first[2] = first[0] + (first[1] - first[0]) * 0.5;
     first[2] = first[0] + Vec2::new(-(first[2] - first[0]).y, (first[2] - first[0]).x);
     let f = Figure::gather(&sampled, vec![first.clone(), insts[1].clone()]);
-    assert_eq!(Figure::gather(&sampled, vec![first]).exact_ratio(&[latom(0, 2).into()], &[latom(0, 1).into()]), Some(Rat::new(1, 2)));
-    assert!(f.exact_ratio(&[latom(0, 2).into()], &[latom(0, 1).into()]).is_none());
+    assert_eq!(
+        Figure::gather(&sampled, vec![first])
+            .exact_ratio(&[latom(0, 2).into()], &[latom(0, 1).into()]),
+        Some(Rat::new(1, 2))
+    );
+    assert!(f
+        .exact_ratio(&[latom(0, 2).into()], &[latom(0, 1).into()])
+        .is_none());
 }
 
 #[test]
 fn one_theorem_spread_over_multiples_is_still_a_restatement() {
     let mut f = figure("A = free\nB = free\nC = free");
     let (a, b, c) = (0, 1, 2);
-    let LKey::Sin(v, p, q) = f.sin_atom(a, b, c).unwrap() else { unreachable!() };
+    let LKey::Sin(v, p, q) = f.sin_atom(a, b, c).unwrap() else {
+        unreachable!()
+    };
     let (s, co) = (LKey::Sin(v, p, q), LKey::Cos(v, p, q));
-    let (ab, ac, bc): (LKey, LKey, LKey) = (latom(a, b).into(), latom(a, c).into(), latom(b, c).into());
+    let (ab, ac, bc): (LKey, LKey, LKey) =
+        (latom(a, b).into(), latom(a, c).into(), latom(b, c).into());
     let mono = |mut m: Vec<LKey>| {
         m.sort();
         m

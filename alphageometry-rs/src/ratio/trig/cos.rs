@@ -8,13 +8,17 @@ impl Figure {
     /// instance with one sign `τ` throughout, pending the `eqangle` that makes
     /// the two angles equal or supplementary (orientation read from the figure).
     pub(in crate::ratio) fn cos_substitutions(&self, f: LKey) -> Vec<(LKey, Predicate, Rat)> {
-        let LKey::Cos(v, p, q) = f else { return Vec::new() };
+        let LKey::Cos(v, p, q) = f else {
+            return Vec::new();
+        };
         let n = self.names.len() as PointId;
         let mut out = Vec::new();
         for w in 0..n {
             for r in 0..n {
                 for s in (r + 1)..n {
-                    let Some(LKey::Sin(w2, r2, s2)) = self.sin_atom(w, r, s) else { continue };
+                    let Some(LKey::Sin(w2, r2, s2)) = self.sin_atom(w, r, s) else {
+                        continue;
+                    };
                     let g = LKey::Cos(w2, r2, s2);
                     if g == f {
                         continue;
@@ -22,14 +26,20 @@ impl Figure {
                     let vals: Vec<(f64, f64)> = (0..self.insts.len())
                         .map(|i| (self.cos_val(i, v, p, q), self.cos_val(i, w2, r2, s2)))
                         .collect();
-                    if !vals.iter().all(|(x, y)| x.abs() > 1e-6 && (x.abs() - y.abs()).abs() < 1e-9 * x.abs().max(y.abs())) {
+                    if !vals.iter().all(|(x, y)| {
+                        x.abs() > 1e-6 && (x.abs() - y.abs()).abs() < 1e-9 * x.abs().max(y.abs())
+                    }) {
                         continue;
                     }
                     let tau = (vals[0].0 * vals[0].1).signum();
                     if !vals.iter().all(|(x, y)| (x * y).signum() == tau) {
                         continue;
                     }
-                    let Some(fact) = self.equal_sine_fact(LKey::Sin(v, p, q), LKey::Sin(w2, r2, s2)) else { continue };
+                    let Some(fact) =
+                        self.equal_sine_fact(LKey::Sin(v, p, q), LKey::Sin(w2, r2, s2))
+                    else {
+                        continue;
+                    };
                     out.push((g, fact, Rat::from_int(tau as i64)));
                 }
             }
@@ -45,13 +55,19 @@ impl Figure {
         for (i, &a) in gpts.iter().enumerate() {
             for (j, &b) in gpts.iter().enumerate().skip(i + 1) {
                 for &c in &gpts[j + 1..] {
-                    if self.sin_atom(a, b, c).is_none() || self.sin_atom(b, c, a).is_none() || self.sin_atom(c, a, b).is_none() {
+                    if self.sin_atom(a, b, c).is_none()
+                        || self.sin_atom(b, c, a).is_none()
+                        || self.sin_atom(c, a, b).is_none()
+                    {
                         continue;
                     }
                     for (x, y, z) in [(a, b, c), (b, c, a), (c, a, b)] {
-                        let Some(LKey::Sin(v, p, q)) = self.sin_atom(x, y, z) else { continue };
+                        let Some(LKey::Sin(v, p, q)) = self.sin_atom(x, y, z) else {
+                            continue;
+                        };
                         let (sk, ck) = (LKey::Sin(v, p, q), LKey::Cos(v, p, q));
-                        let (yz, xy, xz): (LKey, LKey, LKey) = (latom(y, z).into(), latom(x, y).into(), latom(x, z).into());
+                        let (yz, xy, xz): (LKey, LKey, LKey) =
+                            (latom(y, z).into(), latom(x, y).into(), latom(x, z).into());
                         let sorted = |mut m: Mono| {
                             m.sort();
                             m
@@ -85,7 +101,11 @@ impl Figure {
                         e.add(vec![], -Rat::one());
                         out.push(BaseRow {
                             eq: e,
-                            text: format!("{}² + {}² = 1", self.factor_text(sk), self.factor_text(ck)),
+                            text: format!(
+                                "{}² + {}² = 1",
+                                self.factor_text(sk),
+                                self.factor_text(ck)
+                            ),
                             pending: None,
                             headline: false,
                             support: true,
@@ -95,7 +115,11 @@ impl Figure {
                             e.add(vec![ck], Rat::one());
                             out.push(BaseRow {
                                 eq: e,
-                                text: format!("{} = 90° (derived from the hypotheses), so {} = 0", self.angle_text(ck), self.factor_text(ck)),
+                                text: format!(
+                                    "{} = 90° (derived from the hypotheses), so {} = 0",
+                                    self.angle_text(ck),
+                                    self.factor_text(ck)
+                                ),
                                 pending: Some(vec![pred("perp", &[v, p, v, q])]),
                                 headline: false,
                                 support: false,
@@ -111,11 +135,22 @@ impl Figure {
     /// Stage S8 (T7): a goal with a cosine factor, multiplied by nothing or
     /// by one goal length (non-zero in every instance), closed over the
     /// law-of-cosines rows and the signed cosine substitutions, then solved.
-    pub(in crate::ratio) fn prove_by_cosines(&self, lhs: &MExpr, rhs: &MExpr, goal_text: &str, pts: &[PointId]) -> Option<String> {
+    pub(in crate::ratio) fn prove_by_cosines(
+        &self,
+        lhs: &MExpr,
+        rhs: &MExpr,
+        goal_text: &str,
+        pts: &[PointId],
+    ) -> Option<String> {
         let lm = mono_lower(lhs, self)?;
         let rm = mono_lower(rhs, self)?;
         let goal_map = mono_add(&lm, &rm, &-Rat::one());
-        if goal_map.is_empty() || !goal_map.keys().flatten().any(|k| matches!(k, LKey::Cos(..))) {
+        if goal_map.is_empty()
+            || !goal_map
+                .keys()
+                .flatten()
+                .any(|k| matches!(k, LKey::Cos(..)))
+        {
             return None;
         }
         let mut goal = PEq::default();
@@ -123,11 +158,22 @@ impl Figure {
             goal.add(m.clone(), c.clone());
         }
         let gpts: Vec<PointId> = {
-            let s: BTreeSet<PointId> = goal.terms.keys().flatten().flat_map(|&k| k.points()).collect();
+            let s: BTreeSet<PointId> = goal
+                .terms
+                .keys()
+                .flatten()
+                .flat_map(|&k| k.points())
+                .collect();
             s.into_iter().collect()
         };
         let mut multipliers: Vec<Mono> = vec![vec![]];
-        let lens: BTreeSet<LKey> = goal.terms.keys().flatten().copied().filter(|k| matches!(k, LKey::Len(..))).collect();
+        let lens: BTreeSet<LKey> = goal
+            .terms
+            .keys()
+            .flatten()
+            .copied()
+            .filter(|k| matches!(k, LKey::Len(..)))
+            .collect();
         multipliers.extend(lens.into_iter().map(|k| vec![k]));
         multipliers.truncate(MAX_COS_MULTIPLIERS);
         for mult in multipliers {
@@ -146,7 +192,9 @@ impl Figure {
             f.gather_trig(pts, &goal_pts);
             let goal_monos: BTreeSet<Mono> = g.terms.keys().cloned().collect();
             f.gather_log_bridges(&pool, &goal_monos);
-            let Some(used) = f.certified_products(&g) else { continue };
+            let Some(used) = f.certified_products(&g) else {
+                continue;
+            };
             if used.is_empty() {
                 continue;
             }
@@ -155,7 +203,9 @@ impl Figure {
                 return Some(f.prender(&used, goal_text, val, &[]));
             }
             let mt = f.mono_text(&mult);
-            let pre = format!("Multiply both sides by {mt}, which is not 0 (distinct points in the figure).");
+            let pre = format!(
+                "Multiply both sides by {mt}, which is not 0 (distinct points in the figure)."
+            );
             let proof = f.prender(&used, goal_text, val, std::slice::from_ref(&pre));
             return Some(proof.replace(
                 "\n  Adding the relations above gives",

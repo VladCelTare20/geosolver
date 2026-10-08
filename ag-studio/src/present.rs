@@ -102,7 +102,10 @@ impl Names {
             }
             for (src, centres) in &pivots {
                 let distinct: HashSet<_> = centres.iter().collect();
-                if distinct.len() >= 2 || (distinct.len() == 1 && is_midpoint_of(problem, **distinct.iter().next().unwrap(), *src, me)) {
+                if distinct.len() >= 2
+                    || (distinct.len() == 1
+                        && is_midpoint_of(problem, **distinct.iter().next().unwrap(), *src, me))
+                {
                     let base = map
                         .get(name_of(*src))
                         .cloned()
@@ -115,13 +118,14 @@ impl Names {
                 }
             }
             // Midpoint: `coll X A B` and `cong X A X B`.
-            if chosen.is_none() && problem.preds.iter().any(|pred| {
-                pred.name == "cong"
-                    && pred.points.len() == 4
-                    && cong_center3(&pred.points).is_some_and(|(c, a, b)| {
-                        c == me && is_midpoint_of(problem, me, a, b)
-                    })
-            }) {
+            if chosen.is_none()
+                && problem.preds.iter().any(|pred| {
+                    pred.name == "cong"
+                        && pred.points.len() == 4
+                        && cong_center3(&pred.points)
+                            .is_some_and(|(c, a, b)| c == me && is_midpoint_of(problem, me, a, b))
+                })
+            {
                 for cand in ["M", "N", "K"]
                     .iter()
                     .map(|s| s.to_string())
@@ -286,9 +290,13 @@ fn coincidence_tol(problem: &Problem) -> Option<f64> {
 }
 
 pub(crate) fn twins(problem: &Problem) -> HashMap<u32, u32> {
-    let Some(tol) = coincidence_tol(problem) else { return HashMap::new() };
+    let Some(tol) = coincidence_tol(problem) else {
+        return HashMap::new();
+    };
     let pts = &problem.points;
-    let same = |a: usize, b: usize| (pts[a].value.x - pts[b].value.x).hypot(pts[a].value.y - pts[b].value.y) <= tol;
+    let same = |a: usize, b: usize| {
+        (pts[a].value.x - pts[b].value.x).hypot(pts[a].value.y - pts[b].value.y) <= tol
+    };
     let mut out = HashMap::new();
     for i in 0..pts.len() {
         if !pts[i].name.starts_with('_') {
@@ -338,7 +346,12 @@ pub struct Fact {
 
 impl Fact {
     fn new(kind: &'static str, args: Vec<String>, points: Vec<String>) -> Fact {
-        Fact { kind, args, points, ro: None }
+        Fact {
+            kind,
+            args,
+            points,
+            ro: None,
+        }
     }
     #[cfg(test)]
     pub fn plain(&self) -> String {
@@ -351,8 +364,21 @@ impl Fact {
             "perp" => format!("{} \u{27c2} {}", a(0), a(1)),
             "para" => format!("{} \u{2225} {}", a(0), a(1)),
             "eqangle" => format!("{} = {}", a(0), a(1)),
-            "eqratio" => self.args.chunks(2).map(|c| c.join(" : ")).collect::<Vec<_>>().join(" = "),
-            "para_ratio" => format!("{} \u{2225} {}, {} : {} = {} : {}", a(0), a(1), a(2), a(3), a(4), a(5)),
+            "eqratio" => self
+                .args
+                .chunks(2)
+                .map(|c| c.join(" : "))
+                .collect::<Vec<_>>()
+                .join(" = "),
+            "para_ratio" => format!(
+                "{} \u{2225} {}, {} : {} = {} : {}",
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5)
+            ),
             "aconst" => format!("{} = {}\u{b0}", a(0), a(1)),
             "rconst" => format!("{} : {} = {}", a(0), a(1), a(2)),
             "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", a(0), a(1)),
@@ -397,17 +423,23 @@ fn angle_sum_text(n: &dyn Fn(u32) -> String, pred: &Predicate) -> Option<String>
         .map(|c| (c.denom_i64() == Some(1)).then(|| c.numer_i64()).flatten())
         .collect::<Option<_>>()?;
     let line = |i: usize| (p[2 * i], p[2 * i + 1]);
-    let shares = |a: (u32, u32), b: (u32, u32)| a.0 == b.0 || a.0 == b.1 || a.1 == b.0 || a.1 == b.1;
+    let shares =
+        |a: (u32, u32), b: (u32, u32)| a.0 == b.0 || a.0 == b.1 || a.1 == b.0 || a.1 == b.1;
     let mut used = vec![false; k];
     let mut terms: Vec<String> = Vec::new();
     for i in 0..k {
         if used[i] || coef[i] == 0 {
             continue;
         }
-        let j = (i + 1..k).find(|&j| !used[j] && coef[j] == -coef[i] && shares(line(i), line(j)))?;
+        let j =
+            (i + 1..k).find(|&j| !used[j] && coef[j] == -coef[i] && shares(line(i), line(j)))?;
         used[i] = true;
         used[j] = true;
-        let (pos, neg) = if coef[i] > 0 { (line(i), line(j)) } else { (line(j), line(i)) };
+        let (pos, neg) = if coef[i] > 0 {
+            (line(i), line(j))
+        } else {
+            (line(j), line(i))
+        };
         let angle = pretty_angle(n, neg.0, neg.1, pos.0, pos.1);
         let c = coef[i].abs();
         terms.push(if c == 1 { angle } else { format!("{c}{angle}") });
@@ -416,7 +448,11 @@ fn angle_sum_text(n: &dyn Fn(u32) -> String, pred: &Predicate) -> Option<String>
         return None;
     }
     let rhs = -pred.constants[k].to_f64();
-    let rhs = if rhs.fract() == 0.0 { format!("{}", rhs as i64) } else { format!("{rhs}") };
+    let rhs = if rhs.fract() == 0.0 {
+        format!("{}", rhs as i64)
+    } else {
+        format!("{rhs}")
+    };
     Some(format!("{} = {rhs}\u{b0}", terms.join(" + ")))
 }
 
@@ -441,13 +477,27 @@ fn dist_sum_text(n: &dyn Fn(u32) -> String, pred: &Predicate) -> Option<String> 
             continue;
         }
         let mag = rational_text(&c.abs())?;
-        let term = if mag == "1" { seg } else { format!("{mag}\u{b7}{seg}") };
-        if v > 0.0 { lhs.push(term) } else { rhs.push(term) }
+        let term = if mag == "1" {
+            seg
+        } else {
+            format!("{mag}\u{b7}{seg}")
+        };
+        if v > 0.0 {
+            lhs.push(term)
+        } else {
+            rhs.push(term)
+        }
     }
     if lhs.is_empty() && rhs.is_empty() {
         return None;
     }
-    let side = |v: &[String]| if v.is_empty() { "0".to_string() } else { v.join(" + ") };
+    let side = |v: &[String]| {
+        if v.is_empty() {
+            "0".to_string()
+        } else {
+            v.join(" + ")
+        }
+    };
     Some(format!("{} = {}", side(&lhs), side(&rhs)))
 }
 
@@ -469,11 +519,21 @@ fn dist_product_text(n: &dyn Fn(u32) -> String, pred: &Predicate) -> Option<Stri
             (m, 1) => format!("{seg}{}", superscript(&m.to_string())),
             (m, d) => format!("{seg}^({m}/{d})"),
         };
-        if e > 0 { num.push(pow) } else { den.push(pow) }
+        if e > 0 {
+            num.push(pow)
+        } else {
+            den.push(pow)
+        }
     }
     let konst = &pred.constants[k];
     let kt = rational_text(konst)?;
-    let side = |v: &[String]| if v.is_empty() { "1".to_string() } else { v.join(" \u{b7} ") };
+    let side = |v: &[String]| {
+        if v.is_empty() {
+            "1".to_string()
+        } else {
+            v.join(" \u{b7} ")
+        }
+    };
     let rhs = match (kt.as_str(), den.is_empty()) {
         ("1", _) => side(&den),
         (_, true) => kt,
@@ -513,7 +573,11 @@ fn fact_of_pred(problem: &Problem, names: &Names, pred: &Predicate) -> Fact {
     match pred.name.as_str() {
         "coll" if nm >= 2 => Fact::new("coll", pts.clone(), pts),
         "cyclic" if nm >= 3 => Fact::new("cyclic", pts.clone(), pts),
-        "midp" if nm == 3 => Fact::new("midp", vec![n(p[0]), format!("{}{}", n(p[1]), n(p[2]))], pts),
+        "midp" if nm == 3 => Fact::new(
+            "midp",
+            vec![n(p[0]), format!("{}{}", n(p[1]), n(p[2]))],
+            pts,
+        ),
         "cong" if nm == 4 => Fact::new("cong", vec![seg(0), seg(2)], pts),
         "perp" if nm == 4 => Fact::new("perp", vec![seg(0), seg(2)], pts),
         "para" if nm == 4 => Fact::new("para", vec![seg(0), seg(2)], pts),
@@ -553,15 +617,21 @@ fn fact_of_pred(problem: &Problem, names: &Names, pred: &Predicate) -> Fact {
             vec![n(p[0]), format!("{}{}{}", n(p[1]), n(p[2]), n(p[3]))],
             pts,
         ),
-        "angeq" if angle_sum_text(&n, pred).is_some() => {
-            Fact::new("formula", vec![angle_sum_text(&n, pred).unwrap_or_default()], pts)
-        }
-        "distseq" if dist_sum_text(&n, pred).is_some() => {
-            Fact::new("formula", vec![dist_sum_text(&n, pred).unwrap_or_default()], pts)
-        }
-        "distmeq" if dist_product_text(&n, pred).is_some() => {
-            Fact::new("formula", vec![dist_product_text(&n, pred).unwrap_or_default()], pts)
-        }
+        "angeq" if angle_sum_text(&n, pred).is_some() => Fact::new(
+            "formula",
+            vec![angle_sum_text(&n, pred).unwrap_or_default()],
+            pts,
+        ),
+        "distseq" if dist_sum_text(&n, pred).is_some() => Fact::new(
+            "formula",
+            vec![dist_sum_text(&n, pred).unwrap_or_default()],
+            pts,
+        ),
+        "distmeq" if dist_product_text(&n, pred).is_some() => Fact::new(
+            "formula",
+            vec![dist_product_text(&n, pred).unwrap_or_default()],
+            pts,
+        ),
         _ => {
             let mut parts: Vec<String> = vec![pred.name.clone()];
             parts.extend(p.iter().map(|&i| n(i)));
@@ -576,7 +646,13 @@ fn fact_of_pred(problem: &Problem, names: &Names, pred: &Predicate) -> Fact {
 
 /// A low-level predicate written as text (`perp A H B C`) as a typed fact.
 fn fact_of_pred_text(problem: &Problem, names: &Names, text: &str) -> Option<Fact> {
-    let resolve = |s: &str| problem.points.iter().position(|p| p.name == s).map(|i| i as u32);
+    let resolve = |s: &str| {
+        problem
+            .points
+            .iter()
+            .position(|p| p.name == s)
+            .map(|i| i as u32)
+    };
     Predicate::parse(text.trim(), &resolve)
         .ok()
         .map(|p| fact_of_pred(problem, names, &p))
@@ -634,11 +710,18 @@ pub fn trig_powers(s: &str) -> String {
     while i < c.len() {
         let f = ["sin", "cos", "tan"].iter().find(|f| {
             let w: Vec<char> = f.chars().collect();
-            c[i..].starts_with(&w) && c.get(i + 3) == Some(&'\u{2220}') && (i == 0 || !c[i - 1].is_alphanumeric())
+            c[i..].starts_with(&w)
+                && c.get(i + 3) == Some(&'\u{2220}')
+                && (i == 0 || !c[i - 1].is_alphanumeric())
         });
         if let Some(f) = f {
             let mut j = i + 4;
-            while j < c.len() && (c[j].is_uppercase() || c[j].is_ascii_lowercase() || ('\u{2080}'..='\u{2089}').contains(&c[j]) || matches!(c[j], '\u{2032}' | '\u{2033}')) {
+            while j < c.len()
+                && (c[j].is_uppercase()
+                    || c[j].is_ascii_lowercase()
+                    || ('\u{2080}'..='\u{2089}').contains(&c[j])
+                    || matches!(c[j], '\u{2032}' | '\u{2033}'))
+            {
                 j += 1;
             }
             if j > i + 4 && j < c.len() && matches!(c[j], '\u{b2}' | '\u{b3}') {
@@ -657,8 +740,11 @@ pub fn trig_powers(s: &str) -> String {
 
 fn angle_degrees(s: &str) -> String {
     let only_angles = s.contains('\u{2220}')
-        && !["sin", "cos", "tan", "[", "\u{221a}", "/"].iter().any(|k| s.contains(k))
-        && s.split(' ').all(|tok| !tok.starts_with(|c: char| c.is_uppercase()));
+        && !["sin", "cos", "tan", "[", "\u{221a}", "/"]
+            .iter()
+            .any(|k| s.contains(k))
+        && s.split(' ')
+            .all(|tok| !tok.starts_with(|c: char| c.is_uppercase()));
     if !only_angles {
         return s.to_string();
     }
@@ -669,7 +755,8 @@ fn angle_degrees(s: &str) -> String {
         .map(|(i, t)| {
             let num = t.trim_start_matches('\u{2212}');
             let is_num = !num.is_empty() && num.chars().all(|c| c.is_ascii_digit() || c == '.');
-            if is_num && joins(i.checked_sub(1).and_then(|k| toks.get(k))) && joins(toks.get(i + 1)) {
+            if is_num && joins(i.checked_sub(1).and_then(|k| toks.get(k))) && joins(toks.get(i + 1))
+            {
                 format!("{t}\u{b0}")
             } else {
                 t.to_string()
@@ -696,10 +783,21 @@ fn metric_seq(c: &[char], mut i: usize, names: &Names, stop_at_close: bool) -> (
             while j < c.len() && c[j] == ' ' {
                 j += 1;
             }
-            if j < c.len() && c[j] == '(' && ["dist", "angle", "area", "sqrt", "sin", "cos"].contains(&word.as_str()) {
+            if j < c.len()
+                && c[j] == '('
+                && ["dist", "angle", "area", "sqrt", "sin", "cos"].contains(&word.as_str())
+            {
                 let (args, end) = metric_args(c, j + 1, names);
                 i = end + 1;
-                let pts = |a: &[String]| a.iter().map(|x| names.rename_run(x.trim()).unwrap_or_else(|| x.trim().to_string())).collect::<String>();
+                let pts = |a: &[String]| {
+                    a.iter()
+                        .map(|x| {
+                            names
+                                .rename_run(x.trim())
+                                .unwrap_or_else(|| x.trim().to_string())
+                        })
+                        .collect::<String>()
+                };
                 match word.as_str() {
                     "dist" => out.push_str(&pts(&args)),
                     "angle" => {
@@ -723,7 +821,10 @@ fn metric_seq(c: &[char], mut i: usize, names: &Names, stop_at_close: bool) -> (
                             out.push(')');
                         }
                     }
-                    f if args.len() == 1 && args[0].starts_with('\u{2220}') && !args[0].contains(' ') => {
+                    f if args.len() == 1
+                        && args[0].starts_with('\u{2220}')
+                        && !args[0].contains(' ') =>
+                    {
                         out.push_str(f);
                         out.push_str(&args[0]);
                     }
@@ -763,7 +864,11 @@ fn metric_seq(c: &[char], mut i: usize, names: &Names, stop_at_close: bool) -> (
                 continue;
             }
             '*' => out.push_str(" \u{b7} "),
-            '-' if out.trim_end().is_empty() || out.trim_end().ends_with(['=', '(', '+', '\u{2212}', '\u{b7}', '/']) => {
+            '-' if out.trim_end().is_empty()
+                || out
+                    .trim_end()
+                    .ends_with(['=', '(', '+', '\u{2212}', '\u{b7}', '/']) =>
+            {
                 out.push_str(" \u{2212}")
             }
             '-' => out.push_str(" \u{2212} "),
@@ -936,7 +1041,12 @@ pub struct ProofView {
     pub style: &'static str,
 }
 
-fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -> ProofView {
+fn parse_ddar_proof(
+    text: &str,
+    problem: &Problem,
+    names: &Names,
+    aux: &HashSet<String>,
+) -> ProofView {
     let mut steps = Vec::new();
     let mut conclusion = None;
     for line in text.lines() {
@@ -950,7 +1060,12 @@ fn parse_ddar_proof(text: &str, problem: &Problem, names: &Names, aux: &HashSet<
         }
     }
     let (steps, shown) = drop_restatements(steps);
-    ProofView { steps, shown, conclusion, style: "ddar" }
+    ProofView {
+        steps,
+        shown,
+        conclusion,
+        style: "ddar",
+    }
 }
 
 /// One numbered DDAR proof line (`012. similar triangles: △ABC ∼ △DEF [003 & 007]`).
@@ -973,7 +1088,8 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
     }
     let pts_of = |s: &str| names.disp_all(&names.mentioned(s, false));
     let formula = |s: &str| Fact::new("formula", vec![names.rename_text(s, false)], pts_of(s));
-    let (kind, rule, rule_name, fact) = if let Some(r) = body.strip_prefix("equal distances from ") {
+    let (kind, rule, rule_name, fact) = if let Some(r) = body.strip_prefix("equal distances from ")
+    {
         let (o, rest) = r.split_once(" \u{21d2} circle through ").unwrap_or((r, ""));
         let on: Vec<String> = rest.split_whitespace().map(|x| names.get(x)).collect();
         let c = names.get(o.trim());
@@ -985,10 +1101,24 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
         pts.extend(on);
         ("step", "eqradius", None, Fact::new("eqdist", args, pts))
     } else if let Some(r) = body.strip_prefix("points ") {
-        let ab: Vec<&str> = r.split(" coincide").next().unwrap_or("").split(" and ").collect();
+        let ab: Vec<&str> = r
+            .split(" coincide")
+            .next()
+            .unwrap_or("")
+            .split(" and ")
+            .collect();
         let a: Vec<String> = ab.iter().map(|x| names.get(x.trim())).collect();
-        ("step", "coincide", None, Fact::new("coincide", a.clone(), a))
-    } else if let Some((rule, stmt)) = if body.starts_with("sine of ") { body.rsplit_once(": ") } else { body.split_once(": ") } {
+        (
+            "step",
+            "coincide",
+            None,
+            Fact::new("coincide", a.clone(), a),
+        )
+    } else if let Some((rule, stmt)) = if body.starts_with("sine of ") {
+        body.rsplit_once(": ")
+    } else {
+        body.split_once(": ")
+    } {
         match rule {
             "assumption" | "construction" => {
                 let f = fact_of_pred_text(problem, names, stmt).unwrap_or_else(|| formula(stmt));
@@ -1006,7 +1136,12 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
                     .split('\u{223c}')
                     .map(|s| names.rename_text(s.trim().trim_start_matches('\u{25b3}'), false))
                     .collect();
-                ("step", "similar", None, Fact::new("simtri", tri, pts_of(stmt)))
+                (
+                    "step",
+                    "similar",
+                    None,
+                    Fact::new("simtri", tri, pts_of(stmt)),
+                )
             }
             "collinear" => {
                 let v: Vec<String> = stmt.split_whitespace().map(|x| names.get(x)).collect();
@@ -1016,7 +1151,8 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
                 let raws: Vec<&str> = stmt.split_whitespace().collect();
                 let v: Vec<String> = raws.iter().map(|x| names.get(x)).collect();
                 let fact = if raws.len() == 3 {
-                    three_on_a_circle(problem, names, &raws).unwrap_or_else(|| Fact::new("cyclic", v.clone(), v))
+                    three_on_a_circle(problem, names, &raws)
+                        .unwrap_or_else(|| Fact::new("cyclic", v.clone(), v))
                 } else {
                     Fact::new("cyclic", v.clone(), v)
                 };
@@ -1024,11 +1160,19 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
             }
             "segment arithmetic" => {
                 let s = stmt.trim_end_matches(" (add/mul transfer)");
-                ("step", "transfer", None, transfer_fact(problem, names, s).unwrap_or_else(|| formula(s)))
+                (
+                    "step",
+                    "transfer",
+                    None,
+                    transfer_fact(problem, names, s).unwrap_or_else(|| formula(s)),
+                )
             }
             "equal arcs \u{21d4} equal chords" => {
-                let chords: Vec<Vec<String>> =
-                    stmt.split(" and ").filter_map(|s| names.segment(s.trim())).filter(|v| v.len() == 2).collect();
+                let chords: Vec<Vec<String>> = stmt
+                    .split(" and ")
+                    .filter_map(|s| names.segment(s.trim()))
+                    .filter(|v| v.len() == 2)
+                    .collect();
                 let fact = match chords.as_slice() {
                     [a, b] if stmt.split(" and ").count() == 2 => {
                         let mut pts: Vec<String> = Vec::new();
@@ -1045,25 +1189,47 @@ fn ddar_line(t: &str, problem: &Problem, names: &Names, aux: &HashSet<String>) -
                 };
                 ("step", "arcchord", None, fact)
             }
-            other if stmt.contains('=') => ("step", "theorem", Some(crate::i18n::prose_en(other)), formula(stmt)),
+            other if stmt.contains('=') => (
+                "step",
+                "theorem",
+                Some(crate::i18n::prose_en(other)),
+                formula(stmt),
+            ),
             other => {
                 let raws: Vec<&str> = stmt.split_whitespace().collect();
                 let v: Vec<String> = raws.iter().map(|x| names.get(x)).collect();
                 let at: Vec<Option<Pt>> = raws.iter().map(|r| coord(problem, r)).collect();
-                let fact = theorem_fact(other, &v, &at).unwrap_or_else(|| Fact::new("points", v.clone(), v));
+                let fact = theorem_fact(other, &v, &at)
+                    .unwrap_or_else(|| Fact::new("points", v.clone(), v));
                 ("step", "theorem", Some(crate::i18n::prose_en(other)), fact)
             }
         }
     } else {
         ("step", "other", None, formula(&body))
     };
-    let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
-    Some(Step { n, kind, rule, rule_name, rule_name_ro, fact, deps, subs: Vec::new() })
+    let rule_name_ro = rule_name
+        .as_deref()
+        .and_then(crate::i18n::theorem_ro)
+        .map(str::to_string);
+    Some(Step {
+        n,
+        kind,
+        rule,
+        rule_name,
+        rule_name_ro,
+        fact,
+        deps,
+        subs: Vec::new(),
+    })
 }
 
 fn ratio_text(r: f64) -> Option<String> {
     let (p, q) = simple_ratio(r)?;
-    Some(if q == 1 { p.to_string() } else { format!("{p}/{q}") })
+    Some(if q == 1 {
+        p.to_string()
+    } else {
+        format!("{p}/{q}")
+    })
 }
 
 fn square_ratio_text(r2: f64) -> Option<String> {
@@ -1078,8 +1244,15 @@ fn square_ratio_text(r2: f64) -> Option<String> {
         p >= 1.0 && near(p / q as f64, r2)
     })?;
     let p = (r2 * q as f64).round() as u64;
-    let g = (1..=p.min(q)).rev().find(|&g| p.is_multiple_of(g) && q.is_multiple_of(g)).unwrap_or(1);
-    Some(if q / g == 1 { (p / g).to_string() } else { format!("{}/{}", p / g, q / g) })
+    let g = (1..=p.min(q))
+        .rev()
+        .find(|&g| p.is_multiple_of(g) && q.is_multiple_of(g))
+        .unwrap_or(1);
+    Some(if q / g == 1 {
+        (p / g).to_string()
+    } else {
+        format!("{}/{}", p / g, q / g)
+    })
 }
 
 fn len_at(at: &[Option<Pt>], a: usize, b: usize) -> Option<f64> {
@@ -1108,17 +1281,34 @@ fn theorem_fact(name: &str, p: &[String], at: &[Option<Pt>]) -> Option<Fact> {
     let pts = |idx: &[usize]| idx.iter().map(|&i| p[i].clone()).collect::<Vec<_>>();
     let sq = |a: usize, b: usize| format!("{}\u{b2}", seg(a, b));
     let formula = |text: String| Fact::new("formula", vec![text], unique(p));
-    if let Some(value) = name.strip_prefix("sine of ").and_then(|r| r.split_once(": ")).map(|(_, v)| v) {
+    if let Some(value) = name
+        .strip_prefix("sine of ")
+        .and_then(|r| r.split_once(": "))
+        .map(|(_, v)| v)
+    {
         if p.len() == 3 {
-            return Some(formula(format!("sin\u{2220}{}{}{} = {value}", p[0], p[1], p[2])));
+            return Some(formula(format!(
+                "sin\u{2220}{}{}{} = {value}",
+                p[0], p[1], p[2]
+            )));
         }
     }
     Some(match (name, p.len()) {
-        ("Menelaus' theorem", 6) => {
-            formula(format!("{} \u{b7} {} \u{b7} {} = {} \u{b7} {} \u{b7} {}", seg(1, 3), seg(2, 4), seg(0, 5), seg(3, 2), seg(4, 0), seg(5, 1)))
-        }
+        ("Menelaus' theorem", 6) => formula(format!(
+            "{} \u{b7} {} \u{b7} {} = {} \u{b7} {} \u{b7} {}",
+            seg(1, 3),
+            seg(2, 4),
+            seg(0, 5),
+            seg(3, 2),
+            seg(4, 0),
+            seg(5, 1)
+        )),
         ("Menelaus' theorem (converse)", 6) => Fact::new("coll", pts(&[3, 4, 5]), pts(&[3, 4, 5])),
-        ("Ceva's theorem (converse)", 7) => Fact::new("concur", vec![seg(0, 3), seg(1, 4), seg(2, 5), p[6].clone()], unique(p)),
+        ("Ceva's theorem (converse)", 7) => Fact::new(
+            "concur",
+            vec![seg(0, 3), seg(1, 4), seg(2, 5), p[6].clone()],
+            unique(p),
+        ),
         ("angle bisectors concur (incentre/excentre)", 4) => {
             let inside = match (at[0], at[1], at[2], at[3]) {
                 (Some(i), Some(a), Some(b), Some(c)) => Some(strictly_inside(i, a, b, c)),
@@ -1129,18 +1319,38 @@ fn theorem_fact(name: &str, p: &[String], at: &[Option<Pt>]) -> Option<Fact> {
                 Some(false) => "excenter",
                 None => "in_or_excenter",
             };
-            Fact::new(kind, vec![p[0].clone(), format!("{}{}{}", p[1], p[2], p[3])], unique(p))
+            Fact::new(
+                kind,
+                vec![p[0].clone(), format!("{}{}{}", p[1], p[2], p[3])],
+                unique(p),
+            )
         }
         ("perpendicular \u{21d2} squared lengths (Pythagoras)", 4) => {
             let terms = |x: &[(usize, usize)]| -> String {
-                x.iter().filter(|(a, b)| p[*a] != p[*b]).map(|(a, b)| sq(*a, *b)).collect::<Vec<_>>().join(" + ")
+                x.iter()
+                    .filter(|(a, b)| p[*a] != p[*b])
+                    .map(|(a, b)| sq(*a, *b))
+                    .collect::<Vec<_>>()
+                    .join(" + ")
             };
-            formula(format!("{} = {}", terms(&[(0, 2), (1, 3)]), terms(&[(0, 3), (1, 2)])))
+            formula(format!(
+                "{} = {}",
+                terms(&[(0, 2), (1, 3)]),
+                terms(&[(0, 3), (1, 2)])
+            ))
         }
-        ("perpendicular from squared lengths", 4) => Fact::new("perp", vec![seg(0, 1), seg(2, 3)], unique(p)),
+        ("perpendicular from squared lengths", 4) => {
+            Fact::new("perp", vec![seg(0, 1), seg(2, 3)], unique(p))
+        }
         ("squares of proportional lengths", 4) => {
-            let q = len_at(at, 2, 3).zip(len_at(at, 0, 1)).and_then(|(x, y)| square_ratio_text((x / y).powi(2)))?;
-            let rhs = if q == "1" { sq(0, 1) } else { format!("{q}\u{b7}{}", sq(0, 1)) };
+            let q = len_at(at, 2, 3)
+                .zip(len_at(at, 0, 1))
+                .and_then(|(x, y)| square_ratio_text((x / y).powi(2)))?;
+            let rhs = if q == "1" {
+                sq(0, 1)
+            } else {
+                format!("{q}\u{b7}{}", sq(0, 1))
+            };
             formula(format!("{} = {rhs}", sq(2, 3)))
         }
         ("lengths from squared lengths", 4) => {
@@ -1150,7 +1360,11 @@ fn theorem_fact(name: &str, p: &[String], at: &[Option<Pt>]) -> Option<Fact> {
                 Some(k) => Fact::new("rconst", vec![seg(2, 3), seg(0, 1), k], unique(p)),
                 None => {
                     let k2 = square_ratio_text(r * r)?;
-                    Fact::new("rconst", vec![seg(2, 3), seg(0, 1), format!("\u{221a}({k2})")], unique(p))
+                    Fact::new(
+                        "rconst",
+                        vec![seg(2, 3), seg(0, 1), format!("\u{221a}({k2})")],
+                        unique(p),
+                    )
                 }
             }
         }
@@ -1172,37 +1386,72 @@ fn theorem_fact(name: &str, p: &[String], at: &[Option<Pt>]) -> Option<Fact> {
                     k => format!("{k}\u{b7}{s}"),
                 })
             };
-            let terms: Vec<String> = [coef(1.0 - t, sq(0, 1))?, coef(t, sq(0, 3))?, coef(-t * (1.0 - t), sq(1, 3))?]
-                .into_iter()
-                .filter(|s| !s.is_empty())
-                .collect();
+            let terms: Vec<String> = [
+                coef(1.0 - t, sq(0, 1))?,
+                coef(t, sq(0, 3))?,
+                coef(-t * (1.0 - t), sq(1, 3))?,
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
             let rhs = terms.join(" + ").replace("+ \u{2212}", "\u{2212} ");
             formula(format!("{} = {rhs}", sq(0, 2)))
         }
         ("law of sines", 3) => formula(format!(
             "{} : sin\u{2220}{}{}{} = {} : sin\u{2220}{}{}{} = {} : sin\u{2220}{}{}{}",
-            seg(1, 2), p[1], p[0], p[2], seg(2, 0), p[0], p[1], p[2], seg(0, 1), p[0], p[2], p[1]
+            seg(1, 2),
+            p[1],
+            p[0],
+            p[2],
+            seg(2, 0),
+            p[0],
+            p[1],
+            p[2],
+            seg(0, 1),
+            p[0],
+            p[2],
+            p[1]
         )),
-        ("equal or supplementary angles have equal sines", 6) => {
-            formula(format!("sin\u{2220}{}{}{} = sin\u{2220}{}{}{}", p[0], p[1], p[2], p[3], p[4], p[5]))
-        }
-        ("angle bisector theorem", 4) => {
-            Fact::new("eqratio", vec![seg(1, 2), seg(1, 3), seg(0, 2), seg(0, 3)], pts(&[0, 1, 2, 3]))
-        }
+        ("equal or supplementary angles have equal sines", 6) => formula(format!(
+            "sin\u{2220}{}{}{} = sin\u{2220}{}{}{}",
+            p[0], p[1], p[2], p[3], p[4], p[5]
+        )),
+        ("angle bisector theorem", 4) => Fact::new(
+            "eqratio",
+            vec![seg(1, 2), seg(1, 3), seg(0, 2), seg(0, 3)],
+            pts(&[0, 1, 2, 3]),
+        ),
         ("angle bisector theorem (converse)", 4) => Fact::new(
             "eqangle",
-            vec![format!("\u{2220}{}{}{}", p[2], p[0], p[1]), format!("\u{2220}{}{}{}", p[1], p[0], p[3])],
+            vec![
+                format!("\u{2220}{}{}{}", p[2], p[0], p[1]),
+                format!("\u{2220}{}{}{}", p[1], p[0], p[3]),
+            ],
             pts(&[0, 1, 2, 3]),
         ),
         ("radical axis" | "Monge–d'Alembert", 3) => Fact::new("coll", p.to_vec(), p.to_vec()),
         ("homothety at a centre of similitude", 5) => Fact::new(
             "para_ratio",
-            vec![seg(3, 1), seg(4, 2), seg(0, 1), seg(0, 2), seg(0, 3), seg(0, 4)],
+            vec![
+                seg(3, 1),
+                seg(4, 2),
+                seg(0, 1),
+                seg(0, 2),
+                seg(0, 3),
+                seg(0, 4),
+            ],
             p.to_vec(),
         ),
         ("intercept theorem (parallel rungs)", 6) => Fact::new(
             "eqratio",
-            vec![seg(0, 2), seg(1, 3), seg(2, 4), seg(3, 5), seg(0, 4), seg(1, 5)],
+            vec![
+                seg(0, 2),
+                seg(1, 3),
+                seg(2, 4),
+                seg(3, 5),
+                seg(0, 4),
+                seg(1, 5),
+            ],
             p.to_vec(),
         ),
         _ => return None,
@@ -1231,7 +1480,10 @@ fn simple_ratio(r: f64) -> Option<(u32, u32)> {
         let p = (r * q as f64).round();
         if (1.0..=96.0).contains(&p) && near(p / q as f64, r) {
             let (p, q) = (p as u32, q);
-            let g = (1..=p.min(q)).rev().find(|g| p % g == 0 && q % g == 0).unwrap_or(1);
+            let g = (1..=p.min(q))
+                .rev()
+                .find(|g| p % g == 0 && q % g == 0)
+                .unwrap_or(1);
             return Some((p / g, q / g));
         }
     }
@@ -1250,7 +1502,10 @@ fn transfer_fact(problem: &Problem, names: &Names, s: &str) -> Option<Fact> {
         Some(((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt())
     };
     let (p, q) = simple_ratio(len(&a, &b)? / len(&c, &d)?)?;
-    let (s1, s2) = (format!("{}{}", names.get(&a), names.get(&b)), format!("{}{}", names.get(&c), names.get(&d)));
+    let (s1, s2) = (
+        format!("{}{}", names.get(&a), names.get(&b)),
+        format!("{}{}", names.get(&c), names.get(&d)),
+    );
     let mut pts: Vec<String> = Vec::new();
     for x in [&a, &b, &c, &d] {
         let n = names.get(x);
@@ -1261,13 +1516,20 @@ fn transfer_fact(problem: &Problem, names: &Names, s: &str) -> Option<Fact> {
     Some(if p == q {
         Fact::new("cong", vec![s1, s2], pts)
     } else {
-        let k = if q == 1 { p.to_string() } else { format!("{p}/{q}") };
+        let k = if q == 1 {
+            p.to_string()
+        } else {
+            format!("{p}/{q}")
+        };
         Fact::new("rconst", vec![s1, s2, k], pts)
     })
 }
 
 fn three_on_a_circle(problem: &Problem, names: &Names, raws: &[&str]) -> Option<Fact> {
-    let pts: Vec<Pt> = raws.iter().map(|r| coord(problem, r)).collect::<Option<_>>()?;
+    let pts: Vec<Pt> = raws
+        .iter()
+        .map(|r| coord(problem, r))
+        .collect::<Option<_>>()?;
     let d = |a: Pt, b: Pt| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
     let shown: Vec<String> = raws.iter().map(|r| names.get(r)).collect();
     for o in &problem.points {
@@ -1283,7 +1545,11 @@ fn three_on_a_circle(problem: &Problem, names: &Names, raws: &[&str]) -> Option<
             let on = names.get(&o.name);
             let mut all = vec![on.clone()];
             all.extend(shown.iter().cloned());
-            return Some(Fact::new("oncircle", std::iter::once(on).chain(shown.iter().cloned()).collect(), all));
+            return Some(Fact::new(
+                "oncircle",
+                std::iter::once(on).chain(shown.iter().cloned()).collect(),
+                all,
+            ));
         }
     }
     None
@@ -1313,7 +1579,10 @@ fn drop_restatements(steps: Vec<Step>) -> (Vec<Step>, HashMap<usize, usize>) {
             }
         }
     }
-    let kept: Vec<Step> = steps.into_iter().filter(|s| !alias.contains_key(&s.n)).collect();
+    let kept: Vec<Step> = steps
+        .into_iter()
+        .filter(|s| !alias.contains_key(&s.n))
+        .collect();
     let renum: HashMap<usize, usize> = kept.iter().enumerate().map(|(i, s)| (s.n, i + 1)).collect();
     let mut shown = renum.clone();
     for &a in alias.keys() {
@@ -1325,7 +1594,8 @@ fn drop_restatements(steps: Vec<Step>) -> (Vec<Step>, HashMap<usize, usize>) {
             shown.insert(a, n);
         }
     }
-    let steps = kept.into_iter()
+    let steps = kept
+        .into_iter()
         .map(|mut s| {
             s.n = renum[&s.n];
             let mut deps: Vec<usize> = s
@@ -1368,9 +1638,18 @@ const KNOWN_THEOREMS: &[(&str, &str)] = &[
     ("ceva's theorem", "Ceva's theorem"),
     ("angle-bisector theorem", "angle bisector theorem"),
     ("angle bisector theorem", "angle bisector theorem"),
-    ("basic proportionality (intercept) theorem", "basic proportionality (intercept) theorem"),
-    ("geometric-mean (altitude) relation", "geometric-mean (altitude) relation"),
-    ("geometric-mean (leg) relation", "geometric-mean (leg) relation"),
+    (
+        "basic proportionality (intercept) theorem",
+        "basic proportionality (intercept) theorem",
+    ),
+    (
+        "geometric-mean (altitude) relation",
+        "geometric-mean (altitude) relation",
+    ),
+    (
+        "geometric-mean (leg) relation",
+        "geometric-mean (leg) relation",
+    ),
     ("ptolemy's theorem", "Ptolemy's theorem"),
 ];
 
@@ -1380,7 +1659,11 @@ fn known_theorem(text: &str) -> Option<String> {
     let lower = text.to_lowercase();
     KNOWN_THEOREMS
         .iter()
-        .filter_map(|(needle, label)| lower.find(needle).map(|at| (at, std::cmp::Reverse(needle.len()), *label)))
+        .filter_map(|(needle, label)| {
+            lower
+                .find(needle)
+                .map(|at| (at, std::cmp::Reverse(needle.len()), *label))
+        })
         .min()
         .map(|(_, _, label)| label.to_string())
 }
@@ -1398,9 +1681,18 @@ fn cited_theorem(text: &str) -> Option<String> {
         let clean = w.trim_end_matches([',', ':', '.', ';']);
         words.push(clean);
         let l = clean.to_lowercase();
-        if ["theorem", "formula", "law", "lemma", "identity", "rule", "relation", "inequality"]
-            .iter()
-            .any(|k| l.starts_with(k))
+        if [
+            "theorem",
+            "formula",
+            "law",
+            "lemma",
+            "identity",
+            "rule",
+            "relation",
+            "inequality",
+        ]
+        .iter()
+        .any(|k| l.starts_with(k))
         {
             return Some(words.join(" "));
         }
@@ -1428,7 +1720,11 @@ fn fractions(s: &str) -> String {
     while i < c.len() {
         let digit_before = i > 0 && c[i - 1].is_ascii_digit();
         let digit_after = i + 1 < c.len() && c[i + 1].is_ascii_digit();
-        let run_start = (0..i).rev().take_while(|&k| c[k].is_ascii_digit()).last().unwrap_or(i);
+        let run_start = (0..i)
+            .rev()
+            .take_while(|&k| c[k].is_ascii_digit())
+            .last()
+            .unwrap_or(i);
         let lone = run_start == 0 || !matches!(c[run_start - 1], '/' | '.' | ',');
         if c[i] == '/' && digit_before && digit_after && lone {
             out.push('\u{2044}');
@@ -1464,7 +1760,10 @@ fn unbar(s: &str) -> String {
     let mut i = 0;
     while i < c.len() {
         if c[i] == '|' {
-            let j = (i + 1..c.len()).take_while(|&k| is_name_char(c[k])).last().map_or(i, |k| k + 1);
+            let j = (i + 1..c.len())
+                .take_while(|&k| is_name_char(c[k]))
+                .last()
+                .map_or(i, |k| k + 1);
             if j > i + 1 && c.get(j) == Some(&'|') && c[i + 1].is_ascii_uppercase() {
                 out.extend(&c[i + 1..j]);
                 i = j + 1;
@@ -1479,25 +1778,36 @@ fn unbar(s: &str) -> String {
 
 fn circle_through(s: &str, names: &Names) -> String {
     let key = " through ";
-    let Some(at) = s.find(key) else { return s.to_string() };
+    let Some(at) = s.find(key) else {
+        return s.to_string();
+    };
     if !s[..at].ends_with(')') && !s[..at].ends_with("circle") {
         return s.to_string();
     }
     let rest = &s[at + key.len()..];
     let run: String = rest.chars().take_while(|c| is_name_char(*c)).collect();
     match names.segment(&run) {
-        Some(v) if v.len() >= 3 => format!("{}{key}{}{}", &s[..at], v.join(", "), &rest[run.len()..]),
+        Some(v) if v.len() >= 3 => {
+            format!("{}{key}{}{}", &s[..at], v.join(", "), &rest[run.len()..])
+        }
         _ => s.to_string(),
     }
 }
 
-const CLOSURE_HEADING: &str ="Facts derived from the hypotheses by the deductive closure";
+const CLOSURE_HEADING: &str = "Facts derived from the hypotheses by the deductive closure";
 
 /// A Euclidean sentence as a `prose` fact, typeset, renamed and translated.
 fn euclid_prose(s: &str, names: &Names) -> Fact {
-    let typeset = fractions(&pretty_metric_inline(&as_drawn(&circle_through(&unbar(s), names)), names));
+    let typeset = fractions(&pretty_metric_inline(
+        &as_drawn(&circle_through(&unbar(s), names)),
+        names,
+    ));
     let shown = caret_powers(&trig_powers(&names.rename_text(&typeset, true)));
-    let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&shown)], names.disp_all(&names.mentioned(s, true)));
+    let mut f = Fact::new(
+        "prose",
+        vec![crate::i18n::prose_en(&shown)],
+        names.disp_all(&names.mentioned(s, true)),
+    );
     f.ro = Some(vec![crate::i18n::prose_ro(&shown)]);
     f
 }
@@ -1537,7 +1847,10 @@ fn smooth_euclid(body: &str) -> String {
             None => {
                 let k = rest.trim_end_matches('.').trim();
                 let head = &s[..at];
-                match head.rfind(", so ").map(|so| (so, scaled_relation(&head[so + 5..], k))) {
+                match head
+                    .rfind(", so ")
+                    .map(|so| (so, scaled_relation(&head[so + 5..], k)))
+                {
                     Some((_, Some(rel))) => format!("{head}, hence {rel}."),
                     _ => format!("{head} (both sides multiplied by {k})."),
                 }
@@ -1553,15 +1866,21 @@ fn product(k: &str, side: &str) -> String {
         return "0".to_string();
     }
     let sum = side.contains(" + ") || side.contains(" \u{2212} ") || side.contains(" - ");
-    if sum { format!("{k}\u{b7}({side})") } else { format!("{k}\u{b7}{side}") }
+    if sum {
+        format!("{k}\u{b7}({side})")
+    } else {
+        format!("{k}\u{b7}{side}")
+    }
 }
 
 fn scaled_relation(rel: &str, k: &str) -> Option<String> {
     let rel = rel.trim().trim_end_matches('.');
     let rel = rel.rsplit_once(": ").map_or(rel, |(_, r)| r).trim();
-    let wordy = rel
-        .split(|c: char| !c.is_alphabetic())
-        .any(|w| w.chars().count() >= 3 && w.chars().all(char::is_lowercase) && !matches!(w, "sin" | "cos" | "tan" | "cot"));
+    let wordy = rel.split(|c: char| !c.is_alphabetic()).any(|w| {
+        w.chars().count() >= 3
+            && w.chars().all(char::is_lowercase)
+            && !matches!(w, "sin" | "cos" | "tan" | "cot")
+    });
     let (l, r) = rel.split_once(" = ")?;
     if wordy || r.contains(" = ") || k.is_empty() {
         return None;
@@ -1576,7 +1895,11 @@ fn multiplied_claim(goal: &str, k: &str) -> Option<String> {
     }
     let side = |s: &str| {
         let s = s.trim();
-        if s == k && k.chars().all(|c| is_name_char(c) || ('\u{2080}'..='\u{2089}').contains(&c) || c == '\u{2032}') {
+        if s == k
+            && k.chars().all(|c| {
+                is_name_char(c) || ('\u{2080}'..='\u{2089}').contains(&c) || c == '\u{2032}'
+            })
+        {
             format!("{k}\u{b2}")
         } else if s.contains(" + ") || s.contains(" \u{2212} ") {
             format!("({s}) \u{b7} {k}")
@@ -1588,7 +1911,9 @@ fn multiplied_claim(goal: &str, k: &str) -> Option<String> {
 }
 
 fn claim_multiplier(body: &str, goal: Option<&str>) -> String {
-    let Some(rest) = body.strip_prefix("Multiply both sides by ") else { return body.to_string() };
+    let Some(rest) = body.strip_prefix("Multiply both sides by ") else {
+        return body.to_string();
+    };
     let (k, why) = match rest.split_once(", which is not 0") {
         Some((k, why)) => (k.trim(), why),
         None => return body.to_string(),
@@ -1599,7 +1924,9 @@ fn claim_multiplier(body: &str, goal: Option<&str>) -> String {
         ""
     };
     match goal.and_then(|g| multiplied_claim(g, k)) {
-        Some(c) => format!("Multiply both sides of the claim by {k} ({k} \u{2260} 0{reason}): it becomes {c}."),
+        Some(c) => format!(
+            "Multiply both sides of the claim by {k} ({k} \u{2260} 0{reason}): it becomes {c}."
+        ),
         None => format!("Multiply both sides of the claim by {k} ({k} \u{2260} 0{reason})."),
     }
 }
@@ -1641,11 +1968,22 @@ fn euclid_rule(body: &str) -> (&'static str, &'static str, Option<String>) {
 }
 
 fn is_pythagorean_identity(body: &str) -> bool {
-    let t: String = trig_powers(body).chars().filter(|c| !c.is_whitespace()).collect();
+    let t: String = trig_powers(body)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     let t = t.trim_end_matches('.');
-    let Some(lhs) = t.strip_suffix("=1") else { return false };
-    let Some((a, b)) = lhs.split_once('+') else { return false };
-    let arg = |x: &str, f: &str| x.strip_prefix(f).and_then(|r| r.strip_prefix('\u{b2}')).map(str::to_string);
+    let Some(lhs) = t.strip_suffix("=1") else {
+        return false;
+    };
+    let Some((a, b)) = lhs.split_once('+') else {
+        return false;
+    };
+    let arg = |x: &str, f: &str| {
+        x.strip_prefix(f)
+            .and_then(|r| r.strip_prefix('\u{b2}'))
+            .map(str::to_string)
+    };
     match (arg(a, "sin"), arg(b, "cos"), arg(a, "cos"), arg(b, "sin")) {
         (Some(x), Some(y), _, _) | (_, _, Some(x), Some(y)) => x == y && x.starts_with('\u{2220}'),
         _ => false,
@@ -1654,9 +1992,21 @@ fn is_pythagorean_identity(body: &str) -> bool {
 
 fn euclid_sub(line: &str, names: &Names) -> SubStep {
     let (_, rule, rule_name) = euclid_rule(line);
-    let rule = if rule == "closure" || rule == "construction" || rule == "given" { "other" } else { rule };
-    let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
-    SubStep { rule, rule_name, rule_name_ro, fact: euclid_prose(&smooth_euclid(line), names) }
+    let rule = if rule == "closure" || rule == "construction" || rule == "given" {
+        "other"
+    } else {
+        rule
+    };
+    let rule_name_ro = rule_name
+        .as_deref()
+        .and_then(crate::i18n::theorem_ro)
+        .map(str::to_string);
+    SubStep {
+        rule,
+        rule_name,
+        rule_name_ro,
+        fact: euclid_prose(&smooth_euclid(line), names),
+    }
 }
 
 /// The closing sentence: the echoed goal typeset like the PROVE card, and
@@ -1668,10 +2018,22 @@ fn euclid_conclusion(line: &str, names: &Names, single: bool) -> Fact {
         Some(at) => (&t[..at + 7], &t[at + 7..]),
         None => (t, ""),
     };
-    let combined = ["Adding the relations above gives ", "Combining the equations above gives ", "Combining the proportions above gives "];
-    let lead = if single && combined.contains(&lead) { "Hence " } else { lead };
+    let combined = [
+        "Adding the relations above gives ",
+        "Combining the equations above gives ",
+        "Combining the proportions above gives ",
+    ];
+    let lead = if single && combined.contains(&lead) {
+        "Hence "
+    } else {
+        lead
+    };
     let goal_raw_pts = names.disp_all(&names.mentioned(goal, false));
-    let typeset = format!("{}{}.", names.rename_text(&fractions(lead), true), pretty_metric(goal, names));
+    let typeset = format!(
+        "{}{}.",
+        names.rename_text(&fractions(lead), true),
+        pretty_metric(goal, names)
+    );
     let mut f = Fact::new("prose", vec![crate::i18n::prose_en(&typeset)], Vec::new());
     f.ro = Some(vec![crate::i18n::prose_ro(&typeset)]);
     let mut pts = names.disp_all(&names.mentioned(lead, true));
@@ -1706,7 +2068,9 @@ fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView
     for line in text.lines() {
         let t = line.trim();
         if let Some(r) = t.strip_prefix('\u{21b3}') {
-            if let (Some(st), Some(owner)) = (ddar_line(r.trim(), problem, names, &none), steps.last()) {
+            if let (Some(st), Some(owner)) =
+                (ddar_line(r.trim(), problem, names, &none), steps.last())
+            {
                 closures.entry(owner.n).or_default().push(st);
             }
             continue;
@@ -1722,7 +2086,10 @@ fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView
             let (body, deps) = split_from(&t[digits.len() + 2..]);
             let body = claim_multiplier(&smooth_euclid(&body), goal.as_deref());
             let (kind, rule, rule_name) = euclid_rule(&body);
-            let rule_name_ro = rule_name.as_deref().and_then(crate::i18n::theorem_ro).map(str::to_string);
+            let rule_name_ro = rule_name
+                .as_deref()
+                .and_then(crate::i18n::theorem_ro)
+                .map(str::to_string);
             steps.push(Step {
                 n: digits.parse().unwrap_or(0),
                 kind,
@@ -1742,7 +2109,11 @@ fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView
     for st in steps.iter_mut() {
         if st.rule == "closure" {
             let (lines, _) = drop_restatements(closures.remove(&st.n).unwrap_or_default());
-            let known: Vec<Vec<Vec<String>>> = lines.iter().filter(|s| s.kind == "given").filter_map(|s| cong_key(&s.fact)).collect();
+            let known: Vec<Vec<Vec<String>>> = lines
+                .iter()
+                .filter(|s| s.kind == "given")
+                .filter_map(|s| cong_key(&s.fact))
+                .collect();
             let mut derived: Vec<SubStep> = Vec::new();
             for s in lines.into_iter().filter(|s| s.kind == "step") {
                 let (rule, fact) = match mirror_similarity(&s.fact) {
@@ -1750,15 +2121,30 @@ fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView
                     None => (s.rule, s.fact),
                 };
                 let restated = cong_key(&fact).is_some_and(|k| known.contains(&k));
-                let repeated = derived.iter().any(|d| d.fact.kind == fact.kind && d.fact.args == fact.args);
+                let repeated = derived
+                    .iter()
+                    .any(|d| d.fact.kind == fact.kind && d.fact.args == fact.args);
                 if !restated && !repeated {
-                    derived.push(SubStep { rule, rule_name: s.rule_name, rule_name_ro: s.rule_name_ro, fact });
+                    derived.push(SubStep {
+                        rule,
+                        rule_name: s.rule_name,
+                        rule_name_ro: s.rule_name_ro,
+                        fact,
+                    });
                 }
             }
             for (owner, claim) in &cited {
-                let same = |d: &SubStep| (d.fact.kind == claim.kind && d.fact.args == claim.args) || (cong_key(claim).is_some() && cong_key(&d.fact) == cong_key(claim));
+                let same = |d: &SubStep| {
+                    (d.fact.kind == claim.kind && d.fact.args == claim.args)
+                        || (cong_key(claim).is_some() && cong_key(&d.fact) == cong_key(claim))
+                };
                 if *owner == st.n && !derived.iter().any(same) {
-                    derived.push(SubStep { rule: "derived", rule_name: None, rule_name_ro: None, fact: claim.clone() });
+                    derived.push(SubStep {
+                        rule: "derived",
+                        rule_name: None,
+                        rule_name_ro: None,
+                        fact: claim.clone(),
+                    });
                 }
             }
             if derived.is_empty() {
@@ -1780,20 +2166,35 @@ fn parse_euclid_proof(text: &str, problem: &Problem, names: &Names) -> ProofView
         .into_iter()
         .map(|mut s| {
             s.n = renum[&s.n];
-            s.deps = s.deps.iter().filter_map(|d| renum.get(d).copied()).collect();
+            s.deps = s
+                .deps
+                .iter()
+                .filter_map(|d| renum.get(d).copied())
+                .collect();
             s
         })
         .collect();
-    let relations = steps.iter().filter(|s| s.kind != "construction" && s.rule != "closure").count();
+    let relations = steps
+        .iter()
+        .filter(|s| s.kind != "construction" && s.rule != "closure")
+        .count();
     let conclusion = last_line.map(|l| euclid_conclusion(&l, names, relations == 1));
-    ProofView { steps, shown: HashMap::new(), conclusion, style: "euclidean" }
+    ProofView {
+        steps,
+        shown: HashMap::new(),
+        conclusion,
+        style: "euclidean",
+    }
 }
 
 fn split_disp(run: &str, points: &[String]) -> Option<Vec<String>> {
     let mut rest = run;
     let mut out = Vec::new();
     while !rest.is_empty() {
-        let p = points.iter().filter(|p| rest.starts_with(p.as_str())).max_by_key(|p| p.len())?;
+        let p = points
+            .iter()
+            .filter(|p| rest.starts_with(p.as_str()))
+            .max_by_key(|p| p.len())?;
         out.push(p.clone());
         rest = &rest[p.len()..];
     }
@@ -1804,7 +2205,10 @@ fn mirror_similarity(f: &Fact) -> Option<Fact> {
     if f.kind != "simtri" || f.args.len() != 2 {
         return None;
     }
-    let (a, b) = (split_disp(&f.args[0], &f.points)?, split_disp(&f.args[1], &f.points)?);
+    let (a, b) = (
+        split_disp(&f.args[0], &f.points)?,
+        split_disp(&f.args[1], &f.points)?,
+    );
     if a.len() != 3 || b.len() != 3 {
         return None;
     }
@@ -1819,7 +2223,11 @@ fn mirror_similarity(f: &Fact) -> Option<Fact> {
         return None;
     }
     let (c, x, y) = (&a[fx], &a[i], &a[j]);
-    Some(Fact::new("cong", vec![format!("{c}{x}"), format!("{c}{y}")], vec![c.clone(), x.clone(), y.clone()]))
+    Some(Fact::new(
+        "cong",
+        vec![format!("{c}{x}"), format!("{c}{y}")],
+        vec![c.clone(), x.clone(), y.clone()],
+    ))
 }
 
 fn cong_key(f: &Fact) -> Option<Vec<Vec<String>>> {
@@ -1853,7 +2261,9 @@ fn cited_closure_facts(text: &str, names: &Names) -> Vec<(usize, Fact)> {
             continue;
         }
         let (body, deps) = split_from(body);
-        let Some(at) = body.find(marker) else { continue };
+        let Some(at) = body.find(marker) else {
+            continue;
+        };
         let owner = if numbered {
             deps.iter().copied().find(|d| closure_steps.contains(d))
         } else {
@@ -1861,7 +2271,10 @@ fn cited_closure_facts(text: &str, names: &Names) -> Vec<(usize, Fact)> {
         };
         let Some(owner) = owner else { continue };
         let raw = body[..at].trim();
-        let claim = match raw.split_once(" = ").map(|(l, r)| (names.segment(l.trim()), names.segment(r.trim()))) {
+        let claim = match raw
+            .split_once(" = ")
+            .map(|(l, r)| (names.segment(l.trim()), names.segment(r.trim())))
+        {
             Some((Some(l), Some(r))) if l.len() == 2 && r.len() == 2 => {
                 let mut pts: Vec<String> = Vec::new();
                 for x in l.iter().chain(r.iter()) {
@@ -1870,7 +2283,14 @@ fn cited_closure_facts(text: &str, names: &Names) -> Vec<(usize, Fact)> {
                         pts.push(d);
                     }
                 }
-                Fact::new("cong", vec![names.get(&l[0]) + &names.get(&l[1]), names.get(&r[0]) + &names.get(&r[1])], pts)
+                Fact::new(
+                    "cong",
+                    vec![
+                        names.get(&l[0]) + &names.get(&l[1]),
+                        names.get(&r[0]) + &names.get(&r[1]),
+                    ],
+                    pts,
+                )
             }
             _ => euclid_prose(raw, names),
         };
@@ -1903,7 +2323,11 @@ fn first_number_after(s: &str, marker: &str) -> Option<f64> {
     let mut num = String::new();
     for (i, c) in rest.chars().enumerate() {
         let sign_ok = i == 0 || num.ends_with(['e', 'E']);
-        if c.is_ascii_digit() || c == '.' || ((c == '-' || c == '+') && sign_ok) || ((c == 'e' || c == 'E') && !num.is_empty()) {
+        if c.is_ascii_digit()
+            || c == '.'
+            || ((c == '-' || c == '+') && sign_ok)
+            || ((c == 'e' || c == 'E') && !num.is_empty())
+        {
             num.push(c);
         } else {
             break;
@@ -1929,10 +2353,17 @@ fn number_before(s: &str, marker: &str) -> Option<f64> {
 pub fn classify_note(sol: &Solution) -> Note {
     let raw = sol.note.clone();
     let s = raw.as_str();
-    let mut note = Note { key: "other", secs: None, n: None, runs: None, raw: raw.clone() };
+    let mut note = Note {
+        key: "other",
+        secs: None,
+        n: None,
+        runs: None,
+        raw: raw.clone(),
+    };
     if s.contains("time limit") {
         note.key = "time_limit";
-        note.secs = number_before(s, "s time limit").or_else(|| first_number_after(s, "within the "));
+        note.secs =
+            number_before(s, "s time limit").or_else(|| first_number_after(s, "within the "));
     } else if s.contains("rejected as unsound") {
         note.key = "unsound";
     } else if s.contains("could not be replayed") {
@@ -2010,7 +2441,12 @@ fn vertex_angle(at: &dyn Fn(u32) -> Pt, a: u32, b: u32, c: u32, d: u32) -> Optio
     if n < 1e-18 {
         return None;
     }
-    Some(((u1.0 * u2.0 + u1.1 * u2.1) / n).clamp(-1.0, 1.0).acos().to_degrees())
+    Some(
+        ((u1.0 * u2.0 + u1.1 * u2.1) / n)
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees(),
+    )
 }
 
 /// Directed angle between lines mod 180°.
@@ -2034,7 +2470,12 @@ fn counterexample(problem: &Problem, names: &Names, sol: &Solution) -> Option<Co
             .split_once('=')
             .map(|(l, r)| vec![pretty_metric(l, names), pretty_metric(r, names)])
             .unwrap_or_default();
-        return Some(Counter { kind: "values", lhs, rhs, labels });
+        return Some(Counter {
+            kind: "values",
+            lhs,
+            rhs,
+            labels,
+        });
     }
     let goal = problem.goal.as_ref()?;
     let c = |i: usize| {
@@ -2071,12 +2512,27 @@ fn counterexample(problem: &Problem, names: &Names, sol: &Solution) -> Option<Co
             };
             let vertex = |k: usize| vertex_angle(&at, p[k], p[k + 1], p[k + 2], p[k + 3]);
             match (vertex(0), vertex(4)) {
-                (Some(x), Some(y)) if (x - y).abs() > 0.05 => Some(Counter { kind: "angles", lhs: x, rhs: y, labels: f.args }),
-                (Some(x), Some(_)) => Some(Counter { kind: "angles_oriented", lhs: x, rhs: x, labels: f.args }),
+                (Some(x), Some(y)) if (x - y).abs() > 0.05 => Some(Counter {
+                    kind: "angles",
+                    lhs: x,
+                    rhs: y,
+                    labels: f.args,
+                }),
+                (Some(x), Some(_)) => Some(Counter {
+                    kind: "angles_oriented",
+                    lhs: x,
+                    rhs: x,
+                    labels: f.args,
+                }),
                 _ => {
                     let a1 = dir_angle(c(0), c(1), c(2), c(3));
                     let a2 = dir_angle(c(4), c(5), c(6), c(7));
-                    Some(Counter { kind: "line_angles", lhs: a1, rhs: a2, labels: f.args })
+                    Some(Counter {
+                        kind: "line_angles",
+                        lhs: a1,
+                        rhs: a2,
+                        labels: f.args,
+                    })
                 }
             }
         }
@@ -2087,7 +2543,10 @@ fn counterexample(problem: &Problem, names: &Names, sol: &Solution) -> Option<Co
                 kind: "ratios",
                 lhs: r1,
                 rhs: r2,
-                labels: vec![format!("{} : {}", seg(0), seg(2)), format!("{} : {}", seg(4), seg(6))],
+                labels: vec![
+                    format!("{} : {}", seg(0), seg(2)),
+                    format!("{} : {}", seg(4), seg(6)),
+                ],
             })
         }
         ("coll", k) if k >= 3 => {
@@ -2095,7 +2554,12 @@ fn counterexample(problem: &Problem, names: &Names, sol: &Solution) -> Option<Co
             let p = c(2);
             let len = dist(a, b).max(1e-12);
             let off = ((b.0 - a.0) * (a.1 - p.1) - (a.0 - p.0) * (b.1 - a.1)).abs() / len;
-            Some(Counter { kind: "off_line", lhs: off, rhs: len, labels: vec![n(2), seg(0)] })
+            Some(Counter {
+                kind: "off_line",
+                lhs: off,
+                rhs: len,
+                labels: vec![n(2), seg(0)],
+            })
         }
         ("cyclic", k) if k >= 4 => {
             let (a, b, cc, d) = (c(0), c(1), c(2), c(3));
@@ -2141,7 +2605,10 @@ fn numeric_support(sol: &Solution) -> Option<Evidence> {
         .numeric_evidence
         .as_deref()
         .and_then(|e| first_number_after(e, "value:"));
-    Some(Evidence { samples: sol.numeric_samples.unwrap_or(0), value })
+    Some(Evidence {
+        samples: sol.numeric_samples.unwrap_or(0),
+        value,
+    })
 }
 
 // ------------------------------------------------------------------ source --
@@ -2153,7 +2620,9 @@ fn source_polygons(src: &str) -> Vec<Vec<String>> {
     for raw in src.lines() {
         let line = raw.split('#').next().unwrap_or("");
         for stmt in line.split(';') {
-            let Some((lhs, rhs)) = stmt.split_once('=') else { continue };
+            let Some((lhs, rhs)) = stmt.split_once('=') else {
+                continue;
+            };
             let names: Vec<String> = lhs.split_whitespace().map(str::to_string).collect();
             if names.len() < 2 || !names.iter().all(|n| n.chars().all(is_name_char)) {
                 continue;
@@ -2161,7 +2630,13 @@ fn source_polygons(src: &str) -> Vec<Vec<String>> {
             let shape = rhs.trim().split(['(', ' ']).next().unwrap_or("");
             if matches!(
                 shape,
-                "triangle" | "iso_triangle" | "eq_triangle" | "segment" | "square" | "quadrilateral" | "right_triangle"
+                "triangle"
+                    | "iso_triangle"
+                    | "eq_triangle"
+                    | "segment"
+                    | "square"
+                    | "quadrilateral"
+                    | "right_triangle"
             ) {
                 out.push(names);
             }
@@ -2203,21 +2678,42 @@ fn source_lengths(src: &str) -> Vec<(String, String, String)> {
 }
 
 fn is_plain_length(c: &str) -> bool {
-    let Some(rest) = c.trim().strip_prefix("dist(") else { return false };
-    let Some((args, tail)) = rest.split_once(')') else { return false };
-    let num = tail.trim_start().strip_prefix('=').map(str::trim).unwrap_or("");
-    args.split(',').count() == 2 && !num.is_empty() && num.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '/')
+    let Some(rest) = c.trim().strip_prefix("dist(") else {
+        return false;
+    };
+    let Some((args, tail)) = rest.split_once(')') else {
+        return false;
+    };
+    let num = tail
+        .trim_start()
+        .strip_prefix('=')
+        .map(str::trim)
+        .unwrap_or("");
+    args.split(',').count() == 2
+        && !num.is_empty()
+        && num
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '/')
 }
 
 fn source_point_metrics(src: &str) -> Vec<String> {
     let mut out = Vec::new();
     for raw in src.lines() {
         for stmt in raw.split('#').next().unwrap_or("").split(';') {
-            let Some((_, cons)) = stmt.split_once("point:") else { continue };
+            let Some((_, cons)) = stmt.split_once("point:") else {
+                continue;
+            };
             for c in split_top(cons, &[","]) {
                 let c = c.trim();
-                let metric_only = ['^', '*', '+'].iter().any(|k| c.contains(*k)) || ["sqrt(", "sin(", "cos(", "tan("].iter().any(|k| c.contains(k));
-                if c.contains('=') && metric_only && ["dist(", "angle(", "area("].iter().any(|k| c.contains(k)) && !is_plain_length(c) {
+                let metric_only = ['^', '*', '+'].iter().any(|k| c.contains(*k))
+                    || ["sqrt(", "sin(", "cos(", "tan("]
+                        .iter()
+                        .any(|k| c.contains(k));
+                if c.contains('=')
+                    && metric_only
+                    && ["dist(", "angle(", "area("].iter().any(|k| c.contains(k))
+                    && !is_plain_length(c)
+                {
                     out.push(c.to_string());
                 }
             }
@@ -2231,7 +2727,10 @@ fn caret_powers(s: &str) -> String {
     let mut out = String::new();
     let mut i = 0;
     while i < chars.len() {
-        let after_base = i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == ')' || chars[i - 1] == '\u{2032}');
+        let after_base = i > 0
+            && (chars[i - 1].is_alphanumeric()
+                || chars[i - 1] == ')'
+                || chars[i - 1] == '\u{2032}');
         if chars[i] == '^' && after_base && chars.get(i + 1).is_some_and(char::is_ascii_digit) {
             let mut j = i + 1;
             let mut n = String::new();
@@ -2271,7 +2770,15 @@ pub fn source_goal(src: &str) -> Option<String> {
 /// + … = 480`), as written.
 fn source_assumes(src: &str) -> Vec<String> {
     src.lines()
-        .flat_map(|raw| raw.split('#').next().unwrap_or("").split(';').map(str::trim).map(str::to_string).collect::<Vec<_>>())
+        .flat_map(|raw| {
+            raw.split('#')
+                .next()
+                .unwrap_or("")
+                .split(';')
+                .map(str::trim)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .filter_map(|s| s.strip_prefix("assume ").map(|a| a.trim().to_string()))
         .filter(|a| a.contains('=') && ["dist(", "angle(", "area("].iter().any(|k| a.contains(k)))
         .collect()
@@ -2288,7 +2795,11 @@ pub fn displayable(c: char) -> bool {
 /// A title as shown and exported: one line, only displayable characters,
 /// `AD^2` typeset as `AD²`, no closing full stop.
 pub fn tidy_title(s: &str) -> String {
-    let flat: String = s.chars().map(|c| if c.is_whitespace() { ' ' } else { c }).filter(|&c| displayable(c)).collect();
+    let flat: String = s
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .filter(|&c| displayable(c))
+        .collect();
     let words = flat.split_whitespace().collect::<Vec<_>>().join(" ");
     let t = caret_powers(&words);
     match t.strip_suffix('.') {
@@ -2308,7 +2819,9 @@ pub fn source_title(src: &str) -> Option<String> {
         }
     }
     let head = text[..cut].trim();
-    let generic = ["THEOREM", "LEMMA", "PROBLEM", "EXAMPLE", "FACT"].iter().any(|g| head.eq_ignore_ascii_case(g));
+    let generic = ["THEOREM", "LEMMA", "PROBLEM", "EXAMPLE", "FACT"]
+        .iter()
+        .any(|g| head.eq_ignore_ascii_case(g));
     let picked = match (generic, text[cut..].trim_start().strip_prefix('(')) {
         (true, Some(rest)) => rest.split(')').next().unwrap_or(head).trim(),
         _ => head,
@@ -2371,7 +2884,13 @@ fn alias_runs(text: &str, names: &Names, aliases: &[(String, String, String)]) -
     let mut run = String::new();
     let flush = |run: &mut String, out: &mut String| {
         let seg = names.segment(run).unwrap_or_default();
-        let hit = (seg.len() == 2).then(|| aliases.iter().find(|(x, v, _)| (seg[0] == *v && seg[1] == *x) || (seg[0] == *x && seg[1] == *v))).flatten();
+        let hit = (seg.len() == 2)
+            .then(|| {
+                aliases.iter().find(|(x, v, _)| {
+                    (seg[0] == *v && seg[1] == *x) || (seg[0] == *x && seg[1] == *v)
+                })
+            })
+            .flatten();
         match hit {
             Some((_, v, on)) => out.push_str(&format!("{v}{on}")),
             None => out.push_str(run),
@@ -2400,12 +2919,23 @@ fn aux_view(raw: &str, names: &Names, aliases: &[(String, String, String)]) -> A
         Some(i) if rhs.ends_with(')') => (rhs[..i].to_string(), &rhs[i + 1..rhs.len() - 1]),
         _ => (String::from("other"), rhs),
     };
-    let args = split_top(inner, &[",", " -> ", " over ", " in ", " on ", " of ", " to ", " wrt "])
-        .into_iter()
-        .filter(|a| !a.is_empty())
-        .map(|a| names.rename_text(&a, false))
-        .collect();
-    AuxView { name, kind, args, text: names.rename_text(rhs, false), same: None }
+    let args = split_top(
+        inner,
+        &[
+            ",", " -> ", " over ", " in ", " on ", " of ", " to ", " wrt ",
+        ],
+    )
+    .into_iter()
+    .filter(|a| !a.is_empty())
+    .map(|a| names.rename_text(&a, false))
+    .collect();
+    AuxView {
+        name,
+        kind,
+        args,
+        text: names.rename_text(rhs, false),
+        same: None,
+    }
 }
 
 fn split_shown(run: &str, at: &HashMap<String, Pt>) -> Option<Vec<String>> {
@@ -2424,7 +2954,15 @@ fn split_shown(run: &str, at: &HashMap<String, Pt>) -> Option<Vec<String>> {
 
 fn circle_of(arg: &str, at: &HashMap<String, Pt>) -> Option<(Pt, f64, Vec<String>)> {
     let (head, inner) = arg.trim().strip_suffix(')')?.split_once('(')?;
-    let pts: Vec<String> = inner.split(',').map(|s| s.trim().trim_start_matches("centre ").trim_start_matches("center ").to_string()).collect();
+    let pts: Vec<String> = inner
+        .split(',')
+        .map(|s| {
+            s.trim()
+                .trim_start_matches("centre ")
+                .trim_start_matches("center ")
+                .to_string()
+        })
+        .collect();
     let p = |k: usize| pts.get(k).and_then(|n| at.get(n)).copied();
     match (head.trim(), pts.len()) {
         ("circle", 2) => {
@@ -2458,7 +2996,13 @@ fn resolve_branch(a: &mut AuxView, at: &HashMap<String, Pt>) {
         "excenter" if a.args.len() == 3 => {
             let v: Option<Vec<Pt>> = a.args.iter().map(|n| at.get(n).copied()).collect();
             let opposite = v.and_then(|v| {
-                let away: Vec<usize> = (0..3).filter(|&k| side_of(v[k], v[(k + 1) % 3], v[(k + 2) % 3]) * side_of(me, v[(k + 1) % 3], v[(k + 2) % 3]) < 0.0).collect();
+                let away: Vec<usize> = (0..3)
+                    .filter(|&k| {
+                        side_of(v[k], v[(k + 1) % 3], v[(k + 2) % 3])
+                            * side_of(me, v[(k + 1) % 3], v[(k + 2) % 3])
+                            < 0.0
+                    })
+                    .collect();
                 (away.len() == 1).then(|| away[0])
             });
             match opposite {
@@ -2472,8 +3016,12 @@ fn resolve_branch(a: &mut AuxView, at: &HashMap<String, Pt>) {
             }
         }
         "intersect" if a.args.len() == 2 => {
-            let Some(line) = split_shown(a.args[0].trim(), at).filter(|v| v.len() == 2) else { return };
-            let Some((o, r, _)) = circle_of(&a.args[1], at) else { return };
+            let Some(line) = split_shown(a.args[0].trim(), at).filter(|v| v.len() == 2) else {
+                return;
+            };
+            let Some((o, r, _)) = circle_of(&a.args[1], at) else {
+                return;
+            };
             let (p, q) = (at[&line[0]], at[&line[1]]);
             let tol = 1e-6 * r.max(1e-12);
             if let Some(&e) = [p, q].iter().find(|e| (dist(**e, o) - r).abs() < tol) {
@@ -2489,18 +3037,34 @@ fn resolve_branch(a: &mut AuxView, at: &HashMap<String, Pt>) {
             if dd < 1e-24 || disc <= 0.0 {
                 return;
             }
-            let roots = [(-b - disc.sqrt()) / (2.0 * dd), (-b + disc.sqrt()) / (2.0 * dd)];
+            let roots = [
+                (-b - disc.sqrt()) / (2.0 * dd),
+                (-b + disc.sqrt()) / (2.0 * dd),
+            ];
             let pts = roots.map(|t| (p.0 + d.0 * t, p.1 + d.1 * t));
-            let (mine, other) = if dist(pts[0], me) <= dist(pts[1], me) { (pts[0], pts[1]) } else { (pts[1], pts[0]) };
+            let (mine, other) = if dist(pts[0], me) <= dist(pts[1], me) {
+                (pts[0], pts[1])
+            } else {
+                (pts[1], pts[0])
+            };
             if dist(mine, me) > 1e-6 * r.max(1e-12) {
                 return;
             }
             let gap = |e: Pt| dist(e, other) - dist(e, mine);
-            let (k, g) = if gap(p).abs() >= gap(q).abs() { (0, gap(p)) } else { (1, gap(q)) };
+            let (k, g) = if gap(p).abs() >= gap(q).abs() {
+                (0, gap(p))
+            } else {
+                (1, gap(q))
+            };
             if g.abs() < 0.05 * dist(mine, other) {
                 return;
             }
-            a.kind = if g > 0.0 { "intersect_near" } else { "intersect_far" }.into();
+            a.kind = if g > 0.0 {
+                "intersect_near"
+            } else {
+                "intersect_far"
+            }
+            .into();
             a.args.push(line[k].clone());
         }
         _ => {}
@@ -2510,7 +3074,12 @@ fn resolve_branch(a: &mut AuxView, at: &HashMap<String, Pt>) {
 fn helper_points(fig: &Problem, names: &Names, upto: usize) -> Vec<AuxView> {
     let upto = upto.min(fig.points.len());
     let twin = twins(fig);
-    let mut defined: HashSet<String> = fig.points.iter().filter(|p| !p.name.starts_with('_')).map(|p| names.get(&p.name)).collect();
+    let mut defined: HashSet<String> = fig
+        .points
+        .iter()
+        .filter(|p| !p.name.starts_with('_'))
+        .map(|p| names.get(&p.name))
+        .collect();
     let mut out = Vec::new();
     for (i, p) in fig.points[..upto].iter().enumerate() {
         let shown = names.get(&p.name);
@@ -2519,20 +3088,44 @@ fn helper_points(fig: &Problem, names: &Names, upto: usize) -> Vec<AuxView> {
         }
         defined.insert(shown.clone());
         let me = i as u32;
-        let defs: Vec<&Predicate> = fig.preds.iter().filter(|q| q.points.contains(&me) && q.points.iter().all(|&x| x <= me)).collect();
+        let defs: Vec<&Predicate> = fig
+            .preds
+            .iter()
+            .filter(|q| q.points.contains(&me) && q.points.iter().all(|&x| x <= me))
+            .collect();
         let (kind, args) = helper_definition(&defs, me, &|x| names.get(fig.point_name(x)));
         let text = format!("{kind}({})", args.join(", "));
         let same = twin.get(&me).map(|&j| names.get(fig.point_name(j)));
-        out.push(AuxView { name: shown, kind: kind.to_string(), args, text, same });
+        out.push(AuxView {
+            name: shown,
+            kind: kind.to_string(),
+            args,
+            text,
+            same,
+        });
     }
     out
 }
 
-fn helper_definition(defs: &[&Predicate], me: u32, n: &dyn Fn(u32) -> String) -> (&'static str, Vec<String>) {
-    let of = |name: &'static str| defs.iter().filter(move |q| q.name == name).map(|q| q.points.as_slice());
+fn helper_definition(
+    defs: &[&Predicate],
+    me: u32,
+    n: &dyn Fn(u32) -> String,
+) -> (&'static str, Vec<String>) {
+    let of = |name: &'static str| {
+        defs.iter()
+            .filter(move |q| q.name == name)
+            .map(|q| q.points.as_slice())
+    };
     let colls: Vec<&[u32]> = of("coll").collect();
-    let on_line = |a: u32, b: u32| colls.iter().any(|c| c.contains(&a) && c.contains(&b) && c.contains(&me));
-    let centres: Vec<(u32, u32, u32)> = of("cong").filter_map(|q| if q.len() == 4 { cong_center3(q) } else { None }).collect();
+    let on_line = |a: u32, b: u32| {
+        colls
+            .iter()
+            .any(|c| c.contains(&a) && c.contains(&b) && c.contains(&me))
+    };
+    let centres: Vec<(u32, u32, u32)> = of("cong")
+        .filter_map(|q| if q.len() == 4 { cong_center3(q) } else { None })
+        .collect();
     for &(c, a, b) in &centres {
         if c == me && on_line(a, b) {
             return ("midpoint", vec![n(a), n(b)]);
@@ -2541,13 +3134,28 @@ fn helper_definition(defs: &[&Predicate], me: u32, n: &dyn Fn(u32) -> String) ->
             return ("reflect", vec![n(if b == me { a } else { b }), n(c)]);
         }
     }
-    let partners: Vec<(u32, u32)> = centres.iter().filter_map(|&(c, a, b)| if b == me { Some((c, a)) } else if a == me { Some((c, b)) } else { None }).collect();
+    let partners: Vec<(u32, u32)> = centres
+        .iter()
+        .filter_map(|&(c, a, b)| {
+            if b == me {
+                Some((c, a))
+            } else if a == me {
+                Some((c, b))
+            } else {
+                None
+            }
+        })
+        .collect();
     if let [(c1, s1), (c2, s2)] = partners[..] {
         if s1 == s2 && c1 != c2 && c1 != me && c2 != me {
             return ("reflect", vec![n(s1), format!("{}{}", n(c1), n(c2))]);
         }
     }
-    let around: Vec<(u32, u32)> = centres.iter().filter(|&&(c, _, _)| c == me).map(|&(_, a, b)| (a, b)).collect();
+    let around: Vec<(u32, u32)> = centres
+        .iter()
+        .filter(|&&(c, _, _)| c == me)
+        .map(|&(_, a, b)| (a, b))
+        .collect();
     if around.len() >= 2 {
         let mut pts: Vec<u32> = Vec::new();
         for &(a, b) in &around {
@@ -2569,11 +3177,17 @@ fn helper_definition(defs: &[&Predicate], me: u32, n: &dyn Fn(u32) -> String) ->
     if defs.len() == 1 {
         let q = &defs[0].points;
         match (defs[0].name.as_str(), q.len()) {
-            ("eqangle", 8) if q[3] == me && q[5] == me && q[0] == q[2] && q[2] == q[4] && q[4] == q[6] => {
+            ("eqangle", 8)
+                if q[3] == me && q[5] == me && q[0] == q[2] && q[2] == q[4] && q[4] == q[6] =>
+            {
                 return ("on_bisector", vec![n(q[1]), n(q[0]), n(q[7])]);
             }
-            ("perp", 4) if q[1] == me => return ("on_perp", vec![n(q[0]), format!("{}{}", n(q[2]), n(q[3]))]),
-            ("para", 4) if q[1] == me => return ("on_para", vec![n(q[0]), format!("{}{}", n(q[2]), n(q[3]))]),
+            ("perp", 4) if q[1] == me => {
+                return ("on_perp", vec![n(q[0]), format!("{}{}", n(q[2]), n(q[3]))])
+            }
+            ("para", 4) if q[1] == me => {
+                return ("on_para", vec![n(q[0]), format!("{}{}", n(q[2]), n(q[3]))])
+            }
             _ => {}
         }
         if let [(c, a, b)] = centres[..] {
@@ -2589,13 +3203,28 @@ fn helper_definition(defs: &[&Predicate], me: u32, n: &dyn Fn(u32) -> String) ->
         let others: Vec<u32> = q.points.iter().copied().filter(|&x| x != me).collect();
         match (q.name.as_str(), others.len()) {
             ("coll", 2) => Some((false, format!("{}{}", n(others[0]), n(others[1])))),
-            ("cyclic", 3) => Some((true, format!("circumcircle({},{},{})", n(others[0]), n(others[1]), n(others[2])))),
+            ("cyclic", 3) => Some((
+                true,
+                format!(
+                    "circumcircle({},{},{})",
+                    n(others[0]),
+                    n(others[1]),
+                    n(others[2])
+                ),
+            )),
             _ => None,
         }
     };
     if let [p, q] = defs {
         if let (Some((c1, s1)), Some((c2, s2))) = (shape(p), shape(q)) {
-            return (if c1 || c2 { "common_point" } else { "intersect" }, vec![s1, s2]);
+            return (
+                if c1 || c2 {
+                    "common_point"
+                } else {
+                    "intersect"
+                },
+                vec![s1, s2],
+            );
         }
     }
     ("helper", Vec::new())
@@ -2610,7 +3239,12 @@ struct Introduced {
     text: String,
 }
 
-type Found = (Pt, Vec<(&'static str, Vec<String>)>, &'static str, Vec<String>);
+type Found = (
+    Pt,
+    Vec<(&'static str, Vec<String>)>,
+    &'static str,
+    Vec<String>,
+);
 
 fn line_meet(a: Pt, b: Pt, c: Pt, d: Pt) -> Option<Pt> {
     let (r, s) = ((b.0 - a.0, b.1 - a.1), (d.0 - c.0, d.1 - c.1));
@@ -2634,13 +3268,18 @@ impl Intro<'_> {
         coord(self.fig, r).or_else(|| self.done.iter().find(|i| i.raw == r).map(|i| i.at))
     }
     fn run(&self, s: &str, n: usize) -> Option<Vec<String>> {
-        self.nm.segment(s.trim().trim_end_matches('.')).filter(|v| v.len() == n)
+        self.nm
+            .segment(s.trim().trim_end_matches('.'))
+            .filter(|v| v.len() == n)
     }
     fn shown(&self, v: &[String]) -> String {
         v.iter().map(|r| self.nm.get(r)).collect()
     }
     fn listed(&self, v: &[String]) -> String {
-        v.iter().map(|r| self.nm.get(r)).collect::<Vec<_>>().join(", ")
+        v.iter()
+            .map(|r| self.nm.get(r))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
     fn me(&self) -> String {
         self.raw.clone()
@@ -2649,25 +3288,45 @@ impl Intro<'_> {
     fn intersection(&self, r: &str) -> Option<Found> {
         let (l, m) = r.split_once(" and ")?;
         let (a, b) = (self.run(l, 2)?, self.run(m, 2)?);
-        let x = line_meet(self.xy(&a[0])?, self.xy(&a[1])?, self.xy(&b[0])?, self.xy(&b[1])?)?;
-        let preds = vec![("coll", vec![a[0].clone(), a[1].clone(), self.me()]), ("coll", vec![b[0].clone(), b[1].clone(), self.me()])];
+        let x = line_meet(
+            self.xy(&a[0])?,
+            self.xy(&a[1])?,
+            self.xy(&b[0])?,
+            self.xy(&b[1])?,
+        )?;
+        let preds = vec![
+            ("coll", vec![a[0].clone(), a[1].clone(), self.me()]),
+            ("coll", vec![b[0].clone(), b[1].clone(), self.me()]),
+        ];
         Some((x, preds, "intersect", vec![self.shown(&a), self.shown(&b)]))
     }
 
     fn second_meet(&self, r: &str) -> Option<Found> {
         let (l, circ) = r.split_once(" with the circle")?;
         let vr = self.run(l, 2)?;
-        let through = circ.split_once(" through ").and_then(|(_, x)| self.run(x, 3));
-        let centre = circ.trim().strip_prefix('(').and_then(|c| c.split(')').next()).and_then(|c| self.run(c, 1));
+        let through = circ
+            .split_once(" through ")
+            .and_then(|(_, x)| self.run(x, 3));
+        let centre = circ
+            .trim()
+            .strip_prefix('(')
+            .and_then(|c| c.split(')').next())
+            .and_then(|c| self.run(c, 1));
         let fig = self.fig;
         let c = match (&through, &centre) {
-            (Some(t), _) => circumcircle(self.xy(&t[0])?, self.xy(&t[1])?, self.xy(&t[2])?).map(|(x, y, _)| (x, y))?,
+            (Some(t), _) => circumcircle(self.xy(&t[0])?, self.xy(&t[1])?, self.xy(&t[2])?)
+                .map(|(x, y, _)| (x, y))?,
             (None, Some(o)) => self.xy(&o[0])?,
             (None, None) => fig
                 .preds
                 .iter()
                 .filter(|p| p.name == "cyclic" && p.points.len() >= 3)
-                .map(|p| p.points.iter().map(|&i| fig.point_name(i).to_string()).collect::<Vec<_>>())
+                .map(|p| {
+                    p.points
+                        .iter()
+                        .map(|&i| fig.point_name(i).to_string())
+                        .collect::<Vec<_>>()
+                })
                 .find(|on| on.contains(&vr[1]))
                 .and_then(|on| circumcircle(self.xy(&on[0])?, self.xy(&on[1])?, self.xy(&on[2])?))
                 .map(|(x, y, _)| (x, y))?,
@@ -2683,11 +3342,17 @@ impl Intro<'_> {
         let mut preds = vec![("coll", vec![vr[0].clone(), vr[1].clone(), self.me()])];
         let circle_arg = match (&through, &centre) {
             (Some(t), _) => {
-                preds.push(("cyclic", vec![t[0].clone(), t[1].clone(), t[2].clone(), self.me()]));
+                preds.push((
+                    "cyclic",
+                    vec![t[0].clone(), t[1].clone(), t[2].clone(), self.me()],
+                ));
                 format!("circumcircle({})", self.listed(t))
             }
             (None, Some(o)) => {
-                preds.push(("cong", vec![o[0].clone(), vr[1].clone(), o[0].clone(), self.me()]));
+                preds.push((
+                    "cong",
+                    vec![o[0].clone(), vr[1].clone(), o[0].clone(), self.me()],
+                ));
                 format!("circle({}, {})", self.nm.get(&o[0]), self.nm.get(&vr[1]))
             }
             _ => String::from("circle"),
@@ -2705,42 +3370,94 @@ impl Intro<'_> {
             return None;
         }
         let tt = ((q.0 - a.0) * d.0 + (q.1 - a.1) * d.1) / dd;
-        let preds = vec![("coll", vec![ab[0].clone(), ab[1].clone(), self.me()]), ("perp", vec![p[0].clone(), self.me(), ab[0].clone(), ab[1].clone()])];
-        Some(((a.0 + tt * d.0, a.1 + tt * d.1), preds, "foot", vec![self.nm.get(&p[0]), self.shown(&ab)]))
+        let preds = vec![
+            ("coll", vec![ab[0].clone(), ab[1].clone(), self.me()]),
+            (
+                "perp",
+                vec![p[0].clone(), self.me(), ab[0].clone(), ab[1].clone()],
+            ),
+        ];
+        Some((
+            (a.0 + tt * d.0, a.1 + tt * d.1),
+            preds,
+            "foot",
+            vec![self.nm.get(&p[0]), self.shown(&ab)],
+        ))
     }
 
     fn midpoint(&self, r: &str) -> Option<Found> {
         let ab = self.run(r, 2)?;
         let (a, b) = (self.xy(&ab[0])?, self.xy(&ab[1])?);
-        let preds = vec![("coll", vec![ab[0].clone(), ab[1].clone(), self.me()]), ("cong", vec![self.me(), ab[0].clone(), self.me(), ab[1].clone()])];
-        Some((((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0), preds, "midpoint", vec![self.listed(&ab)]))
+        let preds = vec![
+            ("coll", vec![ab[0].clone(), ab[1].clone(), self.me()]),
+            (
+                "cong",
+                vec![self.me(), ab[0].clone(), self.me(), ab[1].clone()],
+            ),
+        ];
+        Some((
+            ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0),
+            preds,
+            "midpoint",
+            vec![self.listed(&ab)],
+        ))
     }
 
     fn reflection(&self, r: &str) -> Option<Found> {
         let (p, o) = r.split_once(" in ")?;
         let (p, o) = (self.run(p, 1)?, self.run(o, 1)?);
         let (a, c) = (self.xy(&p[0])?, self.xy(&o[0])?);
-        let preds = vec![("coll", vec![p[0].clone(), o[0].clone(), self.me()]), ("cong", vec![o[0].clone(), p[0].clone(), o[0].clone(), self.me()])];
-        Some(((2.0 * c.0 - a.0, 2.0 * c.1 - a.1), preds, "reflect", vec![self.nm.get(&p[0]), self.nm.get(&o[0])]))
+        let preds = vec![
+            ("coll", vec![p[0].clone(), o[0].clone(), self.me()]),
+            (
+                "cong",
+                vec![o[0].clone(), p[0].clone(), o[0].clone(), self.me()],
+            ),
+        ];
+        Some((
+            (2.0 * c.0 - a.0, 2.0 * c.1 - a.1),
+            preds,
+            "reflect",
+            vec![self.nm.get(&p[0]), self.nm.get(&o[0])],
+        ))
     }
 
     fn circumcentre(&self, r: &str) -> Option<Found> {
         let abc = self.run(r, 3)?;
         let (x, y, _) = circumcircle(self.xy(&abc[0])?, self.xy(&abc[1])?, self.xy(&abc[2])?)?;
         let preds = vec![
-            ("cong", vec![self.me(), abc[0].clone(), self.me(), abc[1].clone()]),
-            ("cong", vec![self.me(), abc[1].clone(), self.me(), abc[2].clone()]),
+            (
+                "cong",
+                vec![self.me(), abc[0].clone(), self.me(), abc[1].clone()],
+            ),
+            (
+                "cong",
+                vec![self.me(), abc[1].clone(), self.me(), abc[2].clone()],
+            ),
         ];
         Some(((x, y), preds, "circumcenter", vec![self.listed(&abc)]))
     }
 
     fn antipode(&self, r: &str) -> Option<Found> {
         let p = self.run(r.split_whitespace().next()?, 1)?;
-        let (_, o) = r.rsplit_once(" through the centre ").or_else(|| r.rsplit_once(" through the center "))?;
+        let (_, o) = r
+            .rsplit_once(" through the centre ")
+            .or_else(|| r.rsplit_once(" through the center "))?;
         let o = self.run(o.trim_end_matches(')'), 1)?;
         let (a, c) = (self.xy(&p[0])?, self.xy(&o[0])?);
-        let preds = vec![("coll", vec![p[0].clone(), o[0].clone(), self.me()]), ("cong", vec![o[0].clone(), p[0].clone(), o[0].clone(), self.me()])];
-        Some(((2.0 * c.0 - a.0, 2.0 * c.1 - a.1), preds, "antipode", vec![self.nm.get(&p[0])]))
+        let preds = vec![
+            ("coll", vec![p[0].clone(), o[0].clone(), self.me()]),
+            (
+                "cong",
+                vec![o[0].clone(), p[0].clone(), o[0].clone(), self.me()],
+            ),
+        ];
+        Some((
+            (2.0 * c.0 - a.0, 2.0 * c.1 - a.1),
+            preds,
+            "antipode",
+            vec![self.nm.get(&p[0])],
+        ))
     }
 }
 
@@ -2749,14 +3466,31 @@ fn proof_points(text: &str, fig: &Problem, names: &Names) -> Vec<Introduced> {
     for line in text.lines() {
         let t = line.trim();
         let digits = t.chars().take_while(|c| c.is_ascii_digit()).count();
-        let Some(body) = t.get(digits..).and_then(|b| b.strip_prefix(". Let ")) else { continue };
-        let Some((raw, what)) = body.split_once(" be the ") else { continue };
+        let Some(body) = t.get(digits..).and_then(|b| b.strip_prefix(". Let ")) else {
+            continue;
+        };
+        let Some((raw, what)) = body.split_once(" be the ") else {
+            continue;
+        };
         let raw = raw.trim().to_string();
-        if raw.is_empty() || !raw.chars().all(is_name_char) || fig.points.iter().any(|p| p.name == raw) || out.iter().any(|i| i.raw == raw) {
+        if raw.is_empty()
+            || !raw.chars().all(is_name_char)
+            || fig.points.iter().any(|p| p.name == raw)
+            || out.iter().any(|i| i.raw == raw)
+        {
             continue;
         }
-        let known: Vec<String> = out.iter().map(|i| i.raw.clone()).chain(std::iter::once(raw.clone())).collect();
-        let cx = Intro { fig, nm: names.with_points(&known), done: &out, raw: raw.clone() };
+        let known: Vec<String> = out
+            .iter()
+            .map(|i| i.raw.clone())
+            .chain(std::iter::once(raw.clone()))
+            .collect();
+        let cx = Intro {
+            fig,
+            nm: names.with_points(&known),
+            done: &out,
+            raw: raw.clone(),
+        };
         let what = what.trim().trim_end_matches('.');
         let found = if let Some(r) = what.strip_prefix("intersection of ") {
             cx.intersection(r)
@@ -2768,7 +3502,10 @@ fn proof_points(text: &str, fig: &Problem, names: &Names) -> Vec<Introduced> {
             cx.midpoint(r)
         } else if let Some(r) = what.strip_prefix("reflection of ") {
             cx.reflection(r)
-        } else if let Some(r) = what.strip_prefix("circumcentre of ").or_else(|| what.strip_prefix("circumcenter of ")) {
+        } else if let Some(r) = what
+            .strip_prefix("circumcentre of ")
+            .or_else(|| what.strip_prefix("circumcenter of "))
+        {
             cx.circumcentre(r)
         } else if let Some(r) = what.strip_prefix("point diametrically opposite ") {
             cx.antipode(r)
@@ -2777,7 +3514,14 @@ fn proof_points(text: &str, fig: &Problem, names: &Names) -> Vec<Introduced> {
         };
         let text = crate::i18n::prose_en(&cx.nm.rename_text(&circle_through(what, &cx.nm), true));
         if let Some((at, preds, kind, args)) = found.filter(|f| finite_pt(f.0)) {
-            out.push(Introduced { raw, at, preds, kind, args, text });
+            out.push(Introduced {
+                raw,
+                at,
+                preds,
+                kind,
+                args,
+                text,
+            });
         }
     }
     out
@@ -2786,13 +3530,31 @@ fn proof_points(text: &str, fig: &Problem, names: &Names) -> Vec<Introduced> {
 fn with_introduced(fig: &Problem, intro: &[Introduced]) -> Problem {
     let mut fig = fig.clone();
     for i in intro {
-        fig.points.push(ddar::predicate::Point { name: i.raw.clone(), value: ddar::numerics::Vec2 { x: i.at.0, y: i.at.1 } });
+        fig.points.push(ddar::predicate::Point {
+            name: i.raw.clone(),
+            value: ddar::numerics::Vec2 {
+                x: i.at.0,
+                y: i.at.1,
+            },
+        });
     }
     for i in intro {
         for (name, pts) in &i.preds {
-            let ids: Option<Vec<u32>> = pts.iter().map(|r| fig.points.iter().position(|p| &p.name == r).map(|k| k as u32)).collect();
+            let ids: Option<Vec<u32>> = pts
+                .iter()
+                .map(|r| {
+                    fig.points
+                        .iter()
+                        .position(|p| &p.name == r)
+                        .map(|k| k as u32)
+                })
+                .collect();
             if let Some(points) = ids {
-                fig.preds.push(Predicate { name: name.to_string(), points, constants: Vec::new() });
+                fig.preds.push(Predicate {
+                    name: name.to_string(),
+                    points,
+                    constants: Vec::new(),
+                });
             }
         }
     }
@@ -2857,18 +3619,30 @@ struct BisectorHelper {
 }
 
 fn bisector_helpers(p: &Problem) -> Vec<BisectorHelper> {
-    let anonymous = |i: u32| p.points.get(i as usize).is_some_and(|q| q.name.starts_with('_'));
+    let anonymous = |i: u32| {
+        p.points
+            .get(i as usize)
+            .is_some_and(|q| q.name.starts_with('_'))
+    };
     let mut out = Vec::new();
     for (i, q) in p.preds.iter().enumerate() {
         let s = &q.points;
-        if q.name != "eqangle" || s.len() != 8 || !(s[0] == s[2] && s[2] == s[4] && s[4] == s[6] && s[3] == s[5]) {
+        if q.name != "eqangle"
+            || s.len() != 8
+            || !(s[0] == s[2] && s[2] == s[4] && s[4] == s[6] && s[3] == s[5])
+        {
             continue;
         }
         let (v, x) = (s[0], s[3]);
-        if !anonymous(x) || [s[1], s[7]].contains(&x) || p.goal.as_ref().is_some_and(|g| g.points.contains(&x)) {
+        if !anonymous(x)
+            || [s[1], s[7]].contains(&x)
+            || p.goal.as_ref().is_some_and(|g| g.points.contains(&x))
+        {
             continue;
         }
-        if p.preds.iter().enumerate().any(|(j, o)| j != i && o.points.contains(&x) && !(o.name == "coll" && o.points.contains(&v))) {
+        if p.preds.iter().enumerate().any(|(j, o)| {
+            j != i && o.points.contains(&x) && !(o.name == "coll" && o.points.contains(&v))
+        }) {
             continue;
         }
         let on = p
@@ -2883,7 +3657,11 @@ fn bisector_helpers(p: &Problem) -> Vec<BisectorHelper> {
 }
 
 fn line_helpers(p: &Problem) -> Vec<(u32, u32, u32)> {
-    let anonymous = |i: u32| p.points.get(i as usize).is_none_or(|q| q.name.starts_with('_'));
+    let anonymous = |i: u32| {
+        p.points
+            .get(i as usize)
+            .is_none_or(|q| q.name.starts_with('_'))
+    };
     let mut out = Vec::new();
     let mut unplaced: Vec<(u32, u32)> = Vec::new();
     for x in 0..p.points.len() as u32 {
@@ -2914,11 +3692,17 @@ fn line_helpers(p: &Problem) -> Vec<(u32, u32, u32)> {
                 _ => ok = false,
             }
         }
-        let Some(v) = vertex.filter(|_| ok) else { continue };
+        let Some(v) = vertex.filter(|_| ok) else {
+            continue;
+        };
         if colls.iter().any(|c| !c.points.contains(&v)) {
             continue;
         }
-        if let Some(on) = colls.iter().flat_map(|c| c.points.iter().copied()).find(|&r| r != x && r != v && !anonymous(r)) {
+        if let Some(on) = colls
+            .iter()
+            .flat_map(|c| c.points.iter().copied())
+            .find(|&r| r != x && r != v && !anonymous(r))
+        {
             out.push((x, v, on));
         } else if colls.is_empty() {
             unplaced.push((x, v));
@@ -2952,7 +3736,11 @@ fn without_helpers(p: &Problem, hide: &[(u32, u32)], quiet: &[u32], keep_lines: 
             pt.value.y = f64::NAN;
         }
     }
-    let at = |i: u32| p.points.get(i as usize).map_or((f64::NAN, f64::NAN), |q| (q.value.x, q.value.y));
+    let at = |i: u32| {
+        p.points
+            .get(i as usize)
+            .map_or((f64::NAN, f64::NAN), |q| (q.value.x, q.value.y))
+    };
     let mut rims: Vec<(u32, f64, Vec<u32>)> = Vec::new();
     let mut preds: Vec<Predicate> = Vec::new();
     for q in &p.preds {
@@ -2966,9 +3754,13 @@ fn without_helpers(p: &Problem, hide: &[(u32, u32)], quiet: &[u32], keep_lines: 
             match q.name.as_str() {
                 "coll" | "cyclic" => q.points.retain(|v| !quiet.contains(v)),
                 "cong" if q.points.len() == 4 => {
-                    if let Some((c, a, b)) = cong_center3(&q.points).filter(|&(c, a, b)| quiet.contains(&c) && !quiet.contains(&a) && !quiet.contains(&b)) {
+                    if let Some((c, a, b)) = cong_center3(&q.points).filter(|&(c, a, b)| {
+                        quiet.contains(&c) && !quiet.contains(&a) && !quiet.contains(&b)
+                    }) {
                         let r = (at(a).0 - at(c).0).hypot(at(a).1 - at(c).1);
-                        let k = rims.iter().position(|(cc, rr, _)| *cc == c && (rr - r).abs() <= 1e-6 * r.max(1.0));
+                        let k = rims.iter().position(|(cc, rr, _)| {
+                            *cc == c && (rr - r).abs() <= 1e-6 * r.max(1.0)
+                        });
                         let rim = match k {
                             Some(k) => &mut rims[k].2,
                             None => {
@@ -3003,12 +3795,19 @@ fn without_helpers(p: &Problem, hide: &[(u32, u32)], quiet: &[u32], keep_lines: 
                 continue;
             }
         }
-        if !preds.iter().any(|o| o.name == q.name && o.points == q.points) {
+        if !preds
+            .iter()
+            .any(|o| o.name == q.name && o.points == q.points)
+        {
             preds.push(q);
         }
     }
     for (_, _, rim) in rims.into_iter().filter(|r| r.2.len() >= 3) {
-        preds.push(Predicate { name: "cyclic".into(), points: rim, constants: Vec::new() });
+        preds.push(Predicate {
+            name: "cyclic".into(),
+            points: rim,
+            constants: Vec::new(),
+        });
     }
     out.preds = preds;
     out
@@ -3024,7 +3823,13 @@ fn names_written(value: &serde_json::Value, known: &[String], out: &mut HashSet<
                 let mut rest = run.as_str();
                 let mut parts: Vec<&String> = Vec::new();
                 while !rest.is_empty() {
-                    let Some(n) = known.iter().filter(|n| !n.is_empty() && rest.starts_with(n.as_str())).max_by_key(|n| n.len()) else { break };
+                    let Some(n) = known
+                        .iter()
+                        .filter(|n| !n.is_empty() && rest.starts_with(n.as_str()))
+                        .max_by_key(|n| n.len())
+                    else {
+                        break;
+                    };
                     parts.push(n);
                     rest = &rest[n.len()..];
                 }
@@ -3035,7 +3840,10 @@ fn names_written(value: &serde_json::Value, known: &[String], out: &mut HashSet<
             };
             for c in s.chars() {
                 let starts = c.is_uppercase() || c == 'ω';
-                if (run.is_empty() && starts) || (!run.is_empty() && (c.is_alphabetic() || matches!(c, '₀'..='₉' | '′' | '″'))) {
+                if (run.is_empty() && starts)
+                    || (!run.is_empty()
+                        && (c.is_alphabetic() || matches!(c, '₀'..='₉' | '′' | '″')))
+                {
                     run.push(c);
                 } else {
                     flush(&mut run);
@@ -3063,7 +3871,9 @@ pub(crate) fn build_shown(sol: &Solution, redrawn: bool) -> View {
 }
 
 fn reads_figure(sol: &Solution) -> bool {
-    sol.proved && sol.method != Method::Euclidean && sol.human.as_ref().is_some_and(|h| h.proof.as_drawn)
+    sol.proved
+        && sol.method != Method::Euclidean
+        && sol.human.as_ref().is_some_and(|h| h.proof.as_drawn)
 }
 
 const REWRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
@@ -3082,13 +3892,21 @@ pub(crate) fn displayed(sol: &Solution, by: Option<std::time::Instant>) -> Optio
     }
     let budget = match by {
         None => REWRITE_BUDGET,
-        Some(by) => by.saturating_duration_since(std::time::Instant::now()).checked_sub(REDRAW_SLACK)?.min(REWRITE_BUDGET),
+        Some(by) => by
+            .saturating_duration_since(std::time::Instant::now())
+            .checked_sub(REDRAW_SLACK)?
+            .min(REWRITE_BUDGET),
     };
     if budget < MIN_REWRITE {
         return None;
     }
     let fig = sol.figure.as_ref()?;
-    let redrawn = crate::spread::respread(&fig.problem, fig.aux_from, &sol.input, crate::spread::Goal::Holds)?;
+    let redrawn = crate::spread::respread(
+        &fig.problem,
+        fig.aux_from,
+        &sol.input,
+        crate::spread::Goal::Holds,
+    )?;
     let first_aux = fig.aux_from.unwrap_or(redrawn.points.len());
     let infos = ddar::human::aux_infos(&redrawn, first_aux, &sol.aux_constructions);
     let problem = redrawn.clone();
@@ -3096,14 +3914,19 @@ pub(crate) fn displayed(sol: &Solution, by: Option<std::time::Instant>) -> Optio
     std::thread::Builder::new()
         .name("human-redrawn".into())
         .spawn(move || {
-            let opts = ddar::human::Opts { deadline: Some(std::time::Instant::now() + budget), strict: false };
+            let opts = ddar::human::Opts {
+                deadline: Some(std::time::Instant::now() + budget),
+                strict: false,
+            };
             let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 ddar::quiet_panic::quiet(|| ddar::human::for_problem(&problem, &infos, &opts))
             }));
             let _ = tx.send(out.ok().flatten());
         })
         .ok()?;
-    let (hp, trace, deps, proof) = rx.recv_timeout(budget + std::time::Duration::from_millis(500)).ok()??;
+    let (hp, trace, deps, proof) = rx
+        .recv_timeout(budget + std::time::Duration::from_millis(500))
+        .ok()??;
     if !hp.available || hp.metrics.timed_out {
         return None;
     }
@@ -3112,8 +3935,15 @@ pub(crate) fn displayed(sol: &Solution, by: Option<std::time::Instant>) -> Optio
         out.proof_steps = Some(crate::engine::proof_size(&proof).0);
         out.proof = Some(proof);
     }
-    out.human = Some(crate::engine::HumanSource { closure: trace.closure(&deps), names: trace.names.clone(), proof: hp });
-    out.figure = Some(crate::engine::FigureSource { problem: redrawn, aux_from: fig.aux_from });
+    out.human = Some(crate::engine::HumanSource {
+        closure: trace.closure(&deps),
+        names: trace.names.clone(),
+        proof: hp,
+    });
+    out.figure = Some(crate::engine::FigureSource {
+        problem: redrawn,
+        aux_from: fig.aux_from,
+    });
     Some(out)
 }
 
@@ -3124,36 +3954,66 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
         (None, Some(p)) => (Some(p.clone()), None),
         (None, None) => (None, None),
     };
-    let empty = Problem { points: vec![], preds: vec![], goal: None };
+    let empty = Problem {
+        points: vec![],
+        preds: vec![],
+        goal: None,
+    };
     let fig = fig_problem.unwrap_or_else(|| empty.clone());
     let introduced = match (&sol.proof, sol.method) {
         (Some(p), Method::Euclidean) if sol.proved => proof_points(p, &fig, &Names::build(&fig)),
         _ => Vec::new(),
     };
-    let aux_from = if introduced.is_empty() { aux_from } else { aux_from.or(Some(fig.points.len())) };
-    let fig = if introduced.is_empty() { fig } else { with_introduced(&fig, &introduced) };
+    let aux_from = if introduced.is_empty() {
+        aux_from
+    } else {
+        aux_from.or(Some(fig.points.len()))
+    };
+    let fig = if introduced.is_empty() {
+        fig
+    } else {
+        with_introduced(&fig, &introduced)
+    };
     let names = Names::build(&fig);
 
     let mut points: Vec<PointView> = fig
         .points
         .iter()
         .enumerate()
-        .map(|(i, p)| PointView { name: names.get(&p.name), aux: aux_from.is_some_and(|a| i >= a) })
+        .map(|(i, p)| PointView {
+            name: names.get(&p.name),
+            aux: aux_from.is_some_and(|a| i >= a),
+        })
         .collect();
 
     let proof = match (&sol.proof, sol.method) {
         (Some(p), Method::Euclidean) => parse_euclid_proof(p, &fig, &names),
         (Some(p), _) => {
-            let aux_names: HashSet<String> = points.iter().filter(|p| p.aux).map(|p| p.name.clone()).collect();
+            let aux_names: HashSet<String> = points
+                .iter()
+                .filter(|p| p.aux)
+                .map(|p| p.name.clone())
+                .collect();
             parse_ddar_proof(p, &fig, &names, &aux_names)
         }
-        (None, _) => ProofView { steps: vec![], shown: HashMap::new(), conclusion: None, style: "none" },
+        (None, _) => ProofView {
+            steps: vec![],
+            shown: HashMap::new(),
+            conclusion: None,
+            style: "none",
+        },
     };
     let orig = original.unwrap_or_else(|| fig.clone());
     let line_aliases = line_helpers(&orig);
     let raw_aliases: Vec<(String, String, String)> = line_aliases
         .iter()
-        .map(|&(x, v, on)| (orig.point_name(x).to_string(), orig.point_name(v).to_string(), orig.point_name(on).to_string()))
+        .map(|&(x, v, on)| {
+            (
+                orig.point_name(x).to_string(),
+                orig.point_name(v).to_string(),
+                orig.point_name(on).to_string(),
+            )
+        })
         .collect();
     let at = |i: u32| fig.points.get(i as usize).map(|p| (p.value.x, p.value.y));
     let aliases: Vec<crate::human_view::LineAlias> = line_aliases
@@ -3161,12 +4021,27 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
         .filter_map(|&(x, v, on)| {
             let (px, po, pv) = (at(x)?, at(on)?, at(v)?);
             let same_ray = (px.0 - pv.0) * (po.0 - pv.0) + (px.1 - pv.1) * (po.1 - pv.1) > 0.0;
-            Some(crate::human_view::LineAlias { helper: x, vertex: v, on, same_ray })
+            Some(crate::human_view::LineAlias {
+                helper: x,
+                vertex: v,
+                on,
+                same_ray,
+            })
         })
         .collect();
-    let mut aux: Vec<AuxView> = sol.aux_constructions.iter().map(|a| aux_view(a, &names, &raw_aliases)).collect();
+    let mut aux: Vec<AuxView> = sol
+        .aux_constructions
+        .iter()
+        .map(|a| aux_view(a, &names, &raw_aliases))
+        .collect();
     for i in &introduced {
-        aux.push(AuxView { name: names.get(&i.raw), kind: i.kind.to_string(), args: i.args.clone(), text: i.text.clone(), same: None });
+        aux.push(AuxView {
+            name: names.get(&i.raw),
+            kind: i.kind.to_string(),
+            args: i.args.clone(),
+            text: i.text.clone(),
+            same: None,
+        });
     }
 
     let mut cited: HashSet<String> = HashSet::new();
@@ -3188,13 +4063,23 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     }
     let helpers = bisector_helpers(&orig);
     let helper_name = |x: u32| names.get(orig.point_name(x));
-    let aux_words: Vec<String> = aux.iter().flat_map(|a| std::iter::once(a.text.clone()).chain(a.args.iter().cloned())).collect();
+    let aux_words: Vec<String> = aux
+        .iter()
+        .flat_map(|a| std::iter::once(a.text.clone()).chain(a.args.iter().cloned()))
+        .collect();
     let in_aux = |d: &str| aux_words.iter().any(|s| s.contains(d));
     let needed = |d: &str| cited.contains(d) || in_aux(d);
     let hidden: Vec<(String, String)> = helpers
         .iter()
         .filter(|h| !needed(&helper_name(h.x)))
-        .filter_map(|h| h.on.map(|r| (orig.point_name(h.x).to_string(), orig.point_name(r).to_string())))
+        .filter_map(|h| {
+            h.on.map(|r| {
+                (
+                    orig.point_name(h.x).to_string(),
+                    orig.point_name(r).to_string(),
+                )
+            })
+        })
         .collect();
     let known: Vec<String> = fig.points.iter().map(|p| names.get(&p.name)).collect();
     let in_human: Option<HashSet<String>> = human.as_ref().map(|h| {
@@ -3205,17 +4090,29 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     let proof_names = |d: &str| in_human.as_ref().is_some_and(|s| s.contains(d)) || in_aux(d);
     let mut proof_subst: Vec<(String, String)> = Vec::new();
     if in_human.is_some() {
-        let lines = helpers.iter().filter_map(|h| Some((h.x, h.on?))).chain(line_aliases.iter().map(|&(x, _, on)| (x, on)));
+        let lines = helpers
+            .iter()
+            .filter_map(|h| Some((h.x, h.on?)))
+            .chain(line_aliases.iter().map(|&(x, _, on)| (x, on)));
         for (x, on) in lines {
             let raw = orig.point_name(x).to_string();
-            if !proof_names(&helper_name(x)) && !hidden.iter().chain(&proof_subst).any(|(h, _)| *h == raw) {
+            if !proof_names(&helper_name(x))
+                && !hidden.iter().chain(&proof_subst).any(|(h, _)| *h == raw)
+            {
                 proof_subst.push((raw, orig.point_name(on).to_string()));
             }
         }
     }
     let ids_of = |p: &Problem, list: &[&(String, String)]| -> Vec<(u32, u32)> {
-        let id = |raw: &str| p.points.iter().position(|q| q.name == raw).map(|i| i as u32);
-        list.iter().filter_map(|(x, r)| Some((id(x)?, id(r)?))).collect()
+        let id = |raw: &str| {
+            p.points
+                .iter()
+                .position(|q| q.name == raw)
+                .map(|i| i as u32)
+        };
+        list.iter()
+            .filter_map(|(x, r)| Some((id(x)?, id(r)?)))
+            .collect()
     };
     let ids_in = |p: &Problem| ids_of(p, &hidden.iter().collect::<Vec<_>>());
     let stated: Vec<&(String, String)> = hidden.iter().chain(&proof_subst).collect();
@@ -3234,23 +4131,47 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
             .collect();
         let mut given: Vec<Fact> = Vec::new();
         let twin = twins(&given_src);
-        let own: Vec<Fact> = given_src.preds.iter().filter(|p| !p.points.iter().any(|i| twin.contains_key(i))).map(|p| fact_of_pred(&given_src, &names, p)).collect();
+        let own: Vec<Fact> = given_src
+            .preds
+            .iter()
+            .filter(|p| !p.points.iter().any(|i| twin.contains_key(i)))
+            .map(|p| fact_of_pred(&given_src, &names, p))
+            .collect();
         for pred in &given_src.preds {
             if is_tautology(pred) {
                 continue;
             }
-            let f = if defined.iter().any(|d| d.name == pred.name && d.points == pred.points) {
+            let f = if defined
+                .iter()
+                .any(|d| d.name == pred.name && d.points == pred.points)
+            {
                 let n = |i: u32| names.get(given_src.point_name(i));
                 let s = &pred.points;
-                Fact::new("bisector", vec![n(s[3]), pretty_angle(&n, s[0], s[1], s[6], s[7])], vec![n(s[3]), n(s[1]), n(s[0]), n(s[7])])
+                Fact::new(
+                    "bisector",
+                    vec![n(s[3]), pretty_angle(&n, s[0], s[1], s[6], s[7])],
+                    vec![n(s[3]), n(s[1]), n(s[0]), n(s[7])],
+                )
             } else {
                 let mut shown = pred.clone();
                 if pred.points.iter().any(|i| twin.contains_key(i)) {
-                    let moved = Predicate { points: pred.points.iter().map(|i| *twin.get(i).unwrap_or(i)).collect(), ..pred.clone() };
+                    let moved = Predicate {
+                        points: pred
+                            .points
+                            .iter()
+                            .map(|i| *twin.get(i).unwrap_or(i))
+                            .collect(),
+                        ..pred.clone()
+                    };
                     if own.contains(&fact_of_pred(&given_src, &names, &moved)) {
                         continue;
                     }
-                    if pred.points.iter().filter_map(|i| twin.get(i)).all(|j| !pred.points.contains(j)) {
+                    if pred
+                        .points
+                        .iter()
+                        .filter_map(|i| twin.get(i))
+                        .all(|j| !pred.points.contains(j))
+                    {
                         shown = moved;
                     }
                 }
@@ -3263,10 +4184,17 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
         given
     };
     let mut given = stated_facts(&hidden.iter().collect::<Vec<_>>());
-    let mut given_proof: Option<Vec<Fact>> = (!proof_subst.is_empty()).then(|| stated_facts(&stated));
+    let mut given_proof: Option<Vec<Fact>> =
+        (!proof_subst.is_empty()).then(|| stated_facts(&stated));
     let assumed: Vec<Fact> = source_assumes(&sol.input)
         .iter()
-        .map(|a| Fact::new("formula", vec![pretty_metric(a, &names)], names.disp_all(&names.mentioned(a, false))))
+        .map(|a| {
+            Fact::new(
+                "formula",
+                vec![pretty_metric(a, &names)],
+                names.disp_all(&names.mentioned(a, false)),
+            )
+        })
         .collect();
     let engine_only: Vec<Fact> = orig
         .preds
@@ -3277,7 +4205,11 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     let mut as_written: Vec<(Fact, Fact)> = Vec::new();
     if !assumed.is_empty() && !engine_only.is_empty() {
         for (k, f) in engine_only.iter().enumerate() {
-            let user = if engine_only.len() == assumed.len() { assumed.get(k) } else { (assumed.len() == 1).then(|| &assumed[0]) };
+            let user = if engine_only.len() == assumed.len() {
+                assumed.get(k)
+            } else {
+                (assumed.len() == 1).then(|| &assumed[0])
+            };
             if let Some(u) = user {
                 as_written.push((f.clone(), u.clone()));
             }
@@ -3286,10 +4218,18 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     let mut from_source: Vec<Fact> = Vec::new();
     for (a, b, v) in source_lengths(&sol.input) {
         let seg = format!("{}{}", names.get(&a), names.get(&b));
-        from_source.push(Fact::new("length", vec![seg, v], vec![names.get(&a), names.get(&b)]));
+        from_source.push(Fact::new(
+            "length",
+            vec![seg, v],
+            vec![names.get(&a), names.get(&b)],
+        ));
     }
     for c in source_point_metrics(&sol.input) {
-        from_source.push(Fact::new("formula", vec![pretty_metric(&c, &names)], names.disp_all(&names.mentioned(&c, false))));
+        from_source.push(Fact::new(
+            "formula",
+            vec![pretty_metric(&c, &names)],
+            names.disp_all(&names.mentioned(&c, false)),
+        ));
     }
     for list in std::iter::once(&mut given).chain(given_proof.as_mut()) {
         if !assumed.is_empty() && !engine_only.is_empty() {
@@ -3311,7 +4251,9 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     }
 
     let goal = match orig.goal.as_ref() {
-        Some(g) if g.name != "angeq" && !matches!(fact_of_pred(&orig, &names, g).kind, "raw") => Some(fact_of_pred(&orig, &names, g)),
+        Some(g) if g.name != "angeq" && !matches!(fact_of_pred(&orig, &names, g).kind, "raw") => {
+            Some(fact_of_pred(&orig, &names, g))
+        }
         _ => sol
             .goal
             .clone()
@@ -3333,16 +4275,28 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
 
     let mut proof = proof;
     for st in proof.steps.iter_mut() {
-        if let Some((_, user)) = as_written.iter().find(|(e, _)| e.kind == st.fact.kind && e.args == st.fact.args) {
+        if let Some((_, user)) = as_written
+            .iter()
+            .find(|(e, _)| e.kind == st.fact.kind && e.args == st.fact.args)
+        {
             st.fact = user.clone();
         }
     }
     if let (Some(c), Some(g)) = (proof.conclusion.as_mut(), goal.as_ref()) {
-        if c.kind == "raw" || (c.kind == "formula" && g.kind == "formula" && c.points.iter().all(|p| g.points.contains(p))) {
+        if c.kind == "raw"
+            || (c.kind == "formula"
+                && g.kind == "formula"
+                && c.points.iter().all(|p| g.points.contains(p)))
+        {
             *c = g.clone();
         }
     }
-    let shown_at: HashMap<String, Pt> = fig.points.iter().map(|p| (names.get(&p.name), (p.value.x, p.value.y))).filter(|(_, v)| v.0.is_finite() && v.1.is_finite()).collect();
+    let shown_at: HashMap<String, Pt> = fig
+        .points
+        .iter()
+        .map(|p| (names.get(&p.name), (p.value.x, p.value.y)))
+        .filter(|(_, v)| v.0.is_finite() && v.1.is_finite())
+        .collect();
     for a in aux.iter_mut() {
         resolve_branch(a, &shown_at);
     }
@@ -3351,16 +4305,28 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
 
     let extras = figure::Extras {
         polygons: source_polygons(&sol.input),
-        metric_goal: if orig.goal.is_none() { sol.goal.clone() } else { None },
+        metric_goal: if orig.goal.is_none() {
+            sol.goal.clone()
+        } else {
+            None
+        },
     };
     let as_drawn = sol.proved
-        && proof
-            .steps
-            .iter()
-            .any(|st| st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)")));
+        && proof.steps.iter().any(|st| {
+            st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)"))
+        });
     let refuted = sol.status == Status::Refuted;
-    let goal_in_figure = if refuted { crate::spread::Goal::Fails } else { crate::spread::Goal::Holds };
-    let redrawn = if draw && respread && !as_drawn && introduced.is_empty() && (!refuted || aux_from.is_none()) {
+    let goal_in_figure = if refuted {
+        crate::spread::Goal::Fails
+    } else {
+        crate::spread::Goal::Holds
+    };
+    let redrawn = if draw
+        && respread
+        && !as_drawn
+        && introduced.is_empty()
+        && (!refuted || aux_from.is_none())
+    {
         crate::spread::respread(&fig, aux_from, &sol.input, goal_in_figure)
     } else {
         None
@@ -3373,10 +4339,23 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     } else {
         figure::render(drawn, aux_from, &names, &extras)
     };
-    let mut stated_names: HashSet<String> = given_proof.as_ref().unwrap_or(&given).iter().chain(goal.iter()).flat_map(|f| f.points.iter().cloned()).collect();
-    stated_names.extend(orig.points.iter().filter(|p| !p.name.starts_with('_')).map(|p| names.get(&p.name)));
+    let mut stated_names: HashSet<String> = given_proof
+        .as_ref()
+        .unwrap_or(&given)
+        .iter()
+        .chain(goal.iter())
+        .flat_map(|f| f.points.iter().cloned())
+        .collect();
+    stated_names.extend(
+        orig.points
+            .iter()
+            .filter(|p| !p.name.starts_with('_'))
+            .map(|p| names.get(&p.name)),
+    );
     let drawn_twins = twins(drawn);
-    let upto = aux_from.unwrap_or(drawn.points.len()).min(drawn.points.len());
+    let upto = aux_from
+        .unwrap_or(drawn.points.len())
+        .min(drawn.points.len());
     let quiet: Vec<u32> = if in_human.is_some() {
         (0..upto as u32)
             .filter(|&i| {
@@ -3393,12 +4372,21 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     } else {
         Vec::new()
     };
-    let proof_hidden: Vec<String> = proof_subst.iter().map(|(x, _)| names.get(x)).chain(quiet.iter().map(|&i| names.get(drawn.point_name(i)))).collect();
+    let proof_hidden: Vec<String> = proof_subst
+        .iter()
+        .map(|(x, _)| names.get(x))
+        .chain(quiet.iter().map(|&i| names.get(drawn.point_name(i))))
+        .collect();
     let svg_proof = if !draw || drawn.points.is_empty() || proof_hidden.is_empty() {
         String::new()
     } else {
         let subst = ids_of(drawn, &proof_subst.iter().collect::<Vec<_>>());
-        figure::render(&without_helpers(drawn, &subst, &quiet, true), aux_from, &names, &extras)
+        figure::render(
+            &without_helpers(drawn, &subst, &quiet, true),
+            aux_from,
+            &names,
+            &extras,
+        )
     };
     View {
         given_proof,
@@ -3420,12 +4408,36 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
     }
 }
 
-fn human_proof(sol: &Solution, names: &Names, shown: &HashMap<usize, usize>, aliases: &[crate::human_view::LineAlias]) -> Option<crate::human_view::HumanView> {
-    let src = sol.human.as_ref().filter(|_| sol.proved && sol.method != Method::Euclidean)?;
+fn human_proof(
+    sol: &Solution,
+    names: &Names,
+    shown: &HashMap<usize, usize>,
+    aliases: &[crate::human_view::LineAlias],
+) -> Option<crate::human_view::HumanView> {
+    let src = sol
+        .human
+        .as_ref()
+        .filter(|_| sol.proved && sol.method != Method::Euclidean)?;
     let proof = crate::human_view::alias_lines(&src.proof, aliases);
-    let point = |p: u32| src.names.get(p as usize).map(|r| names.get(r)).unwrap_or_else(|| format!("P{p}"));
-    let step = |f: ddar::proof::FactId| src.closure.iter().position(|&x| x == f).and_then(|i| shown.get(&(i + 1)).copied());
-    crate::human_view::from_engine(&proof, &crate::human_view::Naming { point: &point, step: &step })
+    let point = |p: u32| {
+        src.names
+            .get(p as usize)
+            .map(|r| names.get(r))
+            .unwrap_or_else(|| format!("P{p}"))
+    };
+    let step = |f: ddar::proof::FactId| {
+        src.closure
+            .iter()
+            .position(|&x| x == f)
+            .and_then(|i| shown.get(&(i + 1)).copied())
+    };
+    crate::human_view::from_engine(
+        &proof,
+        &crate::human_view::Naming {
+            point: &point,
+            step: &step,
+        },
+    )
 }
 
 /// Where a compile error sits in the program, and which sentence explains it.
@@ -3458,7 +4470,10 @@ fn quoted(msg: &str) -> Option<String> {
 }
 
 fn found_token(msg: &str) -> Option<Option<String>> {
-    let at = msg.find("found ").map(|i| i + 6).or_else(|| msg.find("unexpected token ").map(|i| i + 17))?;
+    let at = msg
+        .find("found ")
+        .map(|i| i + 6)
+        .or_else(|| msg.find("unexpected token ").map(|i| i + 17))?;
     let rest = msg[at..].trim_end();
     if rest.starts_with("None") {
         return Some(None);
@@ -3513,7 +4528,8 @@ fn word_positions(line: &str, word: &str) -> Vec<usize> {
     while i + w.len() <= chars.len() {
         if chars[i..i + w.len()] == w[..] {
             let before_ok = !ident || i == 0 || !is_name_char(chars[i - 1]);
-            let after_ok = !ident || i + w.len() == chars.len() || !is_name_char(chars[i + w.len()]);
+            let after_ok =
+                !ident || i + w.len() == chars.len() || !is_name_char(chars[i + w.len()]);
             if before_ok && after_ok {
                 out.push(i);
             }
@@ -3526,7 +4542,12 @@ fn word_positions(line: &str, word: &str) -> Vec<usize> {
 /// The metric prover's `angle got 2 arguments`: (function, expected, got).
 fn metric_arity(msg: &str) -> Option<(String, usize, usize)> {
     let (f, rest) = msg.split_once(" got ")?;
-    let got: usize = rest.strip_suffix(" arguments").or_else(|| rest.strip_suffix(" argument"))?.trim().parse().ok()?;
+    let got: usize = rest
+        .strip_suffix(" arguments")
+        .or_else(|| rest.strip_suffix(" argument"))?
+        .trim()
+        .parse()
+        .ok()?;
     let expected = match f {
         "dist" => 2,
         "angle" | "area" => 3,
@@ -3560,7 +4581,9 @@ fn diagnosis_key(msg: &str) -> &'static str {
         "unknown_name"
     } else if starts("unknown construction") {
         "unknown_construction"
-    } else if (msg.contains(" expects ") && msg.contains(" argument")) || metric_arity(msg).is_some() {
+    } else if (msg.contains(" expects ") && msg.contains(" argument"))
+        || metric_arity(msg).is_some()
+    {
         "arity"
     } else if msg.contains("is already defined") {
         "redefined"
@@ -3591,7 +4614,17 @@ fn diagnosis_key(msg: &str) -> &'static str {
     }
 }
 
-const NON_POINT: &[&str] = &["circle", "circumcircle", "line", "perp_line", "para_line", "perp_bisector", "bisector", "ninepoints", "tangent"];
+const NON_POINT: &[&str] = &[
+    "circle",
+    "circumcircle",
+    "line",
+    "perp_line",
+    "para_line",
+    "perp_bisector",
+    "bisector",
+    "ninepoints",
+    "tangent",
+];
 
 fn non_point_definition(input: &str, msg: &str) -> Option<Diagnosis> {
     if !msg.starts_with("expected a point") {
@@ -3603,17 +4636,35 @@ fn non_point_definition(input: &str, msg: &str) -> Option<Diagnosis> {
         if lhs.contains('(') || lhs.trim_start().starts_with("prove") {
             return None;
         }
-        let head: String = rhs.trim_start().chars().take_while(|c| is_name_char(*c)).collect();
-        if !NON_POINT.contains(&head.as_str()) || !rhs.trim_start()[head.len()..].trim_start().starts_with('(') {
+        let head: String = rhs
+            .trim_start()
+            .chars()
+            .take_while(|c| is_name_char(*c))
+            .collect();
+        if !NON_POINT.contains(&head.as_str())
+            || !rhs.trim_start()[head.len()..].trim_start().starts_with('(')
+        {
             return None;
         }
-        let col = lhs.chars().count() + 1 + (rhs.chars().count() - rhs.trim_start().chars().count());
-        Some(Diagnosis { key: "not_a_point", line: i + 1, col: col + 1, len: head.chars().count(), token: Some(head), expected: None, got: None })
+        let col =
+            lhs.chars().count() + 1 + (rhs.chars().count() - rhs.trim_start().chars().count());
+        Some(Diagnosis {
+            key: "not_a_point",
+            line: i + 1,
+            col: col + 1,
+            len: head.chars().count(),
+            token: Some(head),
+            expected: None,
+            got: None,
+        })
     })
 }
 
 fn trig_without_angle(input: &str, key: &str) -> Option<Diagnosis> {
-    if !matches!(key, "unexpected_token" | "expect_comma_paren" | "expect_expr" | "trailing" | "other") {
+    if !matches!(
+        key,
+        "unexpected_token" | "expect_comma_paren" | "expect_expr" | "trailing" | "other"
+    ) {
         return None;
     }
     input.lines().enumerate().find_map(|(i, l)| {
@@ -3638,7 +4689,15 @@ fn trig_without_angle(input: &str, key: &str) -> Option<Diagnosis> {
                 let arg: String = code[k..].iter().take_while(|c| is_name_char(**c)).collect();
                 let after = code[k + arg.chars().count()..].iter().find(|c| **c != ' ');
                 if !arg.is_empty() && arg != "angle" && after != Some(&'(') {
-                    return Some(Diagnosis { key: "trig_angle", line: i + 1, col: k + 1, len: arg.chars().count(), token: Some(f.to_string()), expected: None, got: None });
+                    return Some(Diagnosis {
+                        key: "trig_angle",
+                        line: i + 1,
+                        col: k + 1,
+                        len: arg.chars().count(),
+                        token: Some(f.to_string()),
+                        expected: None,
+                        got: None,
+                    });
                 }
             }
         }
@@ -3690,8 +4749,12 @@ pub fn readable_engine_message(msg: &str) -> String {
             match core {
                 "None" => format!("the end of the line{tail}"),
                 "Sep" => format!("a line break{tail}"),
-                "LParen" | "RParen" | "Comma" | "Eq" | "Colon" | "Star" | "Plus" | "Minus" | "Slash" | "Caret" | "Question" => {
-                    format!("\u{201c}{}\u{201d}{tail}", token_text(core).unwrap_or_default())
+                "LParen" | "RParen" | "Comma" | "Eq" | "Colon" | "Star" | "Plus" | "Minus"
+                | "Slash" | "Caret" | "Question" => {
+                    format!(
+                        "\u{201c}{}\u{201d}{tail}",
+                        token_text(core).unwrap_or_default()
+                    )
                 }
                 _ => w.to_string(),
             }
@@ -3710,13 +4773,22 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
         .trim();
     let mut key = diagnosis_key(msg);
     let named = backticked(msg).or_else(|| quoted(msg));
-    if key == "unknown_name" && named.as_deref().is_some_and(|t| t.starts_with(|c: char| c.is_ascii_lowercase())) {
+    if key == "unknown_name"
+        && named
+            .as_deref()
+            .is_some_and(|t| t.starts_with(|c: char| c.is_ascii_lowercase()))
+    {
         let t = named.clone().unwrap_or_default();
         let whole_rhs = input.lines().any(|l| {
             let code = l.split('#').next().unwrap_or("");
-            code.split_once('=').is_some_and(|(lhs, rhs)| !lhs.contains('(') && rhs.trim() == t)
+            code.split_once('=')
+                .is_some_and(|(lhs, rhs)| !lhs.contains('(') && rhs.trim() == t)
         });
-        key = if whole_rhs { "unknown_shape" } else { "unknown_construction" };
+        key = if whole_rhs {
+            "unknown_shape"
+        } else {
+            "unknown_construction"
+        };
     }
     if key == "arity" && msg.contains("at least") {
         key = "arity_min";
@@ -3724,7 +4796,15 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     if let Some(d) = non_point_definition(input, msg).or_else(|| trig_without_angle(input, key)) {
         return d;
     }
-    let mut d = Diagnosis { key, line: 0, col: 0, len: 0, token: None, expected: None, got: None };
+    let mut d = Diagnosis {
+        key,
+        line: 0,
+        col: 0,
+        len: 0,
+        token: None,
+        expected: None,
+        got: None,
+    };
     let arity = metric_arity(msg);
     if let Some((_, e, g)) = &arity {
         d.expected = Some(*e);
@@ -3739,7 +4819,18 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     }
     let by_name = matches!(
         key,
-        "bad_char" | "unknown_relation" | "unknown_name" | "unknown_construction" | "unknown_shape" | "arity" | "arity_min" | "redefined" | "bad_number" | "bad_coord" | "malformed" | "hyp_false"
+        "bad_char"
+            | "unknown_relation"
+            | "unknown_name"
+            | "unknown_construction"
+            | "unknown_shape"
+            | "arity"
+            | "arity_min"
+            | "redefined"
+            | "bad_number"
+            | "bad_coord"
+            | "malformed"
+            | "hyp_false"
     );
     d.token = if let Some((f, _, _)) = &arity {
         Some(f.clone())
@@ -3750,14 +4841,22 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
     };
     let lines: Vec<&str> = input.lines().collect();
     let code_of = |l: &str| l.split('#').next().unwrap_or("").to_string();
-    let goal_line = || lines.iter().rposition(|l| code_of(l).trim_start().starts_with("prove"));
+    let goal_line = || {
+        lines
+            .iter()
+            .rposition(|l| code_of(l).trim_start().starts_with("prove"))
+    };
     let line_idx: Option<usize> = match key {
         "degenerate" | "empty" | "no_goal" | "other" | "too_many_points" => None,
         "multiple_goals" => {
             let goals: Vec<usize> = lines
                 .iter()
                 .enumerate()
-                .filter(|(_, l)| code_of(l).split(';').any(|s| s.trim_start().starts_with("prove")))
+                .filter(|(_, l)| {
+                    code_of(l)
+                        .split(';')
+                        .any(|s| s.trim_start().starts_with("prove"))
+                })
                 .map(|(i, _)| i)
                 .collect();
             d.token = Some("prove".to_string());
@@ -3784,8 +4883,13 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
                         _ => {}
                     }
                 }
-                let at = at.unwrap_or_else(|| start + rhs.trim_end().rfind(' ').map_or(0, |k| k + 1));
-                d.token = code[at..].split_whitespace().next().map(|w| w.chars().take(if w.starts_with(')') { 1 } else { w.len() }).collect());
+                let at =
+                    at.unwrap_or_else(|| start + rhs.trim_end().rfind(' ').map_or(0, |k| k + 1));
+                d.token = code[at..].split_whitespace().next().map(|w| {
+                    w.chars()
+                        .take(if w.starts_with(')') { 1 } else { w.len() })
+                        .collect()
+                });
             }
             i
         }
@@ -3795,7 +4899,11 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
             .and_then(|t| {
                 goal_line()
                     .filter(|&i| !word_positions(&code_of(lines[i]), t).is_empty())
-                    .or_else(|| lines.iter().position(|l| !word_positions(&code_of(l), t).is_empty()))
+                    .or_else(|| {
+                        lines
+                            .iter()
+                            .position(|l| !word_positions(&code_of(l), t).is_empty())
+                    })
             })
             .or_else(goal_line),
         _ if metric => goal_line(),
@@ -3812,10 +4920,11 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
                 .collect();
             defs.get(1).or(defs.first()).copied()
         }),
-        _ if by_name => d
-            .token
-            .as_ref()
-            .and_then(|t| lines.iter().position(|l| !word_positions(&code_of(l), t).is_empty())),
+        _ if by_name => d.token.as_ref().and_then(|t| {
+            lines
+                .iter()
+                .position(|l| !word_positions(&code_of(l), t).is_empty())
+        }),
         _ => {
             let started = std::time::Instant::now();
             let mut hit = None;
@@ -3827,9 +4936,13 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
                     continue;
                 }
                 let prefix = lines[..=i].join("\n");
-                let failed = std::panic::catch_unwind(|| ddar::geo::compile(&prefix).err().map(|e| e.message().to_string()))
-                    .ok()
-                    .flatten();
+                let failed = std::panic::catch_unwind(|| {
+                    ddar::geo::compile(&prefix)
+                        .err()
+                        .map(|e| e.message().to_string())
+                })
+                .ok()
+                .flatten();
                 if failed.as_deref() == Some(msg) {
                     hit = Some(i);
                     break;
@@ -3856,7 +4969,10 @@ pub fn diagnose(input: &str, msg: &str) -> Diagnosis {
                 let pick = if key == "trailing" || (metric && !by_name) {
                     pos.last().copied()
                 } else if matches!(key, "expect_comma_paren" | "unexpected_token") {
-                    pos.iter().copied().find(|&p| after_operand(p)).or_else(|| pos.last().copied())
+                    pos.iter()
+                        .copied()
+                        .find(|&p| after_operand(p))
+                        .or_else(|| pos.last().copied())
                 } else {
                     pos.first().copied()
                 };
@@ -3885,7 +5001,11 @@ pub fn solution_json(sol: &Solution, title: Option<&str>) -> serde_json::Value {
     solution_json_by(sol, title, None)
 }
 
-pub fn solution_json_by(sol: &Solution, title: Option<&str>, by: Option<std::time::Instant>) -> serde_json::Value {
+pub fn solution_json_by(
+    sol: &Solution,
+    title: Option<&str>,
+    by: Option<std::time::Instant>,
+) -> serde_json::Value {
     let shown = displayed(sol, by);
     let sol = shown.as_ref().unwrap_or(sol);
     let view = build_shown(sol, shown.is_some());
@@ -3899,7 +5019,11 @@ pub fn solution_json_by(sol: &Solution, title: Option<&str>, by: Option<std::tim
         o.remove("svg");
         o.remove("svg_proof");
     }
-    let title = title.map(str::to_string).or(view.source_title.clone()).map(|t| tidy_title(&t)).filter(|t| !t.is_empty());
+    let title = title
+        .map(str::to_string)
+        .or(view.source_title.clone())
+        .map(|t| tidy_title(&t))
+        .filter(|t| !t.is_empty());
     v["title"] = title.map_or(serde_json::Value::Null, serde_json::Value::String);
     v
 }
@@ -3912,12 +5036,29 @@ mod tests {
     #[test]
     fn compile_errors_point_at_the_offending_token() {
         let cases = [
-            ("A B C = triangle\nH = orthocenter(A B C)\nprove perp(A, H, B, C)", "expect_comma_paren", 2, 19),
-            ("A B C = triangle\nH = orthocentre2(A, B, C)\nprove perp(A, H, B, C)", "unknown_construction", 2, 5),
-            ("A B C = triangle\nH = orthocenter(A, B, C\nprove perp(A, H, B, C)", "expect_comma_paren", 2, 24),
+            (
+                "A B C = triangle\nH = orthocenter(A B C)\nprove perp(A, H, B, C)",
+                "expect_comma_paren",
+                2,
+                19,
+            ),
+            (
+                "A B C = triangle\nH = orthocentre2(A, B, C)\nprove perp(A, H, B, C)",
+                "unknown_construction",
+                2,
+                5,
+            ),
+            (
+                "A B C = triangle\nH = orthocenter(A, B, C\nprove perp(A, H, B, C)",
+                "expect_comma_paren",
+                2,
+                24,
+            ),
         ];
         for (src, key, line, col) in cases {
-            let msg = solve(src, &SolveOptions::default()).err().expect("must not compile");
+            let msg = solve(src, &SolveOptions::default())
+                .err()
+                .expect("must not compile");
             let d = diagnose(src, &msg);
             assert_eq!((d.key, d.line, d.col), (key, line, col), "{msg} → {d:?}");
         }
@@ -3927,17 +5068,30 @@ mod tests {
     fn common_mistakes_get_their_own_message() {
         let cases = [
             ("A B C = triangle\nH = orthocenter(A, B, C)", "no_goal", 0),
-            ("A B C = triangle\nM = midpoint(A, A)\nprove coll(A, B, M)", "degenerate", 0),
-            ("A B C = triangle\nprove collinear(A, B, C)", "unknown_relation", 2),
+            (
+                "A B C = triangle\nM = midpoint(A, A)\nprove coll(A, B, M)",
+                "degenerate",
+                0,
+            ),
+            (
+                "A B C = triangle\nprove collinear(A, B, C)",
+                "unknown_relation",
+                2,
+            ),
         ];
         for (src, key, line) in cases {
-            let msg = solve(src, &SolveOptions::default()).err().expect("must not compile");
+            let msg = solve(src, &SolveOptions::default())
+                .err()
+                .expect("must not compile");
             let d = diagnose(src, &msg);
             assert_eq!((d.key, d.line), (key, line), "{msg} → {d:?}");
         }
         let src = "B = free\nC = point: dist(B,C)=6.2.3\nprove dist(B,C)^2 = 36";
         let d = diagnose(src, "metric prover: bad number `6.2.3`");
-        assert_eq!((d.key, d.line, d.col, d.token.as_deref()), ("bad_number", 2, 22, Some("6.2.3")));
+        assert_eq!(
+            (d.key, d.line, d.col, d.token.as_deref()),
+            ("bad_number", 2, 22, Some("6.2.3"))
+        );
     }
 
     #[test]
@@ -3955,7 +5109,10 @@ mod tests {
     }
 
     fn dot(svg: &str, n: &str) -> (f64, f64) {
-        let l = svg.lines().find(|l| l.contains("f-dot") && l.contains(&format!("data-p=\"{n}\""))).expect(n);
+        let l = svg
+            .lines()
+            .find(|l| l.contains("f-dot") && l.contains(&format!("data-p=\"{n}\"")))
+            .expect(n);
         let num = |k: &str| -> f64 {
             let i = l.find(&format!("{k}=\"")).unwrap() + k.len() + 2;
             l[i..].split('"').next().unwrap().parse().unwrap()
@@ -3967,7 +5124,10 @@ mod tests {
         let (a, b, c) = (dot(svg, "A"), dot(svg, "B"), dot(svg, "C"));
         let ang = |o: (f64, f64), p: (f64, f64), q: (f64, f64)| {
             let (ux, uy, vx, vy) = (p.0 - o.0, p.1 - o.1, q.0 - o.0, q.1 - o.1);
-            (ux * vy - uy * vx).abs().atan2(ux * vx + uy * vy).to_degrees()
+            (ux * vy - uy * vx)
+                .abs()
+                .atan2(ux * vx + uy * vy)
+                .to_degrees()
         };
         [ang(a, b, c), ang(b, c, a), ang(c, a, b)]
     }
@@ -4008,7 +5168,10 @@ mod tests {
         let names: Vec<_> = v.points.iter().map(|p| p.name.as_str()).collect();
         assert!(names.contains(&"H\u{2032}"), "{names:?}");
         let blob = serde_json::to_string(&v).unwrap();
-        assert!(!blob.contains("_5") && !blob.contains("_\u{2085}"), "internal name leaked: {blob}");
+        assert!(
+            !blob.contains("_5") && !blob.contains("_\u{2085}"),
+            "internal name leaked: {blob}"
+        );
         let goal = v.goal.unwrap();
         assert_eq!(goal.kind, "cyclic");
         assert_eq!(goal.args, vec!["A", "B", "C", "H\u{2032}"]);
@@ -4019,12 +5182,23 @@ mod tests {
 
     #[test]
     fn a_bisector_helper_the_proof_never_uses_is_neither_given_nor_drawn() {
-        let (_, v) = view("A B C = triangle\nD = meet(bisector(B, A, C), line(B, C))\nprove coll(B, D, C)");
+        let (_, v) =
+            view("A B C = triangle\nD = meet(bisector(B, A, C), line(B, C))\nprove coll(B, D, C)");
         let plain: Vec<String> = v.given.iter().map(Fact::plain).collect();
-        assert!(plain.contains(&"\u{2220}BAD = \u{2220}DAC".to_string()), "{plain:?}");
+        assert!(
+            plain.contains(&"\u{2220}BAD = \u{2220}DAC".to_string()),
+            "{plain:?}"
+        );
         assert!(!plain.iter().any(|f| f.contains('P')), "{plain:?}");
-        assert!(!v.points.iter().any(|p| p.name.starts_with('P')), "{:?}", v.points.iter().map(|p| &p.name).collect::<Vec<_>>());
-        assert!(!v.svg.contains(">P\u{2081}<"), "helper labelled in the figure");
+        assert!(
+            !v.points.iter().any(|p| p.name.starts_with('P')),
+            "{:?}",
+            v.points.iter().map(|p| &p.name).collect::<Vec<_>>()
+        );
+        assert!(
+            !v.svg.contains(">P\u{2081}<"),
+            "helper labelled in the figure"
+        );
         assert!(v.svg.contains(">D<"));
     }
 
@@ -4036,30 +5210,68 @@ mod tests {
         let (sol, v) = view(src);
         assert!(sol.proved);
         let plain: Vec<String> = v.given.iter().map(Fact::plain).collect();
-        assert!(v.proof.steps.iter().any(|s| s.fact.points.iter().any(|p| p == "P\u{2081}")), "the proof works on line AP\u{2081}");
-        assert!(plain.contains(&"P\u{2081} lies on the bisector of \u{2220}BAC".to_string()), "{plain:?}");
-        assert!(!plain.contains(&"\u{2220}BAP\u{2081} = \u{2220}P\u{2081}AC".to_string()), "{plain:?}");
-        assert!(v.svg.contains(">P\u{2081}<"), "a point the proof cites stays labelled");
+        assert!(
+            v.proof
+                .steps
+                .iter()
+                .any(|s| s.fact.points.iter().any(|p| p == "P\u{2081}")),
+            "the proof works on line AP\u{2081}"
+        );
+        assert!(
+            plain.contains(&"P\u{2081} lies on the bisector of \u{2220}BAC".to_string()),
+            "{plain:?}"
+        );
+        assert!(
+            !plain.contains(&"\u{2220}BAP\u{2081} = \u{2220}P\u{2081}AC".to_string()),
+            "{plain:?}"
+        );
+        assert!(
+            v.svg.contains(">P\u{2081}<"),
+            "a point the proof cites stays labelled"
+        );
     }
 
     #[test]
     fn a_human_proof_that_reads_the_figure_is_written_against_the_figure_shown() {
         let src = "A B C = triangle\nH = orthocenter(A, B, C)\nK = reflect(H, line(B, C))\nprove cyclic(A, B, C, K)";
         let sol = crate::engine::solve(src, &crate::engine::SolveOptions::default()).unwrap();
-        assert!(reads_figure(&sol), "the flagship example's human proof reads its angles off the figure");
-        assert!(displayed(&sol, None).is_none(), "the engine draws this example as a textbook triangle, so the page keeps its figure");
-        let sol = crate::proof_audit::drawn_badly(&sol).expect("an instance of this program that the page redraws");
+        assert!(
+            reads_figure(&sol),
+            "the flagship example's human proof reads its angles off the figure"
+        );
+        assert!(
+            displayed(&sol, None).is_none(),
+            "the engine draws this example as a textbook triangle, so the page keeps its figure"
+        );
+        let sol = crate::proof_audit::drawn_badly(&sol)
+            .expect("an instance of this program that the page redraws");
         let engine_fig = sol.figure.as_ref().unwrap().problem.clone();
         let shown = displayed(&sol, None).expect("the engine's figure is redrawn for the page");
         let fig = shown.figure.as_ref().unwrap().problem.clone();
-        let moved = fig.points.iter().zip(&engine_fig.points).any(|(a, b)| (a.value.x - b.value.x).abs() + (a.value.y - b.value.y).abs() > 1e-6);
-        assert!(moved, "the page draws a different instance than the engine solved on");
-        let (_, trace, deps) = ddar::runner::solve_problem_with_trace(&fig).unwrap().unwrap();
+        let moved = fig
+            .points
+            .iter()
+            .zip(&engine_fig.points)
+            .any(|(a, b)| (a.value.x - b.value.x).abs() + (a.value.y - b.value.y).abs() > 1e-6);
+        assert!(
+            moved,
+            "the page draws a different instance than the engine solved on"
+        );
+        let (_, trace, deps) = ddar::runner::solve_problem_with_trace(&fig)
+            .unwrap()
+            .unwrap();
         let hp = &shown.human.as_ref().unwrap().proof;
         let violations = ddar::human::verify(&trace, fig.goal.as_ref().unwrap(), &deps, &[], hp);
-        assert!(violations.is_empty(), "the proof shown must check against the figure shown: {violations:?}");
+        assert!(
+            violations.is_empty(),
+            "the proof shown must check against the figure shown: {violations:?}"
+        );
         let json = solution_json(&sol, None);
-        assert_eq!(json["proof"].as_str(), shown.proof.as_deref(), "the derivation shown is the one the human proof cites");
+        assert_eq!(
+            json["proof"].as_str(),
+            shown.proof.as_deref(),
+            "the derivation shown is the one the human proof cites"
+        );
     }
 
     #[test]
@@ -4070,32 +5282,78 @@ mod tests {
                    P = meet(circumcircle(B, M, R), circumcircle(C, N, R))\nprove coll(P, B, C)";
         let (sol, v) = view(src);
         assert!(v.human.is_some(), "IMO 2004 P1 has a human proof");
-        assert_eq!(v.proof_hidden, vec![p1.to_string(), "P\u{2082}".to_string()]);
-        assert!(v.svg.contains(&format!(">{p1}<")), "the derivation's figure keeps the helper it cites");
-        assert!(!v.svg_proof.is_empty() && !v.svg_proof.contains(&format!(">{p1}<")) && !v.svg_proof.contains(">P\u{2082}<"), "{}", v.svg_proof);
+        assert_eq!(
+            v.proof_hidden,
+            vec![p1.to_string(), "P\u{2082}".to_string()]
+        );
+        assert!(
+            v.svg.contains(&format!(">{p1}<")),
+            "the derivation's figure keeps the helper it cites"
+        );
+        assert!(
+            !v.svg_proof.is_empty()
+                && !v.svg_proof.contains(&format!(">{p1}<"))
+                && !v.svg_proof.contains(">P\u{2082}<"),
+            "{}",
+            v.svg_proof
+        );
         assert!(v.svg_proof.contains(">R<") && v.svg_proof.contains(">F<"));
-        let plain: Vec<String> = v.given_proof.as_ref().expect("GIVEN in the proof's terms").iter().map(Fact::plain).collect();
-        assert!(plain.contains(&"\u{2220}BAR = \u{2220}RAC".to_string()) && plain.contains(&"\u{2220}MOR = \u{2220}RON".to_string()), "{plain:?}");
+        let plain: Vec<String> = v
+            .given_proof
+            .as_ref()
+            .expect("GIVEN in the proof's terms")
+            .iter()
+            .map(Fact::plain)
+            .collect();
+        assert!(
+            plain.contains(&"\u{2220}BAR = \u{2220}RAC".to_string())
+                && plain.contains(&"\u{2220}MOR = \u{2220}RON".to_string()),
+            "{plain:?}"
+        );
         assert!(!plain.iter().any(|f| f.contains(p1)), "{plain:?}");
-        assert!(v.helpers.iter().any(|h| h.name == p1 && h.kind == "on_bisector"), "the derivation still defines it");
+        assert!(
+            v.helpers
+                .iter()
+                .any(|h| h.name == p1 && h.kind == "on_bisector"),
+            "the derivation still defines it"
+        );
         let json = solution_json(&sol, None);
-        assert!(json["svg_proof"].as_str().is_some_and(|s| !s.is_empty()) && json["view"].get("svg_proof").is_none());
+        assert!(
+            json["svg_proof"].as_str().is_some_and(|s| !s.is_empty())
+                && json["view"].get("svg_proof").is_none()
+        );
 
         let src = "A B C = triangle\nO = circumcenter(A, B, C)\nT = meet(perp_line(O, line(A, B)), line(A, C))\nprove perp(O, T, A, B)";
         let (_, v) = view(src);
         if v.human.is_some() {
-            assert!(v.proof_hidden.iter().all(|n| !v.svg_proof.contains(&format!(">{n}<"))), "{:?}", v.proof_hidden);
+            assert!(
+                v.proof_hidden
+                    .iter()
+                    .all(|n| !v.svg_proof.contains(&format!(">{n}<"))),
+                "{:?}",
+                v.proof_hidden
+            );
         }
 
         let (_, v) = view("A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))");
-        assert!(v.proof_hidden.is_empty() && v.svg_proof.is_empty() && v.given_proof.is_none(), "nothing to hide: one figure");
+        assert!(
+            v.proof_hidden.is_empty() && v.svg_proof.is_empty() && v.given_proof.is_none(),
+            "nothing to hide: one figure"
+        );
     }
 
     #[test]
     fn names_written_splits_runs_into_figure_names() {
-        let known: Vec<String> = ["A", "B", "P\u{2081}", "Ma", "O\u{2081}", "R"].iter().map(|s| s.to_string()).collect();
+        let known: Vec<String> = ["A", "B", "P\u{2081}", "Ma", "O\u{2081}", "R"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let mut out = HashSet::new();
-        names_written(&serde_json::json!({"a": "AP\u{2081}", "b": ["∡BAR", "MaB²", "Claim", "R = O\u{2081}A"]}), &known, &mut out);
+        names_written(
+            &serde_json::json!({"a": "AP\u{2081}", "b": ["∡BAR", "MaB²", "Claim", "R = O\u{2081}A"]}),
+            &known,
+            &mut out,
+        );
         let mut got: Vec<&String> = out.iter().collect();
         got.sort();
         assert_eq!(got, ["A", "B", "Ma", "O\u{2081}", "P\u{2081}", "R"]);
@@ -4108,19 +5366,43 @@ mod tests {
         let (_, v) = view(src);
         let plain: Vec<String> = v.given.iter().map(Fact::plain).collect();
         assert!(plain.contains(&"BC = 6".to_string()), "{plain:?}");
-        assert!(!plain.iter().any(|f| f == "BC = BC" || f == "BD = BD"), "{plain:?}");
+        assert!(
+            !plain.iter().any(|f| f == "BC = BC" || f == "BD = BD"),
+            "{plain:?}"
+        );
         assert_eq!(v.goal.unwrap().args, vec!["AD\u{b2} = 14"]);
         assert_eq!(v.proof.style, "euclidean");
-        assert!(v.proof.steps.iter().any(|s| s.rule_name.as_deref() == Some("Stewart's theorem")));
-        assert!(v.as_drawn, "the Stewart step reads betweenness off the figure");
-        let stewart = v.proof.steps.iter().find(|s| s.rule_name.as_deref() == Some("Stewart's theorem")).unwrap();
-        assert!(stewart.fact.args[0].contains("2\u{2044}3\u{2009}\u{b7}\u{2009}AB\u{b2}"), "{:?}", stewart.fact.args);
+        assert!(v
+            .proof
+            .steps
+            .iter()
+            .any(|s| s.rule_name.as_deref() == Some("Stewart's theorem")));
+        assert!(
+            v.as_drawn,
+            "the Stewart step reads betweenness off the figure"
+        );
+        let stewart = v
+            .proof
+            .steps
+            .iter()
+            .find(|s| s.rule_name.as_deref() == Some("Stewart's theorem"))
+            .unwrap();
+        assert!(
+            stewart.fact.args[0].contains("2\u{2044}3\u{2009}\u{b7}\u{2009}AB\u{b2}"),
+            "{:?}",
+            stewart.fact.args
+        );
     }
 
     #[test]
     fn named_theorem_steps_state_what_they_derive() {
         let (_, v) = view("A B C = triangle\nI = incenter(A, B, C)\nD = meet(line(A, I), line(B, C))\nprove eqratio(D, B, D, C, A, B, A, C)");
-        let bis: Vec<&Step> = v.proof.steps.iter().filter(|s| s.rule_name.as_deref() == Some("angle bisector theorem")).collect();
+        let bis: Vec<&Step> = v
+            .proof
+            .steps
+            .iter()
+            .filter(|s| s.rule_name.as_deref() == Some("angle bisector theorem"))
+            .collect();
         assert!(!bis.is_empty(), "{:?}", v.proof.steps);
         for s in bis {
             assert_eq!(s.fact.kind, "eqratio", "{s:?}");
@@ -4128,19 +5410,43 @@ mod tests {
             assert_eq!(s.rule_name_ro.as_deref(), Some("teorema bisectoarei"));
         }
         assert_eq!(
-            theorem_fact("intercept theorem (parallel rungs)", &["A", "B", "M", "N", "D", "C"].map(String::from), &[None; 6]).unwrap().plain(),
+            theorem_fact(
+                "intercept theorem (parallel rungs)",
+                &["A", "B", "M", "N", "D", "C"].map(String::from),
+                &[None; 6]
+            )
+            .unwrap()
+            .plain(),
             "AM : BN = MD : NC = AD : BC"
         );
-        assert_eq!(theorem_fact("radical axis", &["X", "U", "V"].map(String::from), &[None; 3]).unwrap().plain(), "X, U, V are collinear");
+        assert_eq!(
+            theorem_fact(
+                "radical axis",
+                &["X", "U", "V"].map(String::from),
+                &[None; 3]
+            )
+            .unwrap()
+            .plain(),
+            "X, U, V are collinear"
+        );
     }
 
     #[test]
     fn an_unknown_shape_is_not_called_an_undefined_point() {
-        let d = diagnose("A B C D = cyclic_quad\nprove cyclic(A, B, C, D)", "compile error: unknown name `cyclic_quad`");
+        let d = diagnose(
+            "A B C D = cyclic_quad\nprove cyclic(A, B, C, D)",
+            "compile error: unknown name `cyclic_quad`",
+        );
         assert_eq!((d.key, d.line, d.col), ("unknown_shape", 1, 11));
-        let d = diagnose("A B C = triangle\nH = orthocentre2(A, B, C)\nprove perp(A, H, B, C)", "compile error: unknown name `orthocentre2`");
+        let d = diagnose(
+            "A B C = triangle\nH = orthocentre2(A, B, C)\nprove perp(A, H, B, C)",
+            "compile error: unknown name `orthocentre2`",
+        );
         assert_eq!(d.key, "unknown_construction");
-        let d = diagnose("A B C = triangle\nprove perp(A, X, B, C)", "compile error: unknown name `X`");
+        let d = diagnose(
+            "A B C = triangle\nprove perp(A, X, B, C)",
+            "compile error: unknown name `X`",
+        );
         assert_eq!(d.key, "unknown_name");
     }
 
@@ -4156,30 +5462,70 @@ mod tests {
 
     #[test]
     fn metric_text_is_typeset() {
-        let names = Names::build(&Problem { points: vec![], preds: vec![], goal: None });
-        assert_eq!(pretty_metric("dist(A, B) ^ 2 + dist(A,C)^2 = dist(B,C)^2", &names), "AB\u{b2} + AC\u{b2} = BC\u{b2}");
-        assert_eq!(pretty_metric("area(A,B,M) = area(A,M,C)", &names), "[ABM] = [AMC]");
-        assert_eq!(pretty_metric("angle(A,B,C) = 60", &names), "\u{2220}ABC = 60\u{b0}");
-        assert_eq!(pretty_metric("angle(A,B,C) + angle(B,C,A) + angle(C,A,B) = 180", &names), "\u{2220}ABC + \u{2220}BCA + \u{2220}CAB = 180\u{b0}");
-        assert_eq!(pretty_metric("angle(A,B,C) = 2 * angle(A,C,B)", &names), "\u{2220}ABC = 2 \u{b7} \u{2220}ACB");
-        assert_eq!(pretty_metric("sin(angle(A,B,C)) = 1", &names), "sin\u{2220}ABC = 1");
-        assert_eq!(pretty_metric("cos(angle(A,B,C)) ^ 2 + sin(angle(A,B,C)) ^ 2 = 1", &names), "cos\u{b2}\u{2220}ABC + sin\u{b2}\u{2220}ABC = 1");
+        let names = Names::build(&Problem {
+            points: vec![],
+            preds: vec![],
+            goal: None,
+        });
+        assert_eq!(
+            pretty_metric("dist(A, B) ^ 2 + dist(A,C)^2 = dist(B,C)^2", &names),
+            "AB\u{b2} + AC\u{b2} = BC\u{b2}"
+        );
+        assert_eq!(
+            pretty_metric("area(A,B,M) = area(A,M,C)", &names),
+            "[ABM] = [AMC]"
+        );
+        assert_eq!(
+            pretty_metric("angle(A,B,C) = 60", &names),
+            "\u{2220}ABC = 60\u{b0}"
+        );
+        assert_eq!(
+            pretty_metric("angle(A,B,C) + angle(B,C,A) + angle(C,A,B) = 180", &names),
+            "\u{2220}ABC + \u{2220}BCA + \u{2220}CAB = 180\u{b0}"
+        );
+        assert_eq!(
+            pretty_metric("angle(A,B,C) = 2 * angle(A,C,B)", &names),
+            "\u{2220}ABC = 2 \u{b7} \u{2220}ACB"
+        );
+        assert_eq!(
+            pretty_metric("sin(angle(A,B,C)) = 1", &names),
+            "sin\u{2220}ABC = 1"
+        );
+        assert_eq!(
+            pretty_metric("cos(angle(A,B,C)) ^ 2 + sin(angle(A,B,C)) ^ 2 = 1", &names),
+            "cos\u{b2}\u{2220}ABC + sin\u{b2}\u{2220}ABC = 1"
+        );
     }
 
     #[test]
     fn titles_come_from_the_leading_comment() {
-        assert_eq!(source_title("# Stewart's theorem (additive engine): x\nB = free").as_deref(), Some("Stewart's theorem"));
+        assert_eq!(
+            source_title("# Stewart's theorem (additive engine): x\nB = free").as_deref(),
+            Some("Stewart's theorem")
+        );
         assert_eq!(source_title("A B C = triangle"), None);
-        assert_eq!(source_title("# THEOREM (Euler line): O, G, H are collinear").as_deref(), Some("Euler line"));
+        assert_eq!(
+            source_title("# THEOREM (Euler line): O, G, H are collinear").as_deref(),
+            Some("Euler line")
+        );
     }
 
     #[test]
     fn equal_chords_are_stated_as_an_equality() {
-        let sol = solve("A B C = triangle\nprove coll(A, B, A)", &SolveOptions::default()).expect("solve");
+        let sol = solve(
+            "A B C = triangle\nprove coll(A, B, A)",
+            &SolveOptions::default(),
+        )
+        .expect("solve");
         let problem = Problem::parse(&sol.low_level).expect("low level");
         let names = Names::build(&problem);
-        let st = ddar_line("056. equal arcs \u{21d4} equal chords: AB and CA [003 & 004]", &problem, &names, &HashSet::new())
-            .expect("a step");
+        let st = ddar_line(
+            "056. equal arcs \u{21d4} equal chords: AB and CA [003 & 004]",
+            &problem,
+            &names,
+            &HashSet::new(),
+        )
+        .expect("a step");
         assert_eq!(st.rule, "arcchord");
         assert_eq!(st.fact.kind, "cong");
         assert_eq!(st.fact.plain(), "AB = CA");
@@ -4188,12 +5534,18 @@ mod tests {
 
     /// Every Euclidean proof the provers produce for these programs, as shown.
     fn euclidean_views() -> Vec<(String, View)> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../alphageometry-rs/examples/metric");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../alphageometry-rs/examples/metric");
         let mut programs: Vec<(String, String)> = std::fs::read_dir(&dir)
             .expect("examples/metric")
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.extension().is_some_and(|x| x == "geo"))
-            .map(|p| (p.display().to_string(), std::fs::read_to_string(&p).unwrap()))
+            .map(|p| {
+                (
+                    p.display().to_string(),
+                    std::fs::read_to_string(&p).unwrap(),
+                )
+            })
             .collect();
         programs.sort();
         for (name, src) in [
@@ -4224,32 +5576,101 @@ mod tests {
     fn euclidean_proofs_show_every_fact_and_reach_the_goal() {
         let views = euclidean_views();
         assert!(views.len() >= 12, "only {} Euclidean proofs", views.len());
-        for name in ["law of sines", "law of cosines", "supplementary", "sine areas", "euler oi"] {
-            assert!(views.iter().any(|(n, _)| n == name), "{name} was not proved Euclidean");
+        for name in [
+            "law of sines",
+            "law of cosines",
+            "supplementary",
+            "sine areas",
+            "euler oi",
+        ] {
+            assert!(
+                views.iter().any(|(n, _)| n == name),
+                "{name} was not proved Euclidean"
+            );
         }
-        assert!(views.iter().any(|(_, v)| v.proof.steps.iter().any(|s| s.rule == "closure" && !s.subs.is_empty())));
-        assert!(views.iter().any(|(_, v)| v.proof.steps.iter().any(|s| s.rule == "trig" && !s.subs.is_empty())));
+        assert!(views.iter().any(|(_, v)| v
+            .proof
+            .steps
+            .iter()
+            .any(|s| s.rule == "closure" && !s.subs.is_empty())));
+        assert!(views.iter().any(|(_, v)| v
+            .proof
+            .steps
+            .iter()
+            .any(|s| s.rule == "trig" && !s.subs.is_empty())));
         for (name, v) in &views {
             for st in &v.proof.steps {
                 let text = &st.fact.args[0];
-                assert!(st.subs.is_empty() == !(text.ends_with(':') || text.contains("below:")), "{name}: {text} with {} sub-items", st.subs.len());
+                assert!(
+                    st.subs.is_empty() == !(text.ends_with(':') || text.contains("below:")),
+                    "{name}: {text} with {} sub-items",
+                    st.subs.len()
+                );
                 assert!(!text.contains("[from"), "{name}: {text}");
                 assert!(st.rule != "algebra", "{name}: {text}");
-                assert!(st.deps.iter().all(|&d| d >= 1 && d < st.n), "{name}: {} cites {:?}", st.n, st.deps);
+                assert!(
+                    st.deps.iter().all(|&d| d >= 1 && d < st.n),
+                    "{name}: {} cites {:?}",
+                    st.n,
+                    st.deps
+                );
             }
-            let concl = v.proof.conclusion.as_ref().unwrap_or_else(|| panic!("{name}: no conclusion"));
+            let concl = v
+                .proof
+                .conclusion
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name}: no conclusion"));
             let goal = &v.goal.as_ref().expect("goal").args[0];
-            assert!(concl.args[0].contains(goal.as_str()), "{name}: {:?} does not end at {goal}", concl.args[0]);
-            assert!(!concl.args[0].contains('*') && !concl.args[0].contains(" - ") && !concl.args[0].contains("dist("), "{name}: {}", concl.args[0]);
+            assert!(
+                concl.args[0].contains(goal.as_str()),
+                "{name}: {:?} does not end at {goal}",
+                concl.args[0]
+            );
+            assert!(
+                !concl.args[0].contains('*')
+                    && !concl.args[0].contains(" - ")
+                    && !concl.args[0].contains("dist("),
+                "{name}: {}",
+                concl.args[0]
+            );
         }
     }
 
     #[test]
     fn euclidean_proofs_read_in_romanian_without_english_left_over() {
         const ENGLISH: &[&str] = &[
-            " the ", " of ", " with ", " from ", "below", "above", " through ", "Law ", " law ", "Let ", " is ", " are ",
-            " by ", " gives ", "which", "inside", "outside", "Multiply", "relations", "triangle", "circle ", " between ",
-            " so ", "times", "derived", "(given)", "hypothes", "Adding", "Combining", "Hence", " and ", " lies ",
+            " the ",
+            " of ",
+            " with ",
+            " from ",
+            "below",
+            "above",
+            " through ",
+            "Law ",
+            " law ",
+            "Let ",
+            " is ",
+            " are ",
+            " by ",
+            " gives ",
+            "which",
+            "inside",
+            "outside",
+            "Multiply",
+            "relations",
+            "triangle",
+            "circle ",
+            " between ",
+            " so ",
+            "times",
+            "derived",
+            "(given)",
+            "hypothes",
+            "Adding",
+            "Combining",
+            "Hence",
+            " and ",
+            " lies ",
         ];
         for (name, v) in euclidean_views() {
             let mut texts: Vec<String> = Vec::new();
@@ -4259,10 +5680,20 @@ mod tests {
                     texts.extend(sub.fact.ro.clone().unwrap_or_default());
                 }
                 if st.rule == "theorem" {
-                    assert!(st.rule_name_ro.is_some(), "{name}: no Romanian name for {:?}", st.rule_name);
+                    assert!(
+                        st.rule_name_ro.is_some(),
+                        "{name}: no Romanian name for {:?}",
+                        st.rule_name
+                    );
                 }
             }
-            texts.extend(v.proof.conclusion.as_ref().and_then(|c| c.ro.clone()).unwrap_or_default());
+            texts.extend(
+                v.proof
+                    .conclusion
+                    .as_ref()
+                    .and_then(|c| c.ro.clone())
+                    .unwrap_or_default(),
+            );
             for t in texts {
                 let padded = format!(" {t} ");
                 for w in ENGLISH {
@@ -4276,20 +5707,45 @@ mod tests {
     fn metric_arity_and_operator_errors_name_the_source_text() {
         let src = "A B C = triangle\nprove dist(B,C) = 2**dist(A,B)";
         let d = diagnose(src, "metric prover: unexpected token Some(Op('*'))");
-        assert_eq!((d.token.as_deref(), d.line, d.col), (Some("*"), 2, 21), "{d:?}");
+        assert_eq!(
+            (d.token.as_deref(), d.line, d.col),
+            (Some("*"), 2, 21),
+            "{d:?}"
+        );
         let src = "A B C = triangle\nprove dist(B,C) = sin(angle(A,B))";
         let d = diagnose(src, "metric prover: angle got 2 arguments");
-        assert_eq!((d.key, d.token.as_deref(), d.expected, d.got, d.line), ("arity", Some("angle"), Some(3), Some(2), 2), "{d:?}");
+        assert_eq!(
+            (d.key, d.token.as_deref(), d.expected, d.got, d.line),
+            ("arity", Some("angle"), Some(3), Some(2), 2),
+            "{d:?}"
+        );
         for (src, msg) in [
-            ("A B C = triangle\nprove dist(B,C) = 2**dist(A,B)", "metric prover: unexpected token Some(Op('*'))"),
-            ("A B C = triangle\nprove dist(B,C) = 2*/dist(A,B)", "metric prover: unexpected token Some(Op('/'))"),
-            ("A B C = triangle\nprove dist(B,C) = 2*(dist(A,B)", "metric prover: unexpected token Some(LParen)"),
-            ("A B C = triangle\nprove dist(B,C) = 2 x", "metric prover: unexpected token Some(Ident(\"x\"))"),
+            (
+                "A B C = triangle\nprove dist(B,C) = 2**dist(A,B)",
+                "metric prover: unexpected token Some(Op('*'))",
+            ),
+            (
+                "A B C = triangle\nprove dist(B,C) = 2*/dist(A,B)",
+                "metric prover: unexpected token Some(Op('/'))",
+            ),
+            (
+                "A B C = triangle\nprove dist(B,C) = 2*(dist(A,B)",
+                "metric prover: unexpected token Some(LParen)",
+            ),
+            (
+                "A B C = triangle\nprove dist(B,C) = 2 x",
+                "metric prover: unexpected token Some(Ident(\"x\"))",
+            ),
         ] {
             let d = diagnose(src, msg);
             for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
                 let text = crate::i18n::compile_message(lang, &d);
-                assert!(!["Op(", "Some(", "Ident(", "LParen"].iter().any(|w| text.contains(w)), "{text}");
+                assert!(
+                    !["Op(", "Some(", "Ident(", "LParen"]
+                        .iter()
+                        .any(|w| text.contains(w)),
+                    "{text}"
+                );
             }
         }
     }
@@ -4302,7 +5758,10 @@ mod tests {
         let v = build(&sol);
         assert!(v.given.iter().all(|f| f.kind != "raw"), "{:?}", v.given);
         assert!(
-            v.given.iter().any(|f| f.args.iter().any(|a| a.contains("\u{2220}BA\u{2081}C") && a.contains("480"))),
+            v.given.iter().any(|f| f
+                .args
+                .iter()
+                .any(|a| a.contains("\u{2220}BA\u{2081}C") && a.contains("480"))),
             "{:?}",
             v.given
         );
@@ -4330,26 +5789,46 @@ mod tests {
                 assert!(!raw.iter().any(|r| t.starts_with(r)), "{t}");
             }
         }
-        let (_, v) = view("A B C = triangle\nassume angle(A,B,C) + angle(B,C,A) = 100\nprove angle(C,A,B) = 80");
-        assert_eq!(v.proof.steps[0].fact.args, vec!["\u{2220}ABC + \u{2220}BCA = 100\u{b0}".to_string()]);
-        assert_eq!(v.given[0].args, vec!["\u{2220}ABC + \u{2220}BCA = 100\u{b0}".to_string()]);
+        let (_, v) = view(
+            "A B C = triangle\nassume angle(A,B,C) + angle(B,C,A) = 100\nprove angle(C,A,B) = 80",
+        );
+        assert_eq!(
+            v.proof.steps[0].fact.args,
+            vec!["\u{2220}ABC + \u{2220}BCA = 100\u{b0}".to_string()]
+        );
+        assert_eq!(
+            v.given[0].args,
+            vec!["\u{2220}ABC + \u{2220}BCA = 100\u{b0}".to_string()]
+        );
     }
 
     #[test]
     fn a_false_angle_sum_stays_unproved() {
-        let (sol, _) = view("A B C = triangle\nprove angle(A,B,C) + angle(B,C,A) + angle(C,A,B) = 170");
+        let (sol, _) =
+            view("A B C = triangle\nprove angle(A,B,C) + angle(B,C,A) + angle(C,A,B) = 170");
         assert!(!sol.proved, "a triangle's angles never sum to 170°");
-        let (sol, _) = view("A B C = triangle\nprove cos(angle(A,B,C)) ^ 2 + sin(angle(A,B,C)) ^ 2 = 2");
+        let (sol, _) =
+            view("A B C = triangle\nprove cos(angle(A,B,C)) ^ 2 + sin(angle(A,B,C)) ^ 2 = 2");
         assert!(!sol.proved);
     }
 
     #[test]
     fn trig_identities_read_as_written_by_hand() {
-        let (sol, v) = view("A B C = triangle\nprove cos(angle(A,B,C)) ^ 2 + sin(angle(A,B,C)) ^ 2 = 1");
+        let (sol, v) =
+            view("A B C = triangle\nprove cos(angle(A,B,C)) ^ 2 + sin(angle(A,B,C)) ^ 2 = 1");
         assert!(sol.proved);
-        assert_eq!(v.goal.as_ref().unwrap().args[0], "cos\u{b2}\u{2220}ABC + sin\u{b2}\u{2220}ABC = 1");
-        assert_eq!(v.proof.steps[0].rule_name.as_deref(), Some("Pythagorean identity"));
-        assert_eq!(v.proof.steps[0].rule_name_ro.as_deref(), Some("identitatea fundamentală a trigonometriei"));
+        assert_eq!(
+            v.goal.as_ref().unwrap().args[0],
+            "cos\u{b2}\u{2220}ABC + sin\u{b2}\u{2220}ABC = 1"
+        );
+        assert_eq!(
+            v.proof.steps[0].rule_name.as_deref(),
+            Some("Pythagorean identity")
+        );
+        assert_eq!(
+            v.proof.steps[0].rule_name_ro.as_deref(),
+            Some("identitatea fundamentală a trigonometriei")
+        );
     }
 
     #[test]
@@ -4358,50 +5837,128 @@ mod tests {
         assert!(sol.proved);
         let texts = step_texts(&v);
         assert!(texts.iter().any(|t| t.contains("Multiply both sides of the claim by BH (BH \u{2260} 0): it becomes AB \u{b7} cos\u{2220}ABC \u{b7} BH = BH\u{b2}.")), "{texts:?}");
-        assert!(texts.iter().any(|t| t.contains("so cos\u{2220}AHB = 0, hence AH\u{b7}BH\u{b7}cos\u{2220}AHB = 0.")), "{texts:?}");
-        assert!(!texts.iter().any(|t| t.contains("both sides multiplied")), "{texts:?}");
+        assert!(
+            texts
+                .iter()
+                .any(|t| t
+                    .contains("so cos\u{2220}AHB = 0, hence AH\u{b7}BH\u{b7}cos\u{2220}AHB = 0.")),
+            "{texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains("both sides multiplied")),
+            "{texts:?}"
+        );
     }
 
     #[test]
     fn closure_steps_show_the_facts_later_steps_cite() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/symmedian_ratio.geo")).unwrap();
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../alphageometry-rs/examples/named/symmedian_ratio.geo"
+        ))
+        .unwrap();
         let (sol, v) = view(&src);
         assert!(sol.proved);
-        let closure = v.proof.steps.iter().find(|s| s.rule == "closure").expect("closure step");
+        let closure = v
+            .proof
+            .steps
+            .iter()
+            .find(|s| s.rule == "closure")
+            .expect("closure step");
         let subs: Vec<String> = closure.subs.iter().map(|u| u.fact.args.join(" ")).collect();
-        assert!(subs.iter().all(|t| !t.contains('\u{223c}')), "mirror similarities are shown as equal lengths: {subs:?}");
-        assert!(closure.subs.iter().all(|u| u.fact.kind != "simtri"), "{subs:?}");
-        assert!(subs.iter().any(|t| t.contains("\u{2220}ABT + \u{2220}ACB = 180\u{b0}")), "{subs:?}");
-        assert!(subs.iter().any(|t| t.contains("\u{2220}BAC = \u{2220}CBT")), "{subs:?}");
+        assert!(
+            subs.iter().all(|t| !t.contains('\u{223c}')),
+            "mirror similarities are shown as equal lengths: {subs:?}"
+        );
+        assert!(
+            closure.subs.iter().all(|u| u.fact.kind != "simtri"),
+            "{subs:?}"
+        );
+        assert!(
+            subs.iter()
+                .any(|t| t.contains("\u{2220}ABT + \u{2220}ACB = 180\u{b0}")),
+            "{subs:?}"
+        );
+        assert!(
+            subs.iter().any(|t| t.contains("\u{2220}BAC = \u{2220}CBT")),
+            "{subs:?}"
+        );
     }
 
     #[test]
     fn points_a_proof_introduces_are_drawn() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/euler_formula_oi.geo")).unwrap();
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../alphageometry-rs/examples/named/euler_formula_oi.geo"
+        ))
+        .unwrap();
         let (sol, v) = view(&src);
         assert!(sol.proved);
-        assert!(v.points.iter().any(|p| p.name == "N" && p.aux), "{:?}", v.points);
+        assert!(
+            v.points.iter().any(|p| p.name == "N" && p.aux),
+            "{:?}",
+            v.points
+        );
         assert!(v.svg.contains(">N</text>"), "N is labelled in the figure");
-        assert!(v.aux.iter().any(|a| a.name == "N" && a.kind == "intersect2"), "{:?}", v.aux);
-        let ro = crate::i18n::prose_ro(&v.proof.steps.iter().find(|s| s.rule == "theorem").unwrap().fact.args[0]);
+        assert!(
+            v.aux
+                .iter()
+                .any(|a| a.name == "N" && a.kind == "intersect2"),
+            "{:?}",
+            v.aux
+        );
+        let ro = crate::i18n::prose_ro(
+            &v.proof
+                .steps
+                .iter()
+                .find(|s| s.rule == "theorem")
+                .unwrap()
+                .fact
+                .args[0],
+        );
         assert!(ro.contains("față de cercul (O"), "{ro}");
-        assert!(v.proof.steps[0].fact.args[0].contains("through A, B, C"), "{:?}", v.proof.steps[0].fact.args);
+        assert!(
+            v.proof.steps[0].fact.args[0].contains("through A, B, C"),
+            "{:?}",
+            v.proof.steps[0].fact.args
+        );
     }
 
     #[test]
     fn non_point_definitions_and_bare_trig_arguments_are_explained() {
-        let d = diagnose("A B C = triangle\nD = circle(A, B, C)\nprove coll(A, B, D)", "compile error: expected a point");
-        assert_eq!((d.key, d.line, d.col, d.token.as_deref()), ("not_a_point", 2, 5, Some("circle")));
-        let d = diagnose("A B C = triangle\nprove sin(A) = 1", "compile error: expected LParen, found Some(RParen)");
-        assert_eq!((d.key, d.line, d.col, d.token.as_deref()), ("trig_angle", 2, 11, Some("sin")));
-        let d = diagnose("A B C = triangle\nprove coll(A, B)", "compile error: `coll` expects at least 3 arguments, got 2");
+        let d = diagnose(
+            "A B C = triangle\nD = circle(A, B, C)\nprove coll(A, B, D)",
+            "compile error: expected a point",
+        );
+        assert_eq!(
+            (d.key, d.line, d.col, d.token.as_deref()),
+            ("not_a_point", 2, 5, Some("circle"))
+        );
+        let d = diagnose(
+            "A B C = triangle\nprove sin(A) = 1",
+            "compile error: expected LParen, found Some(RParen)",
+        );
+        assert_eq!(
+            (d.key, d.line, d.col, d.token.as_deref()),
+            ("trig_angle", 2, 11, Some("sin"))
+        );
+        let d = diagnose(
+            "A B C = triangle\nprove coll(A, B)",
+            "compile error: `coll` expects at least 3 arguments, got 2",
+        );
         assert_eq!((d.key, d.expected, d.got), ("arity_min", Some(3), Some(2)));
         assert_eq!(
             readable_engine_message("compile error: unexpected token Some(Ident(\"degrees\"))"),
             "compile error: unexpected token \u{201c}degrees\u{201d}"
         );
-        assert_eq!(readable_engine_message("compile error: expected LParen, found Some(RParen)"), "compile error: expected \u{201c}(\u{201d}, found \u{201c})\u{201d}");
-        assert_eq!(readable_engine_message("metric prover: unexpected token None"), "metric prover: unexpected token the end of the line");
+        assert_eq!(
+            readable_engine_message("compile error: expected LParen, found Some(RParen)"),
+            "compile error: expected \u{201c}(\u{201d}, found \u{201c})\u{201d}"
+        );
+        assert_eq!(
+            readable_engine_message("metric prover: unexpected token None"),
+            "metric prover: unexpected token the end of the line"
+        );
     }
 
     #[test]
@@ -4416,7 +5973,9 @@ mod tests {
     fn interior(v: &View, a: &str, b: &str, c: &str) -> f64 {
         let (p, q, r) = (dot(&v.svg, a), dot(&v.svg, b), dot(&v.svg, c));
         let (u, w) = ((p.0 - q.0, p.1 - q.1), (r.0 - q.0, r.1 - q.1));
-        ((u.0 * w.0 + u.1 * w.1) / (u.0.hypot(u.1) * w.0.hypot(w.1))).acos().to_degrees()
+        ((u.0 * w.0 + u.1 * w.1) / (u.0.hypot(u.1) * w.0.hypot(w.1)))
+            .acos()
+            .to_degrees()
     }
 
     #[test]
@@ -4426,7 +5985,10 @@ mod tests {
         assert_eq!(sol.status, Status::Refuted);
         let c = v.counterexample.as_ref().expect("a counterexample");
         assert_eq!(c.kind, "angles");
-        assert_eq!(c.labels, vec!["\u{2220}ABC".to_string(), "\u{2220}BCA".to_string()]);
+        assert_eq!(
+            c.labels,
+            vec!["\u{2220}ABC".to_string(), "\u{2220}BCA".to_string()]
+        );
         assert!((c.lhs - interior(&v, "A", "B", "C")).abs() < 0.3, "{c:?}");
         assert!((c.rhs - interior(&v, "B", "C", "A")).abs() < 0.3, "{c:?}");
         assert!(c.lhs + c.rhs < 180.0, "two angles of one triangle: {c:?}");
@@ -4434,33 +5996,69 @@ mod tests {
 
     #[test]
     fn ratio_and_formula_goals_get_a_counterexample() {
-        let (sol, v) = view("A B C = triangle\nM = midpoint(A, B)\nprove eqratio(A, M, M, B, A, C, C, B)");
+        let (sol, v) =
+            view("A B C = triangle\nM = midpoint(A, B)\nprove eqratio(A, M, M, B, A, C, C, B)");
         assert_eq!(sol.status, Status::Refuted);
         let c = v.counterexample.as_ref().expect("a ratio counterexample");
-        assert_eq!((c.kind, c.labels.clone()), ("ratios", vec!["AM : MB".to_string(), "AC : CB".to_string()]));
-        assert!((c.lhs - 1.0).abs() < 1e-9 && (c.rhs - 1.0).abs() > 1e-3, "{c:?}");
+        assert_eq!(
+            (c.kind, c.labels.clone()),
+            ("ratios", vec!["AM : MB".to_string(), "AC : CB".to_string()])
+        );
+        assert!(
+            (c.lhs - 1.0).abs() < 1e-9 && (c.rhs - 1.0).abs() > 1e-3,
+            "{c:?}"
+        );
         let (sol, v) = view("A B C = triangle\nprove tan(angle(A,B,C)) = 1");
         assert_eq!(sol.status, Status::Refuted);
         let c = v.counterexample.as_ref().expect("a values counterexample");
         assert_eq!(c.kind, "values");
-        assert!((c.rhs - 1.0).abs() < 1e-9 && (c.lhs - 1.0).abs() > 1e-3, "{c:?}");
-        assert_eq!(first_number_after("LHS = -34.4 , RHS", "LHS ="), Some(-34.4));
+        assert!(
+            (c.rhs - 1.0).abs() < 1e-9 && (c.lhs - 1.0).abs() > 1e-3,
+            "{c:?}"
+        );
+        assert_eq!(
+            first_number_after("LHS = -34.4 , RHS", "LHS ="),
+            Some(-34.4)
+        );
         assert_eq!(first_number_after("LHS = 1.5e-3 ,", "LHS ="), Some(1.5e-3));
     }
 
     #[test]
     fn distance_relations_are_typeset_never_raw() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/monge_dalembert.geo")).unwrap();
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../alphageometry-rs/examples/named/monge_dalembert.geo"
+        ))
+        .unwrap();
         let (_, v) = view(&src);
-        let all: Vec<&Fact> = v.given.iter().chain(v.proof.steps.iter().map(|s| &s.fact)).collect();
+        let all: Vec<&Fact> = v
+            .given
+            .iter()
+            .chain(v.proof.steps.iter().map(|s| &s.fact))
+            .collect();
         assert!(all.iter().all(|f| f.kind != "raw"), "{all:?}");
-        assert!(all.iter().any(|f| f.kind == "formula" && f.args[0].contains(" \u{b7} ")), "a product of lengths: {all:?}");
+        assert!(
+            all.iter()
+                .any(|f| f.kind == "formula" && f.args[0].contains(" \u{b7} ")),
+            "a product of lengths: {all:?}"
+        );
         let n = |i: u32| ["A", "B", "C", "D", "E", "F"][i as usize].to_string();
         let one = || ddar::rational::Rat::new(1, 1);
         let neg = || ddar::rational::Rat::new(-1, 1);
-        let p = Predicate { name: "distmeq".into(), points: vec![0, 1, 2, 3, 0, 2, 1, 3], constants: vec![one(), one(), neg(), neg(), one()] };
-        assert_eq!(dist_product_text(&n, &p).as_deref(), Some("AB \u{b7} CD = AC \u{b7} BD"));
-        let p = Predicate { name: "distseq".into(), points: vec![0, 1, 1, 2, 0, 2], constants: vec![one(), one(), neg()] };
+        let p = Predicate {
+            name: "distmeq".into(),
+            points: vec![0, 1, 2, 3, 0, 2, 1, 3],
+            constants: vec![one(), one(), neg(), neg(), one()],
+        };
+        assert_eq!(
+            dist_product_text(&n, &p).as_deref(),
+            Some("AB \u{b7} CD = AC \u{b7} BD")
+        );
+        let p = Predicate {
+            name: "distseq".into(),
+            points: vec![0, 1, 1, 2, 0, 2],
+            constants: vec![one(), one(), neg()],
+        };
         assert_eq!(dist_sum_text(&n, &p).as_deref(), Some("AB + BC = AC"));
     }
 
@@ -4468,28 +6066,88 @@ mod tests {
     fn ddar_theorems_show_the_fact_they_derive() {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         let none = [None; 7];
-        let f = theorem_fact("Menelaus' theorem", &s(&["A", "B", "C", "D", "E", "F"]), &none).unwrap();
+        let f = theorem_fact(
+            "Menelaus' theorem",
+            &s(&["A", "B", "C", "D", "E", "F"]),
+            &none,
+        )
+        .unwrap();
         assert_eq!(f.plain(), "BD \u{b7} CE \u{b7} AF = DC \u{b7} EA \u{b7} FB");
-        let f = theorem_fact("Menelaus' theorem (converse)", &s(&["A", "B", "C", "D", "E", "F"]), &none).unwrap();
+        let f = theorem_fact(
+            "Menelaus' theorem (converse)",
+            &s(&["A", "B", "C", "D", "E", "F"]),
+            &none,
+        )
+        .unwrap();
         assert_eq!((f.kind, f.args.clone()), ("coll", s(&["D", "E", "F"])));
-        let f = theorem_fact("Ceva's theorem (converse)", &s(&["A", "B", "C", "D", "E", "F", "P"]), &none).unwrap();
-        assert_eq!((f.kind, f.args.clone()), ("concur", s(&["AD", "BE", "CF", "P"])));
-        let f = theorem_fact("perpendicular \u{21d2} squared lengths (Pythagoras)", &s(&["C", "A", "C", "B"]), &none).unwrap();
+        let f = theorem_fact(
+            "Ceva's theorem (converse)",
+            &s(&["A", "B", "C", "D", "E", "F", "P"]),
+            &none,
+        )
+        .unwrap();
+        assert_eq!(
+            (f.kind, f.args.clone()),
+            ("concur", s(&["AD", "BE", "CF", "P"]))
+        );
+        let f = theorem_fact(
+            "perpendicular \u{21d2} squared lengths (Pythagoras)",
+            &s(&["C", "A", "C", "B"]),
+            &none,
+        )
+        .unwrap();
         assert_eq!(f.plain(), "AB\u{b2} = CB\u{b2} + AC\u{b2}");
         assert!(!f.plain().contains("CC"), "{}", f.plain());
-        let f = theorem_fact("perpendicular from squared lengths", &s(&["A", "B", "C", "D"]), &none).unwrap();
+        let f = theorem_fact(
+            "perpendicular from squared lengths",
+            &s(&["A", "B", "C", "D"]),
+            &none,
+        )
+        .unwrap();
         assert_eq!((f.kind, f.args.clone()), ("perp", s(&["AB", "CD"])));
         let tri = [Some((0.0, 0.0)), Some((4.0, 0.0)), Some((0.0, 3.0))];
         let at = [Some((1.0, 1.0)), tri[0], tri[1], tri[2]];
-        assert_eq!(theorem_fact("angle bisectors concur (incentre/excentre)", &s(&["I", "A", "B", "C"]), &at).unwrap().kind, "incenter");
+        assert_eq!(
+            theorem_fact(
+                "angle bisectors concur (incentre/excentre)",
+                &s(&["I", "A", "B", "C"]),
+                &at
+            )
+            .unwrap()
+            .kind,
+            "incenter"
+        );
         let at = [Some((-6.0, 6.0)), tri[0], tri[1], tri[2]];
-        assert_eq!(theorem_fact("angle bisectors concur (incentre/excentre)", &s(&["J", "A", "B", "C"]), &at).unwrap().kind, "excenter");
+        assert_eq!(
+            theorem_fact(
+                "angle bisectors concur (incentre/excentre)",
+                &s(&["J", "A", "B", "C"]),
+                &at
+            )
+            .unwrap()
+            .kind,
+            "excenter"
+        );
         let f = theorem_fact("law of sines", &s(&["A", "B", "C"]), &none).unwrap();
-        assert!(f.plain().starts_with("BC : sin\u{2220}BAC"), "{}", f.plain());
+        assert!(
+            f.plain().starts_with("BC : sin\u{2220}BAC"),
+            "{}",
+            f.plain()
+        );
         let f = theorem_fact("sine of 30°: 1/2", &s(&["A", "B", "C"]), &none).unwrap();
         assert_eq!(f.plain(), "sin\u{2220}ABC = 1/2");
-        let at = [Some((0.0, 0.0)), Some((1.0, 0.0)), Some((0.0, 0.0)), Some((2.0, 0.0))];
-        let f = theorem_fact("lengths from squared lengths", &s(&["A", "B", "C", "D"]), &at).unwrap();
+        let at = [
+            Some((0.0, 0.0)),
+            Some((1.0, 0.0)),
+            Some((0.0, 0.0)),
+            Some((2.0, 0.0)),
+        ];
+        let f = theorem_fact(
+            "lengths from squared lengths",
+            &s(&["A", "B", "C", "D"]),
+            &at,
+        )
+        .unwrap();
         assert_eq!((f.kind, f.args.clone()), ("rconst", s(&["CD", "AB", "2"])));
     }
 
@@ -4506,7 +6164,11 @@ mod tests {
 
     #[test]
     fn imposed_squared_lengths_are_given_and_typeset() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/metric/universal_imposed_length.geo")).unwrap();
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../alphageometry-rs/examples/metric/universal_imposed_length.geo"
+        ))
+        .unwrap();
         let (sol, v) = view(&src);
         assert!(sol.proved);
         let given: Vec<String> = v.given.iter().map(Fact::plain).collect();
@@ -4523,11 +6185,15 @@ mod tests {
         let src = "A B C = triangle\nprove coll(A, B, C)\nprove coll(A, B, C)";
         let d = diagnose(src, "compile error: multiple goals specified");
         assert_eq!((d.key, d.line, d.col), ("multiple_goals", 3, 1));
-        assert!(crate::i18n::compile_message(crate::i18n::Lang::Ro, &d).starts_with("Este permisă o singură concluzie"));
+        assert!(crate::i18n::compile_message(crate::i18n::Lang::Ro, &d)
+            .starts_with("Este permisă o singură concluzie"));
     }
 
     fn engine_aux_samples() -> Vec<(String, String)> {
-        let sources = [include_str!("../../alphageometry-rs/src/aux_search.rs"), include_str!("../../alphageometry-rs/src/aux_virtual.rs")];
+        let sources = [
+            include_str!("../../alphageometry-rs/src/aux_search.rs"),
+            include_str!("../../alphageometry-rs/src/aux_virtual.rs"),
+        ];
         let mut tritangent: Vec<String> = Vec::new();
         for part in sources[0].split("(\"").skip(1) {
             if let Some((w, rest)) = part.split_once('"') {
@@ -4536,15 +6202,25 @@ mod tests {
                 }
             }
         }
-        assert!(tritangent.contains(&"excenter".to_string()) && tritangent.contains(&"incenter".to_string()), "{tritangent:?}");
+        assert!(
+            tritangent.contains(&"excenter".to_string())
+                && tritangent.contains(&"incenter".to_string()),
+            "{tritangent:?}"
+        );
         let mut out = Vec::new();
         for src in sources {
             for part in src.split("format!(\"").skip(1) {
-                let Some((tpl, _)) = part.split_once('"') else { continue };
-                let Some((head, _)) = tpl.split_once('(') else { continue };
+                let Some((tpl, _)) = part.split_once('"') else {
+                    continue;
+                };
+                let Some((head, _)) = tpl.split_once('(') else {
+                    continue;
+                };
                 let heads: Vec<String> = match head {
                     "{name}" => tritangent.clone(),
-                    h if !h.is_empty() && h.chars().all(|c| c.is_ascii_lowercase() || c == '_') => vec![h.to_string()],
+                    h if !h.is_empty() && h.chars().all(|c| c.is_ascii_lowercase() || c == '_') => {
+                        vec![h.to_string()]
+                    }
                     _ => continue,
                 };
                 for h in heads {
@@ -4569,18 +6245,39 @@ mod tests {
     fn every_aux_kind_the_engine_emits_reads_as_words_in_both_languages() {
         let js = include_str!("../assets/i18n.js");
         let inner_only = ["circle", "circumcircle", "para", "perp", "tangent_at"];
-        let empty = Problem { points: vec![], preds: vec![], goal: None };
+        let empty = Problem {
+            points: vec![],
+            preds: vec![],
+            goal: None,
+        };
         let names = Names::build(&empty);
-        let at: HashMap<String, Pt> =
-            [("A", (0.0, 0.0)), ("B", (4.0, 0.0)), ("C", (1.0, 3.0)), ("D", (5.0, 5.0)), ("E", (-2.0, 1.0)), ("X", (2.0, -3.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
+        let at: HashMap<String, Pt> = [
+            ("A", (0.0, 0.0)),
+            ("B", (4.0, 0.0)),
+            ("C", (1.0, 3.0)),
+            ("D", (5.0, 5.0)),
+            ("E", (-2.0, 1.0)),
+            ("X", (2.0, -3.0)),
+        ]
+        .iter()
+        .map(|(n, p)| (n.to_string(), *p))
+        .collect();
         let samples = engine_aux_samples();
         let kinds: HashSet<&str> = samples.iter().map(|(k, _)| k.as_str()).collect();
         assert!(kinds.len() >= 18, "{kinds:?}");
         for (kind, args) in &samples {
             if inner_only.contains(&kind.as_str()) {
                 for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
-                    let key = if kind.contains("circ") { format!("aux.{kind}") } else { format!("aux.line.{kind}") };
-                    assert_ne!(crate::i18n::t(lang, &key), crate::i18n::t(lang, "aux.__none__"), "{key}");
+                    let key = if kind.contains("circ") {
+                        format!("aux.{kind}")
+                    } else {
+                        format!("aux.line.{kind}")
+                    };
+                    assert_ne!(
+                        crate::i18n::t(lang, &key),
+                        crate::i18n::t(lang, "aux.__none__"),
+                        "{key}"
+                    );
                 }
                 continue;
             }
@@ -4589,72 +6286,203 @@ mod tests {
             let v = serde_json::to_value(&a).unwrap();
             for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
                 let s = crate::render::aux_text(&v, lang);
-                assert!(s != a.text && !s.contains('{') && !s.contains(&format!("{kind}(")), "{kind}{args} in {lang:?}: {s:?}");
+                assert!(
+                    s != a.text && !s.contains('{') && !s.contains(&format!("{kind}(")),
+                    "{kind}{args} in {lang:?}: {s:?}"
+                );
             }
-            assert_eq!(js.matches(&format!("\"aux.{}\":", a.kind)).count(), 2, "aux.{} in both i18n.js catalogues", a.kind);
+            assert_eq!(
+                js.matches(&format!("\"aux.{}\":", a.kind)).count(),
+                2,
+                "aux.{} in both i18n.js catalogues",
+                a.kind
+            );
         }
     }
 
     #[test]
     fn excenters_name_their_vertex_and_line_circle_meets_say_which() {
-        let at: HashMap<String, Pt> = [("A", (0.0, 0.0)), ("B", (4.0, 0.0)), ("C", (1.0, 3.0)), ("X", (2.0, -3.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
-        let names = Names::build(&Problem { points: vec![], preds: vec![], goal: None });
+        let at: HashMap<String, Pt> = [
+            ("A", (0.0, 0.0)),
+            ("B", (4.0, 0.0)),
+            ("C", (1.0, 3.0)),
+            ("X", (2.0, -3.0)),
+        ]
+        .iter()
+        .map(|(n, p)| (n.to_string(), *p))
+        .collect();
+        let names = Names::build(&Problem {
+            points: vec![],
+            preds: vec![],
+            goal: None,
+        });
         let mut a = aux_view("X = excenter(A,B,C)", &names, &[]);
         resolve_branch(&mut a, &at);
         let v = serde_json::to_value(&a).unwrap();
-        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::En), "excenter of △ABC opposite C");
-        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::Ro), "centrul cercului exînscris al triunghiului ABC corespunzător laturii AB");
+        assert_eq!(
+            crate::render::aux_text(&v, crate::i18n::Lang::En),
+            "excenter of △ABC opposite C"
+        );
+        assert_eq!(
+            crate::render::aux_text(&v, crate::i18n::Lang::Ro),
+            "centrul cercului exînscris al triunghiului ABC corespunzător laturii AB"
+        );
         let h = 0.75f64.sqrt();
-        let at: HashMap<String, Pt> = [("A", (-3.0, 0.5)), ("B", (-2.0, 0.5)), ("O", (0.0, 0.0)), ("R", (1.0, 0.0)), ("X", (-h, 0.5)), ("Y", (h, 0.5))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
+        let at: HashMap<String, Pt> = [
+            ("A", (-3.0, 0.5)),
+            ("B", (-2.0, 0.5)),
+            ("O", (0.0, 0.0)),
+            ("R", (1.0, 0.0)),
+            ("X", (-h, 0.5)),
+            ("Y", (h, 0.5)),
+        ]
+        .iter()
+        .map(|(n, p)| (n.to_string(), *p))
+        .collect();
         let mut x = aux_view("X = intersect(AB, circle(O,R))", &names, &[]);
         resolve_branch(&mut x, &at);
         let v = serde_json::to_value(&x).unwrap();
-        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::En), "intersection of line AB with the circle (O, OR) nearer to A");
+        assert_eq!(
+            crate::render::aux_text(&v, crate::i18n::Lang::En),
+            "intersection of line AB with the circle (O, OR) nearer to A"
+        );
         let mut y = aux_view("Y = intersect(AB, circle(O,R))", &names, &[]);
         resolve_branch(&mut y, &at);
         let v = serde_json::to_value(&y).unwrap();
-        assert_eq!(crate::render::aux_text(&v, crate::i18n::Lang::Ro), "intersecția dreptei AB cu cercul (O, OR) aflată mai departe de A");
+        assert_eq!(
+            crate::render::aux_text(&v, crate::i18n::Lang::Ro),
+            "intersecția dreptei AB cu cercul (O, OR) aflată mai departe de A"
+        );
         let cc = serde_json::json!({ "name": "X", "kind": "intersect", "args": ["circumcircle(A,B,C)", "circumcircle(C,D,E)"], "text": "" });
-        assert_eq!(crate::render::aux_text(&cc, crate::i18n::Lang::En), "second intersection of the circumcircle of △ABC with the circumcircle of △CDE");
-        let at: HashMap<String, Pt> = [("A", (-3.0, 0.0)), ("B", (-1.0, 0.0)), ("O", (0.0, 0.0)), ("R", (0.0, 1.0)), ("X", (1.0, 0.0))].iter().map(|(n, p)| (n.to_string(), *p)).collect();
+        assert_eq!(
+            crate::render::aux_text(&cc, crate::i18n::Lang::En),
+            "second intersection of the circumcircle of △ABC with the circumcircle of △CDE"
+        );
+        let at: HashMap<String, Pt> = [
+            ("A", (-3.0, 0.0)),
+            ("B", (-1.0, 0.0)),
+            ("O", (0.0, 0.0)),
+            ("R", (0.0, 1.0)),
+            ("X", (1.0, 0.0)),
+        ]
+        .iter()
+        .map(|(n, p)| (n.to_string(), *p))
+        .collect();
         let mut s = aux_view("X = intersect(AB, circle(O,R))", &names, &[]);
         resolve_branch(&mut s, &at);
-        assert_eq!(s.kind, "intersect2", "B is on the circle, so X is the other meet");
+        assert_eq!(
+            s.kind, "intersect2",
+            "B is on the circle, so X is the other meet"
+        );
     }
 
     #[test]
     fn construction_helpers_are_defined_or_merged_with_the_users_point() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/centroid_ratio.geo")).unwrap();
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../alphageometry-rs/examples/named/centroid_ratio.geo"
+        ))
+        .unwrap();
         let (_, v) = view(&src);
         let names: Vec<&str> = v.points.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(v.svg.matches("class=\"f-lbl").count(), names.len() - 1, "the twin of Ma gets no second label: {names:?}");
+        assert_eq!(
+            v.svg.matches("class=\"f-lbl").count(),
+            names.len() - 1,
+            "the twin of Ma gets no second label: {names:?}"
+        );
         assert!(!v.svg.contains("data-p=\"M\">M</text>"), "{names:?}");
-        let bc = v.given.iter().filter(|f| f.kind == "coll" && f.args.len() == 3 && f.args[..2] == ["B", "C"]).count();
+        let bc = v
+            .given
+            .iter()
+            .filter(|f| f.kind == "coll" && f.args.len() == 3 && f.args[..2] == ["B", "C"])
+            .count();
         assert_eq!(bc, 1, "the midpoint of BC is stated once: {:?}", v.given);
         let defined: HashSet<&str> = v.helpers.iter().map(|h| h.name.as_str()).collect();
         let user: HashSet<&str> = ["A", "B", "C", "G", "Ma"].into_iter().collect();
-        assert!(names.iter().all(|n| user.contains(n) || defined.contains(n)), "{names:?} {:?}", v.helpers);
-        let twin = v.helpers.iter().find(|h| h.kind == "midpoint" && h.args == ["B", "C"]).expect("the median's midpoint");
+        assert!(
+            names
+                .iter()
+                .all(|n| user.contains(n) || defined.contains(n)),
+            "{names:?} {:?}",
+            v.helpers
+        );
+        let twin = v
+            .helpers
+            .iter()
+            .find(|h| h.kind == "midpoint" && h.args == ["B", "C"])
+            .expect("the median's midpoint");
         assert_eq!(twin.same.as_deref(), Some("Ma"));
-        assert_eq!(crate::render::aux_text(&serde_json::to_value(twin).unwrap(), crate::i18n::Lang::En), "midpoint of BC (the same point as Ma)");
-        assert!(v.helpers.iter().any(|h| h.kind == "midpoint" && h.args == ["A", "C"] && h.same.is_none()), "{:?}", v.helpers);
-        assert!(v.proof.steps.iter().all(|s| !s.fact.args.iter().any(|a| a == "MaB" && s.fact.args.iter().filter(|x| *x == a).count() > 1)), "no step degenerates");
-        assert!(v.svg.contains("M<tspan font-size=\"75%\" baseline-shift=\"sub\">a</tspan>"), "Ma is set with a subscript like the app");
+        assert_eq!(
+            crate::render::aux_text(&serde_json::to_value(twin).unwrap(), crate::i18n::Lang::En),
+            "midpoint of BC (the same point as Ma)"
+        );
+        assert!(
+            v.helpers
+                .iter()
+                .any(|h| h.kind == "midpoint" && h.args == ["A", "C"] && h.same.is_none()),
+            "{:?}",
+            v.helpers
+        );
+        assert!(
+            v.proof.steps.iter().all(|s| !s
+                .fact
+                .args
+                .iter()
+                .any(|a| a == "MaB" && s.fact.args.iter().filter(|x| *x == a).count() > 1)),
+            "no step degenerates"
+        );
+        assert!(
+            v.svg
+                .contains("M<tspan font-size=\"75%\" baseline-shift=\"sub\">a</tspan>"),
+            "Ma is set with a subscript like the app"
+        );
 
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../alphageometry-rs/examples/named/incenter_bisector_ratio.geo")).unwrap();
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../alphageometry-rs/examples/named/incenter_bisector_ratio.geo"
+        ))
+        .unwrap();
         let (_, v) = view(&src);
-        let p1 = v.helpers.iter().find(|h| h.name == "P\u{2081}").expect("P₁ is defined");
-        assert_eq!((p1.kind.as_str(), p1.args.clone()), ("on_bisector", vec!["B".to_string(), "A".to_string(), "C".to_string()]));
-        let shown = crate::render::aux_text(&serde_json::to_value(p1).unwrap(), crate::i18n::Lang::En);
+        let p1 = v
+            .helpers
+            .iter()
+            .find(|h| h.name == "P\u{2081}")
+            .expect("P₁ is defined");
+        assert_eq!(
+            (p1.kind.as_str(), p1.args.clone()),
+            (
+                "on_bisector",
+                vec!["B".to_string(), "A".to_string(), "C".to_string()]
+            )
+        );
+        let shown =
+            crate::render::aux_text(&serde_json::to_value(p1).unwrap(), crate::i18n::Lang::En);
         assert_eq!(shown, "a point on the bisector of \u{2220}BAC");
     }
 
     #[test]
     fn theorem_names_have_one_spelling() {
-        assert_eq!(crate::i18n::prose_en("Menelaus' theorem"), "Menelaus's theorem");
-        assert_eq!(crate::i18n::prose_en("Monge\u{2013}d'Alembert"), "Monge\u{2013}d'Alembert theorem");
-        assert_eq!(crate::i18n::prose_en("so by the angle-bisector theorem BD : DC = AB : AC"), "so by the angle bisector theorem BD : DC = AB : AC");
-        assert_eq!(euclid_rule("By the angle-bisector theorem (from D on BC), BD : DC = 2.").2.as_deref(), Some("angle bisector theorem"));
-        assert_eq!(crate::i18n::theorem_ro("Monge\u{2013}d'Alembert theorem"), Some("teorema Monge\u{2013}d'Alembert"));
+        assert_eq!(
+            crate::i18n::prose_en("Menelaus' theorem"),
+            "Menelaus's theorem"
+        );
+        assert_eq!(
+            crate::i18n::prose_en("Monge\u{2013}d'Alembert"),
+            "Monge\u{2013}d'Alembert theorem"
+        );
+        assert_eq!(
+            crate::i18n::prose_en("so by the angle-bisector theorem BD : DC = AB : AC"),
+            "so by the angle bisector theorem BD : DC = AB : AC"
+        );
+        assert_eq!(
+            euclid_rule("By the angle-bisector theorem (from D on BC), BD : DC = 2.")
+                .2
+                .as_deref(),
+            Some("angle bisector theorem")
+        );
+        assert_eq!(
+            crate::i18n::theorem_ro("Monge\u{2013}d'Alembert theorem"),
+            Some("teorema Monge\u{2013}d'Alembert")
+        );
     }
 }

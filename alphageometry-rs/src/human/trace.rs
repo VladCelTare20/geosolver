@@ -92,7 +92,11 @@ impl EngineTrace {
                 .iter()
                 .map(|(v, k)| k.to_f64() * vals.get(*v as usize).copied().unwrap_or(1.0).ln())
                 .sum(),
-            _ => c.terms.iter().map(|(v, k)| k.to_f64() * vals.get(*v as usize).copied().unwrap_or(0.0)).sum(),
+            _ => c
+                .terms
+                .iter()
+                .map(|(v, k)| k.to_f64() * vals.get(*v as usize).copied().unwrap_or(0.0))
+                .sum(),
         }
     }
 
@@ -147,14 +151,20 @@ impl EngineTrace {
 
     pub fn sine_canon(&self, v: VarId) -> VarId {
         let memo = self.sine_canon_memo.get_or_init(|| {
-            let mut first: std::collections::BTreeMap<(PointId, PointId, PointId, bool, Rat), VarId> = std::collections::BTreeMap::new();
+            let mut first: std::collections::BTreeMap<
+                (PointId, PointId, PointId, bool, Rat),
+                VarId,
+            > = std::collections::BTreeMap::new();
             for s in &self.sines {
                 let e = first.entry(Self::sine_key(s)).or_insert(s.var);
                 if s.var < *e {
                     *e = s.var;
                 }
             }
-            self.sines.iter().map(|s| (s.var, first[&Self::sine_key(s)])).collect()
+            self.sines
+                .iter()
+                .map(|s| (s.var, first[&Self::sine_key(s)]))
+                .collect()
         });
         memo.get(&v).copied().unwrap_or(v)
     }
@@ -178,7 +188,9 @@ impl EngineTrace {
             seen[i] = true;
             stack.extend(self.facts[i].premises.iter().copied());
         }
-        (0..self.facts.len() as FactId).filter(|&f| seen[f as usize]).collect()
+        (0..self.facts.len() as FactId)
+            .filter(|&f| seen[f as usize])
+            .collect()
     }
 
     pub fn reason(&self, f: FactId) -> Option<&Reason> {
@@ -186,11 +198,17 @@ impl EngineTrace {
     }
 
     pub fn rows_of(&self, t: Table, f: FactId) -> impl Iterator<Item = &LinComb> {
-        self.rows[t.idx()].iter().filter(move |(g, _)| *g == f).map(|(_, c)| c)
+        self.rows[t.idx()]
+            .iter()
+            .filter(move |(g, _)| *g == f)
+            .map(|(_, c)| c)
     }
 
     pub fn coord(&self, p: PointId) -> (f64, f64) {
-        self.coords.get(p as usize).copied().unwrap_or((f64::NAN, f64::NAN))
+        self.coords
+            .get(p as usize)
+            .copied()
+            .unwrap_or((f64::NAN, f64::NAN))
     }
 
     pub fn dist(&self, a: PointId, b: PointId) -> f64 {
@@ -212,11 +230,17 @@ impl EngineTrace {
     }
 
     pub fn name(&self, p: PointId) -> &str {
-        self.names.get(p as usize).map(String::as_str).unwrap_or("?")
+        self.names
+            .get(p as usize)
+            .map(String::as_str)
+            .unwrap_or("?")
     }
 
     pub fn point_id(&self, name: &str) -> Option<PointId> {
-        self.names.iter().position(|n| n == name).map(|i| i as PointId)
+        self.names
+            .iter()
+            .position(|n| n == name)
+            .map(|i| i as PointId)
     }
 
     pub fn parse_assumption(&self, text: &str) -> Option<Predicate> {
@@ -231,7 +255,11 @@ impl EngineTrace {
                 constants.push(parse_rat(tok)?);
             }
         }
-        Some(Predicate { name, points, constants })
+        Some(Predicate {
+            name,
+            points,
+            constants,
+        })
     }
 }
 

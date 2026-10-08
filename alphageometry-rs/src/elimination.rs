@@ -422,7 +422,11 @@ impl ElimDistAdd {
     pub fn force_zero(&mut self, da: &DistAdd, fact: Option<crate::proof::FactId>) -> bool {
         if self.value_of(da).powi(2) >= crate::numerics::ATOM {
             self.core.rejected += 1;
-            debug_assert!(false, "force_zero on nonzero additive distance: {}", self.value_of(da));
+            debug_assert!(
+                false,
+                "force_zero on nonzero additive distance: {}",
+                self.value_of(da)
+            );
             return false;
         }
         self.core.add_constraint(da.0.clone(), fact)
@@ -484,12 +488,11 @@ impl ElimDistSq {
 
     /// Whether `ds == 0` holds in the figure, relative to the size of its terms.
     pub fn holds_numerically(&self, ds: &DistSq) -> bool {
-        let scale: f64 = ds
-            .0
-            .terms
-            .iter()
-            .map(|(v, c)| (c.to_f64() * self.core.values[*v as usize]).abs())
-            .sum();
+        let scale: f64 =
+            ds.0.terms
+                .iter()
+                .map(|(v, c)| (c.to_f64() * self.core.values[*v as usize]).abs())
+                .sum();
         self.value_of(ds).abs() <= 1e-7 * scale.max(1e-9)
     }
 
@@ -499,7 +502,11 @@ impl ElimDistSq {
     pub fn force_zero(&mut self, ds: &DistSq, fact: Option<crate::proof::FactId>) -> bool {
         if !self.holds_numerically(ds) {
             self.core.rejected += 1;
-            debug_assert!(false, "squared-length equation fails numerically: {}", self.value_of(ds));
+            debug_assert!(
+                false,
+                "squared-length equation fails numerically: {}",
+                self.value_of(ds)
+            );
             return false;
         }
         self.core.add_constraint(ds.0.clone(), fact)

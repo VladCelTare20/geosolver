@@ -94,17 +94,35 @@ fn trig_steps_are_spelled_out() {
                coll g c a, eqangle b c b f b f b g, eqangle b f b g b g b a, coll h a b, coll i a b, \
                eqangle c a c h c h c i, eqangle c h c i c i c b, coll j b f, coll j c i, coll k a e, \
                coll k c h, coll l a d, coll l b g ? cong j l j k";
-    let proof = solve_problem_with_proof(&Problem::parse(fig).unwrap()).unwrap().expect("Morley");
+    let proof = solve_problem_with_proof(&Problem::parse(fig).unwrap())
+        .unwrap()
+        .expect("Morley");
     let lines: Vec<&str> = proof.lines().collect();
-    let triple: Vec<&&str> = lines.iter().filter(|l| l.contains("triple-angle formula: x = ∠(")).collect();
+    let triple: Vec<&&str> = lines
+        .iter()
+        .filter(|l| l.contains("triple-angle formula: x = ∠("))
+        .collect();
     assert_eq!(triple.len(), 3, "{proof}");
     assert!(triple.iter().all(|l| l.contains(", 3x ≡ ±∠(")), "{proof}");
-    let converse: Vec<&&str> = lines.iter().filter(|l| l.contains("law of sines, converse: in △")).collect();
+    let converse: Vec<&&str> = lines
+        .iter()
+        .filter(|l| l.contains("law of sines, converse: in △"))
+        .collect();
     assert_eq!(converse.len(), 3, "{proof}");
     assert!(
-        converse.iter().all(|l| l.contains(" with w = ∠(") && l.contains("in this configuration") && l.contains(") = w [")),
+        converse.iter().all(|l| l.contains(" with w = ∠(")
+            && l.contains("in this configuration")
+            && l.contains(") = w [")),
         "{proof}"
     );
-    assert!(lines.iter().any(|l| l.contains("law of sines: in △") && l.contains(" / |sin ∠(")), "{proof}");
-    assert!(!proof.contains("formula: sin x"), "an unspelled row:\n{proof}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("law of sines: in △") && l.contains(" / |sin ∠(")),
+        "{proof}"
+    );
+    assert!(
+        !proof.contains("formula: sin x"),
+        "an unspelled row:\n{proof}"
+    );
 }

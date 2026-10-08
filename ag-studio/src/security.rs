@@ -320,16 +320,22 @@ impl Config {
 
         let guest_mode = env_flag(&get, "AGSTUDIO_GUEST_MODE")?.unwrap_or(basic_auth.is_some());
         if guest_mode && basic_auth.is_none() {
-            return Err("AGSTUDIO_GUEST_MODE=1 needs AGSTUDIO_BASIC_AUTH: guest access is \
+            return Err(
+                "AGSTUDIO_GUEST_MODE=1 needs AGSTUDIO_BASIC_AUTH: guest access is \
                         \"link + shared password\", never fully open"
-                .into());
+                    .into(),
+            );
         }
         let guest_ai = env_flag(&get, "AGSTUDIO_GUEST_AI")?.unwrap_or(guest_mode);
 
         let gate = match get("AGSTUDIO_GATE").as_deref().map(str::trim) {
             None | Some("") | Some("form") => GateMode::Form,
             Some("basic") => GateMode::Basic,
-            Some(other) => return Err(format!("invalid AGSTUDIO_GATE `{other}` (want `form` or `basic`)")),
+            Some(other) => {
+                return Err(format!(
+                    "invalid AGSTUDIO_GATE `{other}` (want `form` or `basic`)"
+                ))
+            }
         };
         let gate_key = match env_secret(&get, "AGSTUDIO_GATE_KEY")? {
             None => None,
@@ -353,9 +359,19 @@ impl Config {
         let cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
-        let solve_deadline =
-            Duration::from_secs(env_num(&get, "AGSTUDIO_SOLVE_DEADLINE_SECS", SOLVE_DEADLINE.as_secs())?.clamp(10, 600));
-        let extended_deadline = match env_num(&get, "AGSTUDIO_EXTENDED_DEADLINE_SECS", EXTENDED_DEADLINE.as_secs())? {
+        let solve_deadline = Duration::from_secs(
+            env_num(
+                &get,
+                "AGSTUDIO_SOLVE_DEADLINE_SECS",
+                SOLVE_DEADLINE.as_secs(),
+            )?
+            .clamp(10, 600),
+        );
+        let extended_deadline = match env_num(
+            &get,
+            "AGSTUDIO_EXTENDED_DEADLINE_SECS",
+            EXTENDED_DEADLINE.as_secs(),
+        )? {
             0 => None,
             s => Some(Duration::from_secs(s.min(900))).filter(|d| *d > solve_deadline),
         };
@@ -383,12 +399,16 @@ impl Config {
                 .unwrap_or_else(|| PathBuf::from("./agstudio.db")),
             secure_cookies: flag("AGSTUDIO_SECURE_COOKIES")?,
             claude_oauth_token,
-            queue_wait: Duration::from_secs(env_num(&get, "AGSTUDIO_QUEUE_WAIT_SECS", 5u64)?.min(60)),
+            queue_wait: Duration::from_secs(
+                env_num(&get, "AGSTUDIO_QUEUE_WAIT_SECS", 5u64)?.min(60),
+            ),
             solve_deadline,
             extended_deadline,
             header_timeout: HEADER_TIMEOUT,
             shutdown_grace: match set_value(&get, "AGSTUDIO_SHUTDOWN_GRACE_SECS") {
-                Some(_) => Duration::from_secs(env_num(&get, "AGSTUDIO_SHUTDOWN_GRACE_SECS", 0u64)?.min(600)),
+                Some(_) => Duration::from_secs(
+                    env_num(&get, "AGSTUDIO_SHUTDOWN_GRACE_SECS", 0u64)?.min(600),
+                ),
                 None => solve_deadline + crate::worker::GRACE + Duration::from_secs(5),
             },
             access_log: env_flag(&get, "AGSTUDIO_ACCESS_LOG")?.unwrap_or(true),
@@ -408,8 +428,12 @@ impl Config {
     /// The whole-request timeout: room for the longest solve, its worker's
     /// grace period and the wait for a slot.
     pub fn request_timeout(&self) -> Duration {
-        let longest = self.extended_deadline.unwrap_or(self.solve_deadline).max(self.solve_deadline);
-        REQUEST_TIMEOUT_MIN.max(longest + crate::worker::GRACE + self.queue_wait + Duration::from_secs(30))
+        let longest = self
+            .extended_deadline
+            .unwrap_or(self.solve_deadline)
+            .max(self.solve_deadline);
+        REQUEST_TIMEOUT_MIN
+            .max(longest + crate::worker::GRACE + self.queue_wait + Duration::from_secs(30))
     }
 
     /// Guest access is only ever granted behind the shared Basic password.
@@ -509,10 +533,17 @@ impl AppState {
         })?;
         let gate_key = match config.gate_key {
             Some(k) => k,
-            None => {
-                crate::db::server_secret(&crate::db::lock(&db), "gate_key", crate::auth::random_key())
-                    .map_err(|e| format!("could not read the gate key from {}: {e}", config.db_path.display()))?
-            }
+            None => crate::db::server_secret(
+                &crate::db::lock(&db),
+                "gate_key",
+                crate::auth::random_key(),
+            )
+            .map_err(|e| {
+                format!(
+                    "could not read the gate key from {}: {e}",
+                    config.db_path.display()
+                )
+            })?,
         };
         Ok(Arc::new(AppState {
             heavy: Arc::new(Semaphore::new(config.max_concurrent)),
@@ -554,15 +585,22 @@ impl AppState {
     }
 
     fn with_rejection(&self, s: translate::Status) -> translate::Status {
-        let held = relock(&self.credential_rejected).is_some_and(|at| at.elapsed() < CREDENTIAL_REJECTED_HOLD);
-        translate::Status { installed: s.installed, logged_in: s.logged_in && !held }
+        let held = relock(&self.credential_rejected)
+            .is_some_and(|at| at.elapsed() < CREDENTIAL_REJECTED_HOLD);
+        translate::Status {
+            installed: s.installed,
+            logged_in: s.logged_in && !held,
+        }
     }
 
     /// Translation status for `/api/status`: never spawns anything when
     /// translation is disabled, otherwise probes on the blocking pool at most
     /// once per [`TRANSLATE_STATUS_TTL`].
     pub async fn translate_status(&self) -> translate::Status {
-        let off = translate::Status { installed: false, logged_in: false };
+        let off = translate::Status {
+            installed: false,
+            logged_in: false,
+        };
         if !self.config.enable_translate {
             return off;
         }
@@ -584,7 +622,10 @@ impl AppState {
     /// finishes. A missing or stale result starts one background refresh.
     pub fn translate_status_now(self: &Arc<Self>) -> Option<translate::Status> {
         if !self.config.enable_translate {
-            return Some(translate::Status { installed: false, logged_in: false });
+            return Some(translate::Status {
+                installed: false,
+                logged_in: false,
+            });
         }
         let mut snap = relock(&self.status_snapshot);
         let (current, stale) = match snap.0 {
@@ -619,7 +660,9 @@ mod tests {
         // Schema is usable immediately (round-trips through the shared handle).
         let conn = state.db.lock().unwrap();
         crate::db::create_user(&conn, "alice", "hash").unwrap();
-        assert!(crate::db::find_user_by_name(&conn, "alice").unwrap().is_some());
+        assert!(crate::db::find_user_by_name(&conn, "alice")
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -659,8 +702,10 @@ mod tests {
     }
 
     fn cfg(vars: &[(&str, &str)]) -> Result<Config, String> {
-        let vars: HashMap<String, String> =
-            vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let vars: HashMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         Config::from_lookup(8787, move |k| vars.get(k).cloned())
     }
 
@@ -669,24 +714,52 @@ mod tests {
         let c = cfg(&[]).unwrap();
         assert_eq!(c.solve_deadline, Duration::from_secs(60));
         assert_eq!(c.extended_deadline, Some(Duration::from_secs(180)));
-        assert!(c.request_timeout() >= Duration::from_secs(180) + crate::worker::GRACE + c.queue_wait);
-        let c = cfg(&[("AGSTUDIO_SOLVE_DEADLINE_SECS", "90"), ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "0")]).unwrap();
+        assert!(
+            c.request_timeout() >= Duration::from_secs(180) + crate::worker::GRACE + c.queue_wait
+        );
+        let c = cfg(&[
+            ("AGSTUDIO_SOLVE_DEADLINE_SECS", "90"),
+            ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "0"),
+        ])
+        .unwrap();
         assert_eq!(c.solve_deadline, Duration::from_secs(90));
         assert_eq!(c.extended_deadline, None);
-        assert_eq!(c.request_timeout(), REQUEST_TIMEOUT_MIN.max(Duration::from_secs(90) + crate::worker::GRACE + c.queue_wait + Duration::from_secs(30)));
-        let c = cfg(&[("AGSTUDIO_SOLVE_DEADLINE_SECS", "1"), ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "5000")]).unwrap();
+        assert_eq!(
+            c.request_timeout(),
+            REQUEST_TIMEOUT_MIN.max(
+                Duration::from_secs(90)
+                    + crate::worker::GRACE
+                    + c.queue_wait
+                    + Duration::from_secs(30)
+            )
+        );
+        let c = cfg(&[
+            ("AGSTUDIO_SOLVE_DEADLINE_SECS", "1"),
+            ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "5000"),
+        ])
+        .unwrap();
         assert_eq!(c.solve_deadline, Duration::from_secs(10));
         assert_eq!(c.extended_deadline, Some(Duration::from_secs(900)));
-        let c = cfg(&[("AGSTUDIO_SOLVE_DEADLINE_SECS", "200"), ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "120")]).unwrap();
+        let c = cfg(&[
+            ("AGSTUDIO_SOLVE_DEADLINE_SECS", "200"),
+            ("AGSTUDIO_EXTENDED_DEADLINE_SECS", "120"),
+        ])
+        .unwrap();
         assert_eq!(c.extended_deadline, None, "a longer search must be longer");
     }
 
     #[test]
     fn unusable_basic_auth_refuses_to_start() {
         for bad in ["", ":", "short", ":short", "user:short", "user:"] {
-            assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", bad)]).is_err(), "{bad:?} must fail closed");
+            assert!(
+                cfg(&[("AGSTUDIO_BASIC_AUTH", bad)]).is_err(),
+                "{bad:?} must fail closed"
+            );
         }
-        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", "longenough")]).unwrap().basic_auth.is_some());
+        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", "longenough")])
+            .unwrap()
+            .basic_auth
+            .is_some());
     }
 
     #[test]
@@ -694,34 +767,76 @@ mod tests {
         let template = include_str!("../../deploy/.env.example");
         let shipped: Vec<&str> = template
             .lines()
-            .filter_map(|l| l.trim().strip_prefix("#").unwrap_or(l).trim().strip_prefix("AGSTUDIO_BASIC_AUTH="))
+            .filter_map(|l| {
+                l.trim()
+                    .strip_prefix("#")
+                    .unwrap_or(l)
+                    .trim()
+                    .strip_prefix("AGSTUDIO_BASIC_AUTH=")
+            })
             .collect();
-        assert!(!shipped.is_empty(), "the template documents AGSTUDIO_BASIC_AUTH");
+        assert!(
+            !shipped.is_empty(),
+            "the template documents AGSTUDIO_BASIC_AUTH"
+        );
         for spec in shipped {
-            let err = BasicAuth::parse(spec).err().unwrap_or_else(|| panic!("{spec:?} must fail closed"));
+            let err = BasicAuth::parse(spec)
+                .err()
+                .unwrap_or_else(|| panic!("{spec:?} must fail closed"));
             assert!(err.contains("openssl rand -hex 16"), "{err}");
         }
         assert!(
-            !template.lines().any(|l| l.trim_start().starts_with("AGSTUDIO_BASIC_AUTH=")),
+            !template
+                .lines()
+                .any(|l| l.trim_start().starts_with("AGSTUDIO_BASIC_AUTH=")),
             "an unedited copy must leave the password unset, so a public bind refuses to start"
         );
-        for bad in [":CHANGE-ME-run-openssl-rand-hex-16", "op:change-me-please", "Change-Me-12345"] {
+        for bad in [
+            ":CHANGE-ME-run-openssl-rand-hex-16",
+            "op:change-me-please",
+            "Change-Me-12345",
+        ] {
             assert!(BasicAuth::parse(bad).is_err(), "{bad:?}");
         }
-        let unedited = cfg(&[("AGSTUDIO_BIND", "0.0.0.0:8787"), ("AGSTUDIO_TRUST_PROXY", "1")]);
+        let unedited = cfg(&[
+            ("AGSTUDIO_BIND", "0.0.0.0:8787"),
+            ("AGSTUDIO_TRUST_PROXY", "1"),
+        ]);
         assert!(unedited.err().unwrap().contains("refusing to bind"));
     }
 
     #[test]
     fn flags_parse_in_any_case_and_refuse_anything_else() {
-        let on = cfg(&[("AGSTUDIO_SECURE_COOKIES", "True"), ("AGSTUDIO_TRUST_PROXY", " ON ")]).unwrap();
+        let on = cfg(&[
+            ("AGSTUDIO_SECURE_COOKIES", "True"),
+            ("AGSTUDIO_TRUST_PROXY", " ON "),
+        ])
+        .unwrap();
         assert!(on.secure_cookies && on.trust_proxy);
-        let off = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_MODE", "False")]).unwrap();
-        assert!(!off.guest_allowed(), "GUEST_MODE=False must mean off, not the default");
-        let no_ai = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_AI", "NO")]).unwrap();
+        let off = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+            ("AGSTUDIO_GUEST_MODE", "False"),
+        ])
+        .unwrap();
+        assert!(
+            !off.guest_allowed(),
+            "GUEST_MODE=False must mean off, not the default"
+        );
+        let no_ai = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+            ("AGSTUDIO_GUEST_AI", "NO"),
+        ])
+        .unwrap();
         assert!(!no_ai.guest_ai_allowed());
-        assert!(!cfg(&[("AGSTUDIO_DISABLE_TRANSLATE", "Yes")]).unwrap().enable_translate);
-        assert!(cfg(&[("AGSTUDIO_SECURE_COOKIES", "")]).is_ok(), "empty = unset");
+        assert!(
+            !cfg(&[("AGSTUDIO_DISABLE_TRANSLATE", "Yes")])
+                .unwrap()
+                .enable_translate
+        );
+        assert!(
+            cfg(&[("AGSTUDIO_SECURE_COOKIES", "")]).is_ok(),
+            "empty = unset"
+        );
         for k in [
             "AGSTUDIO_SECURE_COOKIES",
             "AGSTUDIO_TRUST_PROXY",
@@ -733,7 +848,10 @@ mod tests {
         ] {
             for bad in ["2", "enabled", "tru", "o n"] {
                 let err = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), (k, bad)]).err();
-                assert!(err.as_deref().is_some_and(|e| e.contains(k)), "{k}={bad:?} must refuse to start: {err:?}");
+                assert!(
+                    err.as_deref().is_some_and(|e| e.contains(k)),
+                    "{k}={bad:?} must refuse to start: {err:?}"
+                );
             }
         }
         assert_eq!(parse_flag("Off"), Some(false));
@@ -758,12 +876,26 @@ mod tests {
         ] {
             for bad in ["four", "6O", "-1", "1.5"] {
                 let err = cfg(&[(k, bad)]).err();
-                assert!(err.as_deref().is_some_and(|e| e.contains(k)), "{k}={bad:?} must refuse to start: {err:?}");
+                assert!(
+                    err.as_deref().is_some_and(|e| e.contains(k)),
+                    "{k}={bad:?} must refuse to start: {err:?}"
+                );
             }
         }
-        assert!(cfg(&[("AGSTUDIO_RATE_PER_MIN", "4294967296")]).is_err(), "no silent wrap to 0 = off");
-        let c = cfg(&[("AGSTUDIO_MAX_CONCURRENT", " 3 "), ("AGSTUDIO_RATE_PER_MIN", "60"), ("AGSTUDIO_MAX_BODY_KB", "")]).unwrap();
-        assert_eq!((c.max_concurrent, c.rate_per_min, c.max_body_bytes), (3, 60, 8192 * 1024));
+        assert!(
+            cfg(&[("AGSTUDIO_RATE_PER_MIN", "4294967296")]).is_err(),
+            "no silent wrap to 0 = off"
+        );
+        let c = cfg(&[
+            ("AGSTUDIO_MAX_CONCURRENT", " 3 "),
+            ("AGSTUDIO_RATE_PER_MIN", "60"),
+            ("AGSTUDIO_MAX_BODY_KB", ""),
+        ])
+        .unwrap();
+        assert_eq!(
+            (c.max_concurrent, c.rate_per_min, c.max_body_bytes),
+            (3, 60, 8192 * 1024)
+        );
     }
 
     #[test]
@@ -793,20 +925,42 @@ mod tests {
         ])
         .unwrap();
         let auth = c.basic_auth.as_ref().unwrap();
-        assert!(auth.credentials_match(b"anyone", b"from-a-file-123"), "trailing newline stripped");
+        assert!(
+            auth.credentials_match(b"anyone", b"from-a-file-123"),
+            "trailing newline stripped"
+        );
         assert_eq!(c.gate_key, Some([0xab; 32]));
         assert_eq!(c.claude_oauth_token.as_deref(), Some("sk-ant-oat-test"));
-        assert_eq!(cfg(&[("CLAUDE_CODE_OAUTH_TOKEN", "t")]).unwrap().claude_oauth_token.as_deref(), Some("t"));
+        assert_eq!(
+            cfg(&[("CLAUDE_CODE_OAUTH_TOKEN", "t")])
+                .unwrap()
+                .claude_oauth_token
+                .as_deref(),
+            Some("t")
+        );
 
-        let both = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_BASIC_AUTH_FILE", &pw)]);
+        let both = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+            ("AGSTUDIO_BASIC_AUTH_FILE", &pw),
+        ]);
         assert!(both.err().unwrap().contains("not both"));
         let missing = dir.path().join("absent").to_string_lossy().into_owned();
-        for k in ["AGSTUDIO_BASIC_AUTH_FILE", "AGSTUDIO_GATE_KEY_FILE", "CLAUDE_CODE_OAUTH_TOKEN_FILE"] {
+        for k in [
+            "AGSTUDIO_BASIC_AUTH_FILE",
+            "AGSTUDIO_GATE_KEY_FILE",
+            "CLAUDE_CODE_OAUTH_TOKEN_FILE",
+        ] {
             let err = cfg(&[(k, &missing)]).err();
-            assert!(err.as_deref().is_some_and(|e| e.contains(k)), "{k}: {err:?}");
+            assert!(
+                err.as_deref().is_some_and(|e| e.contains(k)),
+                "{k}: {err:?}"
+            );
         }
         let weak = write("weak", "short\n");
-        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH_FILE", &weak)]).is_err(), "a file password is checked like any other");
+        assert!(
+            cfg(&[("AGSTUDIO_BASIC_AUTH_FILE", &weak)]).is_err(),
+            "a file password is checked like any other"
+        );
         let placeholder = write("ph", ":CHANGE-ME-run-openssl-rand-hex-16\n");
         assert!(cfg(&[("AGSTUDIO_BASIC_AUTH_FILE", &placeholder)]).is_err());
     }
@@ -814,7 +968,10 @@ mod tests {
     #[test]
     fn the_csp_names_each_inline_script_once() {
         let csp = content_security_policy();
-        let hashes: Vec<&str> = csp.split_whitespace().filter(|w| w.starts_with("'sha256-")).collect();
+        let hashes: Vec<&str> = csp
+            .split_whitespace()
+            .filter(|w| w.starts_with("'sha256-"))
+            .collect();
         assert!(!hashes.is_empty(), "{csp}");
         let mut unique = hashes.clone();
         unique.sort();
@@ -849,10 +1006,18 @@ mod tests {
     #[test]
     fn guest_mode_defaults_follow_basic_auth() {
         assert!(!cfg(&[]).unwrap().guest_allowed());
-        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough")]).unwrap().guest_allowed());
-        let off = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_MODE", "0")]);
+        assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough")])
+            .unwrap()
+            .guest_allowed());
+        let off = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+            ("AGSTUDIO_GUEST_MODE", "0"),
+        ]);
         assert!(!off.unwrap().guest_allowed());
-        assert!(cfg(&[("AGSTUDIO_GUEST_MODE", "1")]).is_err(), "guest mode with no password");
+        assert!(
+            cfg(&[("AGSTUDIO_GUEST_MODE", "1")]).is_err(),
+            "guest mode with no password"
+        );
     }
 
     #[test]
@@ -862,33 +1027,73 @@ mod tests {
         assert!(c.form_gate());
         assert_eq!(c.gate_days, 180);
         assert!(c.gate_key.is_none());
-        assert!(c.summary().starts_with("auth: shared password (form + Basic), guests allowed"), "{}", c.summary());
-        let b = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GATE", "basic")]).unwrap();
+        assert!(
+            c.summary()
+                .starts_with("auth: shared password (form + Basic), guests allowed"),
+            "{}",
+            c.summary()
+        );
+        let b = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+            ("AGSTUDIO_GATE", "basic"),
+        ])
+        .unwrap();
         assert_eq!(b.gate, GateMode::Basic);
         assert!(!b.form_gate());
         assert!(!cfg(&[]).unwrap().form_gate(), "no password, no gate");
         assert!(cfg(&[("AGSTUDIO_GATE", "cookie")]).is_err());
         let hex = "00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF";
-        let k = cfg(&[("AGSTUDIO_GATE_KEY", hex)]).unwrap().gate_key.unwrap();
+        let k = cfg(&[("AGSTUDIO_GATE_KEY", hex)])
+            .unwrap()
+            .gate_key
+            .unwrap();
         assert_eq!((k[0], k[1], k[31]), (0x00, 0x11, 0xff));
-        for bad in ["", "abc", &hex[..63], &format!("{hex}0"), &hex.replace('0', "g")] {
-            assert!(cfg(&[("AGSTUDIO_GATE_KEY", bad)]).is_err(), "{bad:?} must refuse to start");
+        for bad in [
+            "",
+            "abc",
+            &hex[..63],
+            &format!("{hex}0"),
+            &hex.replace('0', "g"),
+        ] {
+            assert!(
+                cfg(&[("AGSTUDIO_GATE_KEY", bad)]).is_err(),
+                "{bad:?} must refuse to start"
+            );
         }
         assert_eq!(cfg(&[("AGSTUDIO_GATE_DAYS", "0")]).unwrap().gate_days, 1);
-        assert_eq!(cfg(&[("AGSTUDIO_GATE_DAYS", "9999")]).unwrap().gate_days, 400);
+        assert_eq!(
+            cfg(&[("AGSTUDIO_GATE_DAYS", "9999")]).unwrap().gate_days,
+            400
+        );
     }
 
     #[test]
     fn guest_ai_follows_guest_mode_unless_set() {
         let on = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough")]).unwrap();
         assert!(on.guest_ai_allowed());
-        let off = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_AI", "0")]).unwrap();
+        let off = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+            ("AGSTUDIO_GUEST_AI", "0"),
+        ])
+        .unwrap();
         assert!(off.guest_allowed() && !off.guest_ai_allowed());
-        let no_guests = cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough"), ("AGSTUDIO_GUEST_MODE", "0")]).unwrap();
+        let no_guests = cfg(&[
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+            ("AGSTUDIO_GUEST_MODE", "0"),
+        ])
+        .unwrap();
         assert!(!no_guests.guest_ai_allowed());
         let forced = cfg(&[("AGSTUDIO_GUEST_AI", "1")]).unwrap();
-        assert!(!forced.guest_ai_allowed(), "never without the shared password");
-        assert_eq!(cfg(&[("AGSTUDIO_GUEST_AI_PER_DAY", "30")]).unwrap().guest_ai_per_day, 30);
+        assert!(
+            !forced.guest_ai_allowed(),
+            "never without the shared password"
+        );
+        assert_eq!(
+            cfg(&[("AGSTUDIO_GUEST_AI_PER_DAY", "30")])
+                .unwrap()
+                .guest_ai_per_day,
+            30
+        );
     }
 
     #[test]
@@ -912,7 +1117,10 @@ mod tests {
         let key = [0x0bu8; 32];
         let mac = hmac_sha256(&key, b"Hi There");
         let hex: String = mac.iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex, "198a607eb44bfbc69903a0f1cf2bbdc5ba0aa3f3d9ae3c1c7a3b1696a0b68cf7");
+        assert_eq!(
+            hex,
+            "198a607eb44bfbc69903a0f1cf2bbdc5ba0aa3f3d9ae3c1c7a3b1696a0b68cf7"
+        );
     }
 
     #[test]
@@ -936,7 +1144,10 @@ mod tests {
         assert!(c.public_hosts.is_empty());
         let c = cfg(&[
             ("AGSTUDIO_TRUST_PROXY", "1"),
-            ("AGSTUDIO_PUBLIC_HOST", " Geo.Tail1.ts.net:443 , other.example ,"),
+            (
+                "AGSTUDIO_PUBLIC_HOST",
+                " Geo.Tail1.ts.net:443 , other.example ,",
+            ),
         ])
         .unwrap();
         assert!(c.trust_proxy);
@@ -962,7 +1173,11 @@ mod tests {
     fn client_ip_uses_the_rightmost_xff_from_a_trusted_peer_only() {
         let mut c = cfg(&[]).unwrap();
         let spoofed = req_from("127.0.0.1:4000", &["6.6.6.6, 203.0.113.5"]);
-        assert_eq!(client_ip(&c, &spoofed), ip("127.0.0.1"), "trust is off by default");
+        assert_eq!(
+            client_ip(&c, &spoofed),
+            ip("127.0.0.1"),
+            "trust is off by default"
+        );
         c.trust_proxy = true;
         assert_eq!(client_ip(&c, &spoofed), ip("203.0.113.5"));
         let split = req_from("127.0.0.1:4000", &["6.6.6.6", "203.0.113.5"]);
@@ -970,9 +1185,17 @@ mod tests {
         let tailnet = req_from("100.101.102.103:4000", &["203.0.113.5"]);
         assert_eq!(client_ip(&c, &tailnet), ip("203.0.113.5"));
         let direct = req_from("198.51.100.20:4000", &["203.0.113.5"]);
-        assert_eq!(client_ip(&c, &direct), ip("198.51.100.20"), "untrusted peer: XFF ignored");
+        assert_eq!(
+            client_ip(&c, &direct),
+            ip("198.51.100.20"),
+            "untrusted peer: XFF ignored"
+        );
         let garbage = req_from("10.0.0.2:4000", &["203.0.113.5, not-an-ip"]);
-        assert_eq!(client_ip(&c, &garbage), ip("10.0.0.2"), "invalid XFF: the peer, per request");
+        assert_eq!(
+            client_ip(&c, &garbage),
+            ip("10.0.0.2"),
+            "invalid XFF: the peer, per request"
+        );
     }
 
     #[test]
@@ -1042,7 +1265,13 @@ impl RateLimiter {
         Self::hit_in(map, ip, limit, now, WINDOW)
     }
 
-    fn hit_in(map: &mut HashMap<IpAddr, Window>, ip: IpAddr, limit: u32, now: Instant, window: Duration) -> bool {
+    fn hit_in(
+        map: &mut HashMap<IpAddr, Window>,
+        ip: IpAddr,
+        limit: u32,
+        now: Instant,
+        window: Duration,
+    ) -> bool {
         if limit == 0 {
             return true;
         }
@@ -1071,10 +1300,16 @@ impl RateLimiter {
             .last_sweep
             .is_none_or(|t| now.duration_since(t) > Duration::from_secs(300))
         {
-            for m in [&mut self.general, &mut self.translate, &mut self.auth, &mut self.basic_fail] {
+            for m in [
+                &mut self.general,
+                &mut self.translate,
+                &mut self.auth,
+                &mut self.basic_fail,
+            ] {
                 m.retain(|_, w| now.duration_since(w.start) < WINDOW);
             }
-            self.guest_ai_day.retain(|_, w| now.duration_since(w.start) < DAY);
+            self.guest_ai_day
+                .retain(|_, w| now.duration_since(w.start) < DAY);
             self.last_sweep = Some(now);
         }
     }
@@ -1083,7 +1318,12 @@ impl RateLimiter {
 impl AppState {
     /// `ip` has used up its wrong-password budget for this minute.
     pub fn password_guesses_exhausted(&self, ip: IpAddr) -> bool {
-        RateLimiter::exhausted(&relock(&self.rate).basic_fail, ip, self.config.basic_auth_fails_per_min, Instant::now())
+        RateLimiter::exhausted(
+            &relock(&self.rate).basic_fail,
+            ip,
+            self.config.basic_auth_fails_per_min,
+            Instant::now(),
+        )
     }
 
     /// Count one wrong shared password (Basic or the gate form) for `ip`.
@@ -1091,7 +1331,12 @@ impl AppState {
         let now = Instant::now();
         let mut r = relock(&self.rate);
         r.sweep(now);
-        RateLimiter::hit(&mut r.basic_fail, ip, self.config.basic_auth_fails_per_min, now);
+        RateLimiter::hit(
+            &mut r.basic_fail,
+            ip,
+            self.config.basic_auth_fails_per_min,
+            now,
+        );
     }
 
     /// Count one guest translation or AI explanation for `ip` against `AGSTUDIO_GUEST_AI_PER_DAY`;
@@ -1100,7 +1345,13 @@ impl AppState {
         let now = Instant::now();
         let mut r = relock(&self.rate);
         r.sweep(now);
-        RateLimiter::hit_in(&mut r.guest_ai_day, ip, self.config.guest_ai_per_day, now, DAY)
+        RateLimiter::hit_in(
+            &mut r.guest_ai_day,
+            ip,
+            self.config.guest_ai_per_day,
+            now,
+            DAY,
+        )
     }
 }
 
@@ -1170,7 +1421,9 @@ fn host_only(h: &str) -> String {
         &h[..end + 2]
     } else {
         match h.rsplit_once(':') {
-            Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => name,
+            Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+                name
+            }
             _ => h,
         }
     };
@@ -1190,7 +1443,9 @@ fn json_error(code: StatusCode, msg: &str) -> Response {
 /// all (not a browser) passes.
 pub async fn host_guard(State(state): State<Shared>, req: Request<Body>, next: Next) -> Response {
     let cfg = &state.config;
-    if (!cfg.bind.ip().is_loopback() && cfg.public_hosts.is_empty()) || req.uri().path() == "/healthz" {
+    if (!cfg.bind.ip().is_loopback() && cfg.public_hosts.is_empty())
+        || req.uri().path() == "/healthz"
+    {
         return next.run(req).await;
     }
     let host = req
@@ -1289,10 +1544,7 @@ fn basic_challenge() -> Response {
 /// challenge: on a browser `fetch()` it would pop Safari's credentials sheet.
 fn gate_reject(req: &Request<Body>, nav: bool) -> Response {
     if nav {
-        let target = req
-            .uri()
-            .path_and_query()
-            .map_or("/", |pq| pq.as_str());
+        let target = req.uri().path_and_query().map_or("/", |pq| pq.as_str());
         if crate::gate::came_from_gate(req.headers()) {
             return crate::gate::redirect_to_gate_cookie_lost(target);
         }
@@ -1309,8 +1561,10 @@ fn gate_reject(req: &Request<Body>, nav: bool) -> Response {
         (StatusCode::UNAUTHORIZED, "Authentication required.").into_response()
     };
     if !req.headers().contains_key("sec-fetch-mode") {
-        resp.headers_mut()
-            .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static(BASIC_CHALLENGE));
+        resp.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static(BASIC_CHALLENGE),
+        );
     }
     resp
 }
@@ -1436,7 +1690,10 @@ impl AppState {
     /// How many solves all guests behind one address may run together: every
     /// slot but one, so one network cannot lock everyone else out.
     pub fn guest_ip_limit(&self) -> usize {
-        self.config.max_concurrent.saturating_sub(1).max(self.per_caller_limit())
+        self.config
+            .max_concurrent
+            .saturating_sub(1)
+            .max(self.per_caller_limit())
     }
 
     pub fn claim_within(&self, key: String, limit: usize) -> Option<CallerSlot> {
@@ -1446,11 +1703,18 @@ impl AppState {
             return None;
         }
         *n += 1;
-        Some(CallerSlot { key, map: self.inflight.clone() })
+        Some(CallerSlot {
+            key,
+            map: self.inflight.clone(),
+        })
     }
 }
 
-pub async fn rate_limit(State(state): State<Shared>, mut req: Request<Body>, next: Next) -> Response {
+pub async fn rate_limit(
+    State(state): State<Shared>,
+    mut req: Request<Body>,
+    next: Next,
+) -> Response {
     if sweep_due(&state) {
         let db = state.db.clone();
         tokio::task::spawn_blocking(move || purge_expired_sessions(&db));
@@ -1532,10 +1796,14 @@ pub fn inline_scripts(html: &str) -> Vec<&str> {
     let mut rest = html;
     while let Some(i) = rest.find("<script") {
         rest = &rest[i..];
-        let Some(open_end) = rest.find('>') else { break };
+        let Some(open_end) = rest.find('>') else {
+            break;
+        };
         let tag = &rest[..open_end];
         let body_start = open_end + 1;
-        let Some(close) = rest[body_start..].find("</script>") else { break };
+        let Some(close) = rest[body_start..].find("</script>") else {
+            break;
+        };
         if !tag.contains("src=") {
             out.push(&rest[body_start..body_start + close]);
         }
@@ -1593,7 +1861,11 @@ pub async fn security_headers(
     set(h, header::X_CONTENT_TYPE_OPTIONS, "nosniff");
     set(h, header::X_FRAME_OPTIONS, "DENY");
     set(h, header::REFERRER_POLICY, "same-origin");
-    set(h, header::CONTENT_SECURITY_POLICY, content_security_policy());
+    set(
+        h,
+        header::CONTENT_SECURITY_POLICY,
+        content_security_policy(),
+    );
     set(
         h,
         HeaderName::from_static("permissions-policy"),
@@ -1633,8 +1905,15 @@ pub(crate) fn hmac_sha256(key: &[u8; 32], msg: &[u8]) -> [u8; 32] {
         ipad[i] ^= b;
         opad[i] ^= b;
     }
-    let inner = Sha256::new().chain_update(ipad).chain_update(msg).finalize();
-    Sha256::new().chain_update(opad).chain_update(inner).finalize().into()
+    let inner = Sha256::new()
+        .chain_update(ipad)
+        .chain_update(msg)
+        .finalize();
+    Sha256::new()
+        .chain_update(opad)
+        .chain_update(inner)
+        .finalize()
+        .into()
 }
 
 /// Apply process-wide, server-safe resource limits (idempotent; only sets what

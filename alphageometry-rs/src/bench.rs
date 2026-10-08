@@ -71,7 +71,11 @@ impl Outcome {
                 None => "-",
             },
             if self.proved { "yes" } else { "no" },
-            if self.method.is_empty() { "-" } else { &self.method },
+            if self.method.is_empty() {
+                "-"
+            } else {
+                &self.method
+            },
             self.aux.len(),
             if self.aux.is_empty() {
                 "-".to_string()
@@ -94,7 +98,13 @@ impl Outcome {
         if f.len() != 11 {
             return None;
         }
-        let dash = |s: &str| if s == "-" { String::new() } else { s.to_string() };
+        let dash = |s: &str| {
+            if s == "-" {
+                String::new()
+            } else {
+                s.to_string()
+            }
+        };
         Some(Outcome {
             name: f[0].to_string(),
             parsed: f[1] == "yes",
@@ -122,7 +132,10 @@ impl Outcome {
 }
 
 pub(crate) fn proof_steps(proof: &str) -> usize {
-    let header = proof.lines().find(|l| l.starts_with("Proof of")).unwrap_or("");
+    let header = proof
+        .lines()
+        .find(|l| l.starts_with("Proof of"))
+        .unwrap_or("");
     header
         .rfind('(')
         .and_then(|i| header[i + 1..].split_whitespace().next()?.parse().ok())
@@ -152,7 +165,9 @@ pub(crate) enum Attempt {
 }
 
 pub(crate) fn prove_goal(problem: &Problem, deadline: Instant) -> Attempt {
-    let direct = catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(problem))));
+    let direct = catch_unwind(AssertUnwindSafe(|| {
+        quiet(|| solve_problem_with_proof(problem))
+    }));
     match direct {
         Err(_) => return Attempt::Panicked,
         Ok(Err(e)) => {
@@ -161,7 +176,13 @@ pub(crate) fn prove_goal(problem: &Problem, deadline: Instant) -> Attempt {
                 detail: e,
             }
         }
-        Ok(Ok(Some(proof))) => return Attempt::Proved { proof, aux: vec![], problem: problem.clone() },
+        Ok(Ok(Some(proof))) => {
+            return Attempt::Proved {
+                proof,
+                aux: vec![],
+                problem: problem.clone(),
+            }
+        }
         Ok(Ok(None)) => {}
     }
     if Instant::now() >= deadline {
@@ -187,8 +208,14 @@ pub(crate) fn prove_goal(problem: &Problem, deadline: Instant) -> Attempt {
         .iter()
         .map(|c| format!("{} = {}", c.name, c.desc))
         .collect();
-    match catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(&aug)))) {
-        Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux, problem: aug },
+    match catch_unwind(AssertUnwindSafe(|| {
+        quiet(|| solve_problem_with_proof(&aug))
+    })) {
+        Ok(Ok(Some(proof))) => Attempt::Proved {
+            proof,
+            aux,
+            problem: aug,
+        },
         _ => Attempt::NotProved {
             status: "proof-missing",
             detail: format!(
@@ -245,7 +272,11 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
                 prove_goal(&p, deadline)
             } else {
                 match catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(&p)))) {
-                    Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux: vec![], problem: p.clone() },
+                    Ok(Ok(Some(proof))) => Attempt::Proved {
+                        proof,
+                        aux: vec![],
+                        problem: p.clone(),
+                    },
                     Err(_) => Attempt::Panicked,
                     _ => Attempt::NotProved {
                         status: "goal-false",
@@ -254,7 +285,11 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
                 }
             };
             match attempt {
-                Attempt::Proved { proof, aux: a, problem } => {
+                Attempt::Proved {
+                    proof,
+                    aux: a,
+                    problem,
+                } => {
                     proofs.push(proof);
                     proved_problems.push((problem, a.clone(), tr.problem.points.len()));
                     aux.extend(a);
@@ -388,10 +423,17 @@ fn run_child(cfg: &RunConfig, name: &str) -> Outcome {
         if start.elapsed() >= hard {
             killed = Some((
                 "killed-timeout",
-                format!("no result {:.0}s past the {:.0}s budget", grace.as_secs_f64(), cfg.budget.as_secs_f64()),
+                format!(
+                    "no result {:.0}s past the {:.0}s budget",
+                    grace.as_secs_f64(),
+                    cfg.budget.as_secs_f64()
+                ),
             ));
         } else if rss_mb(pid).is_some_and(|m| m > cfg.mem_mb) {
-            killed = Some(("killed-memory", format!("resident memory above {} MiB", cfg.mem_mb)));
+            killed = Some((
+                "killed-memory",
+                format!("resident memory above {} MiB", cfg.mem_mb),
+            ));
         }
         if killed.is_some() {
             let _ = child.kill();
@@ -411,14 +453,21 @@ fn run_child(cfg: &RunConfig, name: &str) -> Outcome {
     match result {
         Some(mut o) => {
             o.secs = o.secs.max(0.0);
-            o.human = stdout.lines().filter(|l| l.starts_with("HUMAN\t")).map(str::to_string).collect();
+            o.human = stdout
+                .lines()
+                .filter(|l| l.starts_with("HUMAN\t"))
+                .map(str::to_string)
+                .collect();
             o
         }
         None => {
             let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
             failed(
                 "crashed",
-                format!("exit {:?}, no result line; stderr: {tail}", exit.and_then(|e| e.code())),
+                format!(
+                    "exit {:?}, no result line; stderr: {tail}",
+                    exit.and_then(|e| e.code())
+                ),
             )
         }
     }
@@ -454,7 +503,12 @@ pub fn run_corpus(
 
 /// Child side of [`run_corpus`]: solve one named problem and print its
 /// result line (and write its proof when `proofs_dir` is given).
-pub fn child_main(corpus: &Path, name: &str, budget: Duration, proofs_dir: Option<&Path>) -> Outcome {
+pub fn child_main(
+    corpus: &Path,
+    name: &str,
+    budget: Duration,
+    proofs_dir: Option<&Path>,
+) -> Outcome {
     let text = std::fs::read_to_string(corpus).unwrap_or_default();
     let problems = crate::corpus::read_corpus(&text).unwrap_or_default();
     let o = match problems.iter().find(|(n, _)| n == name) {
@@ -493,7 +547,13 @@ pub fn write_proof(dir: &Path, o: &Outcome) {
 pub fn proof_path(dir: &Path, name: &str) -> PathBuf {
     let safe: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     dir.join(format!("{safe}.txt"))
 }

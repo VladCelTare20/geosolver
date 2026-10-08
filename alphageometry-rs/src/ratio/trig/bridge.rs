@@ -25,7 +25,9 @@ impl Figure {
                         if !(0..self.insts.len()).all(|k| self.collinear_in(k, p, x, y)) {
                             continue;
                         }
-                        let Some(sigma) = self.power_sign(x, p, y) else { continue };
+                        let Some(sigma) = self.power_sign(x, p, y) else {
+                            continue;
+                        };
                         if (0..self.insts.len()).any(|k| self.dist(k, o, p) < 1e-9) {
                             continue;
                         }
@@ -37,7 +39,10 @@ impl Figure {
     }
 
     fn collinear_in(&self, k: usize, a: PointId, b: PointId, c: PointId) -> bool {
-        let (u, v) = (self.insts[k][b as usize] - self.insts[k][a as usize], self.insts[k][c as usize] - self.insts[k][a as usize]);
+        let (u, v) = (
+            self.insts[k][b as usize] - self.insts[k][a as usize],
+            self.insts[k][c as usize] - self.insts[k][a as usize],
+        );
         (u.x * v.y - u.y * v.x).abs() < 1e-9 * (1.0 + u.norm() * v.norm())
     }
 
@@ -45,7 +50,11 @@ impl Figure {
     /// every instance, `None` otherwise.
     pub(in crate::ratio) fn power_sign(&self, x: PointId, p: PointId, y: PointId) -> Option<i64> {
         let side = |k: usize| {
-            let (vx, vp, vy) = (self.insts[k][x as usize], self.insts[k][p as usize], self.insts[k][y as usize]);
+            let (vx, vp, vy) = (
+                self.insts[k][x as usize],
+                self.insts[k][p as usize],
+                self.insts[k][y as usize],
+            );
             let d = (vp - vx).dot(vy - vp);
             let scale = (vy - vx).dot(vy - vx);
             if d > 1e-9 * scale {
@@ -57,7 +66,9 @@ impl Figure {
             }
         };
         let first = side(0)?;
-        (1..self.insts.len()).all(|k| side(k) == Some(first)).then_some(first)
+        (1..self.insts.len())
+            .all(|k| side(k) == Some(first))
+            .then_some(first)
     }
 
     fn push_center_power(&mut self, o: PointId, x: PointId, y: PointId, p: PointId, sigma: i64) {
@@ -81,7 +92,11 @@ impl Figure {
             None,
             vec![],
         );
-        self.pending.push((intro, vec![pred("cong", &[o, x, o, y]), pred("coll", &[p, x, y])], true));
+        self.pending.push((
+            intro,
+            vec![pred("cong", &[o, x, o, y]), pred("coll", &[p, x, y])],
+            true,
+        ));
         self.ppush(String::new(), Some(e), vec![intro]);
     }
 
@@ -90,8 +105,14 @@ impl Figure {
     /// proved by the certified log engine on this figure, and the product row
     /// `m1 − k·m2 = 0` carries that derivation. Irrational ratios are never
     /// bridged.
-    pub(in crate::ratio) fn gather_log_bridges(&mut self, pool: &BTreeSet<Mono>, goal_monos: &BTreeSet<Mono>) {
-        let base: BTreeSet<usize> = (0..self.steps.len()).filter(|&i| self.steps[i].eq.is_some()).collect();
+    pub(in crate::ratio) fn gather_log_bridges(
+        &mut self,
+        pool: &BTreeSet<Mono>,
+        goal_monos: &BTreeSet<Mono>,
+    ) {
+        let base: BTreeSet<usize> = (0..self.steps.len())
+            .filter(|&i| self.steps[i].eq.is_some())
+            .collect();
         let monos: Vec<Mono> = pool.iter().cloned().collect();
         let mut pairs: Vec<(usize, usize, Rat)> = Vec::new();
         for i in 0..monos.len() {
@@ -114,7 +135,15 @@ impl Figure {
         let plain: BTreeSet<usize> = base
             .iter()
             .copied()
-            .filter(|&i| !self.steps[i].eq.as_ref().unwrap().terms.keys().any(|t| matches!(t, LKey::Sin(..))))
+            .filter(|&i| {
+                !self.steps[i]
+                    .eq
+                    .as_ref()
+                    .unwrap()
+                    .terms
+                    .keys()
+                    .any(|t| matches!(t, LKey::Sin(..)))
+            })
             .collect();
         let plain_span = self.echelon(&plain);
         let mut accepted = 0;
@@ -122,7 +151,11 @@ impl Figure {
             if attempt >= MAX_BRIDGE_ATTEMPTS {
                 break;
             }
-            let (m1, m2, k) = if k.to_f64() < 1.0 { (&monos[j], &monos[i], k.recip()) } else { (&monos[i], &monos[j], k) };
+            let (m1, m2, k) = if k.to_f64() < 1.0 {
+                (&monos[j], &monos[i], k.recip())
+            } else {
+                (&monos[i], &monos[j], k)
+            };
             let mut goal = LEq::default();
             for &a in m1 {
                 goal.add_term(a, Rat::one());
@@ -136,8 +169,15 @@ impl Figure {
             if goal.is_zero() || !in_span(&goal, &span) || in_span(&goal, &plain_span) {
                 continue;
             }
-            let Some((used, facts)) = self.certified_prove_core(&goal, &base) else { continue };
-            if !used.iter().any(|&u| self.steps[u].eq.as_ref().is_some_and(|e| e.terms.keys().any(|t| matches!(t, LKey::Sin(..))))) {
+            let Some((used, facts)) = self.certified_prove_core(&goal, &base) else {
+                continue;
+            };
+            if !used.iter().any(|&u| {
+                self.steps[u]
+                    .eq
+                    .as_ref()
+                    .is_some_and(|e| e.terms.keys().any(|t| matches!(t, LKey::Sin(..))))
+            }) {
                 continue;
             }
             let order: Vec<usize> = used.iter().copied().collect();
@@ -146,7 +186,11 @@ impl Figure {
                 .into_iter()
                 .map(|(_, t)| format!("\n       · {t}"))
                 .collect();
-            let kt = if k == Rat::one() { String::new() } else { format!("{}·", rat_text(&k)) };
+            let kt = if k == Rat::one() {
+                String::new()
+            } else {
+                format!("{}·", rat_text(&k))
+            };
             let text = format!(
                 "From the sine relations below: {} = {kt}{}.{lines}",
                 self.mono_text(m1),
@@ -169,7 +213,9 @@ impl Figure {
     fn echelon(&self, allowed: &BTreeSet<usize>) -> Vec<(LEq, LKey)> {
         let mut rows: Vec<(LEq, LKey)> = Vec::new();
         for &i in allowed {
-            let Some(eq0) = &self.steps[i].eq else { continue };
+            let Some(eq0) = &self.steps[i].eq else {
+                continue;
+            };
             let mut eq = eq0.clone();
             reduce_plain(&mut eq, &rows);
             if let Some(p) = eq.first_atom() {
@@ -207,7 +253,12 @@ impl Figure {
         aux_prose: &[String],
     ) -> Option<String> {
         let goal = self.homogeneous_goal(lhs, rhs)?;
-        let goal_pts: BTreeSet<PointId> = goal.terms.keys().flatten().flat_map(|&k| k.points()).collect();
+        let goal_pts: BTreeSet<PointId> = goal
+            .terms
+            .keys()
+            .flatten()
+            .flat_map(|&k| k.points())
+            .collect();
         self.psteps.clear();
         self.pending.clear();
         self.steps.clear();
@@ -215,7 +266,12 @@ impl Figure {
         self.trig_checks = 0;
         let degree = goal.terms.keys().next()?.len();
         if degree == 2 {
-            let goal_segs: BTreeSet<LAtom> = goal.terms.keys().flatten().filter_map(|k| k.len()).collect();
+            let goal_segs: BTreeSet<LAtom> = goal
+                .terms
+                .keys()
+                .flatten()
+                .filter_map(|k| k.len())
+                .collect();
             self.gather_generic_similar(relevant);
             self.gather_bisector_products();
             self.gather_product_relations(&goal_segs);
@@ -245,7 +301,10 @@ impl Figure {
         for (o, set) in equal_radius_circles(self.names.len(), &self.congs, &self.abs_len) {
             let pts: Vec<PointId> = set.iter().copied().collect();
             let r2 = self.dist(0, o, pts[0]).powi(2);
-            if pts.iter().all(|&p| (self.dist(0, o, p).powi(2) - r2).abs() < 1e-6 * (1.0 + r2)) {
+            if pts
+                .iter()
+                .all(|&p| (self.dist(0, o, p).powi(2) - r2).abs() < 1e-6 * (1.0 + r2))
+            {
                 self.circles.push((o, set.clone()));
                 if set.len() >= 4 && !self.concyclic.iter().any(|c| set.is_subset(c)) {
                     self.concyclic.push(set);
@@ -267,7 +326,11 @@ impl Figure {
                     }
                     out.extend(self.build_cand(
                         "K".to_string(),
-                        format!("Let K be the foot of the perpendicular from {} to {}.", self.nm(p), self.seg(a, b)),
+                        format!(
+                            "Let K be the foot of the perpendicular from {} to {}.",
+                            self.nm(p),
+                            self.seg(a, b)
+                        ),
                         vec![AuxFact::Coll(a, kid, b), AuxFact::Perp([p, kid, a, b])],
                         move |i| {
                             let (pa, va, vb) = (i[p as usize], i[a as usize], i[b as usize]);
@@ -301,11 +364,21 @@ impl Figure {
                     cyc.push(kid);
                     out.extend(self.build_cand(
                         "K".to_string(),
-                        format!("Let K be the second meet of line {} with the circle.", self.seg(v, r)),
+                        format!(
+                            "Let K be the second meet of line {} with the circle.",
+                            self.seg(v, r)
+                        ),
                         vec![AuxFact::Coll(v, r, kid), AuxFact::Cyclic(cyc)],
                         move |i| {
-                            let circ = NumCircle::through(i[o0 as usize], i[o1 as usize], i[o2 as usize])?;
-                            second_meet(i[v as usize], i[r as usize], circ.center, circ.r, i[r as usize])
+                            let circ =
+                                NumCircle::through(i[o0 as usize], i[o1 as usize], i[o2 as usize])?;
+                            second_meet(
+                                i[v as usize],
+                                i[r as usize],
+                                circ.center,
+                                circ.r,
+                                i[r as usize],
+                            )
                         },
                     ));
                 }
@@ -316,7 +389,13 @@ impl Figure {
 
     /// Stage S6: one auxiliary point (a circle second meet or a perpendicular
     /// foot), then [`Figure::prove_products_trig`].
-    pub(in crate::ratio) fn aux_search_trig(&self, lhs: &MExpr, rhs: &MExpr, goal: &str, base_pts: &[PointId]) -> Option<String> {
+    pub(in crate::ratio) fn aux_search_trig(
+        &self,
+        lhs: &MExpr,
+        rhs: &MExpr,
+        goal: &str,
+        base_pts: &[PointId],
+    ) -> Option<String> {
         self.homogeneous_goal(lhs, rhs)?;
         let mut gnames: BTreeSet<String> = BTreeSet::new();
         collect_points_m(lhs, &mut gnames);
@@ -346,7 +425,9 @@ impl Figure {
             let mut rel = gpts.clone();
             rel.push(kid);
             let intro = cand.intro.replacen("Let K ", &format!("Let {name} "), 1);
-            if let Some(p) = f.prove_products_trig(lhs, rhs, goal, &pts, &rel, std::slice::from_ref(&intro)) {
+            if let Some(p) =
+                f.prove_products_trig(lhs, rhs, goal, &pts, &rel, std::slice::from_ref(&intro))
+            {
                 return Some(p);
             }
         }

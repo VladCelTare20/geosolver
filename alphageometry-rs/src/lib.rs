@@ -21,15 +21,15 @@ pub(crate) mod aux_rollout;
 pub(crate) mod aux_score;
 pub mod aux_search;
 pub(crate) mod aux_virtual;
-pub mod budget;
 pub mod bench;
+pub mod budget;
 pub(crate) mod certify;
 pub mod corpus;
 pub mod elim_core;
 pub mod elimination;
 pub mod engine;
-pub mod fuzz;
 pub(crate) mod fingerprint;
+pub mod fuzz;
 pub mod geo;
 #[allow(
     clippy::type_complexity,

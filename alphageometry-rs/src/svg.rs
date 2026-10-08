@@ -639,7 +639,15 @@ fn place_labels(
         if !ok(ps) {
             continue;
         }
-        let (dx, dy) = label_dir(p.value, i as PointId, m, coll_lines, seg_set, problem, circles);
+        let (dx, dy) = label_dir(
+            p.value,
+            i as PointId,
+            m,
+            coll_lines,
+            seg_set,
+            problem,
+            circles,
+        );
         let shown = disp(&p.name);
         let hw = label_width(&shown, FS) / 2.0 + 1.5;
         let ideal = (ps.0 + dx * OFF, ps.1 + dy * OFF);
@@ -1166,7 +1174,14 @@ pub fn render_with(problem: &Problem, opts: &FigureOptions) -> String {
             continue;
         }
         if is_aux(a) || is_aux(b) {
-            line(&mut s, m.map(ca), m.map(cb), pal.aux, 1.4, r#" stroke-dasharray="6 5""#);
+            line(
+                &mut s,
+                m.map(ca),
+                m.map(cb),
+                pal.aux,
+                1.4,
+                r#" stroke-dasharray="6 5""#,
+            );
         } else {
             line(&mut s, m.map(ca), m.map(cb), pal.seg, 1.3, "");
         }
@@ -1176,7 +1191,14 @@ pub fn render_with(problem: &Problem, opts: &FigureOptions) -> String {
     for &(lo, hi, aux) in &coll_lines_aux {
         let ext = (hi - lo) * 0.06;
         if aux {
-            line(&mut s, m.map(lo - ext), m.map(hi + ext), pal.aux, 1.6, r#" stroke-dasharray="7 6""#);
+            line(
+                &mut s,
+                m.map(lo - ext),
+                m.map(hi + ext),
+                pal.aux,
+                1.6,
+                r#" stroke-dasharray="7 6""#,
+            );
         } else {
             line(&mut s, m.map(lo - ext), m.map(hi + ext), pal.line, 1.6, "");
         }
@@ -1230,7 +1252,11 @@ pub fn render_with(problem: &Problem, opts: &FigureOptions) -> String {
             &mut s,
             ps,
             if anon { 2.0 } else { 4.2 },
-            if is_aux(i as PointId) { pal.aux } else { pal.point },
+            if is_aux(i as PointId) {
+                pal.aux
+            } else {
+                pal.point
+            },
             r##" stroke="#00000022" stroke-width="0.5""##,
         );
         dots.push(ps);
@@ -1240,7 +1266,16 @@ pub fn render_with(problem: &Problem, opts: &FigureOptions) -> String {
     //    dot — vital when a problem samples several points almost on top of one
     //    another (coincident cevian feet, a point and its foot, …).
     place_labels(
-        &mut s, problem, &m, &coll_lines, &seg_set, &circles_xy, &dots, &pal, aux_from, fig_w,
+        &mut s,
+        problem,
+        &m,
+        &coll_lines,
+        &seg_set,
+        &circles_xy,
+        &dots,
+        &pal,
+        aux_from,
+        fig_w,
         fig_h,
     );
 

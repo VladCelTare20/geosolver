@@ -23,8 +23,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
 use ddar::aux_search::{
-    apply_constructions, candidates, depth1_solvers, solve_max_until,
-    Construction, WarmBase,
+    apply_constructions, candidates, depth1_solvers, solve_max_until, Construction, WarmBase,
 };
 use ddar::geo;
 use ddar::human::EngineTrace;
@@ -56,7 +55,9 @@ impl InputKind {
             return InputKind::LowLevel;
         }
         match corpus_parts(input) {
-            Some((name, stmt)) if ddar::corpus::parse_problem(&name, &stmt).is_ok() => InputKind::Corpus,
+            Some((name, stmt)) if ddar::corpus::parse_problem(&name, &stmt).is_ok() => {
+                InputKind::Corpus
+            }
             Some((_, stmt)) if !pinned && corpus_shaped(&stmt) => InputKind::Corpus,
             _ if pinned => InputKind::LowLevel,
             _ => InputKind::Geo,
@@ -65,10 +66,16 @@ impl InputKind {
 }
 
 fn corpus_parts(input: &str) -> Option<(String, String)> {
-    let lines: Vec<&str> = input.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    let lines: Vec<&str> = input
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
     match lines.as_slice() {
         [stmt] => Some((String::new(), stmt.to_string())),
-        [name, stmt] if !name.contains(['=', '?', '(']) => Some((name.to_string(), stmt.to_string())),
+        [name, stmt] if !name.contains(['=', '?', '(']) => {
+            Some((name.to_string(), stmt.to_string()))
+        }
         _ => None,
     }
 }
@@ -80,9 +87,12 @@ fn corpus_shaped(stmt: &str) -> bool {
             .is_some_and(|(body, goal)| body.contains('=') && !goal.trim().is_empty())
 }
 
-fn corpus_translation(input: &str) -> Result<(ddar::corpus::AgProblem, ddar::corpus::Translation), String> {
+fn corpus_translation(
+    input: &str,
+) -> Result<(ddar::corpus::AgProblem, ddar::corpus::Translation), String> {
     let (name, stmt) = corpus_parts(input).ok_or("corpus problem: expected one statement line")?;
-    let ag = ddar::corpus::parse_problem(&name, &stmt).map_err(|e| format!("corpus problem: {e}"))?;
+    let ag =
+        ddar::corpus::parse_problem(&name, &stmt).map_err(|e| format!("corpus problem: {e}"))?;
     let tr = ddar::corpus::translate(&ag, 1, 200).map_err(|e| format!("corpus problem: {e}"))?;
     Ok((ag, tr))
 }
@@ -237,21 +247,41 @@ pub fn human_enabled() -> bool {
 type Traced = (String, EngineTrace, Vec<FactId>);
 
 fn traced_proof(problem: &Problem) -> Option<Traced> {
-    catch_unwind(AssertUnwindSafe(|| solve_problem_with_trace(problem))).ok()?.ok()?
+    catch_unwind(AssertUnwindSafe(|| solve_problem_with_trace(problem)))
+        .ok()?
+        .ok()?
 }
 
-fn write_human(problem: &Problem, first_aux: usize, aux: &[String], traced: &Traced, deadline: Option<Instant>) -> Option<HumanSource> {
+fn write_human(
+    problem: &Problem,
+    first_aux: usize,
+    aux: &[String],
+    traced: &Traced,
+    deadline: Option<Instant>,
+) -> Option<HumanSource> {
     if !human_enabled() {
         return None;
     }
     let (_, trace, deps) = traced;
     let goal = problem.goal.as_ref()?;
     let now = Instant::now();
-    let left = deadline.map_or(HUMAN_MAX, |d| d.saturating_duration_since(now)).clamp(HUMAN_MIN, HUMAN_MAX);
-    let opts = ddar::human::Opts { deadline: Some(now + left), strict: false };
+    let left = deadline
+        .map_or(HUMAN_MAX, |d| d.saturating_duration_since(now))
+        .clamp(HUMAN_MIN, HUMAN_MAX);
+    let opts = ddar::human::Opts {
+        deadline: Some(now + left),
+        strict: false,
+    };
     let infos = ddar::human::aux_infos(problem, first_aux, aux);
-    let hp = catch_unwind(AssertUnwindSafe(|| ddar::quiet_panic::quiet(|| ddar::human::write(trace, goal, deps, &infos, &opts)))).ok()?;
-    hp.available.then(|| HumanSource { proof: hp, names: trace.names.clone(), closure: trace.closure(deps) })
+    let hp = catch_unwind(AssertUnwindSafe(|| {
+        ddar::quiet_panic::quiet(|| ddar::human::write(trace, goal, deps, &infos, &opts))
+    }))
+    .ok()?;
+    hp.available.then(|| HumanSource {
+        proof: hp,
+        names: trace.names.clone(),
+        closure: trace.closure(deps),
+    })
 }
 
 /// What a figure is drawn from: the (possibly augmented) problem, and the index
@@ -305,7 +335,10 @@ pub fn solve_within(
             // Metric equations DDAR cannot express (absolute lengths, squares,
             // sums of products, …) get the classical Euclidean prover; plain
             // relations go through the DDAR closure.
-            if extract_goal(input).map(|g| is_metric_goal(&g)).unwrap_or(false) {
+            if extract_goal(input)
+                .map(|g| is_metric_goal(&g))
+                .unwrap_or(false)
+            {
                 return euclidean_flow(input, opts, deadline);
             }
             let compiled = match geo::compile(input) {
@@ -315,7 +348,12 @@ pub fn solve_within(
             };
             // Safety net: a goal the compiler lowered to a trivially-true
             // placeholder would be "proved" vacuously by DDAR.
-            if compiled.problem.goal.as_ref().is_some_and(is_placeholder_goal) {
+            if compiled
+                .problem
+                .goal
+                .as_ref()
+                .is_some_and(is_placeholder_goal)
+            {
                 return euclidean_flow(input, opts, deadline);
             }
             deductive_flow(
@@ -458,7 +496,11 @@ fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), S
 
 const CONJUNCTION: &str = "conjunctive goal";
 
-fn corpus_flow(input: &str, opts: &SolveOptions, deadline: Option<Instant>) -> Result<Solution, String> {
+fn corpus_flow(
+    input: &str,
+    opts: &SolveOptions,
+    deadline: Option<Instant>,
+) -> Result<Solution, String> {
     let (ag, tr) = corpus_translation(input)?;
     if let [goal] = tr.goals.as_slice() {
         let mut problem = tr.problem.clone();
@@ -466,25 +508,44 @@ fn corpus_flow(input: &str, opts: &SolveOptions, deadline: Option<Instant>) -> R
         return deductive_flow(problem, input, Some(tr.goal_holds), opts, deadline);
     }
     let whole = ddar::corpus::engine_goal(&tr.problem, &ag.goal);
-    conjunction_flow(input, opts, deadline, &tr.problem, whole, &tr.goals, &ag.goal.to_string(), Some(tr.goal_holds))
+    conjunction_flow(
+        input,
+        opts,
+        deadline,
+        &tr.problem,
+        whole,
+        &tr.goals,
+        &ag.goal.to_string(),
+        Some(tr.goal_holds),
+    )
 }
 
 type LowLevel = (Problem, Option<bool>, Option<Vec<ddar::Predicate>>);
 
 fn low_level_problem(input: &str) -> Result<LowLevel, String> {
     let problem = ddar::lowlevel::parse_checked(input).map_err(|e| format!("parse error: {e}"))?;
-    let goal = problem.goal.clone().ok_or("parse error: the problem has no goal")?;
+    let goal = problem
+        .goal
+        .clone()
+        .ok_or("parse error: the problem has no goal")?;
     let holds = ddar::lowlevel::goal_holds(&problem, &goal);
     let parts = ddar::lowlevel::conjuncts(&problem, &goal);
     Ok((problem, holds, parts))
 }
 
-fn low_level_flow(input: &str, opts: &SolveOptions, deadline: Option<Instant>) -> Result<Solution, String> {
+fn low_level_flow(
+    input: &str,
+    opts: &SolveOptions,
+    deadline: Option<Instant>,
+) -> Result<Solution, String> {
     let (problem, holds, parts) = low_level_problem(input)?;
     match parts {
         Some(goals) => {
             let whole = problem.goal.clone();
-            let text = whole.as_ref().map(|g| render_pred(&problem, g)).unwrap_or_default();
+            let text = whole
+                .as_ref()
+                .map(|g| render_pred(&problem, g))
+                .unwrap_or_default();
             conjunction_flow(input, opts, deadline, &problem, whole, &goals, &text, holds)
         }
         None => deductive_flow(problem, input, holds, opts, deadline),
@@ -514,7 +575,10 @@ fn conjunction_flow(
     let mut display = base.clone();
     display.goal = whole;
     let n = goals.len();
-    let part_opts = SolveOptions { want_proof: false, ..opts.clone() };
+    let part_opts = SolveOptions {
+        want_proof: false,
+        ..opts.clone()
+    };
     let mut current = base.clone();
     let mut aux: Vec<String> = Vec::new();
     for (k, g) in goals.iter().enumerate() {
@@ -524,8 +588,26 @@ fn conjunction_flow(
         let part = deductive_flow(p, input, holds, &part_opts, deadline)?;
         if !part.proved {
             let names: Vec<&str> = g.points.iter().map(|&i| base.point_name(i)).collect();
-            let note = format!("conjunct {} of {n} of `{goal_text}` ({} {}): {}", k + 1, g.name, names.join(" "), part.note);
-            return conjunction_solution(input, opts, &display, &current, base_len, goal_holds, aux, None, part.method, note, start);
+            let note = format!(
+                "conjunct {} of {n} of `{goal_text}` ({} {}): {}",
+                k + 1,
+                g.name,
+                names.join(" "),
+                part.note
+            );
+            return conjunction_solution(
+                input,
+                opts,
+                &display,
+                &current,
+                base_len,
+                goal_holds,
+                aux,
+                None,
+                part.method,
+                note,
+                start,
+            );
         }
         aux.extend(part.aux_constructions.iter().cloned());
         if let Some(f) = part.figure.filter(|f| f.aux_from.is_some()) {
@@ -534,9 +616,15 @@ fn conjunction_flow(
     }
     current.goal = None;
     let joint = catch_unwind(AssertUnwindSafe(|| {
-        ddar::quiet_panic::quiet(|| ddar::runner::solve_conjunction_with_proof(&current, goals, goal_text))
+        ddar::quiet_panic::quiet(|| {
+            ddar::runner::solve_conjunction_with_proof(&current, goals, goal_text)
+        })
     }));
-    let method = if aux.is_empty() { Method::Ddar } else { Method::AuxSearch };
+    let method = if aux.is_empty() {
+        Method::Ddar
+    } else {
+        Method::AuxSearch
+    };
     let (proof, note) = match joint {
         Ok(Ok(Some(proof))) if aux.is_empty() => (Some(proof), format!("proved by DDAR (no auxiliary point): all {n} conjuncts of `{goal_text}`")),
         Ok(Ok(Some(proof))) => (
@@ -545,7 +633,9 @@ fn conjunction_flow(
         ),
         _ => (None, format!("not proved — the {n} conjuncts of `{goal_text}` were proved one at a time but not in one closure")),
     };
-    conjunction_solution(input, opts, &display, &current, base_len, goal_holds, aux, proof, method, note, start)
+    conjunction_solution(
+        input, opts, &display, &current, base_len, goal_holds, aux, proof, method, note, start,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -587,7 +677,10 @@ fn conjunction_solution(
         note,
         proof_steps,
         examined: None,
-        figure: Some(FigureSource { problem: figure_problem, aux_from }),
+        figure: Some(FigureSource {
+            problem: figure_problem,
+            aux_from,
+        }),
         human: None,
     };
     reconcile(&mut sol, opts.want_proof);
@@ -618,7 +711,9 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
     };
     // Length goals already get the minimal, theorem-citing Euclidean proof.
     if opts.kind == InputKind::Geo
-        && extract_goal(input).map(|g| is_metric_goal(&g)).unwrap_or(false)
+        && extract_goal(input)
+            .map(|g| is_metric_goal(&g))
+            .unwrap_or(false)
     {
         return euclid(opts);
     }
@@ -631,7 +726,8 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
     if opts.kind == InputKind::Geo && problem.goal.as_ref().is_some_and(is_placeholder_goal) {
         return euclid(opts);
     }
-    let mut sol = ddar::quiet_panic::quiet(|| best_deductive(input, opts, budget, problem, goal_holds))?;
+    let mut sol =
+        ddar::quiet_panic::quiet(|| best_deductive(input, opts, budget, problem, goal_holds))?;
     reconcile(&mut sol, true);
     Ok(sol)
 }
@@ -673,14 +769,16 @@ fn best_deductive(
             note,
             proof_steps,
             examined: Some(examined),
-            figure: Some(FigureSource { problem: problem.clone(), aux_from: None }),
+            figure: Some(FigureSource {
+                problem: problem.clone(),
+                aux_from: None,
+            }),
             human: None,
         }
     };
 
     let mut best: Vec<Candidate> = Vec::new();
     let mut examined = 0usize;
-
 
     // Depth 0: the direct proof (0 aux) is a candidate — NOT returned early, since
     // an auxiliary construction may yield a shorter proof.
@@ -706,19 +804,25 @@ fn best_deductive(
     let deadline = search_deadline(start, budget);
     if best.is_empty() {
         let seed_problem = problem.clone();
-        let seeded = run_until(Some(deadline), move || solve_max_until(&seed_problem, false, Some(deadline)));
+        let seeded = run_until(Some(deadline), move || {
+            solve_max_until(&seed_problem, false, Some(deadline))
+        });
         if let Some(Ok((Some(found), _))) = seeded {
             if let Some(aug) = safe_apply(&problem, &found.constructions) {
-                if let Ok(Ok(Some(proof))) = catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&aug))) {
+                if let Ok(Ok(Some(proof))) =
+                    catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&aug)))
+                {
                     consider(&mut best, &mut examined, found.constructions.clone(), proof);
                 }
             }
         }
     }
 
-    let swept = catch_unwind(AssertUnwindSafe(|| depth1_solvers(&problem, Some(deadline))))
-        .ok()
-        .flatten();
+    let swept = catch_unwind(AssertUnwindSafe(|| {
+        depth1_solvers(&problem, Some(deadline))
+    }))
+    .ok()
+    .flatten();
     let solvers = swept.map(|(solvers, _, _)| solvers).unwrap_or_default();
     let mut bases: Vec<(Construction, usize)> = Vec::new();
     for cand in &solvers {
@@ -728,7 +832,8 @@ fn best_deductive(
         let Some(aug) = safe_apply(&problem, std::slice::from_ref(cand)) else {
             continue;
         };
-        if let Ok(Ok(Some(proof))) = catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&aug)))
+        if let Ok(Ok(Some(proof))) =
+            catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&aug)))
         {
             bases.push((cand.clone(), proof_size(&proof).0));
             consider(&mut best, &mut examined, vec![cand.clone()], proof);
@@ -766,7 +871,12 @@ fn best_deductive(
                 if let Ok(Ok(Some(proof))) =
                     catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&aug2)))
                 {
-                    consider(&mut best, &mut examined, vec![base.clone(), c2.clone()], proof);
+                    consider(
+                        &mut best,
+                        &mut examined,
+                        vec![base.clone(), c2.clone()],
+                        proof,
+                    );
                 }
             }
         }
@@ -781,10 +891,19 @@ fn best_deductive(
         };
         let (aux, proof, steps, _) = best.swap_remove(pick.unwrap_or(0));
         let readable = pick.is_some();
-        let descs: Vec<String> = aux.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+        let descs: Vec<String> = aux
+            .iter()
+            .map(|c| format!("{} = {}", c.name, c.desc))
+            .collect();
         let human = human.or_else(|| {
             let aug = safe_apply(&problem, &aux)?;
-            write_human(&aug, problem.points.len(), &descs, &traced_proof(&aug)?, Some(start + budget))
+            write_human(
+                &aug,
+                problem.points.len(),
+                &descs,
+                &traced_proof(&aug)?,
+                Some(start + budget),
+            )
         });
         let method = if aux.is_empty() {
             Method::Ddar
@@ -825,18 +944,34 @@ fn best_deductive(
                 if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                     sol.svg = aux_svg;
                 }
-                sol.figure = Some(FigureSource { problem: aug, aux_from: Some(problem.points.len()) });
+                sol.figure = Some(FigureSource {
+                    problem: aug,
+                    aux_from: Some(problem.points.len()),
+                });
             }
         }
         return Ok(sol);
     }
 
     let note = if Instant::now() >= deadline {
-        format!("no proof found within the {:.0}s budget (the search hit the time limit)", budget.as_secs_f64())
+        format!(
+            "no proof found within the {:.0}s budget (the search hit the time limit)",
+            budget.as_secs_f64()
+        )
     } else {
-        format!("no proof found within the {:.0}s budget", budget.as_secs_f64())
+        format!(
+            "no proof found within the {:.0}s budget",
+            budget.as_secs_f64()
+        )
     };
-    Ok(build(false, Method::AuxSearch, None, vec![], examined, note))
+    Ok(build(
+        false,
+        Method::AuxSearch,
+        None,
+        vec![],
+        examined,
+        note,
+    ))
 }
 
 fn readable_slice(budget: Duration) -> Duration {
@@ -852,7 +987,12 @@ type Candidate = (Vec<Construction>, String, usize, usize);
 
 const TOP_K: usize = 16;
 
-fn consider(best: &mut Vec<Candidate>, examined: &mut usize, aux: Vec<Construction>, proof: String) {
+fn consider(
+    best: &mut Vec<Candidate>,
+    examined: &mut usize,
+    aux: Vec<Construction>,
+    proof: String,
+) {
     let (steps, facts) = proof_size(&proof);
     *examined += 1;
     if best.iter().any(|c| c.1 == proof) {
@@ -865,7 +1005,11 @@ fn consider(best: &mut Vec<Candidate>, examined: &mut usize, aux: Vec<Constructi
     }
 }
 
-fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Option<(usize, HumanSource)> {
+fn most_readable(
+    problem: &Problem,
+    cands: &[Candidate],
+    budget: Duration,
+) -> Option<(usize, HumanSource)> {
     if cands.len() < 2 {
         return None;
     }
@@ -877,11 +1021,21 @@ fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Op
         if now >= stop {
             break;
         }
-        let Some(aug) = safe_apply(problem, aux) else { continue };
-        let descs: Vec<String> = aux.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+        let Some(aug) = safe_apply(problem, aux) else {
+            continue;
+        };
+        let descs: Vec<String> = aux
+            .iter()
+            .map(|c| format!("{} = {}", c.name, c.desc))
+            .collect();
         let infos = ddar::human::aux_infos(&aug, problem.points.len(), &descs);
-        let opts = ddar::human::Opts { deadline: Some(stop.min(now + Duration::from_secs(2))), strict: false };
-        let Ok(Some((hp, trace, deps, _))) = catch_unwind(AssertUnwindSafe(|| ddar::human::for_problem(&aug, &infos, &opts))) else {
+        let opts = ddar::human::Opts {
+            deadline: Some(stop.min(now + Duration::from_secs(2))),
+            strict: false,
+        };
+        let Ok(Some((hp, trace, deps, _))) = catch_unwind(AssertUnwindSafe(|| {
+            ddar::human::for_problem(&aug, &infos, &opts)
+        })) else {
             continue;
         };
         if !hp.available || hp.metrics.timed_out {
@@ -890,7 +1044,14 @@ fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Op
         let key = (hp.metrics.human_cost, *steps, i);
         if best.as_ref().is_none_or(|b| key < b.0) {
             let closure = trace.closure(&deps);
-            best = Some((key, HumanSource { proof: hp, names: trace.names, closure }));
+            best = Some((
+                key,
+                HumanSource {
+                    proof: hp,
+                    names: trace.names,
+                    closure,
+                },
+            ));
         }
     }
     best.map(|(k, h)| (k.2, h))
@@ -912,9 +1073,12 @@ fn solves_with(
     deadline: Instant,
 ) -> bool {
     match warm {
-        Some(w) => catch_unwind(AssertUnwindSafe(|| w.check_until(cand, Some(deadline)))).unwrap_or(false),
+        Some(w) => {
+            catch_unwind(AssertUnwindSafe(|| w.check_until(cand, Some(deadline)))).unwrap_or(false)
+        }
         None => catch_unwind(AssertUnwindSafe(|| {
-            solve_problem(&apply_constructions(problem, std::slice::from_ref(cand))).unwrap_or(false)
+            solve_problem(&apply_constructions(problem, std::slice::from_ref(cand)))
+                .unwrap_or(false)
         }))
         .unwrap_or(false),
     }
@@ -957,7 +1121,10 @@ fn deductive_flow(
 ) -> Result<Solution, String> {
     let start = Instant::now();
     let mut svg = render_figure(&problem, opts, None)?;
-    let mut figure = FigureSource { problem: problem.clone(), aux_from: None };
+    let mut figure = FigureSource {
+        problem: problem.clone(),
+        aux_from: None,
+    };
     let (legend_cons, legend_goal) = ddar::svg::legend_lines(&problem);
     let limit_note = || {
         let secs = deadline.map_or(0.0, |d| d.duration_since(start).as_secs_f64());
@@ -1102,7 +1269,11 @@ fn deductive_flow(
 
 /// The classical-Euclidean path for absolute-length goals: draw the figure from
 /// the construction lines, then prove the length goal with named theorems.
-fn euclidean_flow(program: &str, opts: &SolveOptions, deadline: Option<Instant>) -> Result<Solution, String> {
+fn euclidean_flow(
+    program: &str,
+    opts: &SolveOptions,
+    deadline: Option<Instant>,
+) -> Result<Solution, String> {
     let start = Instant::now();
     let (cons, goal) = split_metric_program(program)?;
 
@@ -1113,7 +1284,10 @@ fn euclidean_flow(program: &str, opts: &SolveOptions, deadline: Option<Instant>)
             let svg = render_figure(&c.problem, opts, None).unwrap_or_default();
             let (lc, _) = ddar::svg::legend_lines(&c.problem);
             let ll = c.problem.to_ag_string();
-            let fig = FigureSource { problem: c.problem, aux_from: None };
+            let fig = FigureSource {
+                problem: c.problem,
+                aux_from: None,
+            };
             (svg, ll, c.goal_numerically_holds, lc, Some(fig))
         }
         Err(_) => (String::new(), String::new(), None, Vec::new(), None),
@@ -1296,7 +1470,9 @@ fn is_metric_goal(goal: &str) -> bool {
         // Unparseable here (e.g. nested past MAX_GOAL_DEPTH): anything metric
         // goes to the Euclidean prover, which reports its own error; the rest is
         // left to `geo::compile`.
-        _ => ["dist(", "area(", "sqrt", "√", "^"].iter().any(|k| g.contains(k)),
+        _ => ["dist(", "area(", "sqrt", "√", "^"]
+            .iter()
+            .any(|k| g.contains(k)),
     }
 }
 
@@ -1347,10 +1523,13 @@ fn mtokens(src: &str) -> Option<Vec<MTok>> {
             while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
                 i += 1;
             }
-            out.push(MTok::Num(chars[s..i].iter().collect::<String>().parse().ok()?));
+            out.push(MTok::Num(
+                chars[s..i].iter().collect::<String>().parse().ok()?,
+            ));
         } else if c.is_alphabetic() || c == '_' {
             let s = i;
-            while i < chars.len() && (chars[i].is_alphanumeric() || matches!(chars[i], '_' | '\'')) {
+            while i < chars.len() && (chars[i].is_alphanumeric() || matches!(chars[i], '_' | '\''))
+            {
                 i += 1;
             }
             out.push(MTok::Ident(chars[s..i].iter().collect()));
@@ -1369,7 +1548,11 @@ fn parse_sum(t: &[MTok], p: &mut usize, d: usize) -> Option<MExpr> {
     while let Some(MTok::Op(op @ ('+' | '-'))) = t.get(*p) {
         *p += 1;
         let r = Box::new(parse_product(t, p, d)?);
-        e = if *op == '+' { MExpr::Add(Box::new(e), r) } else { MExpr::Sub(Box::new(e), r) };
+        e = if *op == '+' {
+            MExpr::Add(Box::new(e), r)
+        } else {
+            MExpr::Sub(Box::new(e), r)
+        };
     }
     Some(e)
 }
@@ -1379,7 +1562,11 @@ fn parse_product(t: &[MTok], p: &mut usize, d: usize) -> Option<MExpr> {
     while let Some(MTok::Op(op @ ('*' | '/'))) = t.get(*p) {
         *p += 1;
         let r = Box::new(parse_power(t, p, d)?);
-        e = if *op == '*' { MExpr::Mul(Box::new(e), r) } else { MExpr::Div(Box::new(e), r) };
+        e = if *op == '*' {
+            MExpr::Mul(Box::new(e), r)
+        } else {
+            MExpr::Div(Box::new(e), r)
+        };
     }
     Some(e)
 }
@@ -1500,7 +1687,10 @@ type LinTerms = Vec<(f64, Vec<String>)>;
 fn lincomb(e: &MExpr, angles: bool) -> Option<(LinTerms, f64)> {
     use MExpr::*;
     let scale = |(t, k): (LinTerms, f64), c: f64| {
-        (t.into_iter().map(|(x, n)| (x * c, n)).collect::<LinTerms>(), k * c)
+        (
+            t.into_iter().map(|(x, n)| (x * c, n)).collect::<LinTerms>(),
+            k * c,
+        )
     };
     match e {
         Num(v) => Some((Vec::new(), *v)),
@@ -1566,7 +1756,8 @@ mod tests {
     const DIST_CONST_FREE: &str = "A = free\nB = free\nprove dist(A,B) = 3";
     /// A median halves the area: true, but no theorem in the library speaks of
     /// areas, so it has no Euclidean proof here.
-    const NUMERIC_ONLY: &str = "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)";
+    const NUMERIC_ONLY: &str =
+        "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)";
     const PYTHAGORAS_GENERIC: &str =
         "A B C = triangle\nprove dist(A,B)^2 = dist(B,C)^2 + dist(A,C)^2";
     const THALES_ANGLE: &str = "A = free\nO = free\nB = reflect(A, O)\n\
@@ -1582,7 +1773,11 @@ mod tests {
     fn refuted_metric_goal_is_not_proved() {
         let sol = solve(DIST_CONST_FREE, &SolveOptions::default()).unwrap();
         assert_eq!(sol.method, Method::Euclidean);
-        assert!(!sol.proved, "a refuted goal must not count as proved: {}", sol.note);
+        assert!(
+            !sol.proved,
+            "a refuted goal must not count as proved: {}",
+            sol.note
+        );
         assert_eq!(sol.goal_holds_numerically, Some(false));
     }
 
@@ -1593,10 +1788,18 @@ mod tests {
             E = point: coll(C, A, E), dist(C,E) = 2*dist(E,A), dist(C,E) + dist(E,A) = dist(C,A)\n\
             F = point: coll(A, B, F), dist(A,F) = 2*dist(F,B), dist(A,F) + dist(F,B) = dist(A,B)\n\
             P = meet(line(A, D), line(B, E))\nQ = meet(line(B, E), line(C, F))\nR = meet(line(C, F), line(A, D))\n";
-        let sol = solve(&format!("{body}prove 7*area(P,Q,R) = area(A,B,C)"), &SolveOptions::default()).unwrap();
+        let sol = solve(
+            &format!("{body}prove 7*area(P,Q,R) = area(A,B,C)"),
+            &SolveOptions::default(),
+        )
+        .unwrap();
         assert!(!sol.proved, "{}", sol.note);
         assert_eq!(sol.status, Status::HoldsNumerically, "{}", sol.note);
-        let sol = solve(&format!("{body}prove 6*area(P,Q,R) = area(A,B,C)"), &SolveOptions::default()).unwrap();
+        let sol = solve(
+            &format!("{body}prove 6*area(P,Q,R) = area(A,B,C)"),
+            &SolveOptions::default(),
+        )
+        .unwrap();
         assert!(!sol.proved, "{}", sol.note);
         assert_eq!(sol.status, Status::Refuted, "{}", sol.note);
     }
@@ -1610,8 +1813,12 @@ mod tests {
 
     #[test]
     fn pythagoras_on_a_generic_triangle_is_not_proved_by_solve_best() {
-        let sol = solve_best(PYTHAGORAS_GENERIC, &SolveOptions::default(), Duration::from_secs(2))
-            .unwrap();
+        let sol = solve_best(
+            PYTHAGORAS_GENERIC,
+            &SolveOptions::default(),
+            Duration::from_secs(2),
+        )
+        .unwrap();
         assert!(!sol.proved, "{}", sol.note);
     }
 
@@ -1686,7 +1893,11 @@ mod tests {
         sol.proved = true;
         reconcile(&mut sol, true);
         assert!(sol.proved);
-        assert!(sol.proof.as_deref().unwrap_or("").contains("could not be extracted"));
+        assert!(sol
+            .proof
+            .as_deref()
+            .unwrap_or("")
+            .contains("could not be extracted"));
 
         let mut quiet = blank_solution();
         quiet.proved = true;
@@ -1704,7 +1915,11 @@ mod tests {
         assert!(!sol.proved, "{}", sol.note);
         assert_eq!(sol.status, Status::HoldsNumerically, "{}", sol.note);
         assert_eq!(sol.goal_holds_numerically, Some(true));
-        assert!(sol.numeric_samples.is_some_and(|n| n >= 8), "{:?}", sol.numeric_samples);
+        assert!(
+            sol.numeric_samples.is_some_and(|n| n >= 8),
+            "{:?}",
+            sol.numeric_samples
+        );
         assert!(sol.proof.is_none(), "{:?}", sol.proof);
         assert!(sol.proof_steps.is_none());
         let ev = sol.numeric_evidence.as_deref().unwrap_or("");
@@ -1721,20 +1936,33 @@ mod tests {
 
     #[test]
     fn numeric_only_metric_goal_is_not_proved_by_solve_best() {
-        let sol = solve_best(NUMERIC_ONLY, &SolveOptions::default(), Duration::from_secs(2)).unwrap();
+        let sol = solve_best(
+            NUMERIC_ONLY,
+            &SolveOptions::default(),
+            Duration::from_secs(2),
+        )
+        .unwrap();
         assert!(!sol.proved, "{}", sol.note);
         assert_eq!(sol.status, Status::HoldsNumerically);
     }
 
     #[test]
     fn statuses_agree_with_proved() {
-        let proved = solve(include_str!("../../alphageometry-rs/examples/metric/stewart.geo"), &SolveOptions::default()).unwrap();
+        let proved = solve(
+            include_str!("../../alphageometry-rs/examples/metric/stewart.geo"),
+            &SolveOptions::default(),
+        )
+        .unwrap();
         assert_eq!(proved.status, Status::Proved);
         assert!(proved.numeric_evidence.is_none());
         let refuted = solve(DIST_CONST_FREE, &SolveOptions::default()).unwrap();
         assert_eq!(refuted.status, Status::Refuted);
         assert!(refuted.proof.is_none());
-        assert!(refuted.numeric_evidence.as_deref().unwrap_or("").contains("counterexample"));
+        assert!(refuted
+            .numeric_evidence
+            .as_deref()
+            .unwrap_or("")
+            .contains("counterexample"));
         let ddar_false = solve(GENERIC_RIGHT_ANGLE, &SolveOptions::default()).unwrap();
         assert!(!ddar_false.proved);
         assert_ne!(ddar_false.status, Status::Proved);
@@ -1767,14 +1995,22 @@ mod tests {
     const IMO_2004_P1_LOW: &str = "a@-0.26812581304757255_0.3590483780130336 b@-0.3580222430541735_0.9454793349468846 c@0.6776500220300667_0.4673564458552779 o@0.15981388948794661_0.7064178904010813 m@-0.26263300625391517_0.3232165664047112 n@-0.2905711669161747_0.3564779878429949 r@-0.2938786226991952_0.3253357312916927 o1@-0.2566679892835928_0.6425736584052819 o2@0.20775225394061608_0.28780690808240483 p@0.03961536474566685_0.7619080950264421 = coll o b c, cong o b o c, cong o m o b, coll m a b, cong o n o b, coll n a c, eqangle a b a r a r a c, eqangle o m o r o r o n, cong o1 b o1 m, cong o1 m o1 r, cong o2 c o2 n, cong o2 n o2 r, cong o1 p o1 r, cong o2 p o2 r ? coll p b c";
 
     fn low_level() -> SolveOptions {
-        SolveOptions { kind: InputKind::LowLevel, ..SolveOptions::default() }
+        SolveOptions {
+            kind: InputKind::LowLevel,
+            ..SolveOptions::default()
+        }
     }
 
     #[test]
     #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn the_butterfly_theorem_needs_and_gets_an_auxiliary_point() {
         let _heavy = crate::engine::heavy_search_lock();
-        let sol = solve_within(BUTTERFLY, &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
+        let sol = solve_within(
+            BUTTERFLY,
+            &SolveOptions::default(),
+            Some(Duration::from_secs(30)),
+        )
+        .unwrap();
         assert!(sol.proved, "{}", sol.note);
         assert_eq!(sol.method, Method::AuxSearch);
         assert!(!sol.aux_constructions.is_empty());
@@ -1784,10 +2020,16 @@ mod tests {
     #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn the_default_and_best_solves_run_the_corpus_search() {
         let _heavy = crate::engine::heavy_search_lock();
-        let sol = solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
+        let sol =
+            solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
         assert!(sol.proved, "{}", sol.note);
         assert_eq!(sol.method, Method::AuxSearch);
-        assert_eq!(sol.aux_constructions.len(), 1, "{:?}", sol.aux_constructions);
+        assert_eq!(
+            sol.aux_constructions.len(),
+            1,
+            "{:?}",
+            sol.aux_constructions
+        );
         let best = solve_best(IMO_2004_P1_LOW, &low_level(), Duration::from_secs(10)).unwrap();
         assert!(best.proved, "{}", best.note);
         let shortest = best
@@ -1797,24 +2039,47 @@ mod tests {
             .and_then(|r| r.split(' ').next())
             .and_then(|n| n.parse::<usize>().ok())
             .or(best.proof_steps);
-        assert!(shortest <= sol.proof_steps, "{:?} > {:?}: {}", shortest, sol.proof_steps, best.note);
+        assert!(
+            shortest <= sol.proof_steps,
+            "{:?} > {:?}: {}",
+            shortest,
+            sol.proof_steps,
+            best.note
+        );
     }
 
     #[test]
     fn best_mode_on_a_small_pool_still_returns_the_default_solves_proof_inside_its_budget() {
         let _heavy = crate::engine::heavy_search_lock();
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let src = std::fs::read_to_string(root.join("alphageometry-rs/examples/imo/2023_p2.geo")).unwrap();
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(2).build().unwrap();
+        let src = std::fs::read_to_string(root.join("alphageometry-rs/examples/imo/2023_p2.geo"))
+            .unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .unwrap();
         let budget = Duration::from_secs(12);
         let t = Instant::now();
-        let best = pool.install(|| solve_best(&src, &SolveOptions::default(), budget)).unwrap();
+        let best = pool
+            .install(|| solve_best(&src, &SolveOptions::default(), budget))
+            .unwrap();
         let took = t.elapsed();
         assert!(best.proved, "{}", best.note);
-        assert!(took <= budget + Duration::from_secs(1), "{took:?} overran the {budget:?} budget");
+        assert!(
+            took <= budget + Duration::from_secs(1),
+            "{took:?} overran the {budget:?} budget"
+        );
         let false_goal = src.replace("prove ", "prove perp(B, C, B, S)\n# ");
         assert_ne!(false_goal, src);
-        let refuted = pool.install(|| solve_best(&false_goal, &SolveOptions::default(), Duration::from_secs(6))).unwrap();
+        let refuted = pool
+            .install(|| {
+                solve_best(
+                    &false_goal,
+                    &SolveOptions::default(),
+                    Duration::from_secs(6),
+                )
+            })
+            .unwrap();
         assert!(!refuted.proved, "{}", refuted.proof.unwrap_or_default());
     }
 
@@ -1822,7 +2087,10 @@ mod tests {
         let fig = sol.figure.as_ref().expect("figure");
         let first = fig.aux_from.unwrap_or(fig.problem.points.len());
         let infos = ddar::human::aux_infos(&fig.problem, first, &sol.aux_constructions);
-        let opts = ddar::human::Opts { deadline: Some(Instant::now() + Duration::from_secs(10)), strict: false };
+        let opts = ddar::human::Opts {
+            deadline: Some(Instant::now() + Duration::from_secs(10)),
+            strict: false,
+        };
         let (hp, ..) = ddar::human::for_problem(&fig.problem, &infos, &opts).expect("re-proves");
         assert!(hp.available);
         hp.metrics.human_cost
@@ -1832,11 +2100,15 @@ mod tests {
     #[ignore = "60 s best search; run with --ignored"]
     fn best_mode_returns_a_proof_at_least_as_readable_as_the_imo_2023_p2_golden() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let src = std::fs::read_to_string(root.join("alphageometry-rs/examples/imo/2023_p2.geo")).unwrap();
+        let src = std::fs::read_to_string(root.join("alphageometry-rs/examples/imo/2023_p2.geo"))
+            .unwrap();
         let best = solve_best(&src, &SolveOptions::default(), Duration::from_secs(60)).unwrap();
         assert!(best.proved, "{}", best.note);
         assert!(best.note.starts_with("most readable of"), "{}", best.note);
-        let golden_src = std::fs::read_to_string(root.join("alphageometry-rs/tests/golden/human/imo_2023_p2.geo")).unwrap();
+        let golden_src = std::fs::read_to_string(
+            root.join("alphageometry-rs/tests/golden/human/imo_2023_p2.geo"),
+        )
+        .unwrap();
         let golden = ddar::geo::compile(&golden_src).unwrap().problem;
         let n = golden.points.len();
         let descs = vec![
@@ -1844,11 +2116,21 @@ mod tests {
             "Q = parallelogram(A, L, B)".to_string(),
         ];
         let infos = ddar::human::aux_infos(&golden, n - 2, &descs);
-        let opts = ddar::human::Opts { deadline: Some(Instant::now() + Duration::from_secs(10)), strict: false };
+        let opts = ddar::human::Opts {
+            deadline: Some(Instant::now() + Duration::from_secs(10)),
+            strict: false,
+        };
         let (hp, ..) = ddar::human::for_problem(&golden, &infos, &opts).unwrap();
         let chosen = human_cost_of(&best);
-        eprintln!("best: {} | HumanCost chosen {chosen}, golden {}", best.note, hp.metrics.human_cost);
-        assert!(chosen <= hp.metrics.human_cost, "chosen {chosen} > golden {}", hp.metrics.human_cost);
+        eprintln!(
+            "best: {} | HumanCost chosen {chosen}, golden {}",
+            best.note, hp.metrics.human_cost
+        );
+        assert!(
+            chosen <= hp.metrics.human_cost,
+            "chosen {chosen} > golden {}",
+            hp.metrics.human_cost
+        );
     }
 
     #[test]
@@ -1857,10 +2139,18 @@ mod tests {
             let input = IMO_2004_P1_LOW.replace("? coll p b c", &format!("? {goal}"));
             assert_ne!(input, IMO_2004_P1_LOW);
             let sol = solve_within(&input, &low_level(), Some(Duration::from_secs(3))).unwrap();
-            assert!(!sol.proved, "{goal} was proved: {:?}", sol.aux_constructions);
+            assert!(
+                !sol.proved,
+                "{goal} was proved: {:?}",
+                sol.aux_constructions
+            );
             assert_eq!(sol.status, Status::Refuted, "{goal}: {}", sol.note);
             let best = solve_best(&input, &low_level(), Duration::from_secs(3)).unwrap();
-            assert!(!best.proved, "{goal} was proved in best mode: {:?}", best.aux_constructions);
+            assert!(
+                !best.proved,
+                "{goal} was proved in best mode: {:?}",
+                best.aux_constructions
+            );
             assert_eq!(best.status, Status::Refuted, "{goal}: {}", best.note);
         }
     }
@@ -1870,28 +2160,46 @@ mod tests {
         for i in 0..extra {
             src.push_str(&format!("P{i} = {point}\n"));
         }
-        src.push_str(&format!("prove dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {factor}dist(A,D)*dist(B,C)\n"));
+        src.push_str(&format!(
+            "prove dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + {factor}dist(A,D)*dist(B,C)\n"
+        ));
         src
     }
 
     #[test]
     fn a_metric_solve_answers_inside_its_deadline_with_its_figure_and_method() {
         let t = Instant::now();
-        let sol = solve_within(&ptolemy_program(25, "on_circum(A, B, C)", ""), &SolveOptions::default(), Some(Duration::from_secs(6))).unwrap();
+        let sol = solve_within(
+            &ptolemy_program(25, "on_circum(A, B, C)", ""),
+            &SolveOptions::default(),
+            Some(Duration::from_secs(6)),
+        )
+        .unwrap();
         let took = t.elapsed();
-        assert!(took < Duration::from_secs(6) + crate::worker::GRACE, "{took:?}");
+        assert!(
+            took < Duration::from_secs(6) + crate::worker::GRACE,
+            "{took:?}"
+        );
         assert!(!sol.proved);
         assert_eq!(sol.method, Method::Euclidean);
         assert!(!sol.svg.is_empty());
         assert!(sol.note.contains("time limit"), "{}", sol.note);
         assert_eq!(crate::present::classify_note(&sol).key, "time_limit");
         let t = Instant::now();
-        let sol = solve_within(&ptolemy_program(89, "free", "2*"), &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
+        let sol = solve_within(
+            &ptolemy_program(89, "free", "2*"),
+            &SolveOptions::default(),
+            Some(Duration::from_secs(30)),
+        )
+        .unwrap();
         assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
         assert!(!sol.proved);
         assert_eq!(sol.status, Status::Refuted, "{}", sol.note);
         assert_eq!(sol.method, Method::Euclidean);
-        assert_eq!(routed_method(&ptolemy_program(1, "free", ""), InputKind::Geo), Method::Euclidean);
+        assert_eq!(
+            routed_method(&ptolemy_program(1, "free", ""), InputKind::Geo),
+            Method::Euclidean
+        );
         assert_eq!(routed_method(BUTTERFLY, InputKind::Geo), Method::Ddar);
     }
 
@@ -1907,14 +2215,20 @@ mod tests {
         let best = solve_best(input, &low_level(), Duration::from_secs(10)).unwrap();
         assert!(!best.proved);
         assert_eq!(best.status, Status::Refuted, "{}", best.note);
-        let sol = solve_within("a@0_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c", &low_level(), Some(Duration::from_secs(2))).unwrap();
+        let sol = solve_within(
+            "a@0_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c",
+            &low_level(),
+            Some(Duration::from_secs(2)),
+        )
+        .unwrap();
         assert!(!sol.proved, "nothing implies AB = AC: {}", sol.note);
         assert_ne!(sol.status, Status::Refuted);
         assert_eq!(sol.goal_holds_numerically, Some(true));
     }
 
     #[test]
-    fn malformed_low_level_input_is_a_parse_error_in_both_modes_never_a_panic_or_a_budget_verdict() {
+    fn malformed_low_level_input_is_a_parse_error_in_both_modes_never_a_panic_or_a_budget_verdict()
+    {
         let cases = [
             ("a@0_0 b@1_0 c@0_1 = foo a b ? coll a b c", "unknown relation `foo`"),
             ("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@2_2 = ? para a b", "`para` expects 4 arguments, got 2"),
@@ -1927,18 +2241,29 @@ mod tests {
         ];
         for (input, want) in cases {
             assert_eq!(InputKind::detect(input), InputKind::LowLevel, "{input}");
-            let normal = solve_within(input, &low_level(), Some(Duration::from_secs(3))).err().unwrap_or_default();
-            let best = solve_best(input, &low_level(), Duration::from_secs(3)).err().unwrap_or_default();
+            let normal = solve_within(input, &low_level(), Some(Duration::from_secs(3)))
+                .err()
+                .unwrap_or_default();
+            let best = solve_best(input, &low_level(), Duration::from_secs(3))
+                .err()
+                .unwrap_or_default();
             for e in [normal, best] {
-                assert!(e.starts_with("parse error: ") && e.contains(want), "{input}: {e:?}");
+                assert!(
+                    e.starts_with("parse error: ") && e.contains(want),
+                    "{input}: {e:?}"
+                );
                 let d = crate::present::diagnose(input, &e);
                 assert_ne!(d.key, "other", "{input}: {e}");
                 assert_eq!(d.line, 1, "{input}: {e}");
             }
         }
-        let many: Vec<String> = (0..101).map(|i| format!("p{i}@{}_{} = ", i as f64 * 0.01, (i * i) as f64 * 0.001)).collect();
+        let many: Vec<String> = (0..101)
+            .map(|i| format!("p{i}@{}_{} = ", i as f64 * 0.01, (i * i) as f64 * 0.001))
+            .collect();
         let many = format!("{} ? cong p0 p1 p0 p2", many.join("; "));
-        let e = solve_within(&many, &low_level(), Some(Duration::from_secs(3))).err().unwrap();
+        let e = solve_within(&many, &low_level(), Some(Duration::from_secs(3)))
+            .err()
+            .unwrap();
         assert!(e.contains("too many points (101)"), "{e}");
         assert_eq!(crate::present::diagnose(&many, &e).key, "too_many_points");
     }
@@ -1948,14 +2273,22 @@ mod tests {
         let ok = "b@0_0 = ; c@2_0 = ; a@0.7_1.9 = ; f@1_0 = coll f b c, cong f b f c ? midp f b c";
         let sol = solve_within(ok, &low_level(), Some(Duration::from_secs(10))).unwrap();
         assert!(sol.proved, "{}", sol.note);
-        assert!(sol.note.contains("all 2 conjuncts of `midp f b c`"), "{}", sol.note);
+        assert!(
+            sol.note.contains("all 2 conjuncts of `midp f b c`"),
+            "{}",
+            sol.note
+        );
         let off = "b@0_0 = ; c@2_0 = ; a@0.7_1.9 = ; f@0.5_0 = coll f b c ? midp f b c";
         let sol = solve_within(off, &low_level(), Some(Duration::from_secs(5))).unwrap();
         assert!(!sol.proved, "{}", sol.proof.unwrap_or_default());
         assert_eq!(sol.status, Status::Refuted, "{}", sol.note);
         let unforced = "b@0_0 = ; c@2_0 = ; a@0.7_1.9 = ; f@1_0 = coll f b c ? midp f b c";
         let sol = solve_within(unforced, &low_level(), Some(Duration::from_secs(5))).unwrap();
-        assert!(!sol.proved, "the coordinates are not a proof: {}", sol.proof.unwrap_or_default());
+        assert!(
+            !sol.proved,
+            "the coordinates are not a proof: {}",
+            sol.proof.unwrap_or_default()
+        );
         assert_ne!(sol.status, Status::Proved);
         let simtri = "a@0_2 = ; b@-1_0 = ; c@3_0 = ; d@0.5_0 = coll d b c ? simtri a b d a c d";
         for sol in [
@@ -1970,7 +2303,10 @@ mod tests {
     #[test]
     fn solve_within_honours_the_deadline() {
         let t = Instant::now();
-        let opts = SolveOptions { kind: InputKind::LowLevel, ..SolveOptions::default() };
+        let opts = SolveOptions {
+            kind: InputKind::LowLevel,
+            ..SolveOptions::default()
+        };
         let sol = solve_within(IMO_2008_P6_LOW, &opts, Some(Duration::from_millis(300))).unwrap();
         let took = t.elapsed();
         assert!(took < Duration::from_secs(2), "took {took:?}");
@@ -1988,7 +2324,10 @@ mod tests {
             })
         });
         assert!(r.is_none(), "the deadline passes first");
-        assert!(weak.upgrade().is_some(), "the still-running worker owns the guard");
+        assert!(
+            weak.upgrade().is_some(),
+            "the still-running worker owns the guard"
+        );
         let t = Instant::now();
         while weak.upgrade().is_some() && t.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(20));
@@ -2015,7 +2354,11 @@ mod tests {
         while weak.upgrade().is_some() && t.elapsed() < Duration::from_secs(20) {
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(weak.upgrade().is_none(), "the search was still running {:?} after the deadline", t.elapsed());
+        assert!(
+            weak.upgrade().is_none(),
+            "the search was still running {:?} after the deadline",
+            t.elapsed()
+        );
     }
 
     fn blank_solution() -> Solution {
@@ -2051,7 +2394,9 @@ mod corpus_tests {
     const TRAPEZOID: &str = "a b c d = trapezoid a b c d; e = midpoint e d a; f = on_pline f e a b, on_line f b c ? midp f b c";
 
     fn corpus(file: &str) -> Vec<(String, String)> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../corpus").join(file);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../corpus")
+            .join(file);
         ddar::corpus::read_corpus(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
@@ -2099,40 +2444,77 @@ mod corpus_tests {
             }
         }
         assert_eq!(total, 261);
-        assert!(failures.is_empty(), "{} of {total} fail:\n{}", failures.len(), failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "{} of {total} fail:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
     }
 
     #[test]
     fn detection_keeps_geo_and_low_level_programs() {
-        assert_eq!(InputKind::detect("A B C = triangle\nprove coll(A, B, C)"), InputKind::Geo);
-        assert_eq!(InputKind::detect("A B C = triangle\n? coll(A, B, C)"), InputKind::Geo);
-        assert_eq!(InputKind::detect("# t\nA B C = triangle\nM = midpoint(A, B)\nprove cong(M, A, M, B)"), InputKind::Geo);
+        assert_eq!(
+            InputKind::detect("A B C = triangle\nprove coll(A, B, C)"),
+            InputKind::Geo
+        );
+        assert_eq!(
+            InputKind::detect("A B C = triangle\n? coll(A, B, C)"),
+            InputKind::Geo
+        );
+        assert_eq!(
+            InputKind::detect("# t\nA B C = triangle\nM = midpoint(A, B)\nprove cong(M, A, M, B)"),
+            InputKind::Geo
+        );
         assert_eq!(InputKind::detect(TINY_LOW), InputKind::LowLevel);
-        assert_eq!(InputKind::detect("a@0_0 b@1_0 = coll a b ? cong a b"), InputKind::LowLevel);
+        assert_eq!(
+            InputKind::detect("a@0_0 b@1_0 = coll a b ? cong a b"),
+            InputKind::LowLevel
+        );
         assert_eq!(InputKind::detect(IMO_2008_P6), InputKind::Corpus);
-        assert_eq!(InputKind::detect("a b c = triangle a b c; d = middle d a b ? coll a b d"), InputKind::Corpus);
-        let err = solve_within("a b c = triangle a b c; d = middle d a b ? coll a b d", &SolveOptions { kind: InputKind::Corpus, ..SolveOptions::default() }, Some(Duration::from_secs(5)))
-            .err()
-            .expect("an unknown construction is a compile error");
+        assert_eq!(
+            InputKind::detect("a b c = triangle a b c; d = middle d a b ? coll a b d"),
+            InputKind::Corpus
+        );
+        let err = solve_within(
+            "a b c = triangle a b c; d = middle d a b ? coll a b d",
+            &SolveOptions {
+                kind: InputKind::Corpus,
+                ..SolveOptions::default()
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .err()
+        .expect("an unknown construction is a compile error");
         assert!(err.contains("unknown construction `middle`"), "{err}");
     }
 
     const TINY_LOW: &str = "a@0_0 b@1_0 c@0_1 = coll a b c ? coll a b c";
 
     fn corpus_opts() -> SolveOptions {
-        SolveOptions { kind: InputKind::Corpus, ..SolveOptions::default() }
+        SolveOptions {
+            kind: InputKind::Corpus,
+            ..SolveOptions::default()
+        }
     }
 
     #[test]
     #[cfg_attr(debug_assertions, ignore = "time-budgeted search: run with --release")]
     fn imo_2008_p6_corpus_text_is_proved_through_the_app() {
         let _heavy = crate::engine::heavy_search_lock();
-        let sol = solve_within(IMO_2008_P6, &corpus_opts(), Some(Duration::from_secs(150))).unwrap();
+        let sol =
+            solve_within(IMO_2008_P6, &corpus_opts(), Some(Duration::from_secs(150))).unwrap();
         assert!(sol.proved, "{}", sol.note);
         assert_eq!(sol.status, Status::Proved);
         assert_eq!(sol.method, Method::AuxSearch);
         assert!(!sol.aux_constructions.is_empty());
-        assert!(sol.proof.as_deref().is_some_and(|p| p.contains("cong o k o x")), "{:?}", sol.proof);
+        assert!(
+            sol.proof
+                .as_deref()
+                .is_some_and(|p| p.contains("cong o k o x")),
+            "{:?}",
+            sol.proof
+        );
     }
 
     #[test]
@@ -2141,19 +2523,37 @@ mod corpus_tests {
         let _heavy = crate::engine::heavy_search_lock();
         let sol = solve_within(TRAPEZOID, &corpus_opts(), Some(Duration::from_secs(60))).unwrap();
         assert!(sol.proved, "{}", sol.note);
-        assert!(sol.note.contains("all 2 conjuncts of `midp f b c`"), "{}", sol.note);
+        assert!(
+            sol.note.contains("all 2 conjuncts of `midp f b c`"),
+            "{}",
+            sol.note
+        );
         let proof = sol.proof.as_deref().unwrap();
-        assert!(proof.contains("collinear: b f c") && proof.contains("intercept theorem"), "{proof}");
+        assert!(
+            proof.contains("collinear: b f c") && proof.contains("intercept theorem"),
+            "{proof}"
+        );
         assert!(proof.trim_end().ends_with("\u{220e} midp f b c"), "{proof}");
         assert!(sol.low_level.ends_with("? midp f b c"), "{}", sol.low_level);
         let view = crate::present::build(&sol);
         assert_eq!(view.goal.as_ref().map(|g| g.kind), Some("midp"));
         assert_eq!(InputKind::detect(&sol.low_level), InputKind::LowLevel);
-        let low = SolveOptions { kind: InputKind::LowLevel, ..SolveOptions::default() };
+        let low = SolveOptions {
+            kind: InputKind::LowLevel,
+            ..SolveOptions::default()
+        };
         let again = solve_within(&sol.low_level, &low, Some(Duration::from_secs(60))).unwrap();
-        assert!(again.proved, "the app's own low-level form must solve again: {}", again.note);
+        assert!(
+            again.proved,
+            "the app's own low-level form must solve again: {}",
+            again.note
+        );
         assert_eq!(again.status, sol.status);
-        assert!(again.note.contains("all 2 conjuncts of `midp f b c`"), "{}", again.note);
+        assert!(
+            again.note.contains("all 2 conjuncts of `midp f b c`"),
+            "{}",
+            again.note
+        );
     }
 
     #[test]
@@ -2169,7 +2569,8 @@ mod corpus_tests {
                 let mut whole = tr.problem.clone();
                 whole.goal = ddar::corpus::engine_goal(&whole, &ag.goal);
                 let low = whole.to_ag_string();
-                let (p, holds, parts) = low_level_problem(&low).unwrap_or_else(|e| panic!("{name}: {e}"));
+                let (p, holds, parts) =
+                    low_level_problem(&low).unwrap_or_else(|e| panic!("{name}: {e}"));
                 assert_eq!(holds, Some(tr.goal_holds), "{name}");
                 let parts = parts.unwrap_or_else(|| panic!("{name}: not lowered"));
                 let render = |q: &Problem, g: &ddar::Predicate| render_pred(q, g);
@@ -2203,7 +2604,11 @@ mod corpus_tests {
         ];
         for src in special {
             let sol = solve_within(src, &corpus_opts(), Some(Duration::from_secs(6))).unwrap();
-            assert_eq!(sol.goal_holds_numerically, Some(true), "{src}: the pinned figure satisfies the goal");
+            assert_eq!(
+                sol.goal_holds_numerically,
+                Some(true),
+                "{src}: the pinned figure satisfies the goal"
+            );
             assert!(!sol.proved, "{src}: {}", sol.proof.unwrap_or_default());
             assert_ne!(sol.status, Status::Proved, "{src}");
         }

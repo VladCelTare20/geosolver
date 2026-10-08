@@ -54,16 +54,66 @@ fn landing_html() -> &'static str {
 /// carrying the current tag is cached for a year, any other gets the listed
 /// policy, and every answer carries an `ETag` so a revalidation is a 304.
 const ASSETS: &[(&str, &str, &str, &[u8])] = &[
-    ("i18n.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/i18n.js")),
-    ("app.css", "text/css; charset=utf-8", "no-cache", include_bytes!("../assets/app.css")),
-    ("site.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/site.js")),
-    ("app.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/app.js")),
-    ("auth.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/auth.js")),
-    ("landing.js", "application/javascript; charset=utf-8", "no-cache", include_bytes!("../assets/landing.js")),
-    ("showcase.json", "application/json", "no-cache", include_bytes!("../assets/showcase.json")),
-    ("fonts/stix-two-text.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/stix-two-text.woff2")),
-    ("fonts/stix-two-text-italic.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/stix-two-text-italic.woff2")),
-    ("fonts/inter.woff2", "font/woff2", "public, max-age=604800", include_bytes!("../assets/fonts/inter.woff2")),
+    (
+        "i18n.js",
+        "application/javascript; charset=utf-8",
+        "no-cache",
+        include_bytes!("../assets/i18n.js"),
+    ),
+    (
+        "app.css",
+        "text/css; charset=utf-8",
+        "no-cache",
+        include_bytes!("../assets/app.css"),
+    ),
+    (
+        "site.js",
+        "application/javascript; charset=utf-8",
+        "no-cache",
+        include_bytes!("../assets/site.js"),
+    ),
+    (
+        "app.js",
+        "application/javascript; charset=utf-8",
+        "no-cache",
+        include_bytes!("../assets/app.js"),
+    ),
+    (
+        "auth.js",
+        "application/javascript; charset=utf-8",
+        "no-cache",
+        include_bytes!("../assets/auth.js"),
+    ),
+    (
+        "landing.js",
+        "application/javascript; charset=utf-8",
+        "no-cache",
+        include_bytes!("../assets/landing.js"),
+    ),
+    (
+        "showcase.json",
+        "application/json",
+        "no-cache",
+        include_bytes!("../assets/showcase.json"),
+    ),
+    (
+        "fonts/stix-two-text.woff2",
+        "font/woff2",
+        "public, max-age=604800",
+        include_bytes!("../assets/fonts/stix-two-text.woff2"),
+    ),
+    (
+        "fonts/stix-two-text-italic.woff2",
+        "font/woff2",
+        "public, max-age=604800",
+        include_bytes!("../assets/fonts/stix-two-text-italic.woff2"),
+    ),
+    (
+        "fonts/inter.woff2",
+        "font/woff2",
+        "public, max-age=604800",
+        include_bytes!("../assets/fonts/inter.woff2"),
+    ),
 ];
 
 /// Recent solutions by id, so export and history reopen use exactly what the
@@ -87,7 +137,11 @@ struct SolutionCache {
 
 fn solution_cache() -> &'static std::sync::Mutex<SolutionCache> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<SolutionCache>> = std::sync::OnceLock::new();
-    CACHE.get_or_init(|| std::sync::Mutex::new(SolutionCache { entries: Vec::new() }))
+    CACHE.get_or_init(|| {
+        std::sync::Mutex::new(SolutionCache {
+            entries: Vec::new(),
+        })
+    })
 }
 
 impl SolutionCache {
@@ -100,11 +154,15 @@ impl SolutionCache {
             }
         }
         if self.entries.len() >= max {
-            let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            let mut counts: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::new();
             for e in &self.entries {
                 *counts.entry(e.owner.as_str()).or_insert(0) += 1;
             }
-            let top = counts.iter().max_by_key(|(_, n)| **n).map(|(o, _)| o.to_string());
+            let top = counts
+                .iter()
+                .max_by_key(|(_, n)| **n)
+                .map(|(o, _)| o.to_string());
             if let Some(top) = top {
                 if let Some(i) = self.entries.iter().position(|e| e.owner == top) {
                     self.entries.remove(i);
@@ -119,7 +177,9 @@ fn cache_put(owner: &str, value: serde_json::Value) -> (String, std::sync::Arc<s
     let mut value = value;
     value["id"] = serde_json::Value::String(id.clone());
     let arc = std::sync::Arc::new(value);
-    let mut c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut c = solution_cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     c.evict_for(owner, SOLUTION_CACHE_PER_OWNER, SOLUTION_CACHE_MAX);
     c.entries.push(CachedSolution {
         id: id.clone(),
@@ -131,7 +191,9 @@ fn cache_put(owner: &str, value: serde_json::Value) -> (String, std::sync::Arc<s
 }
 
 fn cache_get(id: &str, owner: &str) -> Option<std::sync::Arc<serde_json::Value>> {
-    let c = solution_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let c = solution_cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     c.entries
         .iter()
         .find(|e| e.id == id && e.owner == owner && e.at.elapsed() < SOLUTION_TTL)
@@ -153,12 +215,20 @@ fn signing_key() -> &'static [u8; 32] {
 }
 
 fn solution_sig(body: &str) -> String {
-    security::hmac_sha256(signing_key(), body.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    security::hmac_sha256(signing_key(), body.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn signed_solution(body: &str, sig: &str) -> Option<serde_json::Value> {
     let want = solution_sig(body);
-    let same = want.len() == sig.len() && want.bytes().zip(sig.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+    let same = want.len() == sig.len()
+        && want
+            .bytes()
+            .zip(sig.bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0;
     if !same {
         return None;
     }
@@ -168,13 +238,19 @@ fn signed_solution(body: &str, sig: &str) -> Option<serde_json::Value> {
 fn signed_json(value: &serde_json::Value) -> Response {
     let body = value.to_string();
     let sig = solution_sig(&body);
-    let mut resp = ([(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))], body).into_response();
+    let mut resp = (
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )],
+        body,
+    )
+        .into_response();
     if let Ok(v) = HeaderValue::from_str(&sig) {
         resp.headers_mut().insert(SOLUTION_SIG_HEADER, v);
     }
     resp
 }
-
 
 /// Hard ceiling on a decoded upload, independent of the body limit.
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
@@ -214,12 +290,18 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(600);
 
 async fn checkpoint_periodically(db: crate::db::Db) {
-    let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + CHECKPOINT_EVERY, CHECKPOINT_EVERY);
+    let mut tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + CHECKPOINT_EVERY,
+        CHECKPOINT_EVERY,
+    );
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;
         let db = db.clone();
-        let done = tokio::task::spawn_blocking(move || crate::db::checkpoint(&crate::db::lock(&db), "PASSIVE")).await;
+        let done = tokio::task::spawn_blocking(move || {
+            crate::db::checkpoint(&crate::db::lock(&db), "PASSIVE")
+        })
+        .await;
         if let Ok(Err(e)) = done {
             eprintln!("periodic database checkpoint failed: {e}");
         }
@@ -270,11 +352,21 @@ async fn serve_until(
     let marker = state.clone();
     let shutdown = async move {
         shutdown.await;
-        marker.draining.store(true, std::sync::atomic::Ordering::SeqCst);
+        marker
+            .draining
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     };
-    let drained = accept_loop(listener, app_router(state.clone()), header_timeout, shutdown, drain).await;
+    let drained = accept_loop(
+        listener,
+        app_router(state.clone()),
+        header_timeout,
+        shutdown,
+        drain,
+    )
+    .await;
     let db = state.db.clone();
-    let flushed = tokio::task::spawn_blocking(move || db::checkpoint(&db::lock(&db), "TRUNCATE")).await;
+    let flushed =
+        tokio::task::spawn_blocking(move || db::checkpoint(&db::lock(&db), "TRUNCATE")).await;
     match flushed {
         Ok(Ok(true)) => eprintln!("  database checkpointed: the main file holds every write"),
         Ok(Ok(false)) => eprintln!("  database checkpoint incomplete (a reader was busy); the -wal file still holds recent writes"),
@@ -295,7 +387,11 @@ fn report_translate_status(state: Shared) {
         return;
     }
     tokio::spawn(async move {
-        let who = if state.config.guest_ai_allowed() { "accounts + guests" } else { "accounts only" };
+        let who = if state.config.guest_ai_allowed() {
+            "accounts + guests"
+        } else {
+            "accounts only"
+        };
         let on = format!("on ({who}; local Claude subscription)");
         let unverified = format!("{on} — CLAUDE_CODE_OAUTH_TOKEN is not checked until the first AI call; `agstudio doctor` tests it now");
         let note = match state.translate_status().await {
@@ -340,7 +436,10 @@ async fn accept_loop(
         };
         let conn = http.serve_connection(
             hyper_util::rt::TokioIo::new(stream),
-            WithPeer { app: app.clone(), peer },
+            WithPeer {
+                app: app.clone(),
+                peer,
+            },
         );
         let mut stop = stop_rx.clone();
         conns.spawn(async move {
@@ -357,11 +456,10 @@ async fn accept_loop(
     let open = conns.len();
     println!("  Shutting down: no new connections; {open} open, draining for at most {drain:?}.");
     let _ = stop_tx.send(true);
-    let all_done = tokio::time::timeout(drain, async {
-        while conns.join_next().await.is_some() {}
-    })
-    .await
-    .is_ok();
+    let all_done =
+        tokio::time::timeout(drain, async { while conns.join_next().await.is_some() {} })
+            .await
+            .is_ok();
     if all_done {
         return Ok(0);
     }
@@ -372,7 +470,10 @@ async fn accept_loop(
 
 fn is_connection_error(e: &std::io::Error) -> bool {
     use std::io::ErrorKind::*;
-    matches!(e.kind(), ConnectionRefused | ConnectionAborted | ConnectionReset)
+    matches!(
+        e.kind(),
+        ConnectionRefused | ConnectionAborted | ConnectionReset
+    )
 }
 
 #[derive(Clone)]
@@ -387,7 +488,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for WithPeer
     type Future = axum::routing::future::RouteFuture<std::convert::Infallible>;
 
     fn call(&self, mut req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
-        req.extensions_mut().insert(axum::extract::ConnectInfo(self.peer));
+        req.extensions_mut()
+            .insert(axum::extract::ConnectInfo(self.peer));
         tower::Service::call(&mut self.app.clone(), req)
     }
 }
@@ -403,14 +505,19 @@ fn app_router(state: Shared) -> Router {
         .route("/auth", get(auth_page))
         .route(
             "/gate",
-            get(gate::page).post(gate::submit).layer(DefaultBodyLimit::max(GATE_BODY_LIMIT)),
+            get(gate::page)
+                .post(gate::submit)
+                .layer(DefaultBodyLimit::max(GATE_BODY_LIMIT)),
         )
         .route("/gate/forget", post(gate::forget))
         .route("/manifest.webmanifest", get(pwa::manifest))
         .route("/favicon.svg", get(pwa::favicon_svg))
         .route("/favicon.ico", get(pwa::favicon_ico))
         .route("/apple-touch-icon.png", get(pwa::apple_touch_icon))
-        .route("/apple-touch-icon-precomposed.png", get(pwa::apple_touch_icon))
+        .route(
+            "/apple-touch-icon-precomposed.png",
+            get(pwa::apple_touch_icon),
+        )
         .route("/icons/{file}", get(pwa::icon_file))
         .route("/splash/{file}", get(pwa::splash_file))
         .route("/robots.txt", get(pwa::robots))
@@ -427,7 +534,9 @@ fn app_router(state: Shared) -> Router {
         .route("/api/history", get(api_history))
         .route(
             "/api/history/{id}",
-            axum::routing::delete(api_history_delete).get(api_history_get).put(api_history_replace),
+            axum::routing::delete(api_history_delete)
+                .get(api_history_get)
+                .put(api_history_replace),
         )
         .route("/api/auth/register", post(api_register))
         .route("/api/auth/login", post(api_login))
@@ -452,11 +561,13 @@ fn app_router(state: Shared) -> Router {
             state.clone(),
             security::security_headers,
         ))
-        .layer(CompressionLayer::new().compress_when(
-            DefaultPredicate::new()
-                .and(NotForContentType::const_new("font/"))
-                .and(NotForContentType::const_new("application/pdf")),
-        ))
+        .layer(
+            CompressionLayer::new().compress_when(
+                DefaultPredicate::new()
+                    .and(NotForContentType::const_new("font/"))
+                    .and(NotForContentType::const_new("application/pdf")),
+            ),
+        )
         // Covers a translate (90 s CLI cap) or an Opus proof rewrite (~10–30 s, 90 s cap);
         // ordinary requests still return in well under a second.
         .layer(TimeoutLayer::with_status_code(
@@ -464,7 +575,10 @@ fn app_router(state: Shared) -> Router {
             request_timeout,
         ))
         .layer(DefaultBodyLimit::max(body_limit))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), access_log))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            access_log,
+        ))
         .with_state(state)
 }
 
@@ -504,7 +618,11 @@ const NOT_FOUND_HTML: &str = "<!DOCTYPE html>\n<html lang=\"{lang}\">\n<head>\n<
 async fn not_found(uri: axum::http::Uri, headers: HeaderMap) -> Response {
     let lang = i18n::lang_from_headers(&headers);
     if uri.path().starts_with("/api/") {
-        return err_code(StatusCode::NOT_FOUND, "not_found", i18n::t(lang, "nf.title"));
+        return err_code(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            i18n::t(lang, "nf.title"),
+        );
     }
     let html = headers
         .get(header::ACCEPT)
@@ -513,17 +631,30 @@ async fn not_found(uri: axum::http::Uri, headers: HeaderMap) -> Response {
     if !html {
         return (StatusCode::NOT_FOUND, i18n::t(lang, "nf.title")).into_response();
     }
-    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    };
     let body = versioned(NOT_FOUND_HTML)
         .replace("{lang}", lang.code())
         .replace("{title}", &esc(i18n::t(lang, "nf.title")))
         .replace("{body}", &esc(i18n::t(lang, "nf.body")))
         .replace("{home}", &esc(i18n::t(lang, "nf.home")));
-    (StatusCode::NOT_FOUND, [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))], Html(body)).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Html(body),
+    )
+        .into_response()
 }
 
 fn page(html: &'static str) -> Response {
-    ([(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))], Html(html)).into_response()
+    (
+        [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Html(html),
+    )
+        .into_response()
 }
 
 /// In guest mode, give a browser without one its own guest id, so guests
@@ -533,7 +664,10 @@ pub(crate) fn with_guest_id(state: &Shared, headers: &HeaderMap, mut resp: Respo
     if !state.config.guest_allowed() || auth::parse_guest(headers, secure).is_some() {
         return resp;
     }
-    if let Ok(v) = HeaderValue::from_str(&auth::set_guest_cookie_header(&auth::new_session_id(), secure)) {
+    if let Ok(v) = HeaderValue::from_str(&auth::set_guest_cookie_header(
+        &auth::new_session_id(),
+        secure,
+    )) {
         resp.headers_mut().append(header::SET_COOKIE, v);
     }
     resp
@@ -561,28 +695,43 @@ pub(crate) struct Asset {
 
 fn content_tag(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    Sha256::digest(bytes)[..8].iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(bytes)[..8]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn with_tags(text: &str, done: &[Asset]) -> String {
     done.iter().fold(text.to_string(), |acc, a| {
-        acc.replace(&format!("\"/assets/{}\"", a.name), &format!("\"/assets/{}?v={}\"", a.name, a.tag))
+        acc.replace(
+            &format!("\"/assets/{}\"", a.name),
+            &format!("\"/assets/{}?v={}\"", a.name, a.tag),
+        )
     })
 }
 
 pub(crate) fn assets() -> &'static [Asset] {
     static A: std::sync::OnceLock<Vec<Asset>> = std::sync::OnceLock::new();
     A.get_or_init(|| {
-        let (fonts, rest): (Vec<_>, Vec<_>) = ASSETS.iter().partition(|(n, ..)| n.starts_with("fonts/"));
+        let (fonts, rest): (Vec<_>, Vec<_>) =
+            ASSETS.iter().partition(|(n, ..)| n.starts_with("fonts/"));
         let mut done: Vec<Asset> = Vec::with_capacity(ASSETS.len());
         for (name, ctype, cache, bytes) in fonts.into_iter().chain(rest) {
             let bytes: std::borrow::Cow<'static, [u8]> = if ctype.starts_with("text/css") {
-                std::borrow::Cow::Owned(with_tags(&String::from_utf8_lossy(bytes), &done).into_bytes())
+                std::borrow::Cow::Owned(
+                    with_tags(&String::from_utf8_lossy(bytes), &done).into_bytes(),
+                )
             } else {
                 std::borrow::Cow::Borrowed(bytes)
             };
             let tag = content_tag(&bytes);
-            done.push(Asset { name, ctype, cache, bytes, tag });
+            done.push(Asset {
+                name,
+                ctype,
+                cache,
+                bytes,
+                tag,
+            });
         }
         done
     })
@@ -596,20 +745,25 @@ fn serve_asset(name: &str, uri: &axum::http::Uri, headers: &HeaderMap) -> Respon
     let Some(a) = assets().iter().find(|a| a.name == name) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let current = uri
-        .query()
-        .is_some_and(|q| q.split('&').any(|kv| kv.strip_prefix("v=") == Some(a.tag.as_str())));
+    let current = uri.query().is_some_and(|q| {
+        q.split('&')
+            .any(|kv| kv.strip_prefix("v=") == Some(a.tag.as_str()))
+    });
     let cache = if current { IMMUTABLE } else { a.cache };
     let etag = format!("W/\"{}\"", a.tag);
     let fresh = headers
         .get(header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.split(',').any(|t| t.trim() == "*" || t.trim().trim_start_matches("W/") == &etag[2..]));
+        .is_some_and(|v| {
+            v.split(',')
+                .any(|t| t.trim() == "*" || t.trim().trim_start_matches("W/") == &etag[2..])
+        });
     let mut resp = if fresh {
         StatusCode::NOT_MODIFIED.into_response()
     } else {
         let mut r = Body::from(a.bytes.clone()).into_response();
-        r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(a.ctype));
+        r.headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static(a.ctype));
         r
     };
     let h = resp.headers_mut();
@@ -671,10 +825,19 @@ async fn readyz(State(state): State<Shared>) -> Response {
     if ready {
         return body.into_response();
     }
-    (StatusCode::SERVICE_UNAVAILABLE, [(header::RETRY_AFTER, HeaderValue::from_static("10"))], body).into_response()
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(header::RETRY_AFTER, HeaderValue::from_static("10"))],
+        body,
+    )
+        .into_response()
 }
 
-async fn access_log(State(state): State<Shared>, req: Request, next: axum::middleware::Next) -> Response {
+async fn access_log(
+    State(state): State<Shared>,
+    req: Request,
+    next: axum::middleware::Next,
+) -> Response {
     if !state.config.access_log {
         return next.run(req).await;
     }
@@ -696,7 +859,9 @@ async fn access_log(State(state): State<Shared>, req: Request, next: axum::middl
 }
 
 fn utc_timestamp(t: std::time::SystemTime) -> String {
-    let secs = t.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let secs = t
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -707,7 +872,12 @@ fn utc_timestamp(t: std::time::SystemTime) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 #[derive(Serialize)]
@@ -755,7 +925,10 @@ async fn api_status(
     let user = session_user(&state, &headers).await;
     let probe = state.translate_status_now();
     let checking = probe.is_none();
-    let s = probe.unwrap_or(translate::Status { installed: false, logged_in: false });
+    let s = probe.unwrap_or(translate::Status {
+        installed: false,
+        logged_in: false,
+    });
     let block = if !state.config.enable_translate {
         Some("disabled")
     } else if checking {
@@ -779,7 +952,9 @@ async fn api_status(
         signed_in: user.is_some(),
         guest,
         username: user.map(|u| u.username),
-        gate: via.filter(|v| v.0 == security::GateVia::Cookie).map(|_| "cookie"),
+        gate: via
+            .filter(|v| v.0 == security::GateVia::Cookie)
+            .map(|_| "cookie"),
         solve_deadline_secs: state.config.solve_deadline.as_secs(),
         extended_deadline_secs: state.config.extended_deadline.map(|d| d.as_secs()),
         translate_timeout_secs: translate::CHILD_TIMEOUT.as_secs(),
@@ -817,7 +992,11 @@ where
             Err(rejection) => {
                 eprintln!("rejected request body: {rejection}");
                 if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                    return Err(err_code(StatusCode::PAYLOAD_TOO_LARGE, "body_too_large", i18n::t(lang, "err.body_too_large")));
+                    return Err(err_code(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "body_too_large",
+                        i18n::t(lang, "err.body_too_large"),
+                    ));
                 }
                 Err(err(rejection.status(), "invalid request body"))
             }
@@ -837,7 +1016,10 @@ impl FromRequestParts<Shared> for SessionUser {
             Some(u) => Ok(SessionUser(u)),
             None => Err(err(
                 StatusCode::UNAUTHORIZED,
-                i18n::t(i18n::lang_from_headers(&parts.headers), "auth.sign_in_required"),
+                i18n::t(
+                    i18n::lang_from_headers(&parts.headers),
+                    "auth.sign_in_required",
+                ),
             )),
         }
     }
@@ -857,9 +1039,10 @@ impl FromRequestParts<Shared> for Caller {
     async fn from_request_parts(parts: &mut Parts, state: &Shared) -> Result<Self, Response> {
         match SessionUser::from_request_parts(parts, state).await {
             Ok(SessionUser(u)) => Ok(Caller::User(u)),
-            Err(_) if state.config.guest_allowed() => {
-                Ok(Caller::Guest(auth::parse_guest(&parts.headers, state.config.secure_cookies)))
-            }
+            Err(_) if state.config.guest_allowed() => Ok(Caller::Guest(auth::parse_guest(
+                &parts.headers,
+                state.config.secure_cookies,
+            ))),
             Err(e) => Err(e),
         }
     }
@@ -898,12 +1081,21 @@ fn canonical_username(username: &str) -> String {
 fn valid_credentials(username: &str, password: &str, lang: i18n::Lang) -> Result<String, Response> {
     let u = canonical_username(username);
     let ok_name = (3..=32).contains(&u.chars().count())
-        && u.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        && u.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if !ok_name {
-        return Err(err_code(StatusCode::BAD_REQUEST, "username_rule", i18n::t(lang, "auth.username_rule")));
+        return Err(err_code(
+            StatusCode::BAD_REQUEST,
+            "username_rule",
+            i18n::t(lang, "auth.username_rule"),
+        ));
     }
     if !(8..=128).contains(&password.chars().count()) {
-        return Err(err_code(StatusCode::BAD_REQUEST, "pw_len", i18n::t(lang, "auth.pw_len")));
+        return Err(err_code(
+            StatusCode::BAD_REQUEST,
+            "pw_len",
+            i18n::t(lang, "auth.pw_len"),
+        ));
     }
     Ok(u)
 }
@@ -924,7 +1116,10 @@ async fn argon_permit(
 ) -> Result<tokio::sync::OwnedSemaphorePermit, Response> {
     match tokio::time::timeout(ARGON2_QUEUE_WAIT, state.argon.clone().acquire_owned()).await {
         Ok(Ok(p)) => Ok(p),
-        _ => Err(err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"))),
+        _ => Err(err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            i18n::t(lang, "server.busy"),
+        )),
     }
 }
 
@@ -963,14 +1158,24 @@ async fn api_register(
     .await;
     match outcome {
         Ok(Ok((username, sid))) => auth_ok(&username, &sid, secure),
-        Ok(Err(RegisterErr::Taken)) => err_code(StatusCode::CONFLICT, "user_taken", i18n::t(lang, "auth.user_taken")),
+        Ok(Err(RegisterErr::Taken)) => err_code(
+            StatusCode::CONFLICT,
+            "user_taken",
+            i18n::t(lang, "auth.user_taken"),
+        ),
         Ok(Err(RegisterErr::Internal)) => {
             eprintln!("register failed: internal error hashing/creating the account");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(lang, "auth.create_fail"),
+            )
         }
         Err(e) => {
             eprintln!("register panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.create_fail"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(lang, "auth.create_fail"),
+            )
         }
     }
 }
@@ -1008,10 +1213,17 @@ async fn api_login(
     .await;
     match outcome {
         Ok(Some((username, sid))) => auth_ok(&username, &sid, secure),
-        Ok(None) => err_code(StatusCode::UNAUTHORIZED, "bad_creds", i18n::t(lang, "auth.bad_creds")),
+        Ok(None) => err_code(
+            StatusCode::UNAUTHORIZED,
+            "bad_creds",
+            i18n::t(lang, "auth.bad_creds"),
+        ),
         Err(e) => {
             eprintln!("login panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "auth.login_fail"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(lang, "auth.login_fail"),
+            )
         }
     }
 }
@@ -1055,7 +1267,11 @@ fn err(code: StatusCode, msg: impl Into<String>) -> Response {
 
 /// [`err`] plus a machine-readable `code` the client maps to a field.
 fn err_code(status: StatusCode, code: &str, msg: impl Into<String>) -> Response {
-    (status, Json(serde_json::json!({ "error": msg.into(), "code": code }))).into_response()
+    (
+        status,
+        Json(serde_json::json!({ "error": msg.into(), "code": code })),
+    )
+        .into_response()
 }
 
 /// A compile/parse error: a localized sentence, where it is, and the engine's
@@ -1075,12 +1291,18 @@ fn compile_err(lang: i18n::Lang, input: &str, raw: &str) -> Response {
 /// something: none for an empty `no attempt`, and the relation compiler's
 /// message rather than the metric fallback's when the relation is unknown.
 fn compile_detail(d: &present::Diagnosis, raw: &str) -> Option<String> {
-    let bare = raw.trim_start_matches("compile error: ").trim_start_matches("metric prover: ").trim();
+    let bare = raw
+        .trim_start_matches("compile error: ")
+        .trim_start_matches("metric prover: ")
+        .trim();
     if bare.is_empty() || bare == "no attempt" {
         return None;
     }
     if d.key == "unknown_relation" && bare.contains("is not a metric value here") {
-        return d.token.as_ref().map(|t| format!("compile error: unknown relation `{t}`"));
+        return d
+            .token
+            .as_ref()
+            .map(|t| format!("compile error: unknown relation `{t}`"));
     }
     Some(present::readable_engine_message(raw))
 }
@@ -1088,7 +1310,13 @@ fn compile_detail(d: &present::Diagnosis, raw: &str) -> Option<String> {
 /// Where a goal divides by a literal zero: (line, column), both 1-based.
 fn division_by_zero(input: &str) -> Option<(usize, usize)> {
     let lines: Vec<&str> = input.lines().collect();
-    let i = lines.iter().rposition(|l| l.split('#').next().unwrap_or("").trim_start().starts_with("prove"))?;
+    let i = lines.iter().rposition(|l| {
+        l.split('#')
+            .next()
+            .unwrap_or("")
+            .trim_start()
+            .starts_with("prove")
+    })?;
     let code: Vec<char> = lines[i].split('#').next().unwrap_or("").chars().collect();
     (0..code.len()).find_map(|k| {
         if code[k] != '/' {
@@ -1098,15 +1326,29 @@ fn division_by_zero(input: &str) -> Option<(usize, usize)> {
         while j < code.len() && code[j] == ' ' {
             j += 1;
         }
-        let num: String = code[j..].iter().take_while(|c| c.is_ascii_digit() || **c == '.').collect();
+        let num: String = code[j..]
+            .iter()
+            .take_while(|c| c.is_ascii_digit() || **c == '.')
+            .collect();
         let next = code.get(j + num.chars().count());
         let zero = !num.is_empty() && num.parse::<f64>().is_ok_and(|v| v == 0.0);
-        (zero && next.is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '_' && *c != '(' && *c != '^')).then_some((i + 1, k + 1))
+        (zero
+            && next
+                .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '_' && *c != '(' && *c != '^'))
+        .then_some((i + 1, k + 1))
     })
 }
 
 fn division_by_zero_err(lang: i18n::Lang, at: (usize, usize)) -> Response {
-    let d = present::Diagnosis { key: "div_zero", line: at.0, col: at.1, len: 1, token: None, expected: None, got: None };
+    let d = present::Diagnosis {
+        key: "div_zero",
+        line: at.0,
+        col: at.1,
+        len: 1,
+        token: None,
+        expected: None,
+        got: None,
+    };
     let msg = i18n::compile_message(lang, &d);
     (
         StatusCode::BAD_REQUEST,
@@ -1144,7 +1386,10 @@ fn clean_title(title: Option<String>) -> Option<String> {
         Some(i) if cut[..i].chars().count() > MAX_TITLE_CHARS / 2 => &cut[..i],
         _ => cut.as_str(),
     };
-    Some(format!("{}\u{2026}", at_word.trim_end_matches(|c: char| c.is_whitespace() || ",;:-".contains(c))))
+    Some(format!(
+        "{}\u{2026}",
+        at_word.trim_end_matches(|c: char| c.is_whitespace() || ",;:-".contains(c))
+    ))
 }
 
 /// A time-limit verdict states the limit the caller was promised (the engine
@@ -1175,16 +1420,26 @@ async fn heavy_permit(
 
 fn busy(headers: &HeaderMap) -> Response {
     let lang = i18n::lang_from_headers(headers);
-    let mut resp = err_code(StatusCode::SERVICE_UNAVAILABLE, "busy", i18n::t(lang, "server.busy"));
-    resp.headers_mut()
-        .insert(header::RETRY_AFTER, HeaderValue::from_static(BUSY_RETRY_AFTER));
+    let mut resp = err_code(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "busy",
+        i18n::t(lang, "server.busy"),
+    );
+    resp.headers_mut().insert(
+        header::RETRY_AFTER,
+        HeaderValue::from_static(BUSY_RETRY_AFTER),
+    );
     resp
 }
 
 /// The client-facing JSON of a solve: the worker's presentation (it alone holds
 /// the figure source), or, for a solve the worker never answered, the same
 /// presentation built here from the bare time-limit solution.
-fn view_of(sol: &engine::Solution, reply: Option<&worker::Reply>, title: Option<&str>) -> serde_json::Value {
+fn view_of(
+    sol: &engine::Solution,
+    reply: Option<&worker::Reply>,
+    title: Option<&str>,
+) -> serde_json::Value {
     match reply.and_then(|r| r.view.clone()) {
         Some(v) => v,
         None => present::solution_json(sol, title),
@@ -1216,8 +1471,14 @@ fn solution_of(
             }
         }
         Outcome::TimedOut => {
-            eprintln!("solve worker killed at its {:.0}s hard limit", req.hard_limit().as_secs_f64());
-            Ok((worker::time_limit_solution(&req.input, req.kind, req.limit()), None))
+            eprintln!(
+                "solve worker killed at its {:.0}s hard limit",
+                req.hard_limit().as_secs_f64()
+            );
+            Ok((
+                worker::time_limit_solution(&req.input, req.kind, req.limit()),
+                None,
+            ))
         }
         Outcome::Failed(e) => {
             eprintln!("solve worker failed: {e}");
@@ -1258,7 +1519,9 @@ struct SolveReq {
 }
 
 fn input_error_note(note: &str) -> bool {
-    let Some(m) = note.strip_prefix("metric prover: ") else { return false };
+    let Some(m) = note.strip_prefix("metric prover: ") else {
+        return false;
+    };
     [
         "bad number",
         "trailing tokens",
@@ -1314,11 +1577,20 @@ fn degenerate_goal(input: &str) -> Option<String> {
         return None;
     }
     let args = split_args(&goal[open + 1..close]);
-    let is_pt = |a: &str| a.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '\'');
-    let repeated = |xs: &[String]| {
-        xs.iter().enumerate().find_map(|(i, a)| (is_pt(a) && xs[..i].contains(a)).then(|| a.clone()))
+    let is_pt = |a: &str| {
+        a.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && a.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '\'')
     };
-    let pairs = |xs: &[String]| xs.chunks(2).find_map(|p| (p.len() == 2 && is_pt(&p[0]) && p[0] == p[1]).then(|| p[0].clone()));
+    let repeated = |xs: &[String]| {
+        xs.iter()
+            .enumerate()
+            .find_map(|(i, a)| (is_pt(a) && xs[..i].contains(a)).then(|| a.clone()))
+    };
+    let pairs = |xs: &[String]| {
+        xs.chunks(2)
+            .find_map(|p| (p.len() == 2 && is_pt(&p[0]) && p[0] == p[1]).then(|| p[0].clone()))
+    };
     let same_pairs = |xs: &[String], k: usize| {
         let key = |c: &[String]| {
             let mut c = c.to_vec();
@@ -1326,8 +1598,10 @@ fn degenerate_goal(input: &str) -> Option<String> {
             c
         };
         let chunks: Vec<&[String]> = xs.chunks(k).collect();
-        (chunks.len() == 2 && chunks[0].iter().chain(chunks[1]).all(|a| is_pt(a)) && key(chunks[0]) == key(chunks[1]))
-            .then(|| chunks[0][0].clone())
+        (chunks.len() == 2
+            && chunks[0].iter().chain(chunks[1]).all(|a| is_pt(a))
+            && key(chunks[0]) == key(chunks[1]))
+        .then(|| chunks[0][0].clone())
     };
     match (name, args.len()) {
         ("cyclic" | "coll" | "collinear" | "concyclic", _) => repeated(&args),
@@ -1339,8 +1613,22 @@ fn degenerate_goal(input: &str) -> Option<String> {
 }
 
 fn degenerate_goal_err(lang: i18n::Lang, input: &str, point: &str) -> Response {
-    let line = input.lines().collect::<Vec<_>>().iter().rposition(|l| l.split('#').next().unwrap_or("").trim_start().starts_with("prove"));
-    let mut d = present::Diagnosis { key: "degenerate_goal", line: 0, col: 0, len: 0, token: Some(point.to_string()), expected: None, got: None };
+    let line = input.lines().collect::<Vec<_>>().iter().rposition(|l| {
+        l.split('#')
+            .next()
+            .unwrap_or("")
+            .trim_start()
+            .starts_with("prove")
+    });
+    let mut d = present::Diagnosis {
+        key: "degenerate_goal",
+        line: 0,
+        col: 0,
+        len: 0,
+        token: Some(point.to_string()),
+        expected: None,
+        got: None,
+    };
     if let Some(i) = line {
         let code: Vec<char> = input.lines().nth(i).unwrap_or("").chars().collect();
         let p: Vec<char> = point.chars().collect();
@@ -1348,7 +1636,9 @@ fn degenerate_goal_err(lang: i18n::Lang, input: &str, point: &str) -> Response {
             .filter(|&k| {
                 code[k..k + p.len()] == p[..]
                     && (k == 0 || !code[k - 1].is_ascii_alphanumeric())
-                    && code.get(k + p.len()).is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '\'')
+                    && code
+                        .get(k + p.len())
+                        .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '\'')
             })
             .collect();
         d.line = i + 1;
@@ -1388,20 +1678,30 @@ fn claim_solve_slots(
     let Some(own) = state.claim_caller(caller_key(caller, ip)) else {
         let lang = i18n::lang_from_headers(headers);
         let limit = state.per_caller_limit();
-        let msg = i18n::tp(lang, "server.busy_self", limit as u64, &[("n", limit.to_string())]);
+        let msg = i18n::tp(
+            lang,
+            "server.busy_self",
+            limit as u64,
+            &[("n", limit.to_string())],
+        );
         let mut resp = (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "error": msg, "code": "busy_self", "limit": limit })),
         )
             .into_response();
-        resp.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static(BUSY_RETRY_AFTER));
+        resp.headers_mut().insert(
+            header::RETRY_AFTER,
+            HeaderValue::from_static(BUSY_RETRY_AFTER),
+        );
         return Err(resp);
     };
     let shared = match caller {
-        Caller::Guest(_) => match state.claim_within(format!("i{}", ip_text(ip)), state.guest_ip_limit()) {
-            Some(s) => Some(s),
-            None => return Err(busy(headers)),
-        },
+        Caller::Guest(_) => {
+            match state.claim_within(format!("i{}", ip_text(ip)), state.guest_ip_limit()) {
+                Some(s) => Some(s),
+                None => return Err(busy(headers)),
+            }
+        }
         Caller::User(_) => None,
     };
     Ok((own, shared))
@@ -1427,14 +1727,23 @@ async fn api_solve(
         (false, _) => None,
         (true, None) => {
             let lang = i18n::lang_from_headers(&headers);
-            return err_code(StatusCode::BAD_REQUEST, "extended_off", i18n::t(lang, "solve.extended_off"));
+            return err_code(
+                StatusCode::BAD_REQUEST,
+                "extended_off",
+                i18n::t(lang, "solve.extended_off"),
+            );
         }
         (true, Some(limit)) => match state.extended.clone().try_acquire_owned() {
             Ok(p) => Some((p, limit)),
             Err(_) => {
                 let lang = i18n::lang_from_headers(&headers);
-                let mut resp = err_code(StatusCode::SERVICE_UNAVAILABLE, "busy_extended", i18n::t(lang, "server.busy_extended"));
-                resp.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("30"));
+                let mut resp = err_code(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "busy_extended",
+                    i18n::t(lang, "server.busy_extended"),
+                );
+                resp.headers_mut()
+                    .insert(header::RETRY_AFTER, HeaderValue::from_static("30"));
                 return resp;
             }
         },
@@ -1447,7 +1756,9 @@ async fn api_solve(
         Ok(p) => p,
         Err(e) => return e,
     };
-    let deadline = extended.as_ref().map_or(state.config.solve_deadline, |(_, limit)| *limit);
+    let deadline = extended
+        .as_ref()
+        .map_or(state.config.solve_deadline, |(_, limit)| *limit);
     let title = clean_title(req.title);
     let history_title = title.clone();
     let opts = SolveOptions {
@@ -1481,14 +1792,19 @@ async fn api_solve(
     drop(extended);
     match solution_of(outcome, &job, &headers) {
         Ok((sol, reply)) => {
-            let mut value = advertise_limit(view_of(&sol, reply.as_deref(), history_title.as_deref()), job.limit());
+            let mut value = advertise_limit(
+                view_of(&sol, reply.as_deref(), history_title.as_deref()),
+                job.limit(),
+            );
             if req.best {
                 value["search"] = serde_json::json!("shortest");
             }
             let (_, value) = cache_put(&caller_key(&caller, ip.as_ref()), value);
             let mut out = value.as_ref().clone();
             if let (Caller::User(user), true) = (&caller, req.record) {
-                if let Some(id) = save_history(&state, user.id, &sol, history_title.as_deref(), &value).await {
+                if let Some(id) =
+                    save_history(&state, user.id, &sol, history_title.as_deref(), &value).await
+                {
                     out["history_id"] = serde_json::json!(id);
                 }
             }
@@ -1533,8 +1849,13 @@ async fn save_history(
     let db = state.db.clone();
     let (input, proved, method) = (sol.input.clone(), sol.proved, method_str(sol.method));
     let status = status_str(sol.status);
-    let title = title.map(str::to_string).or_else(|| value["title"].as_str().map(str::to_string));
-    let goal = value["view"].get("goal").filter(|g| !g.is_null()).map(|g| g.to_string());
+    let title = title
+        .map(str::to_string)
+        .or_else(|| value["title"].as_str().map(str::to_string));
+    let goal = value["view"]
+        .get("goal")
+        .filter(|g| !g.is_null())
+        .map(|g| g.to_string());
     let mut stored = value.clone();
     if let Some(o) = stored.as_object_mut() {
         o.remove("id");
@@ -1585,12 +1906,23 @@ async fn api_history_replace(
     }
     let solution = stored.to_string();
     if solution.len() > MAX_STORED_SOLUTION_BYTES {
-        return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(lang, "err.too_large"));
+        return err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            i18n::t(lang, "err.too_large"),
+        );
     }
     let s = |k: &str| stored[k].as_str().map(str::to_string);
-    let (input, title, method, status) = (s("input").unwrap_or_default(), s("title"), s("method"), s("status"));
+    let (input, title, method, status) = (
+        s("input").unwrap_or_default(),
+        s("title"),
+        s("method"),
+        s("status"),
+    );
     let proved = stored["proved"].as_bool().unwrap_or(false);
-    let goal = stored["view"].get("goal").filter(|g| !g.is_null()).map(|g| g.to_string());
+    let goal = stored["view"]
+        .get("goal")
+        .filter(|g| !g.is_null())
+        .map(|g| g.to_string());
     let db = state.db.clone();
     let res = tokio::task::spawn_blocking(move || {
         db::replace_history(
@@ -1612,7 +1944,10 @@ async fn api_history_replace(
     match res {
         Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Ok(false)) => err(StatusCode::NOT_FOUND, i18n::t(lang, "history.none")),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "history.load_fail")),
+        _ => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            i18n::t(lang, "history.load_fail"),
+        ),
     }
 }
 
@@ -1663,7 +1998,9 @@ async fn api_history_get(
 ) -> Response {
     let lang = i18n::lang_from_headers(&headers);
     let db = state.db.clone();
-    let res = tokio::task::spawn_blocking(move || db::history_solution(&db::lock(&db), user.id, id)).await;
+    let res =
+        tokio::task::spawn_blocking(move || db::history_solution(&db::lock(&db), user.id, id))
+            .await;
     match res {
         Ok(Ok(Some(Some(json)))) => match serde_json::from_str::<serde_json::Value>(&json) {
             Ok(v) => {
@@ -1699,21 +2036,32 @@ async fn api_history(
     let Ok(Query(q)) = query else {
         return err(StatusCode::BAD_REQUEST, "invalid query");
     };
-    let limit = q.limit.unwrap_or(HISTORY_PAGE_DEFAULT).clamp(1, HISTORY_PAGE_MAX);
+    let limit = q
+        .limit
+        .unwrap_or(HISTORY_PAGE_DEFAULT)
+        .clamp(1, HISTORY_PAGE_MAX);
     let db = state.db.clone();
     let res = tokio::task::spawn_blocking(move || {
         db::list_history(&db::lock(&db), user.id, limit, q.before)
     })
     .await;
     match res {
-        Ok(Ok(rows)) => Json(rows.into_iter().map(HistoryItem::from).collect::<Vec<_>>()).into_response(),
+        Ok(Ok(rows)) => {
+            Json(rows.into_iter().map(HistoryItem::from).collect::<Vec<_>>()).into_response()
+        }
         Ok(Err(e)) => {
             eprintln!("history load failed: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"),
+            )
         }
         Err(e) => {
             eprintln!("history load panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(i18n::lang_from_headers(&headers), "history.load_fail"),
+            )
         }
     }
 }
@@ -1726,17 +2074,27 @@ async fn api_history_delete(
     headers: HeaderMap,
 ) -> Response {
     let db = state.db.clone();
-    let res = tokio::task::spawn_blocking(move || db::delete_history(&db::lock(&db), user.id, id)).await;
+    let res =
+        tokio::task::spawn_blocking(move || db::delete_history(&db::lock(&db), user.id, id)).await;
     match res {
         Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
-        Ok(Ok(false)) => err(StatusCode::NOT_FOUND, i18n::t(i18n::lang_from_headers(&headers), "history.none")),
+        Ok(Ok(false)) => err(
+            StatusCode::NOT_FOUND,
+            i18n::t(i18n::lang_from_headers(&headers), "history.none"),
+        ),
         Ok(Err(e)) => {
             eprintln!("history delete failed: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"),
+            )
         }
         Err(e) => {
             eprintln!("history delete panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(i18n::lang_from_headers(&headers), "history.del_fail"),
+            )
         }
     }
 }
@@ -1761,7 +2119,11 @@ async fn api_translate(
     if let Caller::Guest(_) = caller {
         if !state.config.guest_ai {
             let lang = i18n::lang_from_headers(&headers);
-            return err_code(StatusCode::UNAUTHORIZED, "sign_in", i18n::t(lang, "auth.sign_in_ai"));
+            return err_code(
+                StatusCode::UNAUTHORIZED,
+                "sign_in",
+                i18n::t(lang, "auth.sign_in_ai"),
+            );
         }
     }
     if !state.config.enable_translate || !translate::available() {
@@ -1772,7 +2134,10 @@ async fn api_translate(
     }
     if let Some(t) = &req.text {
         if t.len() > state.config.max_input_chars {
-            return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(i18n::lang_from_headers(&headers), "translate.too_long"));
+            return err(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                i18n::t(i18n::lang_from_headers(&headers), "translate.too_long"),
+            );
         }
     }
     let lang = i18n::lang_from_headers(&headers);
@@ -1786,12 +2151,21 @@ async fn api_translate(
             Err(why) => return image_rejected(lang, why),
         },
         (None, Some(t)) if !t.trim().is_empty() => Input::Text(t),
-        _ => return err(StatusCode::BAD_REQUEST, i18n::t(lang, "translate.need_input")),
+        _ => {
+            return err(
+                StatusCode::BAD_REQUEST,
+                i18n::t(lang, "translate.need_input"),
+            )
+        }
     };
     let photo = matches!(input, Input::Image(_));
     if let (Caller::Guest(_), Some(ip)) = (&caller, ip.as_ref()) {
         if !state.guest_translation_allowed(ip.0 .0) {
-            return err_code(StatusCode::TOO_MANY_REQUESTS, "daily", i18n::t(lang, "translate.daily"));
+            return err_code(
+                StatusCode::TOO_MANY_REQUESTS,
+                "daily",
+                i18n::t(lang, "translate.daily"),
+            );
         }
     }
     let permit = match heavy_permit(&state, &headers).await {
@@ -1834,7 +2208,10 @@ async fn api_translate(
         }
         Err(e) => {
             eprintln!("translate panicked: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "translate.failed"))
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                i18n::t(lang, "translate.failed"),
+            )
         }
     }
 }
@@ -1843,7 +2220,9 @@ async fn api_translate(
 fn translate_failed(lang: i18n::Lang, e: &anyhow::Error, photo: bool) -> Response {
     let (code, key) = match translate::failure(e) {
         Some(translate::Failure::TimedOut) => ("translate_timeout", "translate.timeout"),
-        Some(translate::Failure::NoProgram) if photo => ("cannot_translate", "translate.no_problem_photo"),
+        Some(translate::Failure::NoProgram) if photo => {
+            ("cannot_translate", "translate.no_problem_photo")
+        }
         Some(translate::Failure::NoProgram) => ("cannot_translate", "translate.no_problem"),
         Some(translate::Failure::SignedOut) => ("translate_unavailable", "translate.unavailable"),
         None => ("translate_failed", "translate.ai_failed"),
@@ -1886,7 +2265,10 @@ async fn api_humanize(
 ) -> Response {
     let lang = i18n::lang_from_headers(&headers);
     if req.proof.trim().is_empty() {
-        return err(StatusCode::BAD_REQUEST, i18n::t(lang, "humanize.need_proof"));
+        return err(
+            StatusCode::BAD_REQUEST,
+            i18n::t(lang, "humanize.need_proof"),
+        );
     }
     let max = state.config.max_input_chars;
     let aux_bytes: usize = req.aux.iter().map(String::len).sum();
@@ -1900,7 +2282,11 @@ async fn api_humanize(
     }
     if let (Caller::Guest(_), Some(ip)) = (&caller, ip.as_ref()) {
         if !state.guest_translation_allowed(ip.0 .0) {
-            return err_code(StatusCode::TOO_MANY_REQUESTS, "daily", i18n::t(lang, "humanize.daily"));
+            return err_code(
+                StatusCode::TOO_MANY_REQUESTS,
+                "daily",
+                i18n::t(lang, "humanize.daily"),
+            );
         }
     }
     if !state.config.enable_translate || !translate::available() {
@@ -1935,7 +2321,11 @@ async fn api_humanize(
             eprintln!("humanize error: {e:#}");
             state.note_ai_outcome(Err(&e));
             if translate::failure(&e) == Some(translate::Failure::SignedOut) {
-                return err_code(StatusCode::SERVICE_UNAVAILABLE, "translate_unavailable", i18n::t(lang, "humanize.unavailable"));
+                return err_code(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "translate_unavailable",
+                    i18n::t(lang, "humanize.unavailable"),
+                );
             }
             err(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -1962,10 +2352,18 @@ enum ImageReject {
 
 fn image_rejected(lang: i18n::Lang, why: ImageReject) -> Response {
     let (status, code, key) = match why {
-        ImageReject::Storage => (StatusCode::INTERNAL_SERVER_ERROR, "translate_failed", "translate.failed"),
+        ImageReject::Storage => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "translate_failed",
+            "translate.failed",
+        ),
         ImageReject::Unreadable => (StatusCode::BAD_REQUEST, "bad_image", "translate.bad_image"),
         ImageReject::Heif => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "heic", "translate.heic"),
-        ImageReject::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "image_too_large", "translate.image_too_large"),
+        ImageReject::TooLarge => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "image_too_large",
+            "translate.image_too_large",
+        ),
     };
     err_code(status, code, i18n::t(lang, key))
 }
@@ -1998,7 +2396,16 @@ fn is_heif(bytes: &[u8]) -> bool {
         && &bytes[4..8] == b"ftyp"
         && matches!(
             &bytes[8..12],
-            b"heic" | b"heix" | b"hevc" | b"hevx" | b"heim" | b"heis" | b"mif1" | b"msf1" | b"avif" | b"avis"
+            b"heic"
+                | b"heix"
+                | b"hevc"
+                | b"hevx"
+                | b"heim"
+                | b"heis"
+                | b"mif1"
+                | b"msf1"
+                | b"avif"
+                | b"avis"
         )
 }
 
@@ -2011,7 +2418,11 @@ fn upright_jpeg(bytes: &[u8]) -> Result<Vec<u8>, ImageReject> {
         reader.format(),
         Some(ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif | ImageFormat::WebP)
     ) {
-        return Err(if is_heif(bytes) { ImageReject::Heif } else { ImageReject::Unreadable });
+        return Err(if is_heif(bytes) {
+            ImageReject::Heif
+        } else {
+            ImageReject::Unreadable
+        });
     }
     let mut limits = Limits::default();
     limits.max_image_width = Some(20_000);
@@ -2028,7 +2439,11 @@ fn upright_jpeg(bytes: &[u8]) -> Result<Vec<u8>, ImageReject> {
     let mut img = DynamicImage::from_decoder(decoder).map_err(|_| ImageReject::Unreadable)?;
     img.apply_orientation(orientation);
     if img.width().max(img.height()) > MAX_IMAGE_EDGE {
-        img = img.resize(MAX_IMAGE_EDGE, MAX_IMAGE_EDGE, image::imageops::FilterType::Triangle);
+        img = img.resize(
+            MAX_IMAGE_EDGE,
+            MAX_IMAGE_EDGE,
+            image::imageops::FilterType::Triangle,
+        );
     }
     let rgb = on_white(img);
     let mut out = Vec::new();
@@ -2098,7 +2513,10 @@ struct ExportReq {
 
 fn export_response(bytes: Vec<u8>, want_pdf: bool) -> Response {
     let (ctype, disposition) = if want_pdf {
-        ("application/pdf", "attachment; filename=\"geosolver-proof.pdf\"")
+        (
+            "application/pdf",
+            "attachment; filename=\"geosolver-proof.pdf\"",
+        )
     } else {
         ("image/png", "attachment; filename=\"geosolver-proof.png\"")
     };
@@ -2125,7 +2543,9 @@ async fn api_export(
     if id.is_some() || signed.is_some() {
         let owner = caller_key(&caller, ip.as_ref());
         let value = id.and_then(|id| cache_get(id, &owner)).or_else(|| {
-            signed.and_then(|body| signed_solution(body, req.sig.as_deref().unwrap_or(""))).map(std::sync::Arc::new)
+            signed
+                .and_then(|body| signed_solution(body, req.sig.as_deref().unwrap_or("")))
+                .map(std::sync::Arc::new)
         });
         let Some(value) = value else {
             return (
@@ -2135,7 +2555,10 @@ async fn api_export(
                 .into_response();
         };
         let Ok(permit) = state.render.clone().try_acquire_owned() else {
-            return err(StatusCode::SERVICE_UNAVAILABLE, i18n::t(lang, "server.busy"));
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                i18n::t(lang, "server.busy"),
+            );
         };
         let retitled = clean_title(req.title.clone());
         let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
@@ -2159,11 +2582,17 @@ async fn api_export(
             Ok(Ok(bytes)) => export_response(bytes, want_pdf),
             Ok(Err(e)) => {
                 eprintln!("export error: {e}");
-                err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "export.failed"))
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    i18n::t(lang, "export.failed"),
+                )
             }
             Err(e) => {
                 eprintln!("export panicked: {e}");
-                err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "export.failed"))
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    i18n::t(lang, "export.failed"),
+                )
             }
         };
     }
@@ -2183,16 +2612,32 @@ async fn api_export(
         title,
         panel: true,
     };
-    let mut job =
-        worker::Request::new(&req.input, &opts, worker::Mode::Solve, state.config.solve_deadline);
-    job.report = Some(if want_pdf { worker::Format::Pdf } else { worker::Format::Png });
+    let mut job = worker::Request::new(
+        &req.input,
+        &opts,
+        worker::Mode::Solve,
+        state.config.solve_deadline,
+    );
+    job.report = Some(if want_pdf {
+        worker::Format::Pdf
+    } else {
+        worker::Format::Png
+    });
     job.lang = lang;
     job.derivation = derivation;
-    let failed = || err(StatusCode::INTERNAL_SERVER_ERROR, i18n::t(lang, "export.failed"));
+    let failed = || {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            i18n::t(lang, "export.failed"),
+        )
+    };
 
     let outcome = worker::run(&job, Some(permit)).await;
     if matches!(outcome, Outcome::TimedOut) {
-        eprintln!("export worker killed at its {:.0}s hard limit", job.hard_limit().as_secs_f64());
+        eprintln!(
+            "export worker killed at its {:.0}s hard limit",
+            job.hard_limit().as_secs_f64()
+        );
         return err(
             StatusCode::GATEWAY_TIMEOUT,
             format!(
@@ -2272,44 +2717,92 @@ mod tests {
     #[tokio::test]
     async fn register_me_logout_flow() {
         let (state, _dir) = test_state();
-        let (st, set, body) =
-            call(&state, "POST", "/api/auth/register", None, creds("alice", "hunter2hunter")).await;
+        let (st, set, body) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("alice", "hunter2hunter"),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(body["username"], "alice");
         let cookie = cookie_of(&set.expect("register sets a session cookie"));
         assert!(cookie.starts_with("sid="));
 
         // `me` sees the session; without the cookie it is 401.
-        let (st, _, body) =
-            call(&state, "GET", "/api/auth/me", Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, body) = call(
+            &state,
+            "GET",
+            "/api/auth/me",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(body["username"], "alice");
-        let (st, _, _) =
-            call(&state, "GET", "/api/auth/me", None, serde_json::Value::Null).await;
+        let (st, _, _) = call(&state, "GET", "/api/auth/me", None, serde_json::Value::Null).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
 
         // Logout clears the cookie and invalidates the session.
-        let (st, set, _) =
-            call(&state, "POST", "/api/auth/logout", Some(&cookie), serde_json::Value::Null).await;
+        let (st, set, _) = call(
+            &state,
+            "POST",
+            "/api/auth/logout",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert!(set.unwrap().contains("Max-Age=0"));
-        let (st, _, _) =
-            call(&state, "GET", "/api/auth/me", Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, _) = call(
+            &state,
+            "GET",
+            "/api/auth/me",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn login_verifies_password() {
         let (state, _dir) = test_state();
-        call(&state, "POST", "/api/auth/register", None, creds("carol", "correcthorse")).await;
-        let (st, _, _) =
-            call(&state, "POST", "/api/auth/login", None, creds("carol", "wrongwrongwrong")).await;
+        call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("carol", "correcthorse"),
+        )
+        .await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/login",
+            None,
+            creds("carol", "wrongwrongwrong"),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
-        let (st, _, _) =
-            call(&state, "POST", "/api/auth/login", None, creds("nobody", "correcthorse")).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/login",
+            None,
+            creds("nobody", "correcthorse"),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED); // unknown user is indistinguishable
-        let (st, set, body) =
-            call(&state, "POST", "/api/auth/login", None, creds("carol", "correcthorse")).await;
+        let (st, set, body) = call(
+            &state,
+            "POST",
+            "/api/auth/login",
+            None,
+            creds("carol", "correcthorse"),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(body["username"], "carol");
         assert!(set.unwrap().starts_with("sid="));
@@ -2318,22 +2811,47 @@ mod tests {
     #[tokio::test]
     async fn duplicate_registration_conflicts() {
         let (state, _dir) = test_state();
-        let (st, _, _) =
-            call(&state, "POST", "/api/auth/register", None, creds("bob", "password123")).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("bob", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
-        let (st, _, _) =
-            call(&state, "POST", "/api/auth/register", None, creds("bob", "password123")).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("bob", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::CONFLICT);
     }
 
     #[tokio::test]
     async fn registration_validates_input() {
         let (state, _dir) = test_state();
-        for (user, pass) in [("dave", "short"), ("ab", "longenoughpw"), ("has space", "longenoughpw")]
-        {
-            let (st, _, _) =
-                call(&state, "POST", "/api/auth/register", None, creds(user, pass)).await;
-            assert_eq!(st, StatusCode::BAD_REQUEST, "expected {user:?}/{pass:?} rejected");
+        for (user, pass) in [
+            ("dave", "short"),
+            ("ab", "longenoughpw"),
+            ("has space", "longenoughpw"),
+        ] {
+            let (st, _, _) = call(
+                &state,
+                "POST",
+                "/api/auth/register",
+                None,
+                creds(user, pass),
+            )
+            .await;
+            assert_eq!(
+                st,
+                StatusCode::BAD_REQUEST,
+                "expected {user:?}/{pass:?} rejected"
+            );
         }
     }
 
@@ -2344,7 +2862,9 @@ mod tests {
         let resp = app_router(state).oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-        assert!(std::str::from_utf8(&bytes).unwrap().contains("Create account"));
+        assert!(std::str::from_utf8(&bytes)
+            .unwrap()
+            .contains("Create account"));
     }
 
     #[tokio::test]
@@ -2360,22 +2880,39 @@ mod tests {
     }
 
     /// Drive a cookie-less/bodyless GET through the full router.
-    async fn get_page(state: &Shared, uri: &str, cookie: Option<&str>) -> (StatusCode, HeaderMap, String) {
+    async fn get_page(
+        state: &Shared,
+        uri: &str,
+        cookie: Option<&str>,
+    ) -> (StatusCode, HeaderMap, String) {
         let mut b = Request::builder().uri(uri);
         if let Some(c) = cookie {
             b = b.header(header::COOKIE, c);
         }
-        let resp = app_router(state.clone()).oneshot(b.body(Body::empty()).unwrap()).await.unwrap();
+        let resp = app_router(state.clone())
+            .oneshot(b.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         let status = resp.status();
         let headers = resp.headers().clone();
         let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-        (status, headers, String::from_utf8_lossy(&bytes).into_owned())
+        (
+            status,
+            headers,
+            String::from_utf8_lossy(&bytes).into_owned(),
+        )
     }
 
     /// Register a throwaway user and return their session cookie (`sid=…`).
     async fn register_cookie(state: &Shared, user: &str) -> String {
-        let (_, set, _) =
-            call(state, "POST", "/api/auth/register", None, creds(user, "password123")).await;
+        let (_, set, _) = call(
+            state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds(user, "password123"),
+        )
+        .await;
         cookie_of(&set.expect("register sets a session cookie"))
     }
 
@@ -2384,7 +2921,10 @@ mod tests {
         let (state, _dir) = test_state();
         let (st, _, body) = get_page(&state, "/", None).await;
         assert_eq!(st, StatusCode::OK);
-        assert!(body.contains("Create a free account"), "logged-out `/` should show the landing page");
+        assert!(
+            body.contains("Create a free account"),
+            "logged-out `/` should show the landing page"
+        );
 
         let cookie = register_cookie(&state, "erin").await;
         let (st, headers, _) = get_page(&state, "/", Some(&cookie)).await;
@@ -2409,10 +2949,20 @@ mod tests {
     async fn html_pages_are_never_cached() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "gina").await;
-        for (uri, c) in [("/", None), ("/auth", None), ("/app", Some(cookie.as_str()))] {
+        for (uri, c) in [
+            ("/", None),
+            ("/auth", None),
+            ("/app", Some(cookie.as_str())),
+        ] {
             let (st, headers, _) = get_page(&state, uri, c).await;
             assert_eq!(st, StatusCode::OK, "{uri}");
-            assert_eq!(headers.get(header::CACHE_CONTROL).map(|v| v.to_str().unwrap()), Some("no-store"), "{uri}");
+            assert_eq!(
+                headers
+                    .get(header::CACHE_CONTROL)
+                    .map(|v| v.to_str().unwrap()),
+                Some("no-store"),
+                "{uri}"
+            );
         }
     }
 
@@ -2436,15 +2986,29 @@ mod tests {
         assert_eq!(body["proved"], false, "{body:?}");
         assert_eq!(body["status"], "holds-numerically", "{body:?}");
         assert_eq!(body["goal_holds_numerically"], true, "{body:?}");
-        assert!(body["numeric_samples"].as_u64().is_some_and(|n| n >= 8), "{body:?}");
-        assert!(body["proof"].is_null(), "a numeric check is not a proof: {body:?}");
         assert!(
-            body["numeric_evidence"].as_str().is_some_and(|e| e.contains("not a proof")),
+            body["numeric_samples"].as_u64().is_some_and(|n| n >= 8),
+            "{body:?}"
+        );
+        assert!(
+            body["proof"].is_null(),
+            "a numeric check is not a proof: {body:?}"
+        );
+        assert!(
+            body["numeric_evidence"]
+                .as_str()
+                .is_some_and(|e| e.contains("not a proof")),
             "{body:?}"
         );
 
-        let (_, _, rows) =
-            call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, rows) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(rows[0]["proved"], false);
         assert_eq!(rows[0]["status"], "holds-numerically");
     }
@@ -2454,14 +3018,26 @@ mod tests {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "noether2").await;
         let input = "B = free\nC = point: dist(B,C)=6.2.3\nprove dist(B,C)^2 = 36";
-        let (st, _, body) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{body:?}");
         assert_eq!(body["code"], "compile", "{body:?}");
         assert_eq!(body["diagnosis"]["key"], "bad_number", "{body:?}");
         assert_eq!(body["diagnosis"]["line"], 2, "{body:?}");
-        let (_, _, rows) =
-            call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, rows) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(rows.as_array().map(Vec::len), Some(0), "{rows:?}");
     }
 
@@ -2478,16 +3054,28 @@ mod tests {
             ("A B C D = cyclic_quad\nprove cyclic(A, B, C, D)", "unknown_shape", 1, 11),
         ];
         for (input, key, line, col) in cases {
-            let (st, _, body) =
-                call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+            let (st, _, body) = call(
+                &state,
+                "POST",
+                "/api/solve",
+                Some(&cookie),
+                serde_json::json!({"input": input}),
+            )
+            .await;
             assert_eq!(st, StatusCode::BAD_REQUEST, "{input}: {body:?}");
             assert_eq!(body["code"], "compile", "{input}: {body:?}");
             assert_eq!(body["diagnosis"]["key"], key, "{input}: {body:?}");
             assert_eq!(body["diagnosis"]["line"], line, "{input}: {body:?}");
             assert_eq!(body["diagnosis"]["col"], col, "{input}: {body:?}");
         }
-        let (_, _, rows) =
-            call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, rows) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(rows.as_array().map(Vec::len), Some(0), "{rows:?}");
     }
 
@@ -2502,10 +3090,19 @@ mod tests {
             ("A B C = triangle\nprove cong(A, B, B, A)", "A"),
             ("A B C = triangle\nprove para(A, B, B, A)", "A"),
         ] {
-            let (st, _, body) =
-                call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
+            let (st, _, body) = call(
+                &state,
+                "POST",
+                "/api/solve",
+                Some(&cookie),
+                serde_json::json!({"input": input}),
+            )
+            .await;
             assert_eq!(st, StatusCode::BAD_REQUEST, "{input}: {body:?}");
-            assert_eq!(body["diagnosis"]["key"], "degenerate_goal", "{input}: {body:?}");
+            assert_eq!(
+                body["diagnosis"]["key"], "degenerate_goal",
+                "{input}: {body:?}"
+            );
             assert_eq!(body["diagnosis"]["token"], point, "{input}: {body:?}");
             assert_eq!(body["diagnosis"]["line"], 2, "{input}: {body:?}");
         }
@@ -2536,14 +3133,26 @@ mod tests {
             .skip_while(|l| l.trim() != "translated_imo_2008_p6")
             .nth(1)
             .unwrap();
-        let (st, _, body) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": p6, "record": false})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": p6, "record": false}),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "{body:?}");
         assert_eq!(body["status"], "proved", "{}", body["note"]);
         assert_eq!(body["method"], "aux-search");
         let false_goal = p6.replace("? cong o k o x", "? cong o k o i1");
-        let (st, _, body) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": false_goal, "record": false})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": false_goal, "record": false}),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "{body:?}");
         assert_eq!(body["status"], "refuted", "{}", body["note"]);
         let (st, _, body) = call(
@@ -2556,19 +3165,38 @@ mod tests {
         .await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{body:?}");
         assert_eq!(body["code"], "compile", "{body:?}");
-        assert!(body["detail"].as_str().is_some_and(|d| d.contains("unknown construction `middle`")), "{body:?}");
+        assert!(
+            body["detail"]
+                .as_str()
+                .is_some_and(|d| d.contains("unknown construction `middle`")),
+            "{body:?}"
+        );
     }
 
     #[tokio::test]
     async fn one_caller_cannot_take_every_solver_slot() {
         let (state, _dir) = test_state();
         let limit = state.per_caller_limit();
-        assert!(limit < state.config.max_concurrent || state.config.max_concurrent == 1, "a caller must leave slots for others");
-        let held: Vec<_> = (0..limit).map(|_| state.claim_caller("u1".into()).expect("within the limit")).collect();
-        assert!(state.claim_caller("u1".into()).is_none(), "over the per-caller limit");
-        assert!(state.claim_caller("u2".into()).is_some(), "another caller is unaffected");
+        assert!(
+            limit < state.config.max_concurrent || state.config.max_concurrent == 1,
+            "a caller must leave slots for others"
+        );
+        let held: Vec<_> = (0..limit)
+            .map(|_| state.claim_caller("u1".into()).expect("within the limit"))
+            .collect();
+        assert!(
+            state.claim_caller("u1".into()).is_none(),
+            "over the per-caller limit"
+        );
+        assert!(
+            state.claim_caller("u2".into()).is_some(),
+            "another caller is unaffected"
+        );
         drop(held);
-        assert!(state.claim_caller("u1".into()).is_some(), "slots come back when the solves finish");
+        assert!(
+            state.claim_caller("u1".into()).is_some(),
+            "slots come back when the solves finish"
+        );
     }
 
     #[tokio::test]
@@ -2614,8 +3242,14 @@ mod tests {
             assert_eq!(st, StatusCode::OK);
         }
 
-        let (st, _, body) =
-            call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, body) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let rows = body.as_array().unwrap();
         assert_eq!(rows.len(), 2);
@@ -2631,13 +3265,18 @@ mod tests {
 
         // A second user has their own, empty history.
         let other_cookie = register_cookie(&state, "ivan").await;
-        let (st, _, body) =
-            call(&state, "GET", "/api/history", Some(&other_cookie), serde_json::Value::Null).await;
+        let (st, _, body) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&other_cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert!(body.as_array().unwrap().is_empty());
 
-        let (st, _, _) =
-            call(&state, "GET", "/api/history", None, serde_json::Value::Null).await;
+        let (st, _, _) = call(&state, "GET", "/api/history", None, serde_json::Value::Null).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
     }
 
@@ -2660,7 +3299,10 @@ mod tests {
             input.push(')');
         }
         input.push_str("\nprove coll(A, A, B)");
-        assert!(input.len() < 16384, "test input must stay under the body cap");
+        assert!(
+            input.len() < 16384,
+            "test input must stay under the body cap"
+        );
         let (st, _, body) = call(
             &state,
             "POST",
@@ -2685,7 +3327,10 @@ mod tests {
         let mut input = String::from("prove dist(A, B) = ");
         input.push_str(&"-".repeat(500));
         input.push('5');
-        assert!(input.len() < 16384, "test input must stay under the body cap");
+        assert!(
+            input.len() < 16384,
+            "test input must stay under the body cap"
+        );
         let start = std::time::Instant::now();
         let (st, _, body) = call(
             &state,
@@ -2706,7 +3351,10 @@ mod tests {
         );
         assert_eq!(body["proved"], false);
         assert!(
-            body["note"].as_str().unwrap_or("").contains("nested too deeply"),
+            body["note"]
+                .as_str()
+                .unwrap_or("")
+                .contains("nested too deeply"),
             "expected the metric.rs cap's message in the note, got: {body:?}"
         );
     }
@@ -2723,7 +3371,10 @@ mod tests {
             input.push_str(&format!("p{i} = free\n"));
         }
         input.push_str("prove coll(p0, p0, p0)");
-        assert!(input.len() < 16384, "test input must stay under the body cap");
+        assert!(
+            input.len() < 16384,
+            "test input must stay under the body cap"
+        );
         let start = std::time::Instant::now();
         let (st, _, body) = call(
             &state,
@@ -2744,12 +3395,31 @@ mod tests {
     async fn oversized_low_level_input_is_rejected_before_the_engine_allocates() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "tobi").await;
-        let pts: Vec<String> = (0..420).map(|i| format!("p{i}@{}_{} = ", (i % 21) as f64 * 0.37, (i / 21) as f64 * 0.41)).collect();
+        let pts: Vec<String> = (0..420)
+            .map(|i| {
+                format!(
+                    "p{i}@{}_{} = ",
+                    (i % 21) as f64 * 0.37,
+                    (i / 21) as f64 * 0.41
+                )
+            })
+            .collect();
         let input = format!("{} ? cong p0 p1 p0 p2", pts.join("; "));
         assert!(input.len() < 16384);
         let start = std::time::Instant::now();
-        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": input})).await;
-        assert!(start.elapsed() < std::time::Duration::from_secs(2), "{:?}", start.elapsed());
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": input}),
+        )
+        .await;
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}",
+            start.elapsed()
+        );
         assert_eq!(st, StatusCode::BAD_REQUEST, "got: {body:?}");
         assert_eq!(body["diagnosis"]["key"], "too_many_points", "{body:?}");
     }
@@ -2759,10 +3429,26 @@ mod tests {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "ugo").await;
         let cases = [
-            ("a@0_0 b@1_0 c@0_1 = foo a b ? coll a b c", "unknown_relation", 21),
-            ("a@0_0 = ; b@1_0 = ; c@0_1 = ; d@2_2 = ? para a b", "arity", 41),
-            ("a@0_0 = ; b@1_0 = ; c@0_1 = coll a b c ? perp a b a c", "hyp_false", 29),
-            ("a@NaN_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c", "bad_coord", 1),
+            (
+                "a@0_0 b@1_0 c@0_1 = foo a b ? coll a b c",
+                "unknown_relation",
+                21,
+            ),
+            (
+                "a@0_0 = ; b@1_0 = ; c@0_1 = ; d@2_2 = ? para a b",
+                "arity",
+                41,
+            ),
+            (
+                "a@0_0 = ; b@1_0 = ; c@0_1 = coll a b c ? perp a b a c",
+                "hyp_false",
+                29,
+            ),
+            (
+                "a@NaN_0 = ; b@1_0 = ; c@0_1 = ? cong a b a c",
+                "bad_coord",
+                1,
+            ),
         ];
         for (input, key, col) in cases {
             for best in [false, true] {
@@ -2779,7 +3465,10 @@ mod tests {
                 assert_eq!(body["diagnosis"]["key"], key, "{input}: {body:?}");
                 assert_eq!(body["diagnosis"]["line"], 1, "{input}: {body:?}");
                 assert_eq!(body["diagnosis"]["col"], col, "{input}: {body:?}");
-                assert!(!body["detail"].as_str().unwrap_or("").contains("panicked"), "{input}: {body:?}");
+                assert!(
+                    !body["detail"].as_str().unwrap_or("").contains("panicked"),
+                    "{input}: {body:?}"
+                );
             }
         }
     }
@@ -2820,7 +3509,11 @@ mod tests {
                     serde_json::json!({"input": input}),
                 )
                 .await;
-                let expected = if expect_ok { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+                let expected = if expect_ok {
+                    StatusCode::OK
+                } else {
+                    StatusCode::BAD_REQUEST
+                };
                 assert_eq!(st, expected, "request {i} got: {body:?}");
             }));
         }
@@ -2832,16 +3525,37 @@ mod tests {
     #[tokio::test]
     async fn solve_translate_export_require_session() {
         let (state, _dir) = test_state();
-        for uri in ["/api/solve", "/api/translate", "/api/export", "/api/humanize"] {
-            let (st, _, _) =
-                call(&state, "POST", uri, None, serde_json::json!({"input": "", "step": ""})).await;
-            assert_eq!(st, StatusCode::UNAUTHORIZED, "expected {uri} to require a session");
+        for uri in [
+            "/api/solve",
+            "/api/translate",
+            "/api/export",
+            "/api/humanize",
+        ] {
+            let (st, _, _) = call(
+                &state,
+                "POST",
+                uri,
+                None,
+                serde_json::json!({"input": "", "step": ""}),
+            )
+            .await;
+            assert_eq!(
+                st,
+                StatusCode::UNAUTHORIZED,
+                "expected {uri} to require a session"
+            );
         }
         // Empty input still fails validation *after* the gate — this confirms the
         // gate actually passed rather than coincidentally also returning 401.
         let cookie = register_cookie(&state, "gail").await;
-        let (st, _, _) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ""})).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ""}),
+        )
+        .await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
     }
 
@@ -2864,7 +3578,10 @@ mod tests {
         assert!(resp.headers().contains_key(header::WWW_AUTHENTICATE));
 
         // `/healthz` is the sole exception (unauthenticated liveness probe).
-        let req = Request::builder().uri("/healthz").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/healthz")
+            .body(Body::empty())
+            .unwrap();
         let resp = app_router(state.clone()).oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
@@ -2916,14 +3633,22 @@ mod tests {
     async fn security_headers_present_on_new_routes() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "leo").await;
-        for (uri, cookie_hdr) in [("/", None), ("/auth", None), ("/app", Some(cookie.as_str()))] {
+        for (uri, cookie_hdr) in [
+            ("/", None),
+            ("/auth", None),
+            ("/app", Some(cookie.as_str())),
+        ] {
             let (_, headers, _) = get_page(&state, uri, cookie_hdr).await;
             assert_eq!(
                 headers.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(),
                 "nosniff",
                 "missing on {uri}"
             );
-            assert_eq!(headers.get(header::X_FRAME_OPTIONS).unwrap(), "DENY", "missing on {uri}");
+            assert_eq!(
+                headers.get(header::X_FRAME_OPTIONS).unwrap(),
+                "DENY",
+                "missing on {uri}"
+            );
             assert!(
                 headers.get(header::CONTENT_SECURITY_POLICY).is_some(),
                 "missing CSP on {uri}"
@@ -3006,13 +3731,18 @@ mod tests {
             .await;
             assert_eq!(st, StatusCode::UNAUTHORIZED); // wrong creds, but not throttled yet
         }
-        let (st, _, _) =
-            call(&state, "POST", "/api/auth/register", None, creds("ghost9", "password123")).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("ghost9", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS); // register shares the bucket
 
         // Other API routes are unaffected by the exhausted auth bucket.
-        let (st, _, _) =
-            call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
+        let (st, _, _) = call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
         assert_eq!(st, StatusCode::OK);
     }
 
@@ -3033,9 +3763,15 @@ mod tests {
             }
             b.body(Body::from(body.clone())).unwrap()
         };
-        let resp = app_router(state.clone()).oneshot(mk(Some("https://evil.example"))).await.unwrap();
+        let resp = app_router(state.clone())
+            .oneshot(mk(Some("https://evil.example")))
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-        let resp = app_router(state.clone()).oneshot(mk(Some("http://geo.example:8787"))).await.unwrap();
+        let resp = app_router(state.clone())
+            .oneshot(mk(Some("http://geo.example:8787")))
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         // No Origin header (curl / non-browser clients): allowed. Duplicate
         // username here proves the request reached the handler itself.
@@ -3093,23 +3829,50 @@ mod tests {
     async fn a_longer_search_runs_one_at_a_time_and_only_when_offered() {
         let (state, _dir) = state_with(|c| c.extended_deadline = Some(Duration::from_secs(150)));
         let cookie = register_cookie(&state, "patient").await;
-        let (_, _, st) = call(&state, "GET", "/api/status", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, st) = call(
+            &state,
+            "GET",
+            "/api/status",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st["extended_deadline_secs"], 150, "{st}");
         let solve = serde_json::json!({"input": ISOSCELES_GEO, "extended": true});
-        let (code, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), solve.clone()).await;
+        let (code, _, body) =
+            call(&state, "POST", "/api/solve", Some(&cookie), solve.clone()).await;
         assert_eq!(code, StatusCode::OK, "{body}");
         assert_eq!(body["status"], "proved", "{body}");
         let held = state.extended.clone().try_acquire_owned().unwrap();
-        let (code, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), solve.clone()).await;
+        let (code, _, body) =
+            call(&state, "POST", "/api/solve", Some(&cookie), solve.clone()).await;
         assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{body}");
         assert_eq!(body["code"], "busy_extended", "{body}");
-        let (code, _, _) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ISOSCELES_GEO})).await;
-        assert_eq!(code, StatusCode::OK, "an ordinary solve does not wait for the longer one");
+        let (code, _, _) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ISOSCELES_GEO}),
+        )
+        .await;
+        assert_eq!(
+            code,
+            StatusCode::OK,
+            "an ordinary solve does not wait for the longer one"
+        );
         drop(held);
 
         let (state, _dir) = state_with(|c| c.extended_deadline = None);
         let cookie = register_cookie(&state, "patient").await;
-        let (_, _, st) = call(&state, "GET", "/api/status", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, st) = call(
+            &state,
+            "GET",
+            "/api/status",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert!(st.get("extended_deadline_secs").is_none(), "{st}");
         let (code, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), solve).await;
         assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");
@@ -3151,7 +3914,8 @@ mod tests {
 
     fn from_peer(mut req: Request<Body>, peer: &str) -> Request<Body> {
         let addr: SocketAddr = peer.parse().unwrap();
-        req.extensions_mut().insert(axum::extract::ConnectInfo(addr));
+        req.extensions_mut()
+            .insert(axum::extract::ConnectInfo(addr));
         req
     }
 
@@ -3160,20 +3924,30 @@ mod tests {
         let status = resp.status();
         let headers = resp.headers().clone();
         let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-        (status, headers, String::from_utf8_lossy(&bytes).into_owned())
+        (
+            status,
+            headers,
+            String::from_utf8_lossy(&bytes).into_owned(),
+        )
     }
 
     static DISABLED_PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     fn counting_probe() -> translate::Status {
         DISABLED_PROBES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        translate::Status { installed: true, logged_in: true }
+        translate::Status {
+            installed: true,
+            logged_in: true,
+        }
     }
 
     static SLOW_PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     fn slow_probe() -> translate::Status {
         SLOW_PROBES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(400));
-        translate::Status { installed: true, logged_in: true }
+        translate::Status {
+            installed: true,
+            logged_in: true,
+        }
     }
 
     #[tokio::test]
@@ -3206,24 +3980,40 @@ mod tests {
         tokio::task::yield_now().await;
         let (st, _, _) = send(&state, build("GET", "/healthz", &[], None)).await;
         assert_eq!(st, StatusCode::OK);
-        assert!(t.elapsed() < Duration::from_millis(200), "healthz stalled {:?}", t.elapsed());
+        assert!(
+            t.elapsed() < Duration::from_millis(200),
+            "healthz stalled {:?}",
+            t.elapsed()
+        );
         let (st, _, body) = status.await.unwrap();
         assert_eq!(st, StatusCode::OK);
-        assert!(t.elapsed() < Duration::from_millis(200), "/api/status waited on the probe");
+        assert!(
+            t.elapsed() < Duration::from_millis(200),
+            "/api/status waited on the probe"
+        );
         assert_eq!(body["translate_checking"], true, "{body}");
         assert_eq!(body["can_translate"], false);
         let mut body = body;
         for _ in 0..40 {
             tokio::time::sleep(Duration::from_millis(50)).await;
-            body = call(&state, "GET", "/api/status", None, serde_json::Value::Null).await.2;
+            body = call(&state, "GET", "/api/status", None, serde_json::Value::Null)
+                .await
+                .2;
             if body["translate_checking"] == false {
                 break;
             }
         }
         assert_eq!(body["translate_logged_in"], true, "{body}");
-        assert_eq!(body["translate_block"], "sign_in", "a visitor without a session cannot translate");
+        assert_eq!(
+            body["translate_block"], "sign_in",
+            "a visitor without a session cannot translate"
+        );
         call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
-        assert_eq!(SLOW_PROBES.load(std::sync::atomic::Ordering::SeqCst), 1, "later calls must hit the cache");
+        assert_eq!(
+            SLOW_PROBES.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "later calls must hit the cache"
+        );
     }
 
     #[tokio::test]
@@ -3239,8 +4029,18 @@ mod tests {
         )
         .await;
         assert_eq!(st, StatusCode::OK);
-        let (_, _, body) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
-        assert_eq!(body[0]["title"].as_str().unwrap().chars().count(), MAX_TITLE_CHARS);
+        let (_, _, body) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(
+            body[0]["title"].as_str().unwrap().chars().count(),
+            MAX_TITLE_CHARS
+        );
     }
 
     #[tokio::test]
@@ -3254,11 +4054,27 @@ mod tests {
                 db::insert_history(&conn, uid, &format!("p{i}"), None, true, None, None).unwrap();
             }
         }
-        let (st, _, body) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, body) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
-        assert_eq!(body.as_array().unwrap().len(), HISTORY_PAGE_DEFAULT as usize);
-        let (_, _, body) =
-            call(&state, "GET", "/api/history?limit=100000", Some(&cookie), serde_json::Value::Null).await;
+        assert_eq!(
+            body.as_array().unwrap().len(),
+            HISTORY_PAGE_DEFAULT as usize
+        );
+        let (_, _, body) = call(
+            &state,
+            "GET",
+            "/api/history?limit=100000",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(body.as_array().unwrap().len(), HISTORY_PAGE_MAX as usize);
         let first = body[0]["id"].as_i64().unwrap();
         let (_, _, body) = call(
@@ -3271,8 +4087,14 @@ mod tests {
         .await;
         assert_eq!(body.as_array().unwrap().len(), 2);
         assert!(body[0]["id"].as_i64().unwrap() < first);
-        let (st, _, body) =
-            call(&state, "GET", "/api/history?limit=abc", Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, body) = call(
+            &state,
+            "GET",
+            "/api/history?limit=abc",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
         assert!(body["error"].is_string());
     }
@@ -3314,12 +4136,28 @@ mod tests {
             .unwrap();
         let pending = tokio::time::timeout(
             Duration::from_millis(300),
-            call(&state, "POST", "/api/auth/login", None, creds("nobody", "password123")),
+            call(
+                &state,
+                "POST",
+                "/api/auth/login",
+                None,
+                creds("nobody", "password123"),
+            ),
         )
         .await;
-        assert!(pending.is_err(), "login must not run argon2 without a permit");
+        assert!(
+            pending.is_err(),
+            "login must not run argon2 without a permit"
+        );
         drop(held);
-        let (st, _, _) = call(&state, "POST", "/api/auth/login", None, creds("nobody", "password123")).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/login",
+            None,
+            creds("nobody", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
     }
 
@@ -3332,17 +4170,29 @@ mod tests {
         let attacker = "203.0.113.7:5555";
         let wrong = basic("x", "wrong-guess");
         for _ in 0..3 {
-            let r = from_peer(build("GET", "/auth", &[("authorization", &wrong)], None), attacker);
+            let r = from_peer(
+                build("GET", "/auth", &[("authorization", &wrong)], None),
+                attacker,
+            );
             assert_eq!(send(&state, r).await.0, StatusCode::UNAUTHORIZED);
         }
-        let r = from_peer(build("GET", "/auth", &[("authorization", &wrong)], None), attacker);
+        let r = from_peer(
+            build("GET", "/auth", &[("authorization", &wrong)], None),
+            attacker,
+        );
         assert_eq!(send(&state, r).await.0, StatusCode::TOO_MANY_REQUESTS);
         // Locked out: even the right password is not evaluated from that IP.
         let right = basic("x", "correct-horse");
-        let r = from_peer(build("GET", "/auth", &[("authorization", &right)], None), attacker);
+        let r = from_peer(
+            build("GET", "/auth", &[("authorization", &right)], None),
+            attacker,
+        );
         assert_eq!(send(&state, r).await.0, StatusCode::TOO_MANY_REQUESTS);
         // Another client is unaffected.
-        let r = from_peer(build("GET", "/auth", &[("authorization", &right)], None), "198.51.100.9:1");
+        let r = from_peer(
+            build("GET", "/auth", &[("authorization", &right)], None),
+            "198.51.100.9:1",
+        );
         assert_eq!(send(&state, r).await.0, StatusCode::OK);
     }
 
@@ -3352,13 +4202,26 @@ mod tests {
             c.basic_auth = Some(security::BasicAuth::parse(":correct-horse").unwrap());
         });
         for user in ["", "anyone", "Ünïcode user"] {
-            let r = build("GET", "/auth", &[("authorization", &basic(user, "correct-horse"))], None);
+            let r = build(
+                "GET",
+                "/auth",
+                &[("authorization", &basic(user, "correct-horse"))],
+                None,
+            );
             assert_eq!(send(&state, r).await.0, StatusCode::OK, "user {user:?}");
         }
-        let r = build("GET", "/auth", &[("authorization", &basic("anyone", "nope-nope"))], None);
+        let r = build(
+            "GET",
+            "/auth",
+            &[("authorization", &basic("anyone", "nope-nope"))],
+            None,
+        );
         let (st, headers, _) = send(&state, r).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
-        assert!(headers[header::WWW_AUTHENTICATE].to_str().unwrap().contains("realm=\"GeoSolver\""));
+        assert!(headers[header::WWW_AUTHENTICATE]
+            .to_str()
+            .unwrap()
+            .contains("realm=\"GeoSolver\""));
     }
 
     #[tokio::test]
@@ -3366,27 +4229,67 @@ mod tests {
         let (state, _dir) = state_with(|c| {
             c.basic_auth = Some(security::BasicAuth::parse("op:correct-horse").unwrap());
         });
-        let r = build("GET", "/auth", &[("authorization", &basic("op", "correct-horse"))], None);
+        let r = build(
+            "GET",
+            "/auth",
+            &[("authorization", &basic("op", "correct-horse"))],
+            None,
+        );
         assert_eq!(send(&state, r).await.0, StatusCode::OK);
-        let r = build("GET", "/auth", &[("authorization", &basic("other", "correct-horse"))], None);
+        let r = build(
+            "GET",
+            "/auth",
+            &[("authorization", &basic("other", "correct-horse"))],
+            None,
+        );
         assert_eq!(send(&state, r).await.0, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn secure_cookie_mode_uses_the_host_prefix_end_to_end() {
         let (state, _dir) = state_with(|c| c.secure_cookies = true);
-        let (st, set, _) =
-            call(&state, "POST", "/api/auth/register", None, creds("sec", "password123")).await;
+        let (st, set, _) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("sec", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let set = set.unwrap();
-        assert!(set.starts_with("__Host-sid=") && set.contains("; Secure"), "{set}");
+        assert!(
+            set.starts_with("__Host-sid=") && set.contains("; Secure"),
+            "{set}"
+        );
         let cookie = cookie_of(&set);
-        let (st, _, _) = call(&state, "GET", "/api/auth/me", Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, _) = call(
+            &state,
+            "GET",
+            "/api/auth/me",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let plain = cookie.replacen("__Host-sid=", "sid=", 1);
-        let (st, _, _) = call(&state, "GET", "/api/auth/me", Some(&plain), serde_json::Value::Null).await;
+        let (st, _, _) = call(
+            &state,
+            "GET",
+            "/api/auth/me",
+            Some(&plain),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
-        let (_, set, _) = call(&state, "POST", "/api/auth/logout", Some(&cookie), serde_json::Value::Null).await;
+        let (_, set, _) = call(
+            &state,
+            "POST",
+            "/api/auth/logout",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert!(set.unwrap().starts_with("__Host-sid=;"));
     }
 
@@ -3394,22 +4297,39 @@ mod tests {
     async fn loopback_bind_refuses_foreign_host_headers() {
         let (state, _dir) = test_state();
         assert!(state.config.bind.ip().is_loopback());
-        for host in ["localhost:8787", "127.0.0.1:8787", "[::1]:8787", "LOCALHOST"] {
+        for host in [
+            "localhost:8787",
+            "127.0.0.1:8787",
+            "[::1]:8787",
+            "LOCALHOST",
+        ] {
             let (st, _, _) = send(&state, build("GET", "/auth", &[("host", host)], None)).await;
             assert_eq!(st, StatusCode::OK, "{host}");
         }
-        let (st, _, _) = send(&state, build("GET", "/auth", &[("host", "rebind.attacker.example")], None)).await;
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/auth", &[("host", "rebind.attacker.example")], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
     async fn public_host_list_admits_the_proxied_hostname() {
         let (state, _dir) = state_with(|c| c.public_hosts = vec!["geo.tail1234.ts.net".into()]);
-        for host in ["geo.tail1234.ts.net", "GEO.tail1234.ts.net:443", "localhost:8787"] {
+        for host in [
+            "geo.tail1234.ts.net",
+            "GEO.tail1234.ts.net:443",
+            "localhost:8787",
+        ] {
             let (st, _, _) = send(&state, build("GET", "/auth", &[("host", host)], None)).await;
             assert_eq!(st, StatusCode::OK, "{host}");
         }
-        let (st, _, _) = send(&state, build("GET", "/auth", &[("host", "evil.example")], None)).await;
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/auth", &[("host", "evil.example")], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::FORBIDDEN);
     }
 
@@ -3422,12 +4342,18 @@ mod tests {
                 c.basic_auth = Some(security::BasicAuth::parse(":pw-for-tests-123").unwrap());
             });
             for host in ["app:8787", "app", "10.0.0.7:8787", "geo.example.com"] {
-                let (st, _, body) = send(&state, build("GET", "/healthz", &[("host", host)], None)).await;
+                let (st, _, body) =
+                    send(&state, build("GET", "/healthz", &[("host", host)], None)).await;
                 assert_eq!(st, StatusCode::OK, "{bind} {host}: {body}");
             }
             for path in ["/", "/gate", "/api/status", "/healthz/", "/healthz?x=1"] {
-                let (st, _, _) = send(&state, build("GET", path, &[("host", "app:8787")], None)).await;
-                let want = if path == "/healthz?x=1" { StatusCode::OK } else { StatusCode::FORBIDDEN };
+                let (st, _, _) =
+                    send(&state, build("GET", path, &[("host", "app:8787")], None)).await;
+                let want = if path == "/healthz?x=1" {
+                    StatusCode::OK
+                } else {
+                    StatusCode::FORBIDDEN
+                };
                 assert_eq!(st, want, "{bind} {path} with an unlisted Host");
             }
         }
@@ -3436,7 +4362,12 @@ mod tests {
     #[tokio::test]
     async fn unauthenticated_requests_are_refused_before_the_body_is_parsed() {
         let (state, _dir) = test_state();
-        for uri in ["/api/solve", "/api/translate", "/api/export", "/api/humanize"] {
+        for uri in [
+            "/api/solve",
+            "/api/translate",
+            "/api/export",
+            "/api/humanize",
+        ] {
             let (st, _, body) = send(&state, build("POST", uri, &[], Some("{not json"))).await;
             assert_eq!(st, StatusCode::UNAUTHORIZED, "{uri}: {body}");
         }
@@ -3447,13 +4378,22 @@ mod tests {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "joe").await;
         for body in ["{not json", r#"{"kind":"geo"}"#] {
-            let (st, headers, text) =
-                send(&state, build("POST", "/api/solve", &[("cookie", &cookie)], Some(body))).await;
+            let (st, headers, text) = send(
+                &state,
+                build("POST", "/api/solve", &[("cookie", &cookie)], Some(body)),
+            )
+            .await;
             assert!(st.is_client_error(), "{st}");
-            assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("application/json"));
+            assert!(headers[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("application/json"));
             let v: serde_json::Value = serde_json::from_str(&text).unwrap();
             assert!(v["error"].is_string(), "{text}");
-            assert!(!text.contains("SolveReq") && !text.contains("missing field"), "{text}");
+            assert!(
+                !text.contains("SolveReq") && !text.contains("missing field"),
+                "{text}"
+            );
         }
         let (st, _, text) = send(&state, build("POST", "/api/auth/login", &[], Some("[]"))).await;
         assert!(st.is_client_error());
@@ -3470,7 +4410,14 @@ mod tests {
             panic!("poison");
         })
         .join();
-        let (st, _, _) = call(&state, "GET", "/api/auth/me", Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, _) = call(
+            &state,
+            "GET",
+            "/api/auth/me",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let (st, _, _) = call(&state, "GET", "/api/status", None, serde_json::Value::Null).await;
         assert_eq!(st, StatusCode::OK);
@@ -3480,7 +4427,14 @@ mod tests {
     async fn replayed_solve_with_record_false_adds_no_history() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "rex").await;
-        call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ISOSCELES_GEO, "title": "kept"})).await;
+        call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ISOSCELES_GEO, "title": "kept"}),
+        )
+        .await;
         let (st, _, _) = call(
             &state,
             "POST",
@@ -3490,7 +4444,14 @@ mod tests {
         )
         .await;
         assert_eq!(st, StatusCode::OK);
-        let (_, _, body) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, body) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(body.as_array().unwrap().len(), 1);
         assert_eq!(body[0]["title"], "kept");
     }
@@ -3498,12 +4459,33 @@ mod tests {
     #[tokio::test]
     async fn usernames_are_case_insensitive() {
         let (state, _dir) = test_state();
-        let (st, _, body) = call(&state, "POST", "/api/auth/register", None, creds("Alice", "password123")).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("Alice", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(body["username"], "alice");
-        let (st, _, _) = call(&state, "POST", "/api/auth/register", None, creds("ALICE", "password123")).await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("ALICE", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::CONFLICT);
-        let (st, _, body) = call(&state, "POST", "/api/auth/login", None, creds("aLiCe", "password123")).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/auth/login",
+            None,
+            creds("aLiCe", "password123"),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(body["username"], "alice");
     }
@@ -3513,14 +4495,23 @@ mod tests {
         let (state, _dir) = state_with(|c| c.public_hosts = vec!["geo.example".into()]);
         let body = creds("olga", "password123").to_string();
         let post = |host: &str, origin: &str| {
-            build("POST", "/api/auth/register", &[("host", host), ("origin", origin)], Some(&body))
+            build(
+                "POST",
+                "/api/auth/register",
+                &[("host", host), ("origin", origin)],
+                Some(&body),
+            )
         };
         let (st, _, _) = send(&state, post("geo.example", "null")).await;
         assert_eq!(st, StatusCode::FORBIDDEN);
         // nginx `$host` drops the port the browser put in `Origin`.
         let (st, _, text) = send(&state, post("geo.example", "https://geo.example:8443")).await;
         assert_eq!(st, StatusCode::OK, "{text}");
-        let (st, _, _) = send(&state, post("geo.example:8443", "https://evil.example:8443")).await;
+        let (st, _, _) = send(
+            &state,
+            post("geo.example:8443", "https://evil.example:8443"),
+        )
+        .await;
         assert_eq!(st, StatusCode::FORBIDDEN);
     }
 
@@ -3528,13 +4519,23 @@ mod tests {
     async fn csp_allows_only_the_known_inline_scripts() {
         let (state, _dir) = test_state();
         let (_, headers, _) = get_page(&state, "/auth", None).await;
-        let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap().to_string();
-        let script_src = csp.split(';').find(|d| d.trim().starts_with("script-src")).unwrap();
+        let csp = headers[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap()
+            .to_string();
+        let script_src = csp
+            .split(';')
+            .find(|d| d.trim().starts_with("script-src"))
+            .unwrap();
         assert!(!script_src.contains("unsafe-inline"), "{script_src}");
         for html in [INDEX_HTML, AUTH_HTML, LANDING_HTML] {
             for script in security::inline_scripts(html) {
                 let hash = security::csp_hash(script);
-                assert_eq!(script_src.matches(&hash).count(), 1, "{hash} missing or repeated in {script_src}");
+                assert_eq!(
+                    script_src.matches(&hash).count(),
+                    1,
+                    "{hash} missing or repeated in {script_src}"
+                );
             }
         }
     }
@@ -3551,19 +4552,58 @@ mod tests {
         let (state, _dir) = guest_state(true);
         let auth = basic("", "shared-secret");
         let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
-        let (st, _, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        let (st, _, text) = send(
+            &state,
+            build(
+                "POST",
+                "/api/solve",
+                &[("authorization", &auth)],
+                Some(&solve),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "{text}");
         let export = serde_json::json!({"input": ISOSCELES_GEO, "format": "png"}).to_string();
-        let (st, _, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export))).await;
+        let (st, _, _) = send(
+            &state,
+            build(
+                "POST",
+                "/api/export",
+                &[("authorization", &auth)],
+                Some(&export),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let hz = serde_json::json!({"problem": "p", "proof": "   "}).to_string();
-        let (st, _, _) = send(&state, build("POST", "/api/humanize", &[("authorization", &auth)], Some(&hz))).await;
-        assert_eq!(st, StatusCode::BAD_REQUEST, "past the session gate, into validation");
+        let (st, _, _) = send(
+            &state,
+            build(
+                "POST",
+                "/api/humanize",
+                &[("authorization", &auth)],
+                Some(&hz),
+            ),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::BAD_REQUEST,
+            "past the session gate, into validation"
+        );
         // `/` is the app itself, not the account landing page.
-        let (st, _, page) = send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
+        let (st, _, page) =
+            send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
         assert_eq!(st, StatusCode::OK);
-        assert!(page.contains("id=\"solve\""), "guest `/` should serve the solver UI");
-        let (st, _, _) = send(&state, build("GET", "/app", &[("authorization", &auth)], None)).await;
+        assert!(
+            page.contains("id=\"solve\""),
+            "guest `/` should serve the solver UI"
+        );
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/app", &[("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         // Without the Basic password, nothing.
         let (st, _, _) = send(&state, build("POST", "/api/solve", &[], Some(&solve))).await;
@@ -3580,21 +4620,44 @@ mod tests {
         let auth = basic("", "shared-secret");
         let (st, h, _) = send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
         assert_eq!(st, StatusCode::OK);
-        let set = h.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).expect("a guest id for a new browser");
+        let set = h
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .expect("a guest id for a new browser");
         assert!(set.starts_with("gid=") && set.contains("HttpOnly"), "{set}");
         let browser_b = cookie_of(set);
-        let (_, h, _) = send(&state, build("GET", "/", &[("authorization", &auth), ("cookie", &browser_b)], None)).await;
-        assert!(h.get(header::SET_COOKIE).is_none(), "a browser keeps the id it has");
+        let (_, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/",
+                &[("authorization", &auth), ("cookie", &browser_b)],
+                None,
+            ),
+        )
+        .await;
+        assert!(
+            h.get(header::SET_COOKIE).is_none(),
+            "a browser keeps the id it has"
+        );
 
         let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
-        let as_b = [("authorization", auth.as_str()), ("cookie", browser_b.as_str())];
+        let as_b = [
+            ("authorization", auth.as_str()),
+            ("cookie", browser_b.as_str()),
+        ];
         let ip = std::net::Ipv4Addr::UNSPECIFIED;
         let guest_a = state.claim_caller(format!("g{ip}")).unwrap();
-        let guest_a_addr = state.claim_within(format!("i{ip}"), state.guest_ip_limit()).unwrap();
+        let guest_a_addr = state
+            .claim_within(format!("i{ip}"), state.guest_ip_limit())
+            .unwrap();
         let (st, h, text) = send(&state, build("POST", "/api/solve", &as_b, Some(&solve))).await;
         assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "{text}");
         let body: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(body["code"], "busy", "another guest's solve is not this browser's: {text}");
+        assert_eq!(
+            body["code"], "busy",
+            "another guest's solve is not this browser's: {text}"
+        );
         assert!(h.get(header::RETRY_AFTER).is_some());
         drop((guest_a, guest_a_addr));
 
@@ -3604,7 +4667,13 @@ mod tests {
         let body: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(body["code"], "busy_self", "{text}");
         assert_eq!(body["limit"], 1);
-        assert!(body["error"].as_str().unwrap().contains("one solve at a time"), "{text}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("one solve at a time"),
+            "{text}"
+        );
         assert!(h.get(header::RETRY_AFTER).is_some());
         drop(own);
 
@@ -3617,18 +4686,61 @@ mod tests {
         let (state, _dir) = guest_state(true);
         let auth = basic("", "shared-secret");
         let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
-        let (st, h, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        let (st, h, text) = send(
+            &state,
+            build(
+                "POST",
+                "/api/solve",
+                &[("authorization", &auth)],
+                Some(&solve),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
-        let sig = h.get(SOLUTION_SIG_HEADER).and_then(|v| v.to_str().ok()).expect("signed answer").to_string();
-        let export = |body: &str, sig: &str| serde_json::json!({"id": "0".repeat(32), "signed": body, "sig": sig, "format": "png"}).to_string();
-        let (st, h, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export(&text, &sig)))).await;
+        let sig = h
+            .get(SOLUTION_SIG_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .expect("signed answer")
+            .to_string();
+        let export = |body: &str, sig: &str| {
+            serde_json::json!({"id": "0".repeat(32), "signed": body, "sig": sig, "format": "png"})
+                .to_string()
+        };
+        let (st, h, _) = send(
+            &state,
+            build(
+                "POST",
+                "/api/export",
+                &[("authorization", &auth)],
+                Some(&export(&text, &sig)),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "image/png");
         let forged = text.replacen("\"status\":\"proved\"", "\"status\":\"refuted\"", 1);
         assert_ne!(forged, text);
-        let (st, _, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export(&forged, &sig)))).await;
+        let (st, _, _) = send(
+            &state,
+            build(
+                "POST",
+                "/api/export",
+                &[("authorization", &auth)],
+                Some(&export(&forged, &sig)),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::GONE, "an edited answer is not rendered");
-        let (st, _, _) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export(&text, &"0".repeat(64))))).await;
+        let (st, _, _) = send(
+            &state,
+            build(
+                "POST",
+                "/api/export",
+                &[("authorization", &auth)],
+                Some(&export(&text, &"0".repeat(64))),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::GONE);
     }
 
@@ -3636,16 +4748,39 @@ mod tests {
     async fn shortest_proof_answers_say_their_time_is_the_search_budget() {
         let (state, _dir) = guest_state(true);
         let auth = basic("", "shared-secret");
-        let best = serde_json::json!({"input": ISOSCELES_GEO, "best": true, "budget_secs": 1}).to_string();
-        let (st, _, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&best))).await;
+        let best =
+            serde_json::json!({"input": ISOSCELES_GEO, "best": true, "budget_secs": 1}).to_string();
+        let (st, _, text) = send(
+            &state,
+            build(
+                "POST",
+                "/api/solve",
+                &[("authorization", &auth)],
+                Some(&best),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "{text}");
         let body: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(body["search"], "shortest");
         let plain = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
-        let (_, _, text) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&plain))).await;
+        let (_, _, text) = send(
+            &state,
+            build(
+                "POST",
+                "/api/solve",
+                &[("authorization", &auth)],
+                Some(&plain),
+            ),
+        )
+        .await;
         let body: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert!(body.get("search").is_none());
-        let (_, _, text) = send(&state, build("GET", "/api/status", &[("authorization", &auth)], None)).await;
+        let (_, _, text) = send(
+            &state,
+            build("GET", "/api/status", &[("authorization", &auth)], None),
+        )
+        .await;
         let status: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(status["solver_free"], true);
         assert!(status["queue_wait_secs"].as_f64().is_some());
@@ -3656,7 +4791,16 @@ mod tests {
         let (state, _dir) = guest_state(false);
         let auth = basic("", "shared-secret");
         let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
-        let (st, _, _) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        let (st, _, _) = send(
+            &state,
+            build(
+                "POST",
+                "/api/solve",
+                &[("authorization", &auth)],
+                Some(&solve),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
     }
 
@@ -3667,18 +4811,40 @@ mod tests {
         let creds_body = creds("member", "password123").to_string();
         let (st, _, _) = send(
             &state,
-            build("POST", "/api/auth/register", &[("authorization", &auth)], Some(&creds_body)),
+            build(
+                "POST",
+                "/api/auth/register",
+                &[("authorization", &auth)],
+                Some(&creds_body),
+            ),
         )
         .await;
-        assert_eq!(st, StatusCode::OK, "an account exists, so a stray insert could succeed");
+        assert_eq!(
+            st,
+            StatusCode::OK,
+            "an account exists, so a stray insert could succeed"
+        );
         let solve = serde_json::json!({"input": ISOSCELES_GEO, "title": "g"}).to_string();
-        let (st, _, _) = send(&state, build("POST", "/api/solve", &[("authorization", &auth)], Some(&solve))).await;
+        let (st, _, _) = send(
+            &state,
+            build(
+                "POST",
+                "/api/solve",
+                &[("authorization", &auth)],
+                Some(&solve),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let rows: i64 = db::lock(&state.db)
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 0);
-        let (st, _, _) = send(&state, build("GET", "/api/history", &[("authorization", &auth)], None)).await;
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/api/history", &[("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
     }
 
@@ -3690,7 +4856,9 @@ mod tests {
         use tokio::io::AsyncWriteExt;
 
         async fn bounded<T>(f: impl std::future::Future<Output = T>) -> T {
-            tokio::time::timeout(Duration::from_secs(60), f).await.expect("test step hung")
+            tokio::time::timeout(Duration::from_secs(60), f)
+                .await
+                .expect("test step hung")
         }
 
         fn post(uri: &str, cookie: &str, body: serde_json::Value) -> Request<Body> {
@@ -3716,22 +4884,41 @@ mod tests {
             let tmp = tempfile::tempdir().unwrap();
             let (input, pidfile) = hang_input(tmp.path(), "pid");
             let t = Instant::now();
-            let (st, _, body) =
-                bounded(send(&state, post("/api/solve", &cookie, serde_json::json!({"input": input})))).await;
+            let (st, _, body) = bounded(send(
+                &state,
+                post("/api/solve", &cookie, serde_json::json!({"input": input})),
+            ))
+            .await;
             let took = t.elapsed();
             assert_eq!(st, StatusCode::OK, "{body}");
             let sol: serde_json::Value = serde_json::from_str(&body).unwrap();
             assert_eq!(sol["proved"], false);
             assert_eq!(sol["status"], "not-proved");
-            assert!(sol["note"].as_str().unwrap().contains("time limit"), "{sol}");
-            assert_eq!(sol["view"]["note"]["secs"], 1.0, "the verdict states the configured limit: {sol}");
-            assert!(took < Duration::from_secs(1) + worker::GRACE + Duration::from_secs(2), "{took:?}");
+            assert!(
+                sol["note"].as_str().unwrap().contains("time limit"),
+                "{sol}"
+            );
+            assert_eq!(
+                sol["view"]["note"]["secs"], 1.0,
+                "the verdict states the configured limit: {sol}"
+            );
+            assert!(
+                took < Duration::from_secs(1) + worker::GRACE + Duration::from_secs(2),
+                "{took:?}"
+            );
             let pid = wait_for_pid(&pidfile).await;
             assert!(reaped(pid), "worker {pid} outlived its request");
             assert_eq!(state.heavy.available_permits(), 1, "the slot leaked");
 
-            let (st, _, body) =
-                bounded(send(&state, post("/api/solve", &cookie, serde_json::json!({"input": ISOSCELES_GEO})))).await;
+            let (st, _, body) = bounded(send(
+                &state,
+                post(
+                    "/api/solve",
+                    &cookie,
+                    serde_json::json!({"input": ISOSCELES_GEO}),
+                ),
+            ))
+            .await;
             assert_eq!(st, StatusCode::OK, "{body}");
             assert!(body.contains("\"proved\":true"), "{body}");
         }
@@ -3769,29 +4956,64 @@ mod tests {
                 let cookie = register_cookie(&state, &format!("hog{i}")).await;
                 let state = state.clone();
                 hogs.push(tokio::spawn(async move {
-                    send(&state, post("/api/solve", &cookie, serde_json::json!({"input": input}))).await
+                    send(
+                        &state,
+                        post("/api/solve", &cookie, serde_json::json!({"input": input})),
+                    )
+                    .await
                 }));
                 pids.push(wait_for_pid(&pidfile).await);
             }
             assert_eq!(state.heavy.available_permits(), 0);
 
             let t = Instant::now();
-            let (st, headers, body) =
-                bounded(send(&state, post("/api/solve", &cookie, serde_json::json!({"input": ISOSCELES_GEO})))).await;
+            let (st, headers, body) = bounded(send(
+                &state,
+                post(
+                    "/api/solve",
+                    &cookie,
+                    serde_json::json!({"input": ISOSCELES_GEO}),
+                ),
+            ))
+            .await;
             let queued = t.elapsed();
             assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "{body}");
             assert_eq!(headers.get(header::RETRY_AFTER).unwrap(), BUSY_RETRY_AFTER);
-            assert!(queued >= Duration::from_millis(300), "did not queue: {queued:?}");
-            assert!(queued < Duration::from_secs(2), "queued too long: {queued:?}");
-            let (st, _, _) = bounded(send(&state, post("/api/export", &cookie, serde_json::json!({"input": ISOSCELES_GEO})))).await;
+            assert!(
+                queued >= Duration::from_millis(300),
+                "did not queue: {queued:?}"
+            );
+            assert!(
+                queued < Duration::from_secs(2),
+                "queued too long: {queued:?}"
+            );
+            let (st, _, _) = bounded(send(
+                &state,
+                post(
+                    "/api/export",
+                    &cookie,
+                    serde_json::json!({"input": ISOSCELES_GEO}),
+                ),
+            ))
+            .await;
             assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
 
-            for (uri, cookie) in [("/healthz", None), ("/", None), ("/auth", None), ("/app", Some(cookie.as_str()))] {
+            for (uri, cookie) in [
+                ("/healthz", None),
+                ("/", None),
+                ("/auth", None),
+                ("/app", Some(cookie.as_str())),
+            ] {
                 let t = Instant::now();
-                let headers: Vec<(&str, &str)> = cookie.map(|c| ("cookie", c)).into_iter().collect();
+                let headers: Vec<(&str, &str)> =
+                    cookie.map(|c| ("cookie", c)).into_iter().collect();
                 let (st, _, _) = bounded(send(&state, build("GET", uri, &headers, None))).await;
                 assert_eq!(st, StatusCode::OK, "{uri}");
-                assert!(t.elapsed() < Duration::from_millis(500), "{uri} took {:?} under saturation", t.elapsed());
+                assert!(
+                    t.elapsed() < Duration::from_millis(500),
+                    "{uri} took {:?} under saturation",
+                    t.elapsed()
+                );
             }
 
             for hog in &hogs {
@@ -3844,7 +5066,10 @@ mod tests {
         async fn http_get(addr: SocketAddr, path: &str) -> String {
             use tokio::io::AsyncReadExt;
             let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
-            let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n", addr.port());
+            let req = format!(
+                "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+                addr.port()
+            );
             sock.write_all(req.as_bytes()).await.unwrap();
             let mut out = String::new();
             sock.read_to_string(&mut out).await.unwrap();
@@ -3853,7 +5078,10 @@ mod tests {
 
         fn slow_probe() -> crate::translate::Status {
             std::thread::sleep(Duration::from_secs(3));
-            crate::translate::Status { installed: true, logged_in: false }
+            crate::translate::Status {
+                installed: true,
+                logged_in: false,
+            }
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3869,7 +5097,11 @@ mod tests {
             let server = tokio::spawn(serve_on(listener, state));
             let reply = bounded(http_get(addr, "/healthz")).await;
             assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
-            assert!(t.elapsed() < Duration::from_secs(1), "healthz waited {:?} for the probe", t.elapsed());
+            assert!(
+                t.elapsed() < Duration::from_secs(1),
+                "healthz waited {:?} for the probe",
+                t.elapsed()
+            );
             server.abort();
         }
 
@@ -3884,7 +5116,11 @@ mod tests {
             let server = tokio::spawn(serve_until(listener, state.clone(), async {
                 let _ = stop_rx.await;
             }));
-            let input = format!("{}1500\n{}", crate::worker::tests::SLEEP, crate::worker::tests::CIRCUMCENTER);
+            let input = format!(
+                "{}1500\n{}",
+                crate::worker::tests::SLEEP,
+                crate::worker::tests::CIRCUMCENTER
+            );
             let body = serde_json::json!({"input": input}).to_string();
             let request = format!(
                 "POST /api/solve HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nCookie: {cookie}\r\n\
@@ -3907,10 +5143,18 @@ mod tests {
             assert!(reply.contains("\"proved\":true"), "{reply}");
             let stopped = bounded(server).await.unwrap();
             assert!(stopped.is_ok(), "{stopped:?}");
-            assert!(tokio::net::TcpStream::connect(addr).await.is_err(), "the listener is closed");
+            assert!(
+                tokio::net::TcpStream::connect(addr).await.is_err(),
+                "the listener is closed"
+            );
             assert!(state.draining.load(std::sync::atomic::Ordering::SeqCst));
-            let wal = std::fs::metadata(state.config.db_path.with_extension("db-wal")).map(|m| m.len()).unwrap_or(0);
-            assert_eq!(wal, 0, "the WAL is checkpointed and truncated on the way out");
+            let wal = std::fs::metadata(state.config.db_path.with_extension("db-wal"))
+                .map(|m| m.len())
+                .unwrap_or(0);
+            assert_eq!(
+                wal, 0,
+                "the WAL is checkpointed and truncated on the way out"
+            );
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3958,14 +5202,23 @@ mod tests {
             let server = tokio::spawn(serve_on(listener, state.clone()));
             let ready = bounded(http_get(addr, "/readyz")).await;
             assert!(ready.starts_with("HTTP/1.1 200"), "{ready}");
-            assert!(ready.contains("\"db\":\"ok\"") && ready.contains("\"solver_free\":1"), "{ready}");
+            assert!(
+                ready.contains("\"db\":\"ok\"") && ready.contains("\"solver_free\":1"),
+                "{ready}"
+            );
             let permit = state.heavy.clone().acquire_owned().await.unwrap();
             let busy = bounded(http_get(addr, "/readyz")).await;
             assert!(busy.starts_with("HTTP/1.1 503"), "{busy}");
-            assert!(busy.to_ascii_lowercase().contains("retry-after: 10"), "{busy}");
+            assert!(
+                busy.to_ascii_lowercase().contains("retry-after: 10"),
+                "{busy}"
+            );
             drop(permit);
             let status = bounded(http_get(addr, "/api/status")).await;
-            assert!(!status.starts_with("HTTP/1.1 200"), "the API still needs the password: {status}");
+            assert!(
+                !status.starts_with("HTTP/1.1 200"),
+                "the API still needs the password: {status}"
+            );
             server.abort();
         }
 
@@ -3978,10 +5231,15 @@ mod tests {
             let server = tokio::spawn(serve_on(listener, state));
 
             let status = bounded(http_get(addr, "/api/status")).await;
-            assert!(status.starts_with("HTTP/1.1 200"), "the peer address reaches the app: {status}");
+            assert!(
+                status.starts_with("HTTP/1.1 200"),
+                "the peer address reaches the app: {status}"
+            );
 
             let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
-            sock.write_all(b"POST /api/solve HTTP/1.1\r\nHost: 127.0.0.1\r\n").await.unwrap();
+            sock.write_all(b"POST /api/solve HTTP/1.1\r\nHost: 127.0.0.1\r\n")
+                .await
+                .unwrap();
             let t = Instant::now();
             let mut buf = [0u8; 256];
             let closed = bounded(async {
@@ -3998,7 +5256,11 @@ mod tests {
             })
             .await;
             assert!(closed);
-            assert!(t.elapsed() < Duration::from_secs(3), "dropped after {:?}", t.elapsed());
+            assert!(
+                t.elapsed() < Duration::from_secs(3),
+                "dropped after {:?}",
+                t.elapsed()
+            );
             server.abort();
         }
     }
@@ -4010,7 +5272,10 @@ mod tests {
         let resp = app_router(state.clone()).oneshot(req).await.unwrap();
         let status = resp.status();
         let headers = resp.headers().clone();
-        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap().to_vec();
+        let bytes = to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec();
         (status, headers, bytes)
     }
 
@@ -4019,27 +5284,63 @@ mod tests {
         let (state, _dir) = test_state();
         let euler = register_cookie(&state, "euler").await;
         let gauss = register_cookie(&state, "gauss").await;
-        let (st, _, body) =
-            call(&state, "POST", "/api/solve", Some(&euler), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&euler),
+            serde_json::json!({"input": ORTHO_REFLECTION}),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "{body}");
         let id = body["id"].as_str().expect("solution id").to_string();
         let export = serde_json::json!({"id": id, "format": "png"}).to_string();
-        let (st, _, _) = call_raw(&state, build("POST", "/api/export", &[("cookie", &gauss)], Some(&export))).await;
-        assert_eq!(st, StatusCode::GONE, "another account's cached solution must not render");
-        let (st, _, bytes) = call_raw(&state, build("POST", "/api/export", &[("cookie", &euler)], Some(&export))).await;
+        let (st, _, _) = call_raw(
+            &state,
+            build("POST", "/api/export", &[("cookie", &gauss)], Some(&export)),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::GONE,
+            "another account's cached solution must not render"
+        );
+        let (st, _, bytes) = call_raw(
+            &state,
+            build("POST", "/api/export", &[("cookie", &euler)], Some(&export)),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert!(bytes.starts_with(b"\x89PNG"));
 
-        let (st, _, mine) =
-            call(&state, "POST", "/api/solve", Some(&gauss), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        let (st, _, mine) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&gauss),
+            serde_json::json!({"input": ORTHO_REFLECTION}),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "{mine}");
         let row = mine["history_id"].as_i64().expect("a recorded solve");
         let put = |sid: &str| serde_json::json!({"id": sid}).to_string();
         let uri = format!("/api/history/{row}");
-        let (st, _, _) = call_raw(&state, build("PUT", &uri, &[("cookie", &gauss)], Some(&put(&id)))).await;
-        assert_eq!(st, StatusCode::GONE, "another account's cached solution must not enter this history");
+        let (st, _, _) = call_raw(
+            &state,
+            build("PUT", &uri, &[("cookie", &gauss)], Some(&put(&id))),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::GONE,
+            "another account's cached solution must not enter this history"
+        );
         let own = mine["id"].as_str().unwrap().to_string();
-        let (st, _, _) = call_raw(&state, build("PUT", &uri, &[("cookie", &gauss)], Some(&put(&own)))).await;
+        let (st, _, _) = call_raw(
+            &state,
+            build("PUT", &uri, &[("cookie", &gauss)], Some(&put(&own))),
+        )
+        .await;
         assert_eq!(st, StatusCode::NO_CONTENT);
     }
 
@@ -4049,20 +5350,37 @@ mod tests {
         let auth = basic("", "shared-secret");
         let mut browsers = Vec::new();
         for _ in 0..2 {
-            let (_, h, _) = send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
-            let set = h.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).expect("a guest id");
+            let (_, h, _) =
+                send(&state, build("GET", "/", &[("authorization", &auth)], None)).await;
+            let set = h
+                .get(header::SET_COOKIE)
+                .and_then(|v| v.to_str().ok())
+                .expect("a guest id");
             browsers.push(cookie_of(set));
         }
         assert_ne!(browsers[0], browsers[1]);
         let solve = serde_json::json!({"input": ISOSCELES_GEO}).to_string();
-        let a = [("authorization", auth.as_str()), ("cookie", browsers[0].as_str())];
-        let b = [("authorization", auth.as_str()), ("cookie", browsers[1].as_str())];
+        let a = [
+            ("authorization", auth.as_str()),
+            ("cookie", browsers[0].as_str()),
+        ];
+        let b = [
+            ("authorization", auth.as_str()),
+            ("cookie", browsers[1].as_str()),
+        ];
         let (st, _, text) = send(&state, build("POST", "/api/solve", &a, Some(&solve))).await;
         assert_eq!(st, StatusCode::OK, "{text}");
-        let id = serde_json::from_str::<serde_json::Value>(&text).unwrap()["id"].as_str().unwrap().to_string();
+        let id = serde_json::from_str::<serde_json::Value>(&text).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         let export = serde_json::json!({"id": id, "format": "png"}).to_string();
         let (st, _, _) = send(&state, build("POST", "/api/export", &b, Some(&export))).await;
-        assert_eq!(st, StatusCode::GONE, "guest B must not render guest A's result");
+        assert_eq!(
+            st,
+            StatusCode::GONE,
+            "guest B must not render guest A's result"
+        );
         let (st, h, _) = send(&state, build("POST", "/api/export", &a, Some(&export))).await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(h[header::CONTENT_TYPE], "image/png");
@@ -4072,16 +5390,30 @@ mod tests {
     async fn solve_answers_with_a_readable_view_and_an_export_id() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "euler").await;
-        let (st, _, body) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ORTHO_REFLECTION})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ORTHO_REFLECTION}),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "{body}");
         assert_eq!(body["status"], "proved");
-        assert!(body["proof"].as_str().unwrap().contains("_5"), "the engine's own proof is passed through");
+        assert!(
+            body["proof"].as_str().unwrap().contains("_5"),
+            "the engine's own proof is passed through"
+        );
         for field in ["view", "svg", "title"] {
             let shown = body[field].to_string();
-            assert!(!shown.contains("_5") && !shown.contains("_\u{2085}"), "internal name in {field}: {shown}");
+            assert!(
+                !shown.contains("_5") && !shown.contains("_\u{2085}"),
+                "internal name in {field}: {shown}"
+            );
         }
-        assert!(body["view"]["proof"]["steps"].as_array().is_some_and(|s| !s.is_empty()));
+        assert!(body["view"]["proof"]["steps"]
+            .as_array()
+            .is_some_and(|s| !s.is_empty()));
         assert!(body["svg"].as_str().unwrap().contains("data-p=\""));
         let id = body["id"].as_str().expect("solution id").to_string();
 
@@ -4092,7 +5424,8 @@ mod tests {
         assert_eq!(headers[header::CONTENT_TYPE], "image/png");
         assert!(bytes.starts_with(b"\x89PNG"));
 
-        let gone = serde_json::json!({"id": "0123456789abcdef0123456789abcdef", "format": "pdf"}).to_string();
+        let gone = serde_json::json!({"id": "0123456789abcdef0123456789abcdef", "format": "pdf"})
+            .to_string();
         let req = build("POST", "/api/export", &[("cookie", &cookie)], Some(&gone));
         let (st, _, bytes) = call_raw(&state, req).await;
         assert_eq!(st, StatusCode::GONE);
@@ -4104,23 +5437,48 @@ mod tests {
     async fn history_reopens_the_stored_solution_without_solving() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "gauss").await;
-        let (_, _, solved) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ORTHO_REFLECTION})).await;
-        let (st, _, rows) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, solved) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ORTHO_REFLECTION}),
+        )
+        .await;
+        let (st, _, rows) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let row = &rows[0];
         assert_eq!(row["has_solution"], true);
         assert_eq!(row["goal"]["kind"], "cyclic");
         let id = row["id"].as_i64().unwrap();
-        let (st, _, again) =
-            call(&state, "GET", &format!("/api/history/{id}"), Some(&cookie), serde_json::Value::Null).await;
+        let (st, _, again) = call(
+            &state,
+            "GET",
+            &format!("/api/history/{id}"),
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(again["proof"], solved["proof"]);
         assert_eq!(again["view"], solved["view"]);
         assert_ne!(again["id"], solved["id"], "a fresh export id");
         let other = register_cookie(&state, "riemann").await;
-        let (st, _, _) =
-            call(&state, "GET", &format!("/api/history/{id}"), Some(&other), serde_json::Value::Null).await;
+        let (st, _, _) = call(
+            &state,
+            "GET",
+            &format!("/api/history/{id}"),
+            Some(&other),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(st, StatusCode::NOT_FOUND, "another user's row is invisible");
     }
 
@@ -4128,9 +5486,17 @@ mod tests {
     async fn a_swapped_in_shorter_proof_replaces_the_history_entry() {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "euler").await;
-        let (_, _, first) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ORTHO_REFLECTION})).await;
-        let hid = first["history_id"].as_i64().expect("a recorded solve says which row it wrote");
+        let (_, _, first) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ORTHO_REFLECTION}),
+        )
+        .await;
+        let hid = first["history_id"]
+            .as_i64()
+            .expect("a recorded solve says which row it wrote");
         let (_, _, best) = call(
             &state,
             "POST",
@@ -4142,8 +5508,19 @@ mod tests {
         assert!(best["history_id"].is_null());
         let body = serde_json::json!({"id": best["id"]});
         let other = register_cookie(&state, "lagrange").await;
-        let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&other), body.clone()).await;
-        assert_eq!(st, StatusCode::GONE, "another account's cached solution is not usable");
+        let (st, _, _) = call(
+            &state,
+            "PUT",
+            &format!("/api/history/{hid}"),
+            Some(&other),
+            body.clone(),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::GONE,
+            "another account's cached solution is not usable"
+        );
         let (_, _, theirs) = call(
             &state,
             "POST",
@@ -4153,15 +5530,46 @@ mod tests {
         )
         .await;
         let theirs = serde_json::json!({"id": theirs["id"]});
-        let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&other), theirs).await;
-        assert_eq!(st, StatusCode::NOT_FOUND, "only the owner can replace a row");
-        let (st, _, _) = call(&state, "PUT", &format!("/api/history/{hid}"), Some(&cookie), body).await;
+        let (st, _, _) = call(
+            &state,
+            "PUT",
+            &format!("/api/history/{hid}"),
+            Some(&other),
+            theirs,
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::NOT_FOUND,
+            "only the owner can replace a row"
+        );
+        let (st, _, _) = call(
+            &state,
+            "PUT",
+            &format!("/api/history/{hid}"),
+            Some(&cookie),
+            body,
+        )
+        .await;
         assert_eq!(st, StatusCode::NO_CONTENT);
-        let (_, _, again) =
-            call(&state, "GET", &format!("/api/history/{hid}"), Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, again) = call(
+            &state,
+            "GET",
+            &format!("/api/history/{hid}"),
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(again["view"], best["view"]);
         assert_eq!(again["examined"], best["examined"]);
-        let (_, _, rows) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
+        let (_, _, rows) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
         assert_eq!(rows.as_array().map(Vec::len), Some(1));
     }
 
@@ -4170,17 +5578,39 @@ mod tests {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "hilbert").await;
         let bad = "A B C = triangle\nH = orthocenter(A B C)\nprove perp(A, H, B, C)";
-        let (st, _, body) =
-            call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": bad})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": bad}),
+        )
+        .await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
         assert_eq!(body["code"], "compile");
         assert_eq!(body["diagnosis"]["line"], 2);
         assert_eq!(body["diagnosis"]["col"], 19);
-        assert!(body["error"].as_str().unwrap().starts_with("Expected a comma"), "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .starts_with("Expected a comma"),
+            "{body}"
+        );
         assert!(body["detail"].as_str().unwrap().contains("found"));
         let ro = format!("{cookie}; lang=ro");
-        let (_, _, body) = call(&state, "POST", "/api/solve", Some(&ro), serde_json::json!({"input": bad})).await;
-        assert!(body["error"].as_str().unwrap().starts_with("Lipsește"), "{body}");
+        let (_, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&ro),
+            serde_json::json!({"input": bad}),
+        )
+        .await;
+        assert!(
+            body["error"].as_str().unwrap().starts_with("Lipsește"),
+            "{body}"
+        );
     }
 
     #[tokio::test]
@@ -4188,7 +5618,14 @@ mod tests {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "zero").await;
         let src = "A B C = triangle\nprove dist(A,B) = 1/0";
-        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": src})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": src}),
+        )
+        .await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
         assert_eq!(body["diagnosis"]["key"], "div_zero", "{body}");
         assert_eq!(body["error"], "Division by zero in the goal.");
@@ -4201,22 +5638,69 @@ mod tests {
         let (state, _dir) = test_state();
         let cookie = register_cookie(&state, "typo").await;
         let arity = "A B C = triangle\nprove dist(B,C) = sin(angle(A,B))";
-        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": arity})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": arity}),
+        )
+        .await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
         assert_eq!(body["diagnosis"]["key"], "arity", "{body}");
         assert_eq!(body["diagnosis"]["line"], 2, "{body}");
-        assert_eq!(body["error"], "“angle” takes 3 arguments, but 2 were given.", "{body}");
+        assert_eq!(
+            body["error"], "“angle” takes 3 arguments, but 2 were given.",
+            "{body}"
+        );
         let ops = "A B C = triangle\nprove dist(B,C) = 2**dist(A,B)";
-        let (st, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": ops})).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ops}),
+        )
+        .await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
         let msg = body["error"].as_str().unwrap();
         assert!(!msg.contains("Op(") && msg.contains("*"), "{body}");
-        assert_eq!((body["diagnosis"]["line"].as_u64(), body["diagnosis"]["col"].as_u64()), (Some(2), Some(21)), "{body}");
-        let (_, _, hist) = call(&state, "GET", "/api/history", Some(&cookie), serde_json::Value::Null).await;
-        assert_eq!(hist.as_array().map(Vec::len), Some(0), "typos are not history: {hist}");
+        assert_eq!(
+            (
+                body["diagnosis"]["line"].as_u64(),
+                body["diagnosis"]["col"].as_u64()
+            ),
+            (Some(2), Some(21)),
+            "{body}"
+        );
+        let (_, _, hist) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(
+            hist.as_array().map(Vec::len),
+            Some(0),
+            "typos are not history: {hist}"
+        );
         let degenerate = "A B C = triangle\nM = midpoint(A, A)\nprove coll(A, B, M)";
-        let (_, _, body) = call(&state, "POST", "/api/solve", Some(&cookie), serde_json::json!({"input": degenerate})).await;
-        assert!(body["detail"].as_str().is_none_or(|d| !d.contains("no attempt")), "{body}");
+        let (_, _, body) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": degenerate}),
+        )
+        .await;
+        assert!(
+            body["detail"]
+                .as_str()
+                .is_none_or(|d| !d.contains("no attempt")),
+            "{body}"
+        );
     }
 
     #[test]
@@ -4226,40 +5710,114 @@ mod tests {
         assert!(t.chars().count() <= MAX_TITLE_CHARS, "{t}");
         assert!(t.ends_with('\u{2026}'), "{t}");
         let word = t.trim_end_matches('\u{2026}').rsplit(' ').next().unwrap();
-        assert!(["In", "every", "non-degenerate", "triangle", "consider", "the", "reflection", "of", "orthocentre", "in", "each", "side"].contains(&word), "{t}");
-        assert_eq!(clean_title(Some("  Euler line ".into())).as_deref(), Some("Euler line"));
+        assert!(
+            [
+                "In",
+                "every",
+                "non-degenerate",
+                "triangle",
+                "consider",
+                "the",
+                "reflection",
+                "of",
+                "orthocentre",
+                "in",
+                "each",
+                "side"
+            ]
+            .contains(&word),
+            "{t}"
+        );
+        assert_eq!(
+            clean_title(Some("  Euler line ".into())).as_deref(),
+            Some("Euler line")
+        );
         assert_eq!(clean_title(Some("   ".into())), None);
     }
 
     #[test]
     fn titles_are_typeset_and_stripped_of_characters_no_page_can_show() {
-        assert_eq!(clean_title(Some("Stewart: AD^2 = 14".into())).as_deref(), Some("Stewart: AD² = 14"));
-        assert_eq!(clean_title(Some("The median splits the triangle.".into())).as_deref(), Some("The median splits the triangle"));
+        assert_eq!(
+            clean_title(Some("Stewart: AD^2 = 14".into())).as_deref(),
+            Some("Stewart: AD² = 14")
+        );
+        assert_eq!(
+            clean_title(Some("The median splits the triangle.".into())).as_deref(),
+            Some("The median splits the triangle")
+        );
         assert_eq!(clean_title(Some("Wait…".into())).as_deref(), Some("Wait…"));
-        assert_eq!(clean_title(Some("Eu\u{0}ler\u{fffe} line\u{85}\u{7}\nsecond".into())).as_deref(), Some("Euler line second"));
+        assert_eq!(
+            clean_title(Some("Eu\u{0}ler\u{fffe} line\u{85}\u{7}\nsecond".into())).as_deref(),
+            Some("Euler line second")
+        );
         assert_eq!(clean_title(Some("\u{0}\u{ffff}".into())), None);
-        assert_eq!(clean_title(Some("Triunghi isoscel ș ț 😀".into())).as_deref(), Some("Triunghi isoscel ș ț 😀"));
+        assert_eq!(
+            clean_title(Some("Triunghi isoscel ș ț 😀".into())).as_deref(),
+            Some("Triunghi isoscel ș ț 😀")
+        );
     }
 
     #[tokio::test]
     async fn unknown_addresses_get_a_page_in_the_visitors_language() {
         let (state, _dir) = guest_state(true);
         let auth = basic("", "shared-secret");
-        let (st, h, body) = send(&state, build("GET", "/no/such/page", &[("authorization", &auth), ("accept", "text/html")], None)).await;
+        let (st, h, body) = send(
+            &state,
+            build(
+                "GET",
+                "/no/such/page",
+                &[("authorization", &auth), ("accept", "text/html")],
+                None,
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::NOT_FOUND);
-        assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"), "{h:?}");
-        assert!(body.contains("Page not found") && body.contains("href=\"/\"") && body.contains("/assets/app.css?v="), "{body}");
-        assert!(!body.contains("{title}") && !body.contains("no/such"), "{body}");
-        let ro = [("authorization", auth.as_str()), ("accept", "text/html"), ("accept-language", "ro-RO,ro;q=0.9")];
+        assert!(
+            h[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html"),
+            "{h:?}"
+        );
+        assert!(
+            body.contains("Page not found")
+                && body.contains("href=\"/\"")
+                && body.contains("/assets/app.css?v="),
+            "{body}"
+        );
+        assert!(
+            !body.contains("{title}") && !body.contains("no/such"),
+            "{body}"
+        );
+        let ro = [
+            ("authorization", auth.as_str()),
+            ("accept", "text/html"),
+            ("accept-language", "ro-RO,ro;q=0.9"),
+        ];
         let (_, _, body) = send(&state, build("GET", "/nimic", &ro, None)).await;
-        assert!(body.contains("Pagina nu a fost găsită") && body.contains("lang=\"ro\""), "{body}");
-        let (st, _, body) = send(&state, build("GET", "/api/nope", &[("authorization", &auth)], None)).await;
+        assert!(
+            body.contains("Pagina nu a fost găsită") && body.contains("lang=\"ro\""),
+            "{body}"
+        );
+        let (st, _, body) = send(
+            &state,
+            build("GET", "/api/nope", &[("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::NOT_FOUND);
         assert!(body.contains("\"code\":\"not_found\""), "{body}");
-        let (st, _, body) = send(&state, build("GET", "/nope.txt", &[("authorization", &auth)], None)).await;
+        let (st, _, body) = send(
+            &state,
+            build("GET", "/nope.txt", &[("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::NOT_FOUND);
         assert_eq!(body, "Page not found");
-        let (st, _, _) = send(&state, build("GET", "/icons/nope.png", &[("authorization", &auth)], None)).await;
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/icons/nope.png", &[("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::NOT_FOUND);
     }
 
@@ -4270,12 +5828,25 @@ mod tests {
         let commented = format!("# Isosceles \u{0}\u{fffe} 😀 comment\n{ISOSCELES_GEO}");
         for (input, title) in [
             (ISOSCELES_GEO.to_string(), Some("Euler 😀")),
-            (ISOSCELES_GEO.to_string(), Some("nul \u{0} and \u{fffe} and \u{1b}[31m")),
+            (
+                ISOSCELES_GEO.to_string(),
+                Some("nul \u{0} and \u{fffe} and \u{1b}[31m"),
+            ),
             (commented, None),
         ] {
             for format in ["pdf", "png"] {
-                let export = serde_json::json!({"input": input, "format": format, "title": title}).to_string();
-                let (st, _, text) = send(&state, build("POST", "/api/export", &[("authorization", &auth)], Some(&export))).await;
+                let export = serde_json::json!({"input": input, "format": format, "title": title})
+                    .to_string();
+                let (st, _, text) = send(
+                    &state,
+                    build(
+                        "POST",
+                        "/api/export",
+                        &[("authorization", &auth)],
+                        Some(&export),
+                    ),
+                )
+                .await;
                 assert_eq!(st, StatusCode::OK, "{format} {title:?}: {text}");
             }
         }
@@ -4304,7 +5875,11 @@ mod tests {
     async fn guests_are_told_why_they_cannot_translate() {
         let (state, _dir) = ai_guest_state(false, true);
         let auth = basic("", GATE_PW);
-        let (st, _, text) = send(&state, build("GET", "/api/status", &[("authorization", &auth)], None)).await;
+        let (st, _, text) = send(
+            &state,
+            build("GET", "/api/status", &[("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let body: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(body["guest"], true);
@@ -4316,7 +5891,9 @@ mod tests {
 
     #[test]
     fn one_caller_cannot_evict_anothers_cached_results() {
-        let mut c = SolutionCache { entries: Vec::new() };
+        let mut c = SolutionCache {
+            entries: Vec::new(),
+        };
         let mut push = |owner: &str, id: String| {
             c.evict_for(owner, SOLUTION_CACHE_PER_OWNER, SOLUTION_CACHE_MAX);
             c.entries.push(CachedSolution {
@@ -4335,15 +5912,26 @@ mod tests {
                 push(&format!("g{k}"), format!("g{k}-{i}"));
             }
         }
-        assert!(c.entries.iter().any(|e| e.id == "mine"), "a flood of other callers' solves evicted u1's result");
+        assert!(
+            c.entries.iter().any(|e| e.id == "mine"),
+            "a flood of other callers' solves evicted u1's result"
+        );
         assert!(c.entries.iter().filter(|e| e.owner == "u2").count() <= SOLUTION_CACHE_PER_OWNER);
         assert!(c.entries.len() <= SOLUTION_CACHE_MAX);
     }
 
     #[test]
     fn a_goal_joining_two_relations_is_not_called_degenerate() {
-        assert_eq!(degenerate_goal("A B C = triangle\nM = midpoint(A, B)\nprove coll(A, M, B) \u{2227} coll(A, B, M)"), None);
-        assert_eq!(degenerate_goal("A B C = triangle\nprove cyclic(A, B, C, A)").as_deref(), Some("A"));
+        assert_eq!(
+            degenerate_goal(
+                "A B C = triangle\nM = midpoint(A, B)\nprove coll(A, M, B) \u{2227} coll(A, B, M)"
+            ),
+            None
+        );
+        assert_eq!(
+            degenerate_goal("A B C = triangle\nprove cyclic(A, B, C, A)").as_deref(),
+            Some("A")
+        );
     }
 
     // ------------------------------------------------------------ gate page --
@@ -4361,11 +5949,16 @@ mod tests {
     }
 
     fn set_cookies(h: &HeaderMap) -> Vec<String> {
-        h.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_string()).collect()
+        h.get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_string())
+            .collect()
     }
 
     fn gate_set_cookie(h: &HeaderMap) -> Option<String> {
-        set_cookies(h).into_iter().find(|c| c.starts_with("gate=") || c.starts_with("__Host-gate="))
+        set_cookies(h)
+            .into_iter()
+            .find(|c| c.starts_with("gate=") || c.starts_with("__Host-gate="))
     }
 
     fn form_body(pairs: &[(&str, &str)]) -> String {
@@ -4388,7 +5981,11 @@ mod tests {
     }
 
     async fn gate_cookie(state: &Shared) -> String {
-        let (st, h, _) = send(state, post_gate(&[("password", GATE_PW), ("next", "/")], &[])).await;
+        let (st, h, _) = send(
+            state,
+            post_gate(&[("password", GATE_PW), ("next", "/")], &[]),
+        )
+        .await;
         assert_eq!(st, StatusCode::SEE_OTHER);
         cookie_of(&gate_set_cookie(&h).expect("the gate sets its cookie"))
     }
@@ -4403,8 +6000,21 @@ mod tests {
         assert_eq!(h[header::LOCATION], "/gate?next=%2F");
         assert_eq!(h[header::CACHE_CONTROL], "no-store");
         assert!(!h.contains_key(header::WWW_AUTHENTICATE));
-        let (st, h, _) = send(&state, build("GET", "/app?x=1", &[("accept", "text/html,application/xhtml+xml")], None)).await;
-        assert_eq!(st, StatusCode::SEE_OTHER, "Accept: text/html without Sec-Fetch is a navigation");
+        let (st, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/app?x=1",
+                &[("accept", "text/html,application/xhtml+xml")],
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::SEE_OTHER,
+            "Accept: text/html without Sec-Fetch is a navigation"
+        );
         assert_eq!(h[header::LOCATION], "/gate?next=%2Fapp%3Fx%3D1");
         let (st, h, body) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV], None)).await;
         assert_eq!(st, StatusCode::OK);
@@ -4422,21 +6032,48 @@ mod tests {
         let (state, _dir) = gate_state(|_| {});
         let (st, h, _) = send(&state, build("GET", "/api/status", &[], None)).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
-        assert!(h[header::WWW_AUTHENTICATE].to_str().unwrap().starts_with("Basic realm=\"GeoSolver\""));
-        let (st, h, body) = send(&state, build("GET", "/api/status", &[("sec-fetch-mode", "cors")], None)).await;
+        assert!(h[header::WWW_AUTHENTICATE]
+            .to_str()
+            .unwrap()
+            .starts_with("Basic realm=\"GeoSolver\""));
+        let (st, h, body) = send(
+            &state,
+            build("GET", "/api/status", &[("sec-fetch-mode", "cors")], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
-        assert!(!h.contains_key(header::WWW_AUTHENTICATE), "a browser fetch must not pop the Basic sheet");
+        assert!(
+            !h.contains_key(header::WWW_AUTHENTICATE),
+            "a browser fetch must not pop the Basic sheet"
+        );
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["code"], "gate");
         assert_eq!(v["error"], i18n::t(i18n::Lang::En, "gate.required"));
         let (_, _, body) = send(
             &state,
-            build("POST", "/api/solve", &[("sec-fetch-mode", "cors"), ("accept-language", "ro-RO,ro;q=0.9")], Some("{}")),
+            build(
+                "POST",
+                "/api/solve",
+                &[
+                    ("sec-fetch-mode", "cors"),
+                    ("accept-language", "ro-RO,ro;q=0.9"),
+                ],
+                Some("{}"),
+            ),
         )
         .await;
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["error"], i18n::t(i18n::Lang::Ro, "gate.required"));
-        let (st, h, _) = send(&state, build("GET", "/assets/app.js", &[("sec-fetch-mode", "no-cors")], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/assets/app.js",
+                &[("sec-fetch-mode", "no-cors")],
+                None,
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
         assert!(!h.contains_key(header::WWW_AUTHENTICATE));
     }
@@ -4453,7 +6090,11 @@ mod tests {
             };
             let (st, _, _) = call_raw(&state, build("GET", path, &[], None)).await;
             if path == "/gate/forget" {
-                assert_eq!(st, StatusCode::METHOD_NOT_ALLOWED, "{path}: POST only, but past the gate");
+                assert_eq!(
+                    st,
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    "{path}: POST only, but past the gate"
+                );
             } else {
                 assert_eq!(st, StatusCode::OK, "{path}");
             }
@@ -4465,8 +6106,18 @@ mod tests {
         let (st, _, _) = call_raw(&state, build("GET", "/splash/1x1-light.png", &[], None)).await;
         assert_eq!(st, StatusCode::NOT_FOUND);
         for gated in [
-            "/", "/app", "/auth", "/assets/app.js", "/assets/site.js", "/assets/i18n.js", "/assets/auth.js",
-            "/assets/landing.js", "/assets/showcase.json", "/api/status", "/api/history", "/icons/a/b.png",
+            "/",
+            "/app",
+            "/auth",
+            "/assets/app.js",
+            "/assets/site.js",
+            "/assets/i18n.js",
+            "/assets/auth.js",
+            "/assets/landing.js",
+            "/assets/showcase.json",
+            "/api/status",
+            "/api/history",
+            "/icons/a/b.png",
             "/assets/fonts/x/y.woff2",
         ] {
             let (st, _, _) = call_raw(&state, build("GET", gated, &[], None)).await;
@@ -4474,14 +6125,29 @@ mod tests {
             let (st, _, _) = call_raw(&state, build("GET", gated, &[NAV], None)).await;
             assert_eq!(st, StatusCode::SEE_OTHER, "{gated}");
         }
-        let (st, _, _) = call_raw(&state, build("POST", "/manifest.webmanifest", &[], Some("{}"))).await;
+        let (st, _, _) = call_raw(
+            &state,
+            build("POST", "/manifest.webmanifest", &[], Some("{}")),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED, "only GET/HEAD are public");
     }
 
     #[tokio::test]
     async fn the_right_password_sets_the_cookie_and_the_cookie_opens_the_app() {
         let (state, _dir) = gate_state(|_| {});
-        let (st, h, _) = send(&state, post_gate(&[("password", GATE_PW), ("next", "/app?x=1"), ("username", "GeoSolver")], &[])).await;
+        let (st, h, _) = send(
+            &state,
+            post_gate(
+                &[
+                    ("password", GATE_PW),
+                    ("next", "/app?x=1"),
+                    ("username", "GeoSolver"),
+                ],
+                &[],
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::SEE_OTHER);
         assert_eq!(h[header::LOCATION], "/app?x=1");
         assert_eq!(h[header::CACHE_CONTROL], "no-store");
@@ -4491,44 +6157,89 @@ mod tests {
             assert!(set.contains(attr), "{attr} missing in {set}");
         }
         assert!(!set.contains("Secure"));
-        assert!(set_cookies(&h).iter().any(|c| c.starts_with("gid=")), "guests get their id at once");
+        assert!(
+            set_cookies(&h).iter().any(|c| c.starts_with("gid=")),
+            "guests get their id at once"
+        );
         let cookie = cookie_of(&set);
-        let (st, _, page) = send(&state, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
+        let (st, _, page) = send(
+            &state,
+            build("GET", "/app", &[NAV, ("cookie", &cookie)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert!(page.contains("id=\"solve\""));
-        let (st, _, body) = send(&state, build("GET", "/api/status", &[("cookie", &cookie)], None)).await;
+        let (st, _, body) = send(
+            &state,
+            build("GET", "/api/status", &[("cookie", &cookie)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["gate"], "cookie");
-        let (st, h, _) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV, ("cookie", &cookie)], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/gate?next=%2Fapp",
+                &[NAV, ("cookie", &cookie)],
+                None,
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::SEE_OTHER, "already past the gate");
         assert_eq!(h[header::LOCATION], "/app");
         let twice = format!("{cookie}; {cookie}");
-        let (st, _, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &twice)], None)).await;
-        assert_eq!(st, StatusCode::SEE_OTHER, "a duplicated cookie is no cookie");
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/app", &[NAV, ("cookie", &twice)], None),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::SEE_OTHER,
+            "a duplicated cookie is no cookie"
+        );
 
         let (secure, _d2) = gate_state(|c| c.secure_cookies = true);
         let (_, h, _) = send(&secure, post_gate(&[("password", GATE_PW)], &[])).await;
         let set = gate_set_cookie(&h).unwrap();
         assert!(set.starts_with("__Host-gate=v1."), "{set}");
-        for attr in ["HttpOnly", "Secure", "SameSite=Lax", "Path=/", "Max-Age=15552000"] {
+        for attr in [
+            "HttpOnly",
+            "Secure",
+            "SameSite=Lax",
+            "Path=/",
+            "Max-Age=15552000",
+        ] {
             assert!(set.contains(attr), "{attr} missing in {set}");
         }
         assert!(!set.contains("Domain"));
-        let (st, _, _) = send(&secure, build("GET", "/api/status", &[("cookie", &cookie_of(&set))], None)).await;
+        let (st, _, _) = send(
+            &secure,
+            build("GET", "/api/status", &[("cookie", &cookie_of(&set))], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
     }
 
     #[tokio::test]
     async fn wrong_passwords_are_rate_limited_together_with_basic_failures() {
         let (state, _dir) = gate_state(|c| c.basic_auth_fails_per_min = 10);
-        let (st, h, body) = send(&state, post_gate(&[("password", "nope-nope-nope"), ("next", "/app")], &[])).await;
+        let (st, h, body) = send(
+            &state,
+            post_gate(&[("password", "nope-nope-nope"), ("next", "/app")], &[]),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
         assert!(!h.contains_key(header::WWW_AUTHENTICATE));
         assert!(gate_set_cookie(&h).is_none());
         assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.wrong"))));
         assert!(body.contains("aria-invalid=\"true\""));
-        assert!(body.contains("name=\"next\" value=\"/app\""), "the return path survives a wrong try");
+        assert!(
+            body.contains("name=\"next\" value=\"/app\""),
+            "the return path survives a wrong try"
+        );
         let (st, _, body) = send(&state, post_gate(&[("password", ""), ("next", "/")], &[])).await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
         assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.empty"))));
@@ -4536,7 +6247,11 @@ mod tests {
             send(&state, post_gate(&[("password", "nope-nope-nope")], &[])).await;
         }
         let (st, h, body) = send(&state, post_gate(&[("password", GATE_PW)], &[])).await;
-        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "the right password is not even checked");
+        assert_eq!(
+            st,
+            StatusCode::TOO_MANY_REQUESTS,
+            "the right password is not even checked"
+        );
         assert_eq!(h[header::RETRY_AFTER], "60");
         assert!(gate_set_cookie(&h).is_none());
         assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.rate"))));
@@ -4544,7 +6259,11 @@ mod tests {
         let (state, _dir) = gate_state(|c| c.basic_auth_fails_per_min = 10);
         let wrong = basic("x", "nope-nope-nope");
         for _ in 0..5 {
-            let (st, _, _) = send(&state, build("GET", "/api/status", &[("authorization", &wrong)], None)).await;
+            let (st, _, _) = send(
+                &state,
+                build("GET", "/api/status", &[("authorization", &wrong)], None),
+            )
+            .await;
             assert_eq!(st, StatusCode::UNAUTHORIZED);
         }
         for _ in 0..5 {
@@ -4552,9 +6271,17 @@ mod tests {
             assert_eq!(st, StatusCode::UNAUTHORIZED);
         }
         let (st, _, _) = send(&state, post_gate(&[("password", GATE_PW)], &[])).await;
-        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "Basic and form failures share one budget");
+        assert_eq!(
+            st,
+            StatusCode::TOO_MANY_REQUESTS,
+            "Basic and form failures share one budget"
+        );
         let right = basic("x", GATE_PW);
-        let (st, _, _) = send(&state, build("GET", "/api/status", &[("authorization", &right)], None)).await;
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/api/status", &[("authorization", &right)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
     }
 
@@ -4569,7 +6296,11 @@ mod tests {
             ("/gate", "/"),
             ("/app\r\nSet-Cookie: a=b", "/"),
         ] {
-            let (st, h, _) = send(&state, post_gate(&[("password", GATE_PW), ("next", next)], &[])).await;
+            let (st, h, _) = send(
+                &state,
+                post_gate(&[("password", GATE_PW), ("next", next)], &[]),
+            )
+            .await;
             assert_eq!(st, StatusCode::SEE_OTHER, "{next:?}");
             assert_eq!(h[header::LOCATION], want, "{next:?}");
         }
@@ -4582,10 +6313,32 @@ mod tests {
         let (_, h, _) = send(&state, req).await;
         assert_eq!(h[header::LOCATION], "/");
         let cookie = gate_cookie(&state).await;
-        let (_, h, _) = send(&state, build("GET", "/gate?next=%2F%2Fevil.com", &[("cookie", &cookie)], None)).await;
+        let (_, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/gate?next=%2F%2Fevil.com",
+                &[("cookie", &cookie)],
+                None,
+            ),
+        )
+        .await;
         assert_eq!(h[header::LOCATION], "/");
-        let (_, h, _) = send(&state, build("GET", "/gate?next=%2Fapp%3Fq%3D%C4%83", &[("cookie", &cookie)], None)).await;
-        assert_eq!(h[header::LOCATION], "/app?q=%C4%83", "non-ASCII is escaped, not dropped");
+        let (_, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/gate?next=%2Fapp%3Fq%3D%C4%83",
+                &[("cookie", &cookie)],
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(
+            h[header::LOCATION],
+            "/app?q=%C4%83",
+            "non-ASCII is escaped, not dropped"
+        );
     }
 
     #[tokio::test]
@@ -4593,14 +6346,26 @@ mod tests {
         let (state, _dir) = gate_state(|_| {});
         let (st, h, _) = send(
             &state,
-            post_gate(&[("password", GATE_PW)], &[("host", "localhost:8787"), ("origin", "https://evil.example")]),
+            post_gate(
+                &[("password", GATE_PW)],
+                &[
+                    ("host", "localhost:8787"),
+                    ("origin", "https://evil.example"),
+                ],
+            ),
         )
         .await;
         assert_eq!(st, StatusCode::FORBIDDEN);
         assert!(gate_set_cookie(&h).is_none());
         let (st, _, _) = send(
             &state,
-            post_gate(&[("password", GATE_PW)], &[("host", "localhost:8787"), ("origin", "http://localhost:8787")]),
+            post_gate(
+                &[("password", GATE_PW)],
+                &[
+                    ("host", "localhost:8787"),
+                    ("origin", "http://localhost:8787"),
+                ],
+            ),
         )
         .await;
         assert_eq!(st, StatusCode::SEE_OTHER);
@@ -4611,21 +6376,61 @@ mod tests {
         let (state, _dir) = gate_state(|_| {});
         let ro_title = gate::html_escape(i18n::t(i18n::Lang::Ro, "gate.title"));
         let en_title = gate::html_escape(i18n::t(i18n::Lang::En, "gate.title"));
-        let (_, _, body) = send(&state, build("GET", "/gate", &[("accept-language", "ro-RO,ro;q=0.9,en;q=0.8")], None)).await;
+        let (_, _, body) = send(
+            &state,
+            build(
+                "GET",
+                "/gate",
+                &[("accept-language", "ro-RO,ro;q=0.9,en;q=0.8")],
+                None,
+            ),
+        )
+        .await;
         assert!(body.contains(&ro_title));
         assert!(body.contains("<html lang=\"ro\">"));
-        let (_, _, body) =
-            send(&state, build("GET", "/gate", &[("accept-language", "ro-RO"), ("cookie", "lang=en")], None)).await;
-        assert!(body.contains(&en_title), "a chosen language wins over the browser's");
-        let (_, h, body) = send(&state, build("GET", "/gate?lang=ro&next=%2Fapp", &[("cookie", "lang=en")], None)).await;
+        let (_, _, body) = send(
+            &state,
+            build(
+                "GET",
+                "/gate",
+                &[("accept-language", "ro-RO"), ("cookie", "lang=en")],
+                None,
+            ),
+        )
+        .await;
+        assert!(
+            body.contains(&en_title),
+            "a chosen language wins over the browser's"
+        );
+        let (_, h, body) = send(
+            &state,
+            build(
+                "GET",
+                "/gate?lang=ro&next=%2Fapp",
+                &[("cookie", "lang=en")],
+                None,
+            ),
+        )
+        .await;
         assert!(body.contains(&ro_title));
-        let lang = set_cookies(&h).into_iter().find(|c| c.starts_with("lang=")).unwrap();
+        let lang = set_cookies(&h)
+            .into_iter()
+            .find(|c| c.starts_with("lang="))
+            .unwrap();
         assert!(lang.starts_with("lang=ro;"), "{lang}");
-        assert!(lang.contains("Max-Age=31536000") && lang.contains("SameSite=Lax") && lang.contains("Path=/"));
+        assert!(
+            lang.contains("Max-Age=31536000")
+                && lang.contains("SameSite=Lax")
+                && lang.contains("Path=/")
+        );
         assert!(!lang.contains("HttpOnly"), "i18n.js reads it");
         assert!(body.contains("href=\"/gate?lang=en&amp;next=%2Fapp\""));
         assert!(body.contains("hreflang=\"ro\" lang=\"ro\" aria-current=\"true\""));
-        let (_, h, body) = send(&state, post_gate(&[("password", "x-wrong-x")], &[("accept-language", "ro")])).await;
+        let (_, h, body) = send(
+            &state,
+            post_gate(&[("password", "x-wrong-x")], &[("accept-language", "ro")]),
+        )
+        .await;
         assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::Ro, "gate.wrong"))));
         assert!(gate_set_cookie(&h).is_none());
     }
@@ -4633,7 +6438,12 @@ mod tests {
     #[tokio::test]
     async fn gate_basic_keeps_the_old_challenge_everywhere() {
         let (state, _dir) = gate_state(|c| c.gate = security::GateMode::Basic);
-        for path in ["/", "/manifest.webmanifest", "/gate", "/apple-touch-icon.png"] {
+        for path in [
+            "/",
+            "/manifest.webmanifest",
+            "/gate",
+            "/apple-touch-icon.png",
+        ] {
             let (st, h, _) = send(&state, build("GET", path, &[NAV], None)).await;
             assert_eq!(st, StatusCode::UNAUTHORIZED, "{path}");
             assert!(h.contains_key(header::WWW_AUTHENTICATE), "{path}");
@@ -4641,10 +6451,21 @@ mod tests {
         let (st, _, _) = send(&state, build("GET", "/healthz", &[], None)).await;
         assert_eq!(st, StatusCode::OK);
         let auth = basic("x", GATE_PW);
-        let (st, h, _) = send(&state, build("GET", "/", &[NAV, ("authorization", &auth)], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build("GET", "/", &[NAV, ("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
-        assert!(gate_set_cookie(&h).is_none(), "no cookie under the Basic-only gate");
-        let (st, _, _) = send(&state, post_gate(&[("password", GATE_PW)], &[("authorization", &auth)])).await;
+        assert!(
+            gate_set_cookie(&h).is_none(),
+            "no cookie under the Basic-only gate"
+        );
+        let (st, _, _) = send(
+            &state,
+            post_gate(&[("password", GATE_PW)], &[("authorization", &auth)]),
+        )
+        .await;
         assert_eq!(st, StatusCode::NOT_FOUND);
     }
 
@@ -4652,13 +6473,26 @@ mod tests {
     async fn basic_auth_still_works_and_moves_browsers_onto_the_cookie() {
         let (state, _dir) = gate_state(|_| {});
         let auth = basic("anyone", GATE_PW);
-        let (st, h, _) = send(&state, build("GET", "/api/status", &[("authorization", &auth)], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build("GET", "/api/status", &[("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         assert!(gate_set_cookie(&h).is_none(), "API clients get no cookie");
-        let (st, h, _) = send(&state, build("GET", "/", &[NAV, ("authorization", &auth)], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build("GET", "/", &[NAV, ("authorization", &auth)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
-        let cookie = cookie_of(&gate_set_cookie(&h).expect("a Basic page load is given the gate cookie"));
-        let (st, _, _) = send(&state, build("GET", "/api/status", &[("cookie", &cookie)], None)).await;
+        let cookie =
+            cookie_of(&gate_set_cookie(&h).expect("a Basic page load is given the gate cookie"));
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/api/status", &[("cookie", &cookie)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
     }
 
@@ -4666,11 +6500,20 @@ mod tests {
     async fn forgetting_the_device_clears_the_cookie() {
         let (state, _dir) = gate_state(|_| {});
         let cookie = gate_cookie(&state).await;
-        let (st, h, _) = send(&state, build("POST", "/gate/forget", &[("cookie", &cookie)], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build("POST", "/gate/forget", &[("cookie", &cookie)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::SEE_OTHER);
         assert_eq!(h[header::LOCATION], "/gate");
         let cleared = gate_set_cookie(&h).unwrap();
-        assert!(cleared.starts_with("gate=;") && cleared.contains("Max-Age=0") && cleared.contains("Path=/"), "{cleared}");
+        assert!(
+            cleared.starts_with("gate=;")
+                && cleared.contains("Max-Age=0")
+                && cleared.contains("Path=/"),
+            "{cleared}"
+        );
     }
 
     #[tokio::test]
@@ -4689,35 +6532,85 @@ mod tests {
         let first = mk(&format!(":{GATE_PW}"), None);
         let cookie = gate_cookie(&first).await;
         let second = mk(&format!(":{GATE_PW}"), None);
-        assert_eq!(first.gate_key, second.gate_key, "the generated key is stored, not per process");
-        let (st, _, _) = send(&second, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
+        assert_eq!(
+            first.gate_key, second.gate_key,
+            "the generated key is stored, not per process"
+        );
+        let (st, _, _) = send(
+            &second,
+            build("GET", "/app", &[NAV, ("cookie", &cookie)], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK, "a restart keeps every device signed in");
         let rotated_pw = mk(":a-new-password", None);
-        let (st, h, _) = send(&rotated_pw, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
-        assert_eq!(st, StatusCode::SEE_OTHER, "a new password revokes old cookies");
-        assert!(h[header::LOCATION].to_str().unwrap().starts_with("/gate?next="));
+        let (st, h, _) = send(
+            &rotated_pw,
+            build("GET", "/app", &[NAV, ("cookie", &cookie)], None),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::SEE_OTHER,
+            "a new password revokes old cookies"
+        );
+        assert!(h[header::LOCATION]
+            .to_str()
+            .unwrap()
+            .starts_with("/gate?next="));
         let rotated_key = mk(&format!(":{GATE_PW}"), Some([9u8; 32]));
         assert_eq!(rotated_key.gate_key, [9u8; 32]);
-        let (st, _, _) = send(&rotated_key, build("GET", "/app", &[NAV, ("cookie", &cookie)], None)).await;
-        assert_eq!(st, StatusCode::SEE_OTHER, "a new AGSTUDIO_GATE_KEY revokes old cookies");
+        let (st, _, _) = send(
+            &rotated_key,
+            build("GET", "/app", &[NAV, ("cookie", &cookie)], None),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::SEE_OTHER,
+            "a new AGSTUDIO_GATE_KEY revokes old cookies"
+        );
     }
 
     #[tokio::test]
     async fn old_cookies_are_renewed_on_page_loads() {
         let (state, _dir) = gate_state(|_| {});
         let cred = state.config.basic_auth.as_ref().unwrap().cred_digest();
-        let at = |days: u64| format!("gate={}", gate::mint(&state.gate_key, &cred, gate::now_secs() - days * 86_400));
-        let (st, h, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &at(8))], None)).await;
+        let at = |days: u64| {
+            format!(
+                "gate={}",
+                gate::mint(&state.gate_key, &cred, gate::now_secs() - days * 86_400)
+            )
+        };
+        let (st, h, _) = send(
+            &state,
+            build("GET", "/app", &[NAV, ("cookie", &at(8))], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
         let fresh = gate_set_cookie(&h).expect("an 8-day-old cookie is renewed");
         let iat: u64 = fresh.split('.').nth(1).unwrap().parse().unwrap();
         assert!(gate::now_secs() - iat < 60);
-        let (st, h, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &at(1))], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build("GET", "/app", &[NAV, ("cookie", &at(1))], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
-        assert!(gate_set_cookie(&h).is_none(), "a 1-day-old cookie is left alone");
-        let (_, h, _) = send(&state, build("GET", "/api/status", &[("cookie", &at(8))], None)).await;
+        assert!(
+            gate_set_cookie(&h).is_none(),
+            "a 1-day-old cookie is left alone"
+        );
+        let (_, h, _) = send(
+            &state,
+            build("GET", "/api/status", &[("cookie", &at(8))], None),
+        )
+        .await;
         assert!(gate_set_cookie(&h).is_none(), "only page loads renew");
-        let (st, _, _) = send(&state, build("GET", "/app", &[NAV, ("cookie", &at(181))], None)).await;
+        let (st, _, _) = send(
+            &state,
+            build("GET", "/app", &[NAV, ("cookie", &at(181))], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::SEE_OTHER, "past AGSTUDIO_GATE_DAYS");
     }
 
@@ -4725,16 +6618,62 @@ mod tests {
     async fn a_lost_gate_cookie_is_explained_on_the_gate_page() {
         let (state, _dir) = gate_state(|_| {});
         let from_gate = ("referer", "http://127.0.0.1:8787/gate?next=%2Fapp");
-        let (st, h, _) = send(&state, build("GET", "/app", &[NAV, from_gate, ("sec-fetch-site", "same-origin")], None)).await;
+        let (st, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/app",
+                &[NAV, from_gate, ("sec-fetch-site", "same-origin")],
+                None,
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::SEE_OTHER);
         assert_eq!(h[header::LOCATION], "/gate?cookies=0&next=%2Fapp");
-        let (st, _, body) = send(&state, build("GET", "/gate?cookies=0&next=%2Fapp", &[NAV], None)).await;
+        let (st, _, body) = send(
+            &state,
+            build("GET", "/gate?cookies=0&next=%2Fapp", &[NAV], None),
+        )
+        .await;
         assert_eq!(st, StatusCode::OK);
-        assert!(body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.cookies"))), "{body}");
-        let (_, h, _) = send(&state, build("GET", "/app", &[NAV, ("referer", "http://127.0.0.1:8787/")], None)).await;
-        assert_eq!(h[header::LOCATION], "/gate?next=%2Fapp", "only a page load straight from the gate means the cookie was dropped");
-        let (_, h, _) = send(&state, build("GET", "/app", &[NAV, ("referer", "https://elsewhere.example/gate"), ("host", "127.0.0.1:8787")], None)).await;
-        assert_eq!(h[header::LOCATION], "/gate?next=%2Fapp", "another site's /gate is not ours");
+        assert!(
+            body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.cookies"))),
+            "{body}"
+        );
+        let (_, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/app",
+                &[NAV, ("referer", "http://127.0.0.1:8787/")],
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(
+            h[header::LOCATION],
+            "/gate?next=%2Fapp",
+            "only a page load straight from the gate means the cookie was dropped"
+        );
+        let (_, h, _) = send(
+            &state,
+            build(
+                "GET",
+                "/app",
+                &[
+                    NAV,
+                    ("referer", "https://elsewhere.example/gate"),
+                    ("host", "127.0.0.1:8787"),
+                ],
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(
+            h[header::LOCATION],
+            "/gate?next=%2Fapp",
+            "another site's /gate is not ours"
+        );
         let (_, _, body) = send(&state, build("GET", "/gate?next=%2Fapp", &[NAV], None)).await;
         assert!(!body.contains(&gate::html_escape(i18n::t(i18n::Lang::En, "gate.cookies"))));
     }
@@ -4742,34 +6681,82 @@ mod tests {
     #[tokio::test]
     async fn pages_reference_assets_by_content_tag_and_tagged_assets_are_immutable() {
         let (state, _dir) = gate_state(|_| {});
-        let cookie = format!("gate={}", gate::mint(&state.gate_key, &state.config.basic_auth.as_ref().unwrap().cred_digest(), gate::now_secs()));
+        let cookie = format!(
+            "gate={}",
+            gate::mint(
+                &state.gate_key,
+                &state.config.basic_auth.as_ref().unwrap().cred_digest(),
+                gate::now_secs()
+            )
+        );
         let (_, _, page) = send(&state, build("GET", "/", &[NAV, ("cookie", &cookie)], None)).await;
         let (_, _, gate_page) = send(&state, build("GET", "/gate", &[NAV], None)).await;
         for a in assets() {
             let tagged = format!("/assets/{}?v={}", a.name, a.tag);
             if page.contains(&format!("\"/assets/{}", a.name)) {
-                assert!(page.contains(&format!("\"{tagged}\"")), "{} is referenced untagged", a.name);
+                assert!(
+                    page.contains(&format!("\"{tagged}\"")),
+                    "{} is referenced untagged",
+                    a.name
+                );
             }
-            let (st, h, body) = call_raw(&state, build("GET", &tagged, &[("cookie", &cookie)], None)).await;
+            let (st, h, body) =
+                call_raw(&state, build("GET", &tagged, &[("cookie", &cookie)], None)).await;
             assert_eq!(st, StatusCode::OK, "{tagged}");
             assert_eq!(h[header::CACHE_CONTROL], IMMUTABLE, "{tagged}");
             assert_eq!(body, a.bytes.as_ref(), "{tagged}");
             let etag = h[header::ETAG].to_str().unwrap().to_string();
-            let (st, h, body) = call_raw(&state, build("GET", &format!("/assets/{}", a.name), &[("cookie", &cookie), ("if-none-match", &etag)], None)).await;
+            let (st, h, body) = call_raw(
+                &state,
+                build(
+                    "GET",
+                    &format!("/assets/{}", a.name),
+                    &[("cookie", &cookie), ("if-none-match", &etag)],
+                    None,
+                ),
+            )
+            .await;
             assert_eq!(st, StatusCode::NOT_MODIFIED, "{}", a.name);
             assert!(body.is_empty());
-            assert_ne!(h[header::CACHE_CONTROL], IMMUTABLE, "an untagged URL is never immutable");
-            let (st, h, _) = call_raw(&state, build("GET", &format!("/assets/{}?v=0000", a.name), &[("cookie", &cookie)], None)).await;
+            assert_ne!(
+                h[header::CACHE_CONTROL],
+                IMMUTABLE,
+                "an untagged URL is never immutable"
+            );
+            let (st, h, _) = call_raw(
+                &state,
+                build(
+                    "GET",
+                    &format!("/assets/{}?v=0000", a.name),
+                    &[("cookie", &cookie)],
+                    None,
+                ),
+            )
+            .await;
             assert_eq!(st, StatusCode::OK);
-            assert_ne!(h[header::CACHE_CONTROL], IMMUTABLE, "a stale tag is never immutable");
+            assert_ne!(
+                h[header::CACHE_CONTROL],
+                IMMUTABLE,
+                "a stale tag is never immutable"
+            );
         }
-        assert!(gate_page.contains("/assets/app.css?v="), "the gate page tags its stylesheet too");
+        assert!(
+            gate_page.contains("/assets/app.css?v="),
+            "the gate page tags its stylesheet too"
+        );
         let css = assets().iter().find(|a| a.name == "app.css").unwrap();
         let css = String::from_utf8_lossy(&css.bytes);
         for f in assets().iter().filter(|a| a.name.starts_with("fonts/")) {
-            assert!(css.contains(&format!("url(\"/assets/{}?v={}\")", f.name, f.tag)), "app.css must point at the tagged {}", f.name);
+            assert!(
+                css.contains(&format!("url(\"/assets/{}?v={}\")", f.name, f.tag)),
+                "app.css must point at the tagged {}",
+                f.name
+            );
             if page.contains(&format!("/assets/{}", f.name)) {
-                assert!(page.contains(&format!("href=\"/assets/{}?v={}\"", f.name, f.tag)), "a preload must use the URL app.css asks for");
+                assert!(
+                    page.contains(&format!("href=\"/assets/{}?v={}\"", f.name, f.tag)),
+                    "a preload must use the URL app.css asks for"
+                );
             }
         }
     }
@@ -4777,10 +6764,38 @@ mod tests {
     #[tokio::test]
     async fn fonts_are_not_gzipped_but_scripts_are() {
         let (state, _dir) = gate_state(|_| {});
-        let cookie = format!("gate={}", gate::mint(&state.gate_key, &state.config.basic_auth.as_ref().unwrap().cred_digest(), gate::now_secs()));
-        let (_, h, _) = call_raw(&state, build("GET", "/assets/fonts/inter.woff2", &[("accept-encoding", "gzip")], None)).await;
-        assert!(h.get(header::CONTENT_ENCODING).is_none(), "woff2 is already compressed");
-        let (_, h, _) = call_raw(&state, build("GET", "/assets/app.js", &[("accept-encoding", "gzip"), ("cookie", &cookie)], None)).await;
+        let cookie = format!(
+            "gate={}",
+            gate::mint(
+                &state.gate_key,
+                &state.config.basic_auth.as_ref().unwrap().cred_digest(),
+                gate::now_secs()
+            )
+        );
+        let (_, h, _) = call_raw(
+            &state,
+            build(
+                "GET",
+                "/assets/fonts/inter.woff2",
+                &[("accept-encoding", "gzip")],
+                None,
+            ),
+        )
+        .await;
+        assert!(
+            h.get(header::CONTENT_ENCODING).is_none(),
+            "woff2 is already compressed"
+        );
+        let (_, h, _) = call_raw(
+            &state,
+            build(
+                "GET",
+                "/assets/app.js",
+                &[("accept-encoding", "gzip"), ("cookie", &cookie)],
+                None,
+            ),
+        )
+        .await;
         assert_eq!(h[header::CONTENT_ENCODING], "gzip");
     }
 
@@ -4789,7 +6804,8 @@ mod tests {
     #[tokio::test]
     async fn manifest_and_icons_are_served_with_their_types() {
         let (state, _dir) = gate_state(|_| {});
-        let (st, h, body) = call_raw(&state, build("GET", "/manifest.webmanifest", &[], None)).await;
+        let (st, h, body) =
+            call_raw(&state, build("GET", "/manifest.webmanifest", &[], None)).await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(h[header::CONTENT_TYPE], "application/manifest+json");
         assert_eq!(h[header::CACHE_CONTROL], "public, max-age=86400");
@@ -4800,10 +6816,17 @@ mod tests {
             let src = icon["src"].as_str().unwrap();
             let (st, h, body) = call_raw(&state, build("GET", src, &[], None)).await;
             assert_eq!(st, StatusCode::OK, "{src}");
-            assert_eq!(h[header::CONTENT_TYPE], icon["type"].as_str().unwrap(), "{src}");
+            assert_eq!(
+                h[header::CONTENT_TYPE],
+                icon["type"].as_str().unwrap(),
+                "{src}"
+            );
             assert_eq!(h[header::CACHE_CONTROL], "public, max-age=604800", "{src}");
             if icon["type"] == "image/png" {
-                let (w, hgt) = (u32::from_be_bytes(body[16..20].try_into().unwrap()), u32::from_be_bytes(body[20..24].try_into().unwrap()));
+                let (w, hgt) = (
+                    u32::from_be_bytes(body[16..20].try_into().unwrap()),
+                    u32::from_be_bytes(body[20..24].try_into().unwrap()),
+                );
                 assert_eq!(icon["sizes"], format!("{w}x{hgt}"), "{src}");
             }
         }
@@ -4817,11 +6840,20 @@ mod tests {
         let (_, h, _) = call_raw(&state, build("GET", "/favicon.ico", &[], None)).await;
         assert_eq!(h[header::CONTENT_TYPE], "image/x-icon");
         let (_, h, body) = call_raw(&state, build("GET", "/robots.txt", &[], None)).await;
-        assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
-        assert_eq!(std::str::from_utf8(&body).unwrap(), "User-agent: *\nDisallow: /\n");
+        assert!(h[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain"));
+        assert_eq!(
+            std::str::from_utf8(&body).unwrap(),
+            "User-agent: *\nDisallow: /\n"
+        );
         let (st, h, body) = call_raw(&state, build("GET", "/licenses", &[], None)).await;
         assert_eq!(st, StatusCode::OK);
-        assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
+        assert!(h[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain"));
         let text = std::str::from_utf8(&body).unwrap();
         for must in [
             "Apache License, Version 2.0",
@@ -4838,9 +6870,13 @@ mod tests {
     #[test]
     fn every_page_carries_the_home_screen_head() {
         let gate_page = {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
             let (state, _dir) = gate_state(|_| {});
-            rt.block_on(send(&state, build("GET", "/gate", &[], None))).2
+            rt.block_on(send(&state, build("GET", "/gate", &[], None)))
+                .2
         };
         for (name, html) in [
             ("index", index_html()),
@@ -4861,9 +6897,16 @@ mod tests {
             ] {
                 assert!(html.contains(needle), "{name} lacks {needle}");
             }
-            assert_eq!(html.matches("rel=\"apple-touch-startup-image\"").count(), 16, "{name}");
+            assert_eq!(
+                html.matches("rel=\"apple-touch-startup-image\"").count(),
+                16,
+                "{name}"
+            );
             assert!(!html.contains("<!--pwa-splash-->"), "{name}");
-            assert!(!html.contains("data:image/svg+xml"), "{name} still has the data: favicon");
+            assert!(
+                !html.contains("data:image/svg+xml"),
+                "{name} still has the data: favicon"
+            );
             assert_eq!(html.matches("name=\"theme-color\"").count(), 2, "{name}");
         }
     }
@@ -4871,7 +6914,10 @@ mod tests {
     // ----------------------------------------------------------- guest AI ----
 
     fn logged_in_probe() -> translate::Status {
-        translate::Status { installed: true, logged_in: true }
+        translate::Status {
+            installed: true,
+            logged_in: true,
+        }
     }
 
     fn ai_guest_state(guest_ai: bool, enable_translate: bool) -> (Shared, tempfile::TempDir) {
@@ -4882,13 +6928,20 @@ mod tests {
         c.guest_mode = true;
         c.guest_ai = guest_ai;
         c.enable_translate = enable_translate;
-        (AppState::with_translate_probe(c, logged_in_probe).unwrap(), dir)
+        (
+            AppState::with_translate_probe(c, logged_in_probe).unwrap(),
+            dir,
+        )
     }
 
     async fn settled_status(state: &Shared, cookie: &str) -> serde_json::Value {
         let mut body = serde_json::Value::Null;
         for _ in 0..40 {
-            let (_, _, text) = send(state, build("GET", "/api/status", &[("cookie", cookie)], None)).await;
+            let (_, _, text) = send(
+                state,
+                build("GET", "/api/status", &[("cookie", cookie)], None),
+            )
+            .await;
             body = serde_json::from_str(&text).unwrap();
             if body["translate_checking"] == false {
                 break;
@@ -4912,7 +6965,10 @@ mod tests {
         let cookie = gate_cookie(&state).await;
         let body = settled_status(&state, &cookie).await;
         assert_eq!(body["can_translate"], false, "{body}");
-        assert_eq!(body["translate_block"], "sign_in", "AGSTUDIO_GUEST_AI=0 keeps it for accounts");
+        assert_eq!(
+            body["translate_block"], "sign_in",
+            "AGSTUDIO_GUEST_AI=0 keeps it for accounts"
+        );
     }
 
     #[tokio::test]
@@ -4920,14 +6976,18 @@ mod tests {
         let (state, _dir) = ai_guest_state(true, true);
         let cookie = gate_cookie(&state).await;
         assert_eq!(settled_status(&state, &cookie).await["can_translate"], true);
-        let rejected = anyhow::Error::new(translate::Failure::SignedOut).context("401 Invalid bearer token");
+        let rejected =
+            anyhow::Error::new(translate::Failure::SignedOut).context("401 Invalid bearer token");
         state.note_ai_outcome(Err(&rejected));
         let body = settled_status(&state, &cookie).await;
         assert_eq!(body["translate_logged_in"], false, "{body}");
         assert_eq!(body["can_translate"], false, "{body}");
         assert_eq!(body["translate_block"], "not_logged_in", "{body}");
         state.note_ai_outcome(Err(&anyhow::anyhow!("network hiccup")));
-        assert_eq!(settled_status(&state, &cookie).await["translate_block"], "not_logged_in");
+        assert_eq!(
+            settled_status(&state, &cookie).await["translate_block"],
+            "not_logged_in"
+        );
         state.note_ai_outcome(Ok(()));
         let body = settled_status(&state, &cookie).await;
         assert_eq!(body["can_translate"], true, "{body}");
@@ -4937,11 +6997,33 @@ mod tests {
     async fn guest_translate_requests_get_past_the_account_check() {
         let (state, _dir) = ai_guest_state(true, false);
         let cookie = gate_cookie(&state).await;
-        let (st, _, body) = send(&state, build("POST", "/api/translate", &[("cookie", &cookie)], Some("{\"text\":\"x\"}"))).await;
-        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "reached the handler's availability check: {body}");
+        let (st, _, body) = send(
+            &state,
+            build(
+                "POST",
+                "/api/translate",
+                &[("cookie", &cookie)],
+                Some("{\"text\":\"x\"}"),
+            ),
+        )
+        .await;
+        assert_eq!(
+            st,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "reached the handler's availability check: {body}"
+        );
         let (state, _dir) = ai_guest_state(false, false);
         let cookie = gate_cookie(&state).await;
-        let (st, _, body) = send(&state, build("POST", "/api/translate", &[("cookie", &cookie), ("accept-language", "ro")], Some("{\"text\":\"x\"}"))).await;
+        let (st, _, body) = send(
+            &state,
+            build(
+                "POST",
+                "/api/translate",
+                &[("cookie", &cookie), ("accept-language", "ro")],
+                Some("{\"text\":\"x\"}"),
+            ),
+        )
+        .await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["code"], "sign_in");
@@ -4963,16 +7045,29 @@ mod tests {
         let humanize = || build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz));
         for _ in 0..2 {
             let (st, _, body) = send(&state, humanize()).await;
-            assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "within the budget: {body}");
+            assert_eq!(
+                st,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "within the budget: {body}"
+            );
         }
         let (st, _, body) = send(&state, humanize()).await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "{body}");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["code"], "daily");
         assert_eq!(v["error"], i18n::t(i18n::Lang::En, "humanize.daily"));
-        let tr = build("POST", "/api/translate", &[("cookie", &cookie)], Some("{\"text\":\"x\"}"));
+        let tr = build(
+            "POST",
+            "/api/translate",
+            &[("cookie", &cookie)],
+            Some("{\"text\":\"x\"}"),
+        );
         let (st, _, _) = send(&state, tr).await;
-        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "translate checks availability first");
+        assert_eq!(
+            st,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "translate checks availability first"
+        );
 
         let (state, _dir) = state_with(|c| {
             c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
@@ -4982,19 +7077,44 @@ mod tests {
             c.enable_translate = false;
         });
         let cookie = gate_cookie(&state).await;
-        let _ = send(&state, build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz))).await;
-        let (st, _, _) = send(&state, build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz))).await;
+        let _ = send(
+            &state,
+            build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz)),
+        )
+        .await;
+        let (st, _, _) = send(
+            &state,
+            build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz)),
+        )
+        .await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
         let auth = basic("", GATE_PW);
         let reg = creds("noether", "password123").to_string();
-        let (st, h, body) = send(&state, build("POST", "/api/auth/register", &[("authorization", &auth)], Some(&reg))).await;
+        let (st, h, body) = send(
+            &state,
+            build(
+                "POST",
+                "/api/auth/register",
+                &[("authorization", &auth)],
+                Some(&reg),
+            ),
+        )
+        .await;
         assert!(st.is_success(), "{body}");
-        let sid = set_cookies(&h).into_iter().find(|c| c.contains("sid=")).expect("a session cookie");
+        let sid = set_cookies(&h)
+            .into_iter()
+            .find(|c| c.contains("sid="))
+            .expect("a session cookie");
         let sid = cookie_of(&sid);
         let as_user = [("authorization", auth.as_str()), ("cookie", sid.as_str())];
         for _ in 0..3 {
-            let (st, _, _) = send(&state, build("POST", "/api/humanize", &as_user, Some(&hz))).await;
-            assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "accounts are never counted");
+            let (st, _, _) =
+                send(&state, build("POST", "/api/humanize", &as_user, Some(&hz))).await;
+            assert_eq!(
+                st,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "accounts are never counted"
+            );
         }
     }
 
@@ -5015,12 +7135,15 @@ mod tests {
 
     fn jpeg_of(img: &image::RgbImage) -> Vec<u8> {
         let mut out = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(img).unwrap();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
+            .encode_image(img)
+            .unwrap();
         out
     }
 
     fn with_exif_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
-        let mut tiff = b"MM\x00\x2a\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01\x00".to_vec();
+        let mut tiff =
+            b"MM\x00\x2a\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01\x00".to_vec();
         tiff.extend_from_slice(&[orientation, 0, 0, 0, 0, 0, 0]);
         tiff.extend_from_slice(b"GPSLAT51.5007N");
         let mut app1 = b"Exif\x00\x00".to_vec();
@@ -5041,15 +7164,26 @@ mod tests {
     #[test]
     fn an_iphone_photo_is_turned_upright_and_loses_its_metadata() {
         let src = image::RgbImage::from_fn(40, 20, |x, _| {
-            if x < 20 { image::Rgb([220, 20, 20]) } else { image::Rgb([20, 20, 220]) }
+            if x < 20 {
+                image::Rgb([220, 20, 20])
+            } else {
+                image::Rgb([20, 20, 220])
+            }
         });
         let photo = with_exif_orientation(&jpeg_of(&src), 6);
         assert!(contains(&photo, b"GPSLAT51"));
         let out = upright_jpeg(&photo).unwrap();
         assert!(!contains(&out, b"Exif"), "EXIF survived the re-encode");
-        assert!(!contains(&out, b"GPSLAT51"), "location survived the re-encode");
+        assert!(
+            !contains(&out, b"GPSLAT51"),
+            "location survived the re-encode"
+        );
         let img = image::load_from_memory(&out).unwrap().into_rgb8();
-        assert_eq!((img.width(), img.height()), (20, 40), "orientation 6 was not applied");
+        assert_eq!(
+            (img.width(), img.height()),
+            (20, 40),
+            "orientation 6 was not applied"
+        );
         let top = img.get_pixel(10, 5);
         let bottom = img.get_pixel(10, 34);
         assert!(top[0] > 150 && top[2] < 100, "top {top:?}");
@@ -5058,7 +7192,9 @@ mod tests {
 
     #[test]
     fn a_large_photo_is_scaled_to_the_model_edge() {
-        let src = image::RgbImage::from_fn(4032, 3024, |x, y| image::Rgb([(x % 251) as u8, (y % 241) as u8, 128]));
+        let src = image::RgbImage::from_fn(4032, 3024, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 241) as u8, 128])
+        });
         let out = upright_jpeg(&jpeg_of(&src)).unwrap();
         let img = image::load_from_memory(&out).unwrap();
         assert_eq!((img.width(), img.height()), (MAX_IMAGE_EDGE, 1536));
@@ -5072,7 +7208,10 @@ mod tests {
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let out = upright_jpeg(&png).unwrap();
-        let px = *image::load_from_memory(&out).unwrap().into_rgb8().get_pixel(4, 4);
+        let px = *image::load_from_memory(&out)
+            .unwrap()
+            .into_rgb8()
+            .get_pixel(4, 4);
         assert!(px.0.iter().all(|&c| c > 245), "{px:?}");
     }
 
@@ -5083,13 +7222,25 @@ mod tests {
         let mut heic = vec![0, 0, 0, 0x18];
         heic.extend_from_slice(b"ftypheic\x00\x00\x00\x00mif1heic");
         assert_eq!(decode_upload(&b64(&heic)), Err(ImageReject::Heif));
-        assert_eq!(decode_upload(&format!("data:image/png;base64,{}", b64(&heic))), Err(ImageReject::Heif));
+        assert_eq!(
+            decode_upload(&format!("data:image/png;base64,{}", b64(&heic))),
+            Err(ImageReject::Heif)
+        );
         assert_eq!(decode_upload(""), Err(ImageReject::Unreadable));
         assert_eq!(decode_upload("%%%"), Err(ImageReject::Unreadable));
-        assert_eq!(decode_upload(&b64(&vec![0xff; MAX_IMAGE_BYTES + 1])), Err(ImageReject::TooLarge));
-        assert_eq!(upright_jpeg(b"hello, not an image"), Err(ImageReject::Unreadable));
+        assert_eq!(
+            decode_upload(&b64(&vec![0xff; MAX_IMAGE_BYTES + 1])),
+            Err(ImageReject::TooLarge)
+        );
+        assert_eq!(
+            upright_jpeg(b"hello, not an image"),
+            Err(ImageReject::Unreadable)
+        );
         let jpeg = jpeg_of(&image::RgbImage::new(4, 4));
-        assert_eq!(decode_upload(&format!("data:image/jpeg;base64,{}", b64(&jpeg))).unwrap(), jpeg);
+        assert_eq!(
+            decode_upload(&format!("data:image/jpeg;base64,{}", b64(&jpeg))).unwrap(),
+            jpeg
+        );
     }
 
     #[test]
@@ -5106,8 +7257,14 @@ mod tests {
         let (state, _dir) = test_state();
         let (st, _, body) = call(&state, "GET", "/api/status", None, serde_json::json!({})).await;
         assert_eq!(st, StatusCode::OK);
-        assert_eq!(body["translate_timeout_secs"], translate::CHILD_TIMEOUT.as_secs());
-        assert_eq!(body["max_image_bytes"], upload_image_limit(state.config.max_body_bytes));
+        assert_eq!(
+            body["translate_timeout_secs"],
+            translate::CHILD_TIMEOUT.as_secs()
+        );
+        assert_eq!(
+            body["max_image_bytes"],
+            upload_image_limit(state.config.max_body_bytes)
+        );
     }
 
     #[tokio::test]
@@ -5119,7 +7276,14 @@ mod tests {
         let state = AppState::new(config).unwrap();
         let cookie = register_cookie(&state, "big-photo").await;
         let huge = "A".repeat(100 * 1024);
-        let (st, _, body) = call(&state, "POST", "/api/translate", Some(&cookie), serde_json::json!({ "image_base64": huge })).await;
+        let (st, _, body) = call(
+            &state,
+            "POST",
+            "/api/translate",
+            Some(&cookie),
+            serde_json::json!({ "image_base64": huge }),
+        )
+        .await;
         assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
         assert_eq!(body["code"], "body_too_large", "{body}");
     }
@@ -5135,21 +7299,34 @@ mod tests {
             let resp = translate_failed(lang, &e, photo);
             assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
             let body = futures_body(resp);
-            (body["code"].as_str().unwrap().to_string(), body["error"].as_str().unwrap().to_string())
+            (
+                body["code"].as_str().unwrap().to_string(),
+                body["error"].as_str().unwrap().to_string(),
+            )
         };
         let (code, msg) = answer(Some(translate::Failure::TimedOut), false);
         assert_eq!(code, "translate_timeout");
         assert!(msg.contains("90 s"), "{msg}");
-        assert_eq!(answer(Some(translate::Failure::NoProgram), false).0, "cannot_translate");
-        assert!(answer(Some(translate::Failure::NoProgram), true).1.contains("photo"));
-        assert_eq!(answer(Some(translate::Failure::SignedOut), false).0, "translate_unavailable");
+        assert_eq!(
+            answer(Some(translate::Failure::NoProgram), false).0,
+            "cannot_translate"
+        );
+        assert!(answer(Some(translate::Failure::NoProgram), true)
+            .1
+            .contains("photo"));
+        assert_eq!(
+            answer(Some(translate::Failure::SignedOut), false).0,
+            "translate_unavailable"
+        );
         let (code, msg) = answer(None, false);
         assert_eq!(code, "translate_failed");
         assert!(!msg.contains("boom"), "operator detail leaked: {msg}");
     }
 
     fn futures_body(resp: Response) -> serde_json::Value {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let bytes = rt.block_on(to_bytes(resp.into_body(), usize::MAX)).unwrap();
         serde_json::from_slice(&bytes).unwrap()
     }

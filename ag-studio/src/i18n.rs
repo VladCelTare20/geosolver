@@ -26,7 +26,11 @@ pub fn lang_from_headers(headers: &HeaderMap) -> Lang {
 
 /// The `lang` cookie alone, if it names a supported language.
 pub fn cookie_lang(headers: &HeaderMap) -> Option<Lang> {
-    for v in headers.get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()) {
+    for v in headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+    {
         for part in v.split(';') {
             if let Some(v) = part.trim().strip_prefix("lang=") {
                 if let Some(l) = Lang::from_code(v) {
@@ -52,7 +56,9 @@ fn accept_language(headers: &HeaderMap) -> Option<Lang> {
             continue;
         }
         let primary = tag.split('-').next().unwrap_or("");
-        let Some(lang) = Lang::from_code(primary) else { continue };
+        let Some(lang) = Lang::from_code(primary) else {
+            continue;
+        };
         if best.is_none_or(|(bq, bi, _)| q > bq || (q == bq && i < bi)) {
             best = Some((q, i, lang));
         }
@@ -1043,7 +1049,11 @@ pub fn compile_message(lang: Lang, d: &crate::present::Diagnosis) -> String {
         _ => key,
     };
     let (expected, got) = (d.expected.unwrap_or(0) as u64, d.got.unwrap_or(0) as u64);
-    let unit = if d.key == "arity_min" { "compile.points" } else { "compile.args" };
+    let unit = if d.key == "arity_min" {
+        "compile.points"
+    } else {
+        "compile.args"
+    };
     let got_text = match lang {
         Lang::En => format!("{got} {}", tp(lang, "compile.given", got, &[])),
         Lang::Ro => tp(lang, unit, got, &[]),
@@ -1218,49 +1228,68 @@ pub fn prose_ro(s: &str) -> String {
 
 /// A cited theorem's Romanian name, for the theorems the provers cite.
 pub fn theorem_ro(name: &str) -> Option<&'static str> {
-    Some(match name.to_lowercase().replace('\u{2019}', "'").replace("centre", "center").as_str() {
-        "stewart's theorem" => "teorema lui Stewart",
-        "pythagorean theorem" => "teorema lui Pitagora",
-        "apollonius's median theorem" => "teorema medianei",
-        "menelaus's theorem" | "menelaus' theorem" => "teorema lui Menelaus",
-        "menelaus' theorem (converse)" | "menelaus's theorem (converse)" => "reciproca teoremei lui Menelaus",
-        "ceva's theorem (converse)" => "reciproca teoremei lui Ceva",
-        "angle bisectors concur (incenter/excenter)" => "bisectoarele sunt concurente (centrul cercului înscris sau exînscris)",
-        "perpendicular \u{21d2} squared lengths (pythagoras)" => "perpendicularitate \u{21d2} pătrate de lungimi (Pitagora)",
-        "perpendicular from squared lengths" => "perpendicularitate din pătrate de lungimi",
-        "squares of proportional lengths" => "pătratele unor lungimi proporționale",
-        "lengths from squared lengths" => "lungimi din pătratele lor",
-        "equality case of the triangle inequality" => "cazul de egalitate al inegalității triunghiului",
-        "equal or supplementary angles have equal sines" => "unghiurile egale sau suplementare au sinusuri egale",
-        "sine of 30°" | "sine of 30°: 1/2" => "sinusul lui 30°",
-        "sine of 45°" | "sine of 45°: √2/2" => "sinusul lui 45°",
-        "sine of 60°" | "sine of 60°: √3/2" => "sinusul lui 60°",
-        "sine of 90°" | "sine of 90°: 1" => "sinusul lui 90°",
-        "double-angle formula" => "formula unghiului dublu",
-        "triple-angle formula" => "formula unghiului triplu",
-        "ceva's theorem" => "teorema lui Ceva",
-        "angle-bisector theorem" => "teorema bisectoarei",
-        "basic proportionality (intercept) theorem" => "teorema lui Thales",
-        "geometric-mean (altitude) relation" => "teorema înălțimii",
-        "geometric-mean (leg) relation" => "teorema catetei",
-        "ptolemy's theorem" => "teorema lui Ptolemeu",
-        "thales' theorem" | "thales's theorem" => "teorema lui Thales",
-        "angle bisector theorem" => "teorema bisectoarei",
-        "angle bisector theorem (converse)" => "reciproca teoremei bisectoarei",
-        "radical axis" => "axa radicală",
-        "monge–d'alembert" | "monge–d'alembert theorem" => "teorema Monge–d'Alembert",
-        "homothety at a center of similitude" | "homothety at a centre of similitude" => "omotetie cu centrul într-un centru de asemănare",
-        "intercept theorem (parallel rungs)" => "teorema lui Thales (paralele)",
-        "law of sines" => "teorema sinusurilor",
-        "extended law of sines" => "teorema sinusurilor (forma extinsă)",
-        "law of cosines" => "teorema cosinusului",
-        "sine area formula" => "formula ariei cu sinus",
-        "ratio lemma" => "lema rapoartelor",
-        "trigonometric ceva" => "teorema lui Ceva (forma trigonometrică)",
-        "power of a point" => "puterea punctului",
-        "pythagorean identity" => "identitatea fundamentală a trigonometriei",
-        _ => return None,
-    })
+    Some(
+        match name
+            .to_lowercase()
+            .replace('\u{2019}', "'")
+            .replace("centre", "center")
+            .as_str()
+        {
+            "stewart's theorem" => "teorema lui Stewart",
+            "pythagorean theorem" => "teorema lui Pitagora",
+            "apollonius's median theorem" => "teorema medianei",
+            "menelaus's theorem" | "menelaus' theorem" => "teorema lui Menelaus",
+            "menelaus' theorem (converse)" | "menelaus's theorem (converse)" => {
+                "reciproca teoremei lui Menelaus"
+            }
+            "ceva's theorem (converse)" => "reciproca teoremei lui Ceva",
+            "angle bisectors concur (incenter/excenter)" => {
+                "bisectoarele sunt concurente (centrul cercului înscris sau exînscris)"
+            }
+            "perpendicular \u{21d2} squared lengths (pythagoras)" => {
+                "perpendicularitate \u{21d2} pătrate de lungimi (Pitagora)"
+            }
+            "perpendicular from squared lengths" => "perpendicularitate din pătrate de lungimi",
+            "squares of proportional lengths" => "pătratele unor lungimi proporționale",
+            "lengths from squared lengths" => "lungimi din pătratele lor",
+            "equality case of the triangle inequality" => {
+                "cazul de egalitate al inegalității triunghiului"
+            }
+            "equal or supplementary angles have equal sines" => {
+                "unghiurile egale sau suplementare au sinusuri egale"
+            }
+            "sine of 30°" | "sine of 30°: 1/2" => "sinusul lui 30°",
+            "sine of 45°" | "sine of 45°: √2/2" => "sinusul lui 45°",
+            "sine of 60°" | "sine of 60°: √3/2" => "sinusul lui 60°",
+            "sine of 90°" | "sine of 90°: 1" => "sinusul lui 90°",
+            "double-angle formula" => "formula unghiului dublu",
+            "triple-angle formula" => "formula unghiului triplu",
+            "ceva's theorem" => "teorema lui Ceva",
+            "angle-bisector theorem" => "teorema bisectoarei",
+            "basic proportionality (intercept) theorem" => "teorema lui Thales",
+            "geometric-mean (altitude) relation" => "teorema înălțimii",
+            "geometric-mean (leg) relation" => "teorema catetei",
+            "ptolemy's theorem" => "teorema lui Ptolemeu",
+            "thales' theorem" | "thales's theorem" => "teorema lui Thales",
+            "angle bisector theorem" => "teorema bisectoarei",
+            "angle bisector theorem (converse)" => "reciproca teoremei bisectoarei",
+            "radical axis" => "axa radicală",
+            "monge–d'alembert" | "monge–d'alembert theorem" => "teorema Monge–d'Alembert",
+            "homothety at a center of similitude" | "homothety at a centre of similitude" => {
+                "omotetie cu centrul într-un centru de asemănare"
+            }
+            "intercept theorem (parallel rungs)" => "teorema lui Thales (paralele)",
+            "law of sines" => "teorema sinusurilor",
+            "extended law of sines" => "teorema sinusurilor (forma extinsă)",
+            "law of cosines" => "teorema cosinusului",
+            "sine area formula" => "formula ariei cu sinus",
+            "ratio lemma" => "lema rapoartelor",
+            "trigonometric ceva" => "teorema lui Ceva (forma trigonometrică)",
+            "power of a point" => "puterea punctului",
+            "pythagorean identity" => "identitatea fundamentală a trigonometriei",
+            _ => return None,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1270,35 +1299,77 @@ mod tests {
     fn hdrs(pairs: &[(&str, &str)]) -> HeaderMap {
         let mut h = HeaderMap::new();
         for (k, v) in pairs {
-            h.append(axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(), v.parse().unwrap());
+            h.append(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                v.parse().unwrap(),
+            );
         }
         h
     }
 
     #[test]
     fn language_comes_from_cookie_then_accept_language() {
-        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "ro-RO,ro;q=0.9,en;q=0.8")])), Lang::Ro);
-        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "en-US")])), Lang::En);
-        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "fr-FR,ro;q=0.5")])), Lang::Ro);
-        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "ro;q=0,en;q=0.2")])), Lang::En);
-        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "en;q=0.4,ro;q=0.9")])), Lang::Ro);
-        assert_eq!(lang_from_headers(&hdrs(&[("accept-language", "de-DE")])), Lang::En);
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("accept-language", "ro-RO,ro;q=0.9,en;q=0.8")])),
+            Lang::Ro
+        );
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("accept-language", "en-US")])),
+            Lang::En
+        );
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("accept-language", "fr-FR,ro;q=0.5")])),
+            Lang::Ro
+        );
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("accept-language", "ro;q=0,en;q=0.2")])),
+            Lang::En
+        );
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("accept-language", "en;q=0.4,ro;q=0.9")])),
+            Lang::Ro
+        );
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("accept-language", "de-DE")])),
+            Lang::En
+        );
         assert_eq!(lang_from_headers(&hdrs(&[])), Lang::En);
         assert_eq!(
-            lang_from_headers(&hdrs(&[("cookie", "a=1; lang=en"), ("accept-language", "ro-RO")])),
+            lang_from_headers(&hdrs(&[
+                ("cookie", "a=1; lang=en"),
+                ("accept-language", "ro-RO")
+            ])),
             Lang::En,
             "an explicit choice wins over the browser's language"
         );
         assert_eq!(lang_from_headers(&hdrs(&[("cookie", "lang=RO")])), Lang::Ro);
-        assert_eq!(lang_from_headers(&hdrs(&[("cookie", "x=1"), ("cookie", "lang=ro")])), Lang::Ro);
+        assert_eq!(
+            lang_from_headers(&hdrs(&[("cookie", "x=1"), ("cookie", "lang=ro")])),
+            Lang::Ro
+        );
     }
 
     #[test]
     fn gate_strings_exist_in_both_languages() {
         for k in [
-            "gate.doctitle", "gate.title", "gate.sub", "gate.label", "gate.username", "gate.submit",
-            "gate.remember", "gate.wrong", "gate.empty", "gate.rate", "gate.cookies", "gate.required", "gate.forget",
-            "gate.lang", "translate.daily", "humanize.daily", "auth.sign_in_ai", "auth.sign_in_required",
+            "gate.doctitle",
+            "gate.title",
+            "gate.sub",
+            "gate.label",
+            "gate.username",
+            "gate.submit",
+            "gate.remember",
+            "gate.wrong",
+            "gate.empty",
+            "gate.rate",
+            "gate.cookies",
+            "gate.required",
+            "gate.forget",
+            "gate.lang",
+            "translate.daily",
+            "humanize.daily",
+            "auth.sign_in_ai",
+            "auth.sign_in_required",
         ] {
             for l in [Lang::En, Lang::Ro] {
                 assert_ne!(t(l, k), t(l, "no.such.key"), "{k} {l:?}");
@@ -1318,8 +1389,14 @@ mod tests {
         assert_eq!(steps(Lang::Ro, 20), "20 de pași de deducție");
         assert_eq!(steps(Lang::Ro, 21), "21 de pași de deducție");
         assert_eq!(steps(Lang::Ro, 101), "101 pași de deducție");
-        assert_eq!(tp(Lang::Ro, "report.runs", 5000, &[]), "5000 de rulări deductive");
-        assert_eq!(tp(Lang::Ro, "report.samples", 48, &[]), "48 de figuri eșantionate");
+        assert_eq!(
+            tp(Lang::Ro, "report.runs", 5000, &[]),
+            "5000 de rulări deductive"
+        );
+        assert_eq!(
+            tp(Lang::Ro, "report.samples", 48, &[]),
+            "48 de figuri eșantionate"
+        );
     }
 
     #[test]
@@ -1333,14 +1410,26 @@ mod tests {
             expected: Some(e),
             got: Some(g),
         };
-        assert_eq!(compile_message(Lang::En, &d(2, 1)), "“midpoint” takes 2 arguments, but 1 was given.");
-        assert_eq!(compile_message(Lang::En, &d(1, 3)), "“midpoint” takes 1 argument, but 3 were given.");
-        assert_eq!(compile_message(Lang::Ro, &d(2, 20)), "„midpoint” primește 2 argumente, dar a primit 20 de argumente.");
+        assert_eq!(
+            compile_message(Lang::En, &d(2, 1)),
+            "“midpoint” takes 2 arguments, but 1 was given."
+        );
+        assert_eq!(
+            compile_message(Lang::En, &d(1, 3)),
+            "“midpoint” takes 1 argument, but 3 were given."
+        );
+        assert_eq!(
+            compile_message(Lang::Ro, &d(2, 20)),
+            "„midpoint” primește 2 argumente, dar a primit 20 de argumente."
+        );
     }
 
     #[test]
     fn euclidean_prose_reads_in_romanian() {
-        assert_eq!(prose_ro("|BC| = 6 (given), so BC² = 36."), "|BC| = 6 (ipoteză), deci BC² = 36.");
+        assert_eq!(
+            prose_ro("|BC| = 6 (given), so BC² = 36."),
+            "|BC| = 6 (ipoteză), deci BC² = 36."
+        );
         let ro = prose_ro("Combining the equations above gives AD² = 14.");
         assert!(ro.starts_with("Combinând"), "{ro}");
         assert_eq!(theorem_ro("Stewart's theorem"), Some("teorema lui Stewart"));
@@ -1362,7 +1451,11 @@ mod tests {
         for src in sources {
             for part in src.split("Reason::Theorem(").skip(1) {
                 let rest = part.trim_start();
-                if let Some(lit) = rest.strip_prefix('"').and_then(|r| r.split_once('"')).map(|(n, _)| n.to_string()) {
+                if let Some(lit) = rest
+                    .strip_prefix('"')
+                    .and_then(|r| r.split_once('"'))
+                    .map(|(n, _)| n.to_string())
+                {
                     names.push(lit);
                 }
             }
@@ -1375,8 +1468,14 @@ mod tests {
         assert!(names.len() >= 15, "{names:?}");
         for n in &names {
             let shown = prose_en(n);
-            assert!(theorem_ro(&shown).is_some(), "no Romanian name for {shown:?}");
+            assert!(
+                theorem_ro(&shown).is_some(),
+                "no Romanian name for {shown:?}"
+            );
         }
-        assert_eq!(theorem_ro("Menelaus\u{2019} theorem"), Some("teorema lui Menelaus"));
+        assert_eq!(
+            theorem_ro("Menelaus\u{2019} theorem"),
+            Some("teorema lui Menelaus")
+        );
     }
 }

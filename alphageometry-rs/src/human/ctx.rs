@@ -6,8 +6,8 @@ use crate::predicate::{PointId, Predicate};
 use crate::proof::{FactId, Reason};
 use crate::rational::Rat;
 use rustc_hash::FxHashMap;
-use std::sync::Mutex;
 use std::collections::BTreeSet;
+use std::sync::Mutex;
 use std::time::Instant;
 
 pub const QBASE: VarId = 1 << 30;
@@ -94,7 +94,9 @@ pub struct Ctx<'a> {
 }
 
 pub fn transfer_add_row(t: &EngineTrace, f: FactId) -> Option<LinComb> {
-    let Reason::TransferAddMul(a, b) = &t.facts[f as usize].reason else { return None };
+    let Reason::TransferAddMul(a, b) = &t.facts[f as usize].reason else {
+        return None;
+    };
     let ratio = t.dist(b.0, b.1) / t.dist(a.0, a.1).max(1e-300);
     let k = super::classify::small_rational(ratio)?;
     let mut kx = t.single(Table::Add, a.0, a.1)?;
@@ -111,20 +113,33 @@ fn registration_of(t: &EngineTrace, f: FactId) -> Option<FactId> {
     if let Some(&g) = fact.premises.iter().find(|&&g| g + 1 == f) {
         return Some(g);
     }
-    fact.premises
-        .iter()
-        .copied()
-        .find(|&g| matches!(t.facts[g as usize].reason, Reason::PointMerge(..) | Reason::TangentMerge(..)))
+    fact.premises.iter().copied().find(|&g| {
+        matches!(
+            t.facts[g as usize].reason,
+            Reason::PointMerge(..) | Reason::TangentMerge(..)
+        )
+    })
 }
 
 impl<'a> Ctx<'a> {
-    pub fn new(t: &'a EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], deadline: Option<Instant>) -> Ctx<'a> {
+    pub fn new(
+        t: &'a EngineTrace,
+        goal: &Predicate,
+        deps: &[FactId],
+        aux: &[AuxInfo],
+        deadline: Option<Instant>,
+    ) -> Ctx<'a> {
         let closure = t.closure(deps);
         let mut in_cl = vec![false; t.facts.len()];
         for &f in &closure {
             in_cl[f as usize] = true;
         }
-        let piv = [t.lhs[0].clone(), t.lhs[1].clone(), t.lhs[2].clone(), t.lhs[3].clone()];
+        let piv = [
+            t.lhs[0].clone(),
+            t.lhs[1].clone(),
+            t.lhs[2].clone(),
+            t.lhs[3].clone(),
+        ];
         let mut hyp_pred = FxHashMap::default();
         for &f in &closure {
             if let Reason::Assumption(s) | Reason::Construction(s) = &t.facts[f as usize].reason {
@@ -138,7 +153,11 @@ impl<'a> Ctx<'a> {
             class[f as usize] = Self::raw_class(t, f);
         }
         let mut g = goal.clone();
-        g.points = goal.points.iter().map(|&p| t.subst.get(p as usize).copied().unwrap_or(p)).collect();
+        g.points = goal
+            .points
+            .iter()
+            .map(|&p| t.subst.get(p as usize).copied().unwrap_or(p))
+            .collect();
         let quot = Self::build_quot(t, &closure, &class);
         let mut cx = Ctx {
             t,
@@ -168,13 +187,22 @@ impl<'a> Ctx<'a> {
         match &fact.reason {
             Reason::Assumption(_) | Reason::Construction(_) => return FactClass::Hyp,
             Reason::EqualRadius(..) | Reason::TransferAddMul(..) => return FactClass::Silent,
-            Reason::Formula(..) if t.rows_of(Table::Ratio, f).all(|r| t.canon_ratio(r).is_zero()) => return FactClass::SilentHyp,
-            Reason::Concyclic(p) if {
-                let mut q = p.clone();
-                q.sort_unstable();
-                q.dedup();
-                q.len() < 4
-            } => return FactClass::Silent,
+            Reason::Formula(..)
+                if t.rows_of(Table::Ratio, f)
+                    .all(|r| t.canon_ratio(r).is_zero()) =>
+            {
+                return FactClass::SilentHyp
+            }
+            Reason::Concyclic(p)
+                if {
+                    let mut q = p.clone();
+                    q.sort_unstable();
+                    q.dedup();
+                    q.len() < 4
+                } =>
+            {
+                return FactClass::Silent
+            }
             Reason::SimilarTriangles(a, b) => {
                 let mut s1 = [a.0, a.1, a.2];
                 let mut s2 = [b.0, b.1, b.2];
@@ -214,7 +242,13 @@ impl<'a> Ctx<'a> {
             }
             r
         }
-        let key = |a: PointId, b: PointId| if a < b { a as usize * n + b as usize } else { b as usize * n + a as usize };
+        let key = |a: PointId, b: PointId| {
+            if a < b {
+                a as usize * n + b as usize
+            } else {
+                b as usize * n + a as usize
+            }
+        };
         for &f in closure {
             if class[f as usize] != FactClass::HypReg {
                 continue;
@@ -242,7 +276,9 @@ impl<'a> Ctx<'a> {
         let vals = &t.values[0];
         for a in 0..n as PointId {
             for b in (a + 1)..n as PointId {
-                let Some(v) = t.var(Table::Angle, a, b) else { continue };
+                let Some(v) = t.var(Table::Angle, a, b) else {
+                    continue;
+                };
                 if cls.contains_key(&v) {
                     continue;
                 }
@@ -281,19 +317,26 @@ impl<'a> Ctx<'a> {
         let mut hyp_rows: [Vec<&LinComb>; 4] = Default::default();
         for tb in Table::ALL {
             for (g, r) in &t.rows[tb.idx()] {
-                if self.in_cl[*g as usize] && matches!(self.class[*g as usize], FactClass::Hyp | FactClass::HypReg) {
+                if self.in_cl[*g as usize]
+                    && matches!(self.class[*g as usize], FactClass::Hyp | FactClass::HypReg)
+                {
                     hyp_rows[tb.idx()].push(r);
                 }
             }
         }
-        let mut hbs: Vec<Basis> = Table::ALL.iter().map(|tb| Basis::new(&self.piv[tb.idx()], false)).collect();
+        let mut hbs: Vec<Basis> = Table::ALL
+            .iter()
+            .map(|tb| Basis::new(&self.piv[tb.idx()], false))
+            .collect();
         for tb in Table::ALL {
             for (i, r) in hyp_rows[tb.idx()].iter().enumerate() {
                 hbs[tb.idx()].insert(i as u32, r);
             }
         }
         for &f in &self.closure.clone() {
-            if self.class[f as usize] != FactClass::Derived || !matches!(t.facts[f as usize].reason, Reason::TransferAddMul(..)) {
+            if self.class[f as usize] != FactClass::Derived
+                || !matches!(t.facts[f as usize].reason, Reason::TransferAddMul(..))
+            {
                 continue;
             }
             let mut any = false;
@@ -304,7 +347,8 @@ impl<'a> Ctx<'a> {
                     all &= hbs[tb.idx()].contains(r);
                 }
             }
-            let additive = transfer_add_row(t, f).is_some_and(|row| hbs[Table::Add.idx()].contains(&row));
+            let additive =
+                transfer_add_row(t, f).is_some_and(|row| hbs[Table::Add.idx()].contains(&row));
             if (any && all) || additive {
                 self.class[f as usize] = FactClass::SilentHyp;
             }
@@ -312,7 +356,12 @@ impl<'a> Ctx<'a> {
         let hb = &hbs[1];
         if std::env::var_os("HP_DEBUG").is_some() {
             for &f in &self.closure {
-                eprintln!("fact {f} class {:?} premises {:?} reason {:?}", self.class[f as usize], t.facts[f as usize].premises, t.facts[f as usize].reason);
+                eprintln!(
+                    "fact {f} class {:?} premises {:?} reason {:?}",
+                    self.class[f as usize],
+                    t.facts[f as usize].premises,
+                    t.facts[f as usize].reason
+                );
             }
         }
         for &f in &self.closure.clone() {
@@ -356,7 +405,12 @@ impl<'a> Ctx<'a> {
                     pts.sort_unstable();
                     pts.dedup();
                     let hyp = self.class[f as usize] == FactClass::HypReg;
-                    self.circles.push(CircleObj { pts, fact: f, src, hyp });
+                    self.circles.push(CircleObj {
+                        pts,
+                        fact: f,
+                        src,
+                        hyp,
+                    });
                 }
                 _ => {}
             }
@@ -365,20 +419,30 @@ impl<'a> Ctx<'a> {
 
     pub fn store_verified(&self, tb: Table, canon: &LinComb) -> bool {
         let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
-        let b = st[tb.idx()].get_or_insert_with(|| { let t0 = std::time::Instant::now();
+        let b = st[tb.idx()].get_or_insert_with(|| {
+            let t0 = std::time::Instant::now();
             let mut b = super::cert::Echelon::new(&self.piv[tb.idx()]);
             for (_, r) in self.t.rows[tb.idx()].iter() {
-                let r2 = if tb == Table::Ratio { self.t.canon_ratio(r) } else { r.clone() };
+                let r2 = if tb == Table::Ratio {
+                    self.t.canon_ratio(r)
+                } else {
+                    r.clone()
+                };
                 b.insert(&r2);
             }
-            if std::env::var_os("HP_TIME").is_some() { eprintln!("store {tb:?}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3); }
+            if std::env::var_os("HP_TIME").is_some() {
+                eprintln!("store {tb:?}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
+            }
             b
         });
         b.contains(canon)
     }
 
     pub fn is_hyp(&self, f: FactId) -> bool {
-        matches!(self.class.get(f as usize), Some(FactClass::Hyp | FactClass::HypReg))
+        matches!(
+            self.class.get(f as usize),
+            Some(FactClass::Hyp | FactClass::HypReg)
+        )
     }
 
     pub fn displayable(&self, f: FactId) -> FactId {
@@ -389,14 +453,30 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn fact_sources(&self, f: FactId) -> BTreeSet<FactId> {
-        if let Some(s) = self.src_memo.lock().unwrap_or_else(|e| e.into_inner()).get(&f) {
+        if let Some(s) = self
+            .src_memo
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&f)
+        {
             return s.clone();
         }
-        let out: BTreeSet<FactId> = match self.class.get(f as usize).copied().unwrap_or(FactClass::Outside) {
-            FactClass::Hyp | FactClass::HypReg | FactClass::SilentHyp | FactClass::Outside => BTreeSet::new(),
+        let out: BTreeSet<FactId> = match self
+            .class
+            .get(f as usize)
+            .copied()
+            .unwrap_or(FactClass::Outside)
+        {
+            FactClass::Hyp | FactClass::HypReg | FactClass::SilentHyp | FactClass::Outside => {
+                BTreeSet::new()
+            }
             FactClass::Derived => [f].into_iter().collect(),
             FactClass::TheoremReg(g) | FactClass::MergeReg(g) => [g].into_iter().collect(),
-            FactClass::Silent if transfer_add_row(self.t, f).and_then(|row| self.support_facts(Table::Add, &row, f)).is_some() => {
+            FactClass::Silent
+                if transfer_add_row(self.t, f)
+                    .and_then(|row| self.support_facts(Table::Add, &row, f))
+                    .is_some() =>
+            {
                 let row = transfer_add_row(self.t, f).unwrap();
                 let mut s = BTreeSet::new();
                 for g in self.support_facts(Table::Add, &row, f).unwrap_or_default() {
@@ -424,7 +504,10 @@ impl<'a> Ctx<'a> {
                 s
             }
         };
-        self.src_memo.lock().unwrap_or_else(|e| e.into_inner()).insert(f, out.clone());
+        self.src_memo
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(f, out.clone());
         out
     }
 
@@ -461,7 +544,10 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn line_through(&self, pts: &[PointId], h: FactId) -> Option<&LineObj> {
-        self.lines.iter().filter(|l| l.fact < h && pts.iter().all(|p| l.pts.contains(p))).min_by_key(|l| (l.src.len(), l.fact))
+        self.lines
+            .iter()
+            .filter(|l| l.fact < h && pts.iter().all(|p| l.pts.contains(p)))
+            .min_by_key(|l| (l.src.len(), l.fact))
     }
 
     pub fn main_triangle(&self) -> Option<[PointId; 3]> {
@@ -475,20 +561,25 @@ impl<'a> Ctx<'a> {
     pub fn circumcentre(&self) -> Option<(PointId, [PointId; 3])> {
         let tri = self.main_triangle()?;
         let t = self.t;
-        (3..t.n as PointId).find(|&o| {
-            !t.name(o).starts_with('_') && {
-                let d: Vec<f64> = tri.iter().map(|&v| t.dist(o, v)).collect();
-                d[0] > 1e-9 && d.iter().all(|x| (x - d[0]).abs() < 1e-9 * d[0].max(1.0)) && tri.iter().all(|&v| t.dm(o, v).is_some())
-            }
-        })
-        .map(|o| (o, tri))
+        (3..t.n as PointId)
+            .find(|&o| {
+                !t.name(o).starts_with('_') && {
+                    let d: Vec<f64> = tri.iter().map(|&v| t.dist(o, v)).collect();
+                    d[0] > 1e-9
+                        && d.iter().all(|x| (x - d[0]).abs() < 1e-9 * d[0].max(1.0))
+                        && tri.iter().all(|&v| t.dm(o, v).is_some())
+                }
+            })
+            .map(|o| (o, tri))
     }
 
     pub fn collinear_hyp(&self, pts: &[PointId]) -> bool {
         let mut cl: Option<u32> = None;
         for (i, &a) in pts.iter().enumerate() {
             for &b in &pts[i + 1..] {
-                let Some(v) = self.t.var(Table::Angle, a, b) else { continue };
+                let Some(v) = self.t.var(Table::Angle, a, b) else {
+                    continue;
+                };
                 let c = self.quot.class_of(v);
                 if cl.is_none() {
                     cl = c;

@@ -35,7 +35,10 @@ pub struct Opts {
 
 impl Default for Opts {
     fn default() -> Opts {
-        Opts { deadline: Some(Instant::now() + Duration::from_secs(2)), strict: false }
+        Opts {
+            deadline: Some(Instant::now() + Duration::from_secs(2)),
+            strict: false,
+        }
     }
 }
 
@@ -49,23 +52,36 @@ pub fn unavailable(raw_steps: usize) -> HumanProof {
         plan: Vec::new(),
         goal: None,
         main: None,
-        metrics: Metrics { raw_steps, ..Metrics::default() },
+        metrics: Metrics {
+            raw_steps,
+            ..Metrics::default()
+        },
     }
 }
 
 pub fn restates_goal(trace: &EngineTrace, hp: &HumanProof) -> bool {
-    let [only] = hp.blocks.as_slice() else { return false };
-    let Some(goal_rows) = check::stmt_targets(trace, &only.stmt) else { return false };
+    let [only] = hp.blocks.as_slice() else {
+        return false;
+    };
+    let Some(goal_rows) = check::stmt_targets(trace, &only.stmt) else {
+        return false;
+    };
     let canon = |tb: trace::Table, r: &crate::lincomb::LinComb| library::canon_row(trace, tb, r);
-    let goal: Vec<(trace::Table, crate::lincomb::LinComb)> = goal_rows.iter().map(|(tb, r)| (*tb, canon(*tb, r))).collect();
+    let goal: Vec<(trace::Table, crate::lincomb::LinComb)> = goal_rows
+        .iter()
+        .map(|(tb, r)| (*tb, canon(*tb, r)))
+        .collect();
     only.body.iter().any(|s| {
         all_reasons(s).iter().any(|r| match r {
-            Reason::Atom { key, args, .. } if theorems::is_theorem(*key) => check::check_rows(trace, *key, args).is_some_and(|rows| {
-                rows.iter().any(|(tb, r)| {
-                    let c = canon(*tb, r);
-                    goal.iter().any(|(gt, g)| gt == tb && (*g == c || *g == c.negated()))
+            Reason::Atom { key, args, .. } if theorems::is_theorem(*key) => {
+                check::check_rows(trace, *key, args).is_some_and(|rows| {
+                    rows.iter().any(|(tb, r)| {
+                        let c = canon(*tb, r);
+                        goal.iter()
+                            .any(|(gt, g)| gt == tb && (*g == c || *g == c.negated()))
+                    })
                 })
-            }),
+            }
             _ => false,
         })
     })
@@ -77,19 +93,43 @@ pub fn score(hp: &HumanProof) -> usize {
         .iter()
         .flat_map(|b| b.body.iter())
         .map(|s| match s {
-            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().map(|l| l.reasons.len().saturating_sub(4)).sum(),
-            Sentence::Because { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.len().saturating_sub(4),
+            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links
+                .iter()
+                .map(|l| l.reasons.len().saturating_sub(4))
+                .sum(),
+            Sentence::Because { reasons, .. } | Sentence::Theorem { reasons, .. } => {
+                reasons.len().saturating_sub(4)
+            }
             _ => 0,
         })
         .sum();
     let m = &hp.metrics;
-    m.human_cost + 20 * m.similar_steps + 2 * crowded + 12 * m.multi_fact_links + 8 * doubled_directed(hp) + 4 * m.directed_chains + 20 * m.pooled + 6 * repeated_citations(hp)
+    m.human_cost
+        + 20 * m.similar_steps
+        + 2 * crowded
+        + 12 * m.multi_fact_links
+        + 8 * doubled_directed(hp)
+        + 4 * m.directed_chains
+        + 20 * m.pooled
+        + 6 * repeated_citations(hp)
 }
 
 pub fn doubled_directed(hp: &HumanProof) -> usize {
     fn count(e: &Expr) -> usize {
         match e {
-            Expr::Lin { terms } => terms.iter().map(|(k, x)| usize::from(k.abs() != crate::rational::Rat::one() && matches!(x, Expr::Angle { directed: true, .. } | Expr::LineAngle { directed: true, .. })) + count(x)).sum(),
+            Expr::Lin { terms } => terms
+                .iter()
+                .map(|(k, x)| {
+                    usize::from(
+                        k.abs() != crate::rational::Rat::one()
+                            && matches!(
+                                x,
+                                Expr::Angle { directed: true, .. }
+                                    | Expr::LineAngle { directed: true, .. }
+                            ),
+                    ) + count(x)
+                })
+                .sum(),
             _ => 0,
         }
     }
@@ -97,8 +137,15 @@ pub fn doubled_directed(hp: &HumanProof) -> usize {
         .iter()
         .flat_map(|b| b.body.iter())
         .map(|s| match s {
-            Sentence::Chain { terms, directed: true, .. } => terms.iter().map(count).sum(),
-            Sentence::Because { stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }, .. } => count(lhs) + count(rhs),
+            Sentence::Chain {
+                terms,
+                directed: true,
+                ..
+            } => terms.iter().map(count).sum(),
+            Sentence::Because {
+                stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs },
+                ..
+            } => count(lhs) + count(rhs),
             _ => 0,
         })
         .sum()
@@ -109,17 +156,29 @@ pub fn repeated_citations(hp: &HumanProof) -> usize {
         .iter()
         .flat_map(|b| b.body.iter())
         .map(|s| match s {
-            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.windows(2).filter(|w| !w[0].reasons.is_empty() && w[0].reasons == w[1].reasons).count(),
+            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links
+                .windows(2)
+                .filter(|w| !w[0].reasons.is_empty() && w[0].reasons == w[1].reasons)
+                .count(),
             _ => 0,
         })
         .sum()
 }
 
-fn guarded(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts, library: bool) -> Option<HumanProof> {
+fn guarded(
+    trace: &EngineTrace,
+    goal: &Predicate,
+    deps: &[FactId],
+    aux: &[AuxInfo],
+    opts: &Opts,
+    library: bool,
+) -> Option<HumanProof> {
     let res = if std::env::var_os("HP_DEBUG").is_some() {
         Ok(write_inner(trace, goal, deps, aux, opts, library))
     } else {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::quiet_panic::quiet(|| write_inner(trace, goal, deps, aux, opts, library))))
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::quiet_panic::quiet(|| write_inner(trace, goal, deps, aux, opts, library))
+        }))
     };
     match res {
         Ok(Some(hp)) => Some(hp),
@@ -127,20 +186,50 @@ fn guarded(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInf
     }
 }
 
-pub fn write(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts) -> HumanProof {
+pub fn write(
+    trace: &EngineTrace,
+    goal: &Predicate,
+    deps: &[FactId],
+    aux: &[AuxInfo],
+    opts: &Opts,
+) -> HumanProof {
     let start = Instant::now();
     let raw_steps = trace.closure(deps).len();
     let lib_only = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "only");
     let no_lib = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "0");
     let (base, lib) = std::thread::scope(|sc| {
-        let hb = if lib_only { None } else { Some(sc.spawn(|| guarded(trace, goal, deps, aux, opts, false))) };
-        let lib = if no_lib { None } else { guarded(trace, goal, deps, aux, opts, true) };
+        let hb = if lib_only {
+            None
+        } else {
+            Some(sc.spawn(|| guarded(trace, goal, deps, aux, opts, false)))
+        };
+        let lib = if no_lib {
+            None
+        } else {
+            guarded(trace, goal, deps, aux, opts, true)
+        };
         let base = hb.and_then(|h| h.join().ok().flatten());
         (base, lib)
     });
-    let lib_ok = lib.as_ref().filter(|h| h.available && !h.metrics.timed_out && h.metrics.check_violations == 0 && !(restates_goal(trace, h) && base.as_ref().is_some_and(|b| b.available)));
+    let lib_ok = lib.as_ref().filter(|h| {
+        h.available
+            && !h.metrics.timed_out
+            && h.metrics.check_violations == 0
+            && !(restates_goal(trace, h) && base.as_ref().is_some_and(|b| b.available))
+    });
     if std::env::var_os("HP_LIBSTAT").is_some() {
-        let d = |h: Option<&HumanProof>| h.map(|h| format!("avail={} timed_out={} violations={} score={}", h.available, h.metrics.timed_out, h.metrics.check_violations, score(h))).unwrap_or_else(|| "none".into());
+        let d = |h: Option<&HumanProof>| {
+            h.map(|h| {
+                format!(
+                    "avail={} timed_out={} violations={} score={}",
+                    h.available,
+                    h.metrics.timed_out,
+                    h.metrics.check_violations,
+                    score(h)
+                )
+            })
+            .unwrap_or_else(|| "none".into())
+        };
         eprintln!("HPLIB lib[{}] base[{}]", d(lib.as_ref()), d(base.as_ref()));
     }
     let mut hp = match (lib_ok, base) {
@@ -165,7 +254,14 @@ pub fn write(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxI
     hp
 }
 
-fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts, library: bool) -> Option<HumanProof> {
+fn write_inner(
+    trace: &EngineTrace,
+    goal: &Predicate,
+    deps: &[FactId],
+    aux: &[AuxInfo],
+    opts: &Opts,
+    library: bool,
+) -> Option<HumanProof> {
     let t0 = Instant::now();
     let tick = |what: &str| {
         if std::env::var_os("HP_TIME").is_some() {
@@ -197,7 +293,15 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     w.select();
     if std::env::var_os("HP_DEBUG").is_some() {
         for (k, n) in &w.nodes {
-            eprintln!("node {k} kind {:?} role {:?} label {} parts {} theorem {} deps {:?}", n.kind, n.role, n.label, n.parts.as_ref().map(|p| p.len() as i64).unwrap_or(-1), n.theorem, n.deps);
+            eprintln!(
+                "node {k} kind {:?} role {:?} label {} parts {} theorem {} deps {:?}",
+                n.kind,
+                n.role,
+                n.label,
+                n.parts.as_ref().map(|p| p.len() as i64).unwrap_or(-1),
+                n.theorem,
+                n.deps
+            );
         }
     }
     if w.nodes.get(&claims::GOAL).is_none_or(|g| g.parts.is_none()) {
@@ -212,11 +316,25 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     claims::drop_self_reasons(&mut blocks);
     let as_drawn = p.as_drawn;
     let setup = setup_lines(&cx, &blocks);
-    let mut hp = HumanProof { version: 1, available: true, setup, blocks, as_drawn, plan: Vec::new(), goal: None, main: cx.main_triangle().map(|m| (m[0], m[1], m[2])), metrics: Metrics::default() };
+    let mut hp = HumanProof {
+        version: 1,
+        available: true,
+        setup,
+        blocks,
+        as_drawn,
+        plan: Vec::new(),
+        goal: None,
+        main: cx.main_triangle().map(|m| (m[0], m[1], m[2])),
+        metrics: Metrics::default(),
+    };
     let violations = check::check(&cx, &mut hp, opts.strict);
     tick("check");
     hp.metrics.check_violations = violations;
-    if !hp.blocks.last().is_some_and(|b| b.kind == BlockKind::Conclusion) {
+    if !hp
+        .blocks
+        .last()
+        .is_some_and(|b| b.kind == BlockKind::Conclusion)
+    {
         let mut u = unavailable(cx.closure.len());
         u.metrics.check_violations = violations;
         return Some(u);
@@ -235,12 +353,26 @@ fn helper_meaning(cx: &Ctx, p: PointId) -> HelperMeaning {
     for q in &preds {
         if q.name == "cong" && q.points.len() == 4 {
             let a = &q.points;
-            let centre = if a[0] == a[2] { Some((a[0], a[1], a[3])) } else if a[1] == a[3] { Some((a[1], a[0], a[2])) } else if a[0] == a[3] { Some((a[0], a[1], a[2])) } else if a[1] == a[2] { Some((a[1], a[0], a[3])) } else { None };
+            let centre = if a[0] == a[2] {
+                Some((a[0], a[1], a[3]))
+            } else if a[1] == a[3] {
+                Some((a[1], a[0], a[2]))
+            } else if a[0] == a[3] {
+                Some((a[0], a[1], a[2]))
+            } else if a[1] == a[2] {
+                Some((a[1], a[0], a[3]))
+            } else {
+                None
+            };
             if let Some((c, x, y)) = centre {
                 if c == p && x != y {
-                    let on = preds.iter().any(|r| r.name == "coll" && [p, x, y].iter().all(|z| r.points.contains(z)));
+                    let on = preds.iter().any(|r| {
+                        r.name == "coll" && [p, x, y].iter().all(|z| r.points.contains(z))
+                    });
                     if on {
-                        return HelperMeaning::Midpoint { of: (x.min(y), x.max(y)) };
+                        return HelperMeaning::Midpoint {
+                            of: (x.min(y), x.max(y)),
+                        };
                     }
                 }
                 if x == p {
@@ -251,23 +383,37 @@ fn helper_meaning(cx: &Ctx, p: PointId) -> HelperMeaning {
             }
         }
     }
-    let mut by_src: std::collections::BTreeMap<PointId, Vec<PointId>> = std::collections::BTreeMap::new();
+    let mut by_src: std::collections::BTreeMap<PointId, Vec<PointId>> =
+        std::collections::BTreeMap::new();
     for (c, s) in cong_centres {
         by_src.entry(s).or_default().push(c);
     }
     for (s, cs) in by_src {
         if cs.len() >= 2 && cs[0] != cs[1] {
-            return HelperMeaning::Reflection { of: s, line: (cs[0], cs[1]) };
+            return HelperMeaning::Reflection {
+                of: s,
+                line: (cs[0], cs[1]),
+            };
         }
     }
     for q in &preds {
         if (q.name == "perp" || q.name == "para") && q.points.len() == 4 {
             let a = &q.points;
             for (l, m) in [((a[0], a[1]), (a[2], a[3])), ((a[2], a[3]), (a[0], a[1]))] {
-                let other = if l.0 == p { Some(l.1) } else if l.1 == p { Some(l.0) } else { None };
+                let other = if l.0 == p {
+                    Some(l.1)
+                } else if l.1 == p {
+                    Some(l.0)
+                } else {
+                    None
+                };
                 if let Some(o) = other {
                     if o != p && !m.0.eq(&p) && !m.1.eq(&p) {
-                        return if q.name == "perp" { HelperMeaning::Perp { through: o, to: m } } else { HelperMeaning::Para { through: o, to: m } };
+                        return if q.name == "perp" {
+                            HelperMeaning::Perp { through: o, to: m }
+                        } else {
+                            HelperMeaning::Para { through: o, to: m }
+                        };
                     }
                 }
             }
@@ -281,12 +427,26 @@ pub fn equidistance_given(cx: &Ctx, o: PointId, pts: &[PointId]) -> bool {
     let tb = trace::Table::Ratio;
     let rows: Vec<(u32, &crate::lincomb::LinComb)> = t.rows[tb.idx()]
         .iter()
-        .filter(|(g, _)| cx.in_cl[*g as usize] && matches!(cx.class[*g as usize], ctx::FactClass::Hyp | ctx::FactClass::HypReg | ctx::FactClass::SilentHyp))
+        .filter(|(g, _)| {
+            cx.in_cl[*g as usize]
+                && matches!(
+                    cx.class[*g as usize],
+                    ctx::FactClass::Hyp | ctx::FactClass::HypReg | ctx::FactClass::SilentHyp
+                )
+        })
         .map(|(_, r)| (1u32, r))
         .collect();
-    let Some((&first, rest)) = pts.split_first() else { return false };
-    let Some(d0) = t.dm(o, first) else { return false };
-    rest.iter().all(|&q| t.dm(o, q).is_some_and(|dq| cert::certify_greedy(&cx.piv[tb.idx()], &rows, &(&d0 - &dq), &|_| true).is_some()))
+    let Some((&first, rest)) = pts.split_first() else {
+        return false;
+    };
+    let Some(d0) = t.dm(o, first) else {
+        return false;
+    };
+    rest.iter().all(|&q| {
+        t.dm(o, q).is_some_and(|dq| {
+            cert::certify_greedy(&cx.piv[tb.idx()], &rows, &(&d0 - &dq), &|_| true).is_some()
+        })
+    })
 }
 
 fn numeric_centre(cx: &Ctx, pts: &[PointId]) -> Option<PointId> {
@@ -294,7 +454,10 @@ fn numeric_centre(cx: &Ctx, pts: &[PointId]) -> Option<PointId> {
     (0..t.n as PointId).find(|&o| {
         !pts.contains(&o) && !t.name(o).starts_with('_') && {
             let d0 = t.dist(o, pts[0]);
-            d0 > 1e-9 && pts.iter().all(|&p| (t.dist(o, p) - d0).abs() < 1e-9 * d0.max(1.0))
+            d0 > 1e-9
+                && pts
+                    .iter()
+                    .all(|&p| (t.dist(o, p) - d0).abs() < 1e-9 * d0.max(1.0))
         }
     })
 }
@@ -302,7 +465,9 @@ fn numeric_centre(cx: &Ctx, pts: &[PointId]) -> Option<PointId> {
 pub fn circle_given(cx: &Ctx, c: &ctx::CircleObj) -> bool {
     match cx.class[c.fact as usize] {
         ctx::FactClass::Hyp | ctx::FactClass::HypReg | ctx::FactClass::SilentHyp => true,
-        ctx::FactClass::Silent => numeric_centre(cx, &c.pts).is_some_and(|o| equidistance_given(cx, o, &c.pts)),
+        ctx::FactClass::Silent => {
+            numeric_centre(cx, &c.pts).is_some_and(|o| equidistance_given(cx, o, &c.pts))
+        }
         _ => false,
     }
 }
@@ -314,7 +479,10 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
         if c.pts.len() < 3 || !c.src.is_empty() || !circle_given(cx, c) {
             continue;
         }
-        if let Some(m) = maximal.iter_mut().find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3) {
+        if let Some(m) = maximal
+            .iter_mut()
+            .find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3)
+        {
             for &p in &c.pts {
                 if !m.contains(&p) {
                     m.push(p);
@@ -329,7 +497,10 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
     }
     let mut count = vec![0usize; maximal.len()];
     let mut hit = |pts: &[PointId]| {
-        if let Some(i) = maximal.iter().position(|m| pts.len() >= 3 && pts.iter().all(|p| m.contains(p))) {
+        if let Some(i) = maximal
+            .iter()
+            .position(|m| pts.len() >= 3 && pts.iter().all(|p| m.contains(p)))
+        {
             count[i] += 1;
         }
     };
@@ -345,15 +516,29 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
             v.extend(nested);
             for r in v {
                 match r {
-                    Reason::Atom { key: AtomKey::Inscribed, args, .. } => hit(args),
-                    Reason::Hyp { stmt: Stmt::Cyclic { pts }, .. } | Reason::Fact { stmt: Stmt::Cyclic { pts }, .. } => hit(pts),
+                    Reason::Atom {
+                        key: AtomKey::Inscribed,
+                        args,
+                        ..
+                    } => hit(args),
+                    Reason::Hyp {
+                        stmt: Stmt::Cyclic { pts },
+                        ..
+                    }
+                    | Reason::Fact {
+                        stmt: Stmt::Cyclic { pts },
+                        ..
+                    } => hit(pts),
                     _ => {}
                 }
             }
         }
     }
     for a in aux {
-        if let SetupLine::Aux { wording: Some(w), .. } = a {
+        if let SetupLine::Aux {
+            wording: Some(w), ..
+        } = a
+        {
             for arg in &w.args {
                 if arg.key == "aux.circumcircle" {
                     hit(&arg.pts);
@@ -365,7 +550,12 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
     let mut greek = ["ω", "γ", "Γ", "σ", "τ", "κ"].into_iter();
     let mut out = Vec::new();
     let mut order: Vec<usize> = (0..maximal.len()).filter(|&i| count[i] >= 2).collect();
-    order.sort_by_key(|&i| (std::cmp::Reverse(tri.is_some_and(|t3| t3.iter().all(|p| maximal[i].contains(p)))), maximal[i].clone()));
+    order.sort_by_key(|&i| {
+        (
+            std::cmp::Reverse(tri.is_some_and(|t3| t3.iter().all(|p| maximal[i].contains(p)))),
+            maximal[i].clone(),
+        )
+    });
     let mut used_names: Vec<String> = Vec::new();
     for i in order {
         let m = &maximal[i];
@@ -373,7 +563,14 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
         let circum = tri.is_some_and(|t3| t3.iter().all(|p| m.contains(p)));
         let name = if circum && !used_names.iter().any(|n| n == "Ω") {
             "Ω".to_string()
-        } else if let Some(sub) = centre.map(|o| t.name(o).trim_start_matches(|c: char| c.is_alphabetic()).to_string()).filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())) {
+        } else if let Some(sub) = centre
+            .map(|o| {
+                t.name(o)
+                    .trim_start_matches(|c: char| c.is_alphabetic())
+                    .to_string()
+            })
+            .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
+        {
             format!("ω{}", text::subscript_digits(&sub))
         } else {
             match greek.next() {
@@ -391,15 +588,24 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
             _ => None,
         };
         let through: Vec<PointId> = m.iter().copied().filter(|p| Some(*p) != proved).collect();
-        out.push(SetupLine::Circle { name, through, centre, diameter: None });
+        out.push(SetupLine::Circle {
+            name,
+            through,
+            centre,
+            diameter: None,
+        });
     }
     out
 }
 
 fn all_reasons(s: &Sentence) -> Vec<&Reason> {
     match s {
-        Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().flat_map(|l| l.reasons.iter()).collect(),
-        Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.iter().collect(),
+        Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => {
+            links.iter().flat_map(|l| l.reasons.iter()).collect()
+        }
+        Sentence::Because { reasons, .. }
+        | Sentence::Pooled { reasons, .. }
+        | Sentence::Theorem { reasons, .. } => reasons.iter().collect(),
         Sentence::Raw { .. } => Vec::new(),
     }
 }
@@ -424,15 +630,38 @@ fn drop_unused_centres(hp: &mut HumanProof) {
 
 fn setup_lines(cx: &Ctx, blocks: &[Block]) -> Vec<SetupLine> {
     let mut out = Vec::new();
-    let directed = blocks.iter().any(|b| b.body.iter().any(|s| matches!(s, Sentence::Chain { directed: true, .. } | Sentence::Pooled { .. })));
+    let directed = blocks.iter().any(|b| {
+        b.body.iter().any(|s| {
+            matches!(
+                s,
+                Sentence::Chain { directed: true, .. } | Sentence::Pooled { .. }
+            )
+        })
+    });
     if directed {
         out.push(SetupLine::DirectedAngles);
     }
-    let trig = blocks.iter().any(|b| b.body.iter().any(|s| matches!(s, Sentence::Computation { comp: CompKind::Trig, .. })));
+    let trig = blocks.iter().any(|b| {
+        b.body.iter().any(|s| {
+            matches!(
+                s,
+                Sentence::Computation {
+                    comp: CompKind::Trig,
+                    ..
+                }
+            )
+        })
+    });
     if trig {
         if let Some(tri) = cx.main_triangle() {
-            let centre = cx.circumcentre().map(|x| x.0).filter(|&o| equidistance_given(cx, o, &tri));
-            out.push(SetupLine::Notation { triangle: (tri[0], tri[1], tri[2]), circumcentre: centre });
+            let centre = cx
+                .circumcentre()
+                .map(|x| x.0)
+                .filter(|&o| equidistance_given(cx, o, &tri));
+            out.push(SetupLine::Notation {
+                triangle: (tri[0], tri[1], tri[2]),
+                circumcentre: centre,
+            });
         }
     }
     let mut used: Vec<PointId> = Vec::new();
@@ -446,29 +675,46 @@ fn setup_lines(cx: &Ctx, blocks: &[Block]) -> Vec<SetupLine> {
     let mut aux_lines = Vec::new();
     for (i, a) in cx.aux.iter().enumerate() {
         if used.contains(&a.point) {
-            aux_lines.push(SetupLine::Aux { point: a.point, aux_index: i, wording: aux::parse(cx.t, a.point, &a.desc) });
+            aux_lines.push(SetupLine::Aux {
+                point: a.point,
+                aux_index: i,
+                wording: aux::parse(cx.t, a.point, &a.desc),
+            });
         }
     }
     let mut circles = named_circles(cx, blocks, &aux_lines);
     let def_point = |c: &SetupLine| -> Option<PointId> {
-        let SetupLine::Circle { through, .. } = c else { return None };
+        let SetupLine::Circle { through, .. } = c else {
+            return None;
+        };
         let mut v = through.clone();
         v.sort_unstable();
         v.get(2).copied().filter(|p| cx.is_aux(*p))
     };
-    let early: Vec<SetupLine> = circles.iter().filter(|c| def_point(c).is_none()).cloned().collect();
+    let early: Vec<SetupLine> = circles
+        .iter()
+        .filter(|c| def_point(c).is_none())
+        .cloned()
+        .collect();
     circles.retain(|c| def_point(c).is_some());
     out.extend(early);
     for a in aux_lines {
-        let SetupLine::Aux { point, .. } = &a else { continue };
+        let SetupLine::Aux { point, .. } = &a else {
+            continue;
+        };
         let p = *point;
         out.push(a);
-        let (now, later): (Vec<SetupLine>, Vec<SetupLine>) = circles.into_iter().partition(|c| def_point(c) == Some(p));
+        let (now, later): (Vec<SetupLine>, Vec<SetupLine>) =
+            circles.into_iter().partition(|c| def_point(c) == Some(p));
         out.extend(now);
         circles = later;
     }
     out.extend(circles);
-    let mut helpers: Vec<PointId> = used.iter().copied().filter(|&p| cx.t.name(p).starts_with('_')).collect();
+    let mut helpers: Vec<PointId> = used
+        .iter()
+        .copied()
+        .filter(|&p| cx.t.name(p).starts_with('_'))
+        .collect();
     helpers.sort_unstable();
     helpers.dedup();
     for p in helpers {
@@ -518,9 +764,21 @@ pub fn shape_counts(blocks: &[Block]) -> (usize, usize) {
                         let mut t2 = args[3..6].to_vec();
                         t1.sort_unstable();
                         t2.sort_unstable();
-                        sims.insert(format!("cong{:?}", if t1 < t2 { (t1, t2) } else { (t2, t1) }));
+                        sims.insert(format!(
+                            "cong{:?}",
+                            if t1 < t2 { (t1, t2) } else { (t2, t1) }
+                        ));
                     }
-                    Reason::Atom { key, args, .. } if !matches!(key, AtomKey::Inscribed | AtomKey::Radii | AtomKey::Isosceles | AtomKey::Parallel | AtomKey::CentralAngle) => {
+                    Reason::Atom { key, args, .. }
+                        if !matches!(
+                            key,
+                            AtomKey::Inscribed
+                                | AtomKey::Radii
+                                | AtomKey::Isosceles
+                                | AtomKey::Parallel
+                                | AtomKey::CentralAngle
+                        ) =>
+                    {
                         thms.insert(format!("{key:?}{args:?}"));
                     }
                     _ => {}
@@ -540,10 +798,22 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
     m.undirected_chains = und;
     m.directed_chains = dir;
     m.raw_steps = cx.closure.len();
-    m.derived = cx.closure.iter().filter(|&&f| !matches!(cx.class[f as usize], ctx::FactClass::Hyp)).count();
+    m.derived = cx
+        .closure
+        .iter()
+        .filter(|&&f| !matches!(cx.class[f as usize], ctx::FactClass::Hyp))
+        .count();
     m.blocks = hp.blocks.len();
-    m.claims = hp.blocks.iter().filter(|b| matches!(b.kind, BlockKind::Claim(_))).count();
-    m.fallback_blocks = hp.blocks.iter().filter(|b| b.kind == BlockKind::Raw).count();
+    m.claims = hp
+        .blocks
+        .iter()
+        .filter(|b| matches!(b.kind, BlockKind::Claim(_)))
+        .count();
+    m.fallback_blocks = hp
+        .blocks
+        .iter()
+        .filter(|b| b.kind == BlockKind::Raw)
+        .count();
     for b in &hp.blocks {
         for s in &b.body {
             m.sentences += 1;
@@ -551,7 +821,10 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
                 Sentence::Chain { links, terms, .. } => {
                     m.chains += 1;
                     m.chain_links += links.len();
-                    if terms.iter().all(|t| !matches!(t, Expr::Lin { terms } if terms.len() > 2)) {
+                    if terms
+                        .iter()
+                        .all(|t| !matches!(t, Expr::Lin { terms } if terms.len() > 2))
+                    {
                         m.pure_chains += 1;
                     }
                 }
@@ -562,7 +835,11 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
             m.citations += all_reasons(s).len();
         }
     }
-    m.aux_shown = hp.setup.iter().filter(|s| matches!(s, SetupLine::Aux { .. })).count();
+    m.aux_shown = hp
+        .setup
+        .iter()
+        .filter(|s| matches!(s, SetupLine::Aux { .. }))
+        .count();
 
     let (sim, thm) = shape_counts(&hp.blocks);
     m.similar_steps = sim;
@@ -575,10 +852,15 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
     for &f in &cx.closure {
         match cx.class[f as usize] {
             ctx::FactClass::Hyp => {}
-            ctx::FactClass::HypReg | ctx::FactClass::Silent | ctx::FactClass::SilentHyp => m.silent += 1,
+            ctx::FactClass::HypReg | ctx::FactClass::Silent | ctx::FactClass::SilentHyp => {
+                m.silent += 1
+            }
             ctx::FactClass::TheoremReg(_) | ctx::FactClass::MergeReg(_) => m.silent += 1,
             _ => {
-                let raw = hp.blocks.iter().any(|b| b.kind == BlockKind::Raw && b.engine_facts.contains(&f));
+                let raw = hp
+                    .blocks
+                    .iter()
+                    .any(|b| b.kind == BlockKind::Raw && b.engine_facts.contains(&f));
                 let node = w.nodes.get(&f);
                 if raw {
                     m.fallback_facts += 1;
@@ -592,28 +874,62 @@ fn fill_metrics(cx: &Ctx, w: &Writer, hp: &mut HumanProof) {
             }
         }
     }
-    let aux_desc: Vec<(PointId, String)> = cx.aux.iter().map(|a| (a.point, a.desc.clone())).collect();
+    let aux_desc: Vec<(PointId, String)> =
+        cx.aux.iter().map(|a| (a.point, a.desc.clone())).collect();
     let r = text::render(cx.t, hp, &aux_desc, &|f| text::engine_line(cx.t, f));
     let body: Vec<&String> = r.lines.iter().filter(|l| !l.trim().is_empty()).collect();
-    hp.metrics.lines_en = body.iter().map(|l| l.lines().filter(|x| !x.trim().is_empty()).count()).sum();
+    hp.metrics.lines_en = body
+        .iter()
+        .map(|l| l.lines().filter(|x| !x.trim().is_empty()).count())
+        .sum();
     hp.metrics.words_en = body.iter().map(|l| l.split_whitespace().count()).sum();
     let m = &mut hp.metrics;
-    m.human_cost = 10 * m.claims + 3 * m.sentences + m.chain_links + 2 * hp.blocks.iter().flat_map(|b| b.body.iter()).filter_map(|s| if let Sentence::Pooled { reasons, .. } = s { Some(reasons.len()) } else { None }).sum::<usize>()
+    m.human_cost = 10 * m.claims
+        + 3 * m.sentences
+        + m.chain_links
+        + 2 * hp
+            .blocks
+            .iter()
+            .flat_map(|b| b.body.iter())
+            .filter_map(|s| {
+                if let Sentence::Pooled { reasons, .. } = s {
+                    Some(reasons.len())
+                } else {
+                    None
+                }
+            })
+            .sum::<usize>()
         + 6 * (m.chains - m.pure_chains)
         + 25 * m.fallback_blocks
         + 4 * m.aux_shown
         + m.words_en.div_ceil(20);
 }
 
-pub fn verify(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], hp: &HumanProof) -> Vec<check::Violation> {
+pub fn verify(
+    trace: &EngineTrace,
+    goal: &Predicate,
+    deps: &[FactId],
+    aux: &[AuxInfo],
+    hp: &HumanProof,
+) -> Vec<check::Violation> {
     let cx = Ctx::new(trace, goal, deps, aux, None);
     check::violations(&cx, hp)
 }
 
-pub fn repair(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], hp: &mut HumanProof) -> usize {
+pub fn repair(
+    trace: &EngineTrace,
+    goal: &Predicate,
+    deps: &[FactId],
+    aux: &[AuxInfo],
+    hp: &mut HumanProof,
+) -> usize {
     let cx = Ctx::new(trace, goal, deps, aux, None);
     let n = check::check(&cx, hp, false);
-    if !hp.blocks.last().is_some_and(|b| b.kind == BlockKind::Conclusion) {
+    if !hp
+        .blocks
+        .last()
+        .is_some_and(|b| b.kind == BlockKind::Conclusion)
+    {
         *hp = unavailable(cx.closure.len());
     }
     n
@@ -621,7 +937,9 @@ pub fn repair(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Aux
 
 pub fn render_en(trace: &EngineTrace, hp: &HumanProof, aux: &[AuxInfo]) -> String {
     if !hp.available {
-        return String::from("(no human proof: the writer could not re-prove the goal; see the full derivation)\n");
+        return String::from(
+            "(no human proof: the writer could not re-prove the goal; see the full derivation)\n",
+        );
     }
     let aux_desc: Vec<(PointId, String)> = aux.iter().map(|a| (a.point, a.desc.clone())).collect();
     let r = text::render(trace, hp, &aux_desc, &|f| text::engine_line(trace, f));
@@ -653,7 +971,11 @@ pub fn aux_infos(problem: &Problem, first_aux: usize, descs: &[String]) -> Vec<A
     out
 }
 
-pub fn for_problem(problem: &Problem, aux: &[AuxInfo], opts: &Opts) -> Option<(HumanProof, EngineTrace, Vec<FactId>, String)> {
+pub fn for_problem(
+    problem: &Problem,
+    aux: &[AuxInfo],
+    opts: &Opts,
+) -> Option<(HumanProof, EngineTrace, Vec<FactId>, String)> {
     let (proof, trace, deps) = crate::runner::solve_problem_with_trace(problem).ok()??;
     let goal = problem.goal.clone()?;
     let hp = write(&trace, &goal, &deps, aux, opts);

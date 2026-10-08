@@ -23,7 +23,11 @@ pub struct Path {
 }
 
 pub fn classes(c: &LinComb) -> Vec<(VarId, Rat)> {
-    c.terms.iter().filter(|(v, _)| *v >= QBASE).map(|(v, k)| (*v, k.clone())).collect()
+    c.terms
+        .iter()
+        .filter(|(v, _)| *v >= QBASE)
+        .map(|(v, k)| (*v, k.clone()))
+        .collect()
 }
 
 pub fn single_angle(c: &LinComb) -> Option<Rat> {
@@ -46,7 +50,11 @@ pub fn single_angle(c: &LinComb) -> Option<Rat> {
 }
 
 pub fn single_ratio(cx: &Ctx, c: &LinComb) -> bool {
-    let lhs: Vec<&(VarId, Rat)> = c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).collect();
+    let lhs: Vec<&(VarId, Rat)> = c
+        .terms
+        .iter()
+        .filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true))
+        .collect();
     lhs.len() <= 2 && lhs.iter().all(|(_, k)| k.abs() == Rat::one())
 }
 
@@ -72,7 +80,11 @@ pub fn bfs(
         if table == Table::Angle {
             classes(c).into_iter().map(|x| x.0).collect()
         } else {
-            c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).map(|(v, _)| *v).collect()
+            c.terms
+                .iter()
+                .filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true))
+                .map(|(v, _)| *v)
+                .collect()
         }
     };
     let mut index: BTreeMap<VarId, Vec<usize>> = BTreeMap::new();
@@ -180,7 +192,14 @@ pub fn bfs(
             }
         }
         if std::env::var_os("HP_BFS").is_some() {
-            eprintln!("bfs split {si} expanded {expanded} nodes {} found {} eligible {} L {:?} R {:?}", nodes.len(), found.is_some(), eligible.len(), l, r);
+            eprintln!(
+                "bfs split {si} expanded {expanded} nodes {} found {} eligible {} L {:?} R {:?}",
+                nodes.len(),
+                found.is_some(),
+                eligible.len(),
+                l,
+                r
+            );
         }
         if let Some(end) = found {
             let mut seq: Vec<usize> = vec![end];
@@ -193,7 +212,13 @@ pub fn bfs(
             }
             seq.reverse();
             links.reverse();
-            let path = Path { split: si, nodes: seq.iter().map(|&k| nodes[k].clone()).collect(), links, weight: dist[end], undirected: false };
+            let path = Path {
+                split: si,
+                nodes: seq.iter().map(|&k| nodes[k].clone()).collect(),
+                links,
+                weight: dist[end],
+                undirected: false,
+            };
             if best.as_ref().is_none_or(|b| path.weight < b.weight) {
                 best = Some(path);
             }
@@ -202,8 +227,21 @@ pub fn bfs(
     best
 }
 
-pub fn dfs_order(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items: &[(usize, Rat, LinComb)], budget: &mut usize) -> Option<Vec<usize>> {
-    let single = |c: &LinComb| if table == Table::Angle { single_angle(c).is_some() } else { single_ratio(cx, c) };
+pub fn dfs_order(
+    cx: &Ctx,
+    table: Table,
+    l: &LinComb,
+    r: &LinComb,
+    items: &[(usize, Rat, LinComb)],
+    budget: &mut usize,
+) -> Option<Vec<usize>> {
+    let single = |c: &LinComb| {
+        if table == Table::Angle {
+            single_angle(c).is_some()
+        } else {
+            single_ratio(cx, c)
+        }
+    };
     if items.len() > 14 || !single(l) {
         return None;
     }
@@ -290,7 +328,11 @@ pub fn decomps(c: &LinComb) -> Vec<Vec<Term2>> {
         }
         4 => {
             for (a, b, c2, d) in [(0, 1, 2, 3), (0, 2, 1, 3), (0, 3, 1, 2)] {
-                if (&cl[a].1 + &cl[b].1).is_zero() && (&cl[c2].1 + &cl[d].1).is_zero() && small_coef(&cl[a].1) && small_coef(&cl[c2].1) {
+                if (&cl[a].1 + &cl[b].1).is_zero()
+                    && (&cl[c2].1 + &cl[d].1).is_zero()
+                    && small_coef(&cl[a].1)
+                    && small_coef(&cl[c2].1)
+                {
                     out.push(vec![term_of(&cl[a], cl[b].0), term_of(&cl[c2], cl[d].0)]);
                 }
             }
@@ -352,7 +394,11 @@ pub fn angle_shape(c: &LinComb) -> Option<i64> {
     Some(match best {
         0 => 0,
         1 => {
-            let k = d.iter().find(|ts| ts.len() == 1).map(|ts| ts[0].0.clone()).unwrap_or_else(Rat::one);
+            let k = d
+                .iter()
+                .find(|ts| ts.len() == 1)
+                .map(|ts| ts[0].0.clone())
+                .unwrap_or_else(Rat::one);
             if k.is_one() {
                 0
             } else {
@@ -364,7 +410,12 @@ pub fn angle_shape(c: &LinComb) -> Option<i64> {
 }
 
 pub fn named_pair(cx: &Ctx, a: VarId, b: VarId) -> bool {
-    let (Some(m1), Some(m2)) = (cx.quot.members.get((a - QBASE) as usize), cx.quot.members.get((b - QBASE) as usize)) else { return false };
+    let (Some(m1), Some(m2)) = (
+        cx.quot.members.get((a - QBASE) as usize),
+        cx.quot.members.get((b - QBASE) as usize),
+    ) else {
+        return false;
+    };
     m1.iter().any(|p| m2.contains(p))
 }
 
@@ -387,7 +438,11 @@ pub fn angle_cost(cx: &Ctx, c: &LinComb) -> Option<i64> {
 }
 
 pub fn ratio_shape(cx: &Ctx, c: &LinComb) -> Option<i64> {
-    let lhs: Vec<&(VarId, Rat)> = c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).collect();
+    let lhs: Vec<&(VarId, Rat)> = c
+        .terms
+        .iter()
+        .filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true))
+        .collect();
     if !lhs.iter().all(|(_, k)| k.abs() == Rat::one()) {
         return None;
     }
@@ -450,17 +505,37 @@ pub fn ratio_splits(cx: &Ctx, s: &LinComb) -> Vec<(LinComb, LinComb)> {
             }
         }
     }
-    starts.into_iter().map(|a| {
-        let end = LinComb::combine(&a, s, &Rat::from_int(-1));
-        (a, end)
-    }).collect()
+    starts
+        .into_iter()
+        .map(|a| {
+            let end = LinComb::combine(&a, s, &Rat::from_int(-1));
+            (a, end)
+        })
+        .collect()
 }
 
-pub fn order_items(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items: &[(usize, Rat, LinComb)], budget: &mut usize, cap: usize) -> Option<(Vec<Vec<usize>>, i64)> {
+pub fn order_items(
+    cx: &Ctx,
+    table: Table,
+    l: &LinComb,
+    r: &LinComb,
+    items: &[(usize, Rat, LinComb)],
+    budget: &mut usize,
+    cap: usize,
+) -> Option<(Vec<Vec<usize>>, i64)> {
     order_items_mode(cx, table, l, r, items, budget, cap, false)
 }
 
-pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items: &[(usize, Rat, LinComb)], budget: &mut usize, cap: usize, halves: bool) -> Option<(Vec<Vec<usize>>, i64)> {
+pub fn order_items_mode(
+    cx: &Ctx,
+    table: Table,
+    l: &LinComb,
+    r: &LinComb,
+    items: &[(usize, Rat, LinComb)],
+    budget: &mut usize,
+    cap: usize,
+    halves: bool,
+) -> Option<(Vec<Vec<usize>>, i64)> {
     let n = items.len();
     if n == 0 || n > 24 {
         return None;
@@ -473,7 +548,9 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
                 return None;
             }
             if halves {
-                let named = decomps(c).iter().any(|ts| ts.iter().all(|t| named_pair(cx, t.1, t.2)));
+                let named = decomps(c)
+                    .iter()
+                    .any(|ts| ts.iter().all(|t| named_pair(cx, t.1, t.2)));
                 if !named {
                     return None;
                 }
@@ -495,13 +572,25 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
         g: i64,
         prev: Option<(usize, Vec<usize>)>,
     }
-    let mut states: Vec<St> = vec![St { mask: 0, node: l.clone(), g: 0, prev: None }];
+    let mut states: Vec<St> = vec![St {
+        mask: 0,
+        node: l.clone(),
+        g: 0,
+        prev: None,
+    }];
     let mut index: FxHashMap<u32, usize> = FxHashMap::default();
     index.insert(0, 0);
     let mut done: Vec<bool> = vec![false];
     let mut heap: BinaryHeap<Reverse<(i64, usize)>> = BinaryHeap::new();
     heap.push(Reverse((10 * n as i64, 0)));
-    let push = |states: &mut Vec<St>, done: &mut Vec<bool>, index: &mut FxHashMap<u32, usize>, heap: &mut BinaryHeap<Reverse<(i64, usize)>>, mask: u32, node: LinComb, g: i64, prev: (usize, Vec<usize>)| {
+    let push = |states: &mut Vec<St>,
+                done: &mut Vec<bool>,
+                index: &mut FxHashMap<u32, usize>,
+                heap: &mut BinaryHeap<Reverse<(i64, usize)>>,
+                mask: u32,
+                node: LinComb,
+                g: i64,
+                prev: (usize, Vec<usize>)| {
         let rem = (full & !mask).count_ones() as i64;
         match index.get(&mask) {
             Some(&k) => {
@@ -514,7 +603,12 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
             }
             None => {
                 let k = states.len();
-                states.push(St { mask, node, g, prev: Some(prev) });
+                states.push(St {
+                    mask,
+                    node,
+                    g,
+                    prev: Some(prev),
+                });
                 done.push(false);
                 index.insert(mask, k);
                 heap.push(Reverse((g + 10 * rem, k)));
@@ -539,13 +633,21 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
         *budget -= 1;
         spent += 1;
         let (mask, node, g) = (states[u].mask, states[u].node.clone(), states[u].g);
-        let step = |memo: &mut FxHashMap<u32, (LinComb, Option<i64>)>, from: &LinComb, m: u32, k: usize| -> (LinComb, Option<i64>) {
+        let step = |memo: &mut FxHashMap<u32, (LinComb, Option<i64>)>,
+                    from: &LinComb,
+                    m: u32,
+                    k: usize|
+         -> (LinComb, Option<i64>) {
             let m2 = m | (1 << k);
             if let Some(hit) = memo.get(&m2) {
                 return hit.clone();
             }
             let nx = LinComb::combine(from, &items[k].2, &-&items[k].1);
-            let c = if m2 == full { (nx == *r).then_some(0) } else { shape(&nx) };
+            let c = if m2 == full {
+                (nx == *r).then_some(0)
+            } else {
+                shape(&nx)
+            };
             memo.insert(m2, (nx.clone(), c));
             (nx, c)
         };
@@ -557,27 +659,65 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
             let (nx, c1) = step(&mut memo, &node, mask, k);
             if m2 == full {
                 if c1.is_some() {
-                    push(&mut states, &mut done, &mut index, &mut heap, m2, nx, g + 10, (u, vec![k]));
+                    push(
+                        &mut states,
+                        &mut done,
+                        &mut index,
+                        &mut heap,
+                        m2,
+                        nx,
+                        g + 10,
+                        (u, vec![k]),
+                    );
                 }
                 continue;
             }
             if let Some(c) = c1 {
-                push(&mut states, &mut done, &mut index, &mut heap, m2, nx, g + 10 + c, (u, vec![k]));
+                push(
+                    &mut states,
+                    &mut done,
+                    &mut index,
+                    &mut heap,
+                    m2,
+                    nx,
+                    g + 10 + c,
+                    (u, vec![k]),
+                );
                 continue;
             }
-            let nx_vars: Vec<VarId> = nx.terms.iter().map(|(v, _)| *v).filter(|v| *v != ANGLE_UNIT).collect();
+            let nx_vars: Vec<VarId> = nx
+                .terms
+                .iter()
+                .map(|(v, _)| *v)
+                .filter(|v| *v != ANGLE_UNIT)
+                .collect();
             let prune = table == Table::Angle && (!halves || classes(&nx).len() >= 3);
             for k2 in 0..n {
                 if m2 & (1 << k2) != 0 {
                     continue;
                 }
-                if prune && !items[k2].2.terms.iter().any(|(v, _)| nx_vars.binary_search(v).is_ok()) {
+                if prune
+                    && !items[k2]
+                        .2
+                        .terms
+                        .iter()
+                        .any(|(v, _)| nx_vars.binary_search(v).is_ok())
+                {
                     continue;
                 }
                 let m3 = m2 | (1 << k2);
                 let (nx2, c) = step(&mut memo, &nx, m2, k2);
                 if let Some(c) = c {
-                    push(&mut states, &mut done, &mut index, &mut heap, m3, nx2, g + 30 + c, (u, vec![k, k2]));
+                    push(
+                        &mut states,
+                        &mut done,
+                        &mut index,
+                        &mut heap,
+                        m3,
+                        nx2,
+                        g + 30 + c,
+                        (u, vec![k, k2]),
+                    );
                     continue;
                 }
                 if !half.contains(&k) || !half.contains(&k2) || k2 < k {
@@ -590,7 +730,16 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
                     let m4 = m3 | (1 << k3);
                     let (nx3, c) = step(&mut memo, &nx2, m3, k3);
                     if let Some(c) = c {
-                        push(&mut states, &mut done, &mut index, &mut heap, m4, nx3, g + 45 + c, (u, vec![k, k2, k3]));
+                        push(
+                            &mut states,
+                            &mut done,
+                            &mut index,
+                            &mut heap,
+                            m4,
+                            nx3,
+                            g + 45 + c,
+                            (u, vec![k, k2, k3]),
+                        );
                     }
                 }
             }
@@ -607,7 +756,13 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
     Some((groups, states[end].g))
 }
 
-pub fn display_node(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
+pub fn display_node(
+    cx: &Ctx,
+    node: &LinComb,
+    directed: bool,
+    near: &[&[PointId]],
+    focus: &BTreeSet<PointId>,
+) -> Option<Expr> {
     let e = display_node_any(cx, node, directed, near, focus)?;
     if directed && fractional_angle(&e) {
         return None;
@@ -620,14 +775,21 @@ pub fn display_node(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]
 
 pub fn fractional_angle(e: &Expr) -> bool {
     match e {
-        Expr::Lin { terms } => terms.iter().any(|(k, x)| matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }) && !k.is_integer()),
+        Expr::Lin { terms } => terms.iter().any(|(k, x)| {
+            matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }) && !k.is_integer()
+        }),
         _ => false,
     }
 }
 
 pub fn degenerate_angle(cx: &Ctx, e: &Expr) -> bool {
     match e {
-        Expr::Angle { a, b, c, directed: false } => {
+        Expr::Angle {
+            a,
+            b,
+            c,
+            directed: false,
+        } => {
             let v = super::theorems::interior_degrees(cx.t, *a, *b, *c);
             !(1e-6..=180.0 - 1e-6).contains(&v)
         }
@@ -636,7 +798,13 @@ pub fn degenerate_angle(cx: &Ctx, e: &Expr) -> bool {
     }
 }
 
-fn display_node_any(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
+fn display_node_any(
+    cx: &Ctx,
+    node: &LinComb,
+    directed: bool,
+    near: &[&[PointId]],
+    focus: &BTreeSet<PointId>,
+) -> Option<Expr> {
     if single_angle(node).is_some() {
         return angle_expr(cx, node, directed, near, focus);
     }
@@ -649,7 +817,10 @@ fn display_node_any(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]
         let mut ok = true;
         for t in &ts {
             match angle_expr(cx, &term_comb(t), directed, near, focus) {
-                Some(Expr::Lin { terms: tt }) => terms.extend(tt.into_iter().filter(|(_, x)| !matches!(x, Expr::Const { .. }))),
+                Some(Expr::Lin { terms: tt }) => terms.extend(
+                    tt.into_iter()
+                        .filter(|(_, x)| !matches!(x, Expr::Const { .. })),
+                ),
                 Some(e) => terms.push((Rat::one(), e)),
                 None => ok = false,
             }
@@ -657,7 +828,9 @@ fn display_node_any(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]
         if !ok {
             continue;
         }
-        let Some(e) = with_const(cx, terms, node, directed) else { continue };
+        let Some(e) = with_const(cx, terms, node, directed) else {
+            continue;
+        };
         let bad = expr_badness(&e);
         if best.as_ref().is_none_or(|b| bad < b.0) {
             best = Some((bad, e));
@@ -666,17 +839,43 @@ fn display_node_any(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]
     best.map(|b| b.1)
 }
 
-pub fn with_const(cx: &Ctx, mut terms: Vec<(Rat, Expr)>, node: &LinComb, directed: bool) -> Option<Expr> {
-    let (_, raw) = super::expr::eval(cx.t, &Expr::Lin { terms: terms.clone() })?;
+pub fn with_const(
+    cx: &Ctx,
+    mut terms: Vec<(Rat, Expr)>,
+    node: &LinComb,
+    directed: bool,
+) -> Option<Expr> {
+    let (_, raw) = super::expr::eval(
+        cx.t,
+        &Expr::Lin {
+            terms: terms.clone(),
+        },
+    )?;
     let rest = LinComb::combine(node, &cx.quot.q(&raw), &Rat::from_int(-1));
     if rest.terms.iter().any(|(v, _)| *v != ANGLE_UNIT) {
         return None;
     }
-    let c = if directed { rest.get(ANGLE_UNIT).mod_one() } else { rest.get(ANGLE_UNIT) };
+    let c = if directed {
+        rest.get(ANGLE_UNIT).mod_one()
+    } else {
+        rest.get(ANGLE_UNIT)
+    };
     terms.sort_by_key(|(k, _)| k.is_negative());
     if !c.is_zero() {
-        let at = if terms.iter().all(|(k, _)| k.is_negative()) { 0 } else { terms.len() };
-        terms.insert(at, (Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
+        let at = if terms.iter().all(|(k, _)| k.is_negative()) {
+            0
+        } else {
+            terms.len()
+        };
+        terms.insert(
+            at,
+            (
+                Rat::one(),
+                Expr::Const {
+                    degrees: &c * &Rat::from_int(180),
+                },
+            ),
+        );
     }
     Some(Expr::Lin { terms })
 }
@@ -685,7 +884,10 @@ pub fn expr_badness(e: &Expr) -> i64 {
     match e {
         Expr::LineAngle { .. } => 4,
         Expr::Angle { .. } => 0,
-        Expr::Lin { terms } => terms.iter().map(|(k, x)| expr_badness(x) + if k.is_negative() { 1 } else { 0 }).sum(),
+        Expr::Lin { terms } => terms
+            .iter()
+            .map(|(k, x)| expr_badness(x) + if k.is_negative() { 1 } else { 0 })
+            .sum(),
         _ => 0,
     }
 }
@@ -695,10 +897,19 @@ pub struct Hints {
 }
 
 fn pick(cands: &[PointId], score: &dyn Fn(PointId) -> i64) -> Option<PointId> {
-    cands.iter().copied().max_by_key(|&p| (score(p), Reverse(p)))
+    cands
+        .iter()
+        .copied()
+        .max_by_key(|&p| (score(p), Reverse(p)))
 }
 
-pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
+pub fn angle_expr(
+    cx: &Ctx,
+    node: &LinComb,
+    directed: bool,
+    near: &[&[PointId]],
+    focus: &BTreeSet<PointId>,
+) -> Option<Expr> {
     let t = cx.t;
     let cl = classes(node);
     let pi = node.get(ANGLE_UNIT);
@@ -718,10 +929,18 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
         s
     };
     if cl.is_empty() {
-        let deg = if directed { &pi.mod_one() * &Rat::from_int(180) } else { &pi * &Rat::from_int(180) };
+        let deg = if directed {
+            &pi.mod_one() * &Rat::from_int(180)
+        } else {
+            &pi * &Rat::from_int(180)
+        };
         return Some(Expr::Const { degrees: deg });
     }
-    let (pos, neg) = if cl[0].1.is_negative() { (cl[1].0, cl[0].0) } else { (cl[0].0, cl[1].0) };
+    let (pos, neg) = if cl[0].1.is_negative() {
+        (cl[1].0, cl[0].0)
+    } else {
+        (cl[0].0, cl[1].0)
+    };
     let k = cl[0].1.abs();
     let m1 = &cx.quot.members[(pos - QBASE) as usize];
     let m2 = &cx.quot.members[(neg - QBASE) as usize];
@@ -739,40 +958,88 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
             }
             let c = rest.get(ANGLE_UNIT);
             let c = if directed { c.mod_one() } else { c };
-            let sc = sc - if c.is_zero() { 0 } else { 5 } - if !directed && c.is_negative() { 20 } else { 0 } - if kk.is_negative() { 10 } else { 0 };
+            let sc = sc
+                - if c.is_zero() { 0 } else { 5 }
+                - if !directed && c.is_negative() { 20 } else { 0 }
+                - if kk.is_negative() { 10 } else { 0 };
             if best.as_ref().is_none_or(|b| sc > b.0) {
                 *best = Some((sc, e.clone(), c, kk));
             }
         }
     };
     if let Some(y) = pick(&common, &score) {
-        let xs: Vec<PointId> = m2.iter().copied().filter(|&p| p != y && t.dir(y, p).is_some()).collect();
-        let zs: Vec<PointId> = m1.iter().copied().filter(|&p| p != y && t.dir(y, p).is_some()).collect();
+        let xs: Vec<PointId> = m2
+            .iter()
+            .copied()
+            .filter(|&p| p != y && t.dir(y, p).is_some())
+            .collect();
+        let zs: Vec<PointId> = m1
+            .iter()
+            .copied()
+            .filter(|&p| p != y && t.dir(y, p).is_some())
+            .collect();
         for &x in &xs {
             for &z in &zs {
                 let sc = score(x) + score(z) + score(y);
                 if directed {
                     if let (Some(a), Some(b)) = (t.dir(y, z), t.dir(y, x)) {
-                        consider(Expr::Angle { a: x, b: y, c: z, directed: true }, &a - &b, &mut best, sc);
+                        consider(
+                            Expr::Angle {
+                                a: x,
+                                b: y,
+                                c: z,
+                                directed: true,
+                            },
+                            &a - &b,
+                            &mut best,
+                            sc,
+                        );
                     }
                 } else {
                     if let Some(form) = interior(t, x, y, z) {
-                        consider(Expr::Angle { a: x, b: y, c: z, directed: false }, form, &mut best, sc);
+                        consider(
+                            Expr::Angle {
+                                a: x,
+                                b: y,
+                                c: z,
+                                directed: false,
+                            },
+                            form,
+                            &mut best,
+                            sc,
+                        );
                     }
                     if let Some(form) = interior(t, z, y, x) {
-                        consider(Expr::Angle { a: z, b: y, c: x, directed: false }, form, &mut best, sc);
+                        consider(
+                            Expr::Angle {
+                                a: z,
+                                b: y,
+                                c: x,
+                                directed: false,
+                            },
+                            form,
+                            &mut best,
+                            sc,
+                        );
                     }
                 }
             }
         }
     }
     if best.is_none() && !directed && std::env::var_os("HP_BFS").is_some() {
-        eprintln!("angle_expr undirected failed: common {:?} m1 {:?} m2 {:?} k {} node {:?}", common, m1, m2, k, node);
+        eprintln!(
+            "angle_expr undirected failed: common {:?} m1 {:?} m2 {:?} k {} node {:?}",
+            common, m1, m2, k, node
+        );
         if let Some(&y) = common.first() {
             for &x in m2.iter() {
                 for &z in m1.iter() {
                     if x != y && z != y {
-                        eprintln!("  interior({x},{y},{z}) = {:?}  q = {:?}", interior(t, x, y, z), interior(t, x, y, z).map(|f| cx.quot.q(&f)));
+                        eprintln!(
+                            "  interior({x},{y},{z}) = {:?}  q = {:?}",
+                            interior(t, x, y, z),
+                            interior(t, x, y, z).map(|f| cx.quot.q(&f))
+                        );
                     }
                 }
             }
@@ -783,7 +1050,16 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
         let l2 = line_pair(cx, m1, &score)?;
         let form = &t.dir(l2.0, l2.1)? - &t.dir(l1.0, l1.1)?;
         let sc = 0;
-        consider(Expr::LineAngle { l1, l2, directed: true }, form, &mut best, sc);
+        consider(
+            Expr::LineAngle {
+                l1,
+                l2,
+                directed: true,
+            },
+            form,
+            &mut best,
+            sc,
+        );
     }
     let (_, e, c, k) = best?;
     let mut terms: Vec<(Rat, Expr)> = Vec::new();
@@ -791,18 +1067,32 @@ pub fn angle_expr(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]],
         return Some(e);
     }
     if k.is_negative() && !c.is_zero() {
-        terms.push((Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
+        terms.push((
+            Rat::one(),
+            Expr::Const {
+                degrees: &c * &Rat::from_int(180),
+            },
+        ));
         terms.push((k, e));
         return Some(Expr::Lin { terms });
     }
     terms.push((k, e));
     if !c.is_zero() {
-        terms.push((Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
+        terms.push((
+            Rat::one(),
+            Expr::Const {
+                degrees: &c * &Rat::from_int(180),
+            },
+        ));
     }
     Some(Expr::Lin { terms })
 }
 
-fn line_pair(cx: &Ctx, m: &[PointId], score: &dyn Fn(PointId) -> i64) -> Option<(PointId, PointId)> {
+fn line_pair(
+    cx: &Ctx,
+    m: &[PointId],
+    score: &dyn Fn(PointId) -> i64,
+) -> Option<(PointId, PointId)> {
     let mut best: Option<(i64, (PointId, PointId))> = None;
     for (i, &a) in m.iter().enumerate() {
         for &b in &m[i + 1..] {
@@ -821,8 +1111,14 @@ fn line_pair(cx: &Ctx, m: &[PointId], score: &dyn Fn(PointId) -> i64) -> Option<
 pub fn atom_points(cx: &Ctx, a: &Atom) -> Vec<PointId> {
     match a.src {
         AtomSrc::Human(_) => a.args.clone(),
-        AtomSrc::Hyp(f) => cx.hyp_pred.get(&f).map(|p| p.points.clone()).unwrap_or_default(),
-        AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => super::classify::fact_points(cx, f),
+        AtomSrc::Hyp(f) => cx
+            .hyp_pred
+            .get(&f)
+            .map(|p| p.points.clone())
+            .unwrap_or_default(),
+        AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => {
+            super::classify::fact_points(cx, f)
+        }
     }
 }
 
@@ -845,15 +1141,32 @@ pub fn ratio_expr(cx: &Ctx, c: &LinComb) -> Expr {
         let base = if let Some(&(a, b)) = seg_of.get(v) {
             Some(Expr::Seg { a, b })
         } else if let Some(s) = t.sines.iter().find(|s| s.var == *v) {
-            let ang = Expr::Angle { a: s.q, b: s.v, c: s.p, directed: false };
+            let ang = Expr::Angle {
+                a: s.q,
+                b: s.v,
+                c: s.p,
+                directed: false,
+            };
             if s.shift.mod_one() == Rat::new(1, 2) {
-                Some(Expr::Cos { angle: Box::new(ang) })
+                Some(Expr::Cos {
+                    angle: Box::new(ang),
+                })
             } else if s.shift.is_zero() {
-                Some(Expr::Sin { angle: Box::new(ang) })
+                Some(Expr::Sin {
+                    angle: Box::new(ang),
+                })
             } else {
                 let d = &s.shift.mod_one() * &Rat::from_int(180);
-                let sign = if s.flip { Rat::from_int(-1) } else { Rat::one() };
-                Some(Expr::Sin { angle: Box::new(Expr::Lin { terms: vec![(sign, ang), (Rat::one(), Expr::Const { degrees: d })] }) })
+                let sign = if s.flip {
+                    Rat::from_int(-1)
+                } else {
+                    Rat::one()
+                };
+                Some(Expr::Sin {
+                    angle: Box::new(Expr::Lin {
+                        terms: vec![(sign, ang), (Rat::one(), Expr::Const { degrees: d })],
+                    }),
+                })
             }
         } else if let Some(&(p, _)) = t.primes.iter().find(|x| x.1 == *v) {
             if k.is_integer() {
@@ -867,7 +1180,9 @@ pub fn ratio_expr(cx: &Ctx, c: &LinComb) -> Expr {
                 }
                 None
             } else {
-                Some(Expr::Num { value: Rat::from_int(p as i64) })
+                Some(Expr::Num {
+                    value: Rat::from_int(p as i64),
+                })
             }
         } else {
             None
@@ -882,11 +1197,21 @@ pub fn ratio_expr(cx: &Ctx, c: &LinComb) -> Expr {
     }
     let mut factors: Vec<(Expr, i32)> = Vec::new();
     if konst.numer_i64().is_some_and(|n| n != 1) {
-        factors.push((Expr::Num { value: Rat::from_int(konst.numer_i64().unwrap()) }, 1));
+        factors.push((
+            Expr::Num {
+                value: Rat::from_int(konst.numer_i64().unwrap()),
+            },
+            1,
+        ));
     }
     factors.extend(num);
     if konst.denom_i64().is_some_and(|n| n != 1) {
-        factors.push((Expr::Num { value: Rat::from_int(konst.denom_i64().unwrap()) }, -1));
+        factors.push((
+            Expr::Num {
+                value: Rat::from_int(konst.denom_i64().unwrap()),
+            },
+            -1,
+        ));
     }
     for (b, e) in den {
         factors.push((b, -e));

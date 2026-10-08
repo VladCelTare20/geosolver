@@ -61,7 +61,10 @@ impl Term {
             args: self
                 .args
                 .iter()
-                .map(|a| map.get(a.as_str()).map_or_else(|| a.clone(), |s| s.to_string()))
+                .map(|a| {
+                    map.get(a.as_str())
+                        .map_or_else(|| a.clone(), |s| s.to_string())
+                })
                 .collect(),
         }
     }
@@ -132,7 +135,10 @@ pub fn parse_definitions(text: &str) -> Result<HashMap<String, Definition>, Stri
             .collect();
         for a in &inputs {
             if !header.args.contains(a) {
-                return Err(format!("defs: `{}` input `{a}` is not an argument", header.name));
+                return Err(format!(
+                    "defs: `{}` input `{a}` is not an argument",
+                    header.name
+                ));
             }
         }
         out.insert(
@@ -493,7 +499,10 @@ impl Figure {
             return 1.0;
         }
         let c = self.centroid();
-        self.pts().map(|p| (p - c).norm()).fold(0.0, f64::max).max(1e-9)
+        self.pts()
+            .map(|p| (p - c).norm())
+            .fold(0.0, f64::max)
+            .max(1e-9)
     }
     fn random_point(&self, rng: &mut Rng) -> Vec2 {
         if self.names.len() < 2 {
@@ -817,7 +826,11 @@ fn sketch_raw(name: &str, args: &[NArg], fig: &Figure, rng: &mut Rng) -> Res<Ske
                 .map(|k| (k as f64 + rng.range(-0.3, 0.3)) * 2.0 * PI / 5.0)
                 .collect();
             ts.sort_by(|x, y| x.partial_cmp(y).unwrap());
-            Points(ts.iter().map(|&t| c + unit_at(t) * rng.range(0.8, 1.2)).collect())
+            Points(
+                ts.iter()
+                    .map(|&t| c + unit_at(t) * rng.range(0.8, 1.2))
+                    .collect(),
+            )
         }
         "trapezoid" => {
             let [a, b, c] = random_triangle(rng);
@@ -925,7 +938,12 @@ fn sketch_raw(name: &str, args: &[NArg], fig: &Figure, rng: &mut Rng) -> Res<Ske
         "excenter2" => Points(tritangent(p(0)?, p(1)?, p(2)?, true)?),
         "centroid" => {
             let (a, b, c) = (p(0)?, p(1)?, p(2)?);
-            Points(vec![mid(b, c), mid(c, a), mid(a, b), (a + b + c) * (1.0 / 3.0)])
+            Points(vec![
+                mid(b, c),
+                mid(c, a),
+                mid(a, b),
+                (a + b + c) * (1.0 / 3.0),
+            ])
         }
         "ninepoints" => {
             let (a, b, c) = (p(0)?, p(1)?, p(2)?);
@@ -1011,8 +1029,18 @@ fn holds(name: &str, x: &[Vec2], nums: &[f64], scale: f64) -> Option<bool> {
                 && (0..x.len()).all(|i| ((i + 1)..x.len()).all(|j| nonzero(i, j)))
         }
         "diff" => need(2) && nonzero(0, 1),
-        "para" => need(4) && nonzero(0, 1) && nonzero(2, 3) && ang_mod_pi(dir(0, 1) - dir(2, 3)).abs() < atol,
-        "npara" => need(4) && nonzero(0, 1) && nonzero(2, 3) && ang_mod_pi(dir(0, 1) - dir(2, 3)).abs() > 1e-4,
+        "para" => {
+            need(4)
+                && nonzero(0, 1)
+                && nonzero(2, 3)
+                && ang_mod_pi(dir(0, 1) - dir(2, 3)).abs() < atol
+        }
+        "npara" => {
+            need(4)
+                && nonzero(0, 1)
+                && nonzero(2, 3)
+                && ang_mod_pi(dir(0, 1) - dir(2, 3)).abs() > 1e-4
+        }
         "perp" => {
             need(4)
                 && nonzero(0, 1)
@@ -1047,7 +1075,9 @@ fn holds(name: &str, x: &[Vec2], nums: &[f64], scale: f64) -> Option<bool> {
         }
         "eqangle" => {
             need(8)
-                && [(0, 1), (2, 3), (4, 5), (6, 7)].iter().all(|&(i, j)| nonzero(i, j))
+                && [(0, 1), (2, 3), (4, 5), (6, 7)]
+                    .iter()
+                    .all(|&(i, j)| nonzero(i, j))
                 && ang_mod_pi(dir(0, 1) - dir(2, 3) - dir(4, 5) + dir(6, 7)).abs() < atol
         }
         "eqratio" => {
@@ -1061,7 +1091,9 @@ fn holds(name: &str, x: &[Vec2], nums: &[f64], scale: f64) -> Option<bool> {
                 && nonzero(2, 3)
                 && ang_mod_pi(dir(0, 1) - dir(2, 3) - nums.first()?.to_radians()).abs() < atol
         }
-        "rconst" => need(4) && nonzero(2, 3) && (dist(0, 1) / dist(2, 3) - nums.first()?).abs() < 1e-7,
+        "rconst" => {
+            need(4) && nonzero(2, 3) && (dist(0, 1) / dist(2, 3) - nums.first()?).abs() < 1e-7
+        }
         _ => return None,
     })
 }
@@ -1131,7 +1163,12 @@ fn lower_premise(t: &Term) -> Result<Vec<NamedPred>, String> {
             }
             Ok(vec![NamedPred {
                 name: "aconst".into(),
-                points: vec![pts[1].clone(), pts[2].clone(), pts[1].clone(), pts[0].clone()],
+                points: vec![
+                    pts[1].clone(),
+                    pts[2].clone(),
+                    pts[1].clone(),
+                    pts[0].clone(),
+                ],
                 constants: vec![y],
             }])
         }
@@ -1154,7 +1191,10 @@ fn lower_premise(t: &Term) -> Result<Vec<NamedPred>, String> {
     }
 }
 
-fn lower_goal(t: &Term, same_orientation: impl Fn(&[String]) -> bool) -> Result<Vec<NamedPred>, String> {
+fn lower_goal(
+    t: &Term,
+    same_orientation: impl Fn(&[String]) -> bool,
+) -> Result<Vec<NamedPred>, String> {
     let p = |name: &str, pts: &[&String]| NamedPred {
         name: name.to_string(),
         points: pts.iter().map(|s| s.to_string()).collect(),
@@ -1289,11 +1329,16 @@ fn sample(prob: &AgProblem, seed: u64) -> Res<Sampled> {
                     .iter()
                     .map(|a| {
                         if is_number(a) {
-                            parse_rat(a).map(|r| NArg::N(r.to_f64())).map_err(Fail::Fatal)
+                            parse_rat(a)
+                                .map(|r| NArg::N(r.to_f64()))
+                                .map_err(Fail::Fatal)
                         } else {
-                            fig.coords.get(a.as_str()).map(|&p| NArg::P(p)).ok_or_else(|| {
-                                Fail::Fatal(format!("sketch `{nt}` uses undefined `{a}`"))
-                            })
+                            fig.coords
+                                .get(a.as_str())
+                                .map(|&p| NArg::P(p))
+                                .ok_or_else(|| {
+                                    Fail::Fatal(format!("sketch `{nt}` uses undefined `{a}`"))
+                                })
                         }
                     })
                     .collect::<Res<Vec<_>>>()?;
@@ -1442,7 +1487,11 @@ fn to_predicate(np: &NamedPred, ids: &HashMap<String, PointId>) -> Predicate {
 /// never holds, the last premise-valid figure is returned with
 /// `goal_holds == false`; if no figure satisfies the premises, the last
 /// failure reason is returned as the error.
-pub fn translate(prob: &AgProblem, first_seed: u64, max_attempts: u32) -> Result<Translation, String> {
+pub fn translate(
+    prob: &AgProblem,
+    first_seed: u64,
+    max_attempts: u32,
+) -> Result<Translation, String> {
     let n: usize = prob.clauses.iter().map(|c| c.points.len()).sum();
     if n > crate::lowlevel::MAX_POINTS {
         return Err(format!(
@@ -1468,7 +1517,9 @@ pub fn translate(prob: &AgProblem, first_seed: u64, max_attempts: u32) -> Result
     }
     match fallback {
         Some((seed, _, s)) => Ok(build_translation(s, seed, max_attempts)),
-        None => Err(format!("no valid figure in {max_attempts} samples: {last_err}")),
+        None => Err(format!(
+            "no valid figure in {max_attempts} samples: {last_err}"
+        )),
     }
 }
 
@@ -1612,9 +1663,19 @@ pub fn engine_goal(problem: &Problem, goal: &Term) -> Option<Predicate> {
     let points = goal
         .args
         .iter()
-        .map(|a| problem.points.iter().position(|p| &p.name == a).map(|i| i as PointId))
+        .map(|a| {
+            problem
+                .points
+                .iter()
+                .position(|p| &p.name == a)
+                .map(|i| i as PointId)
+        })
         .collect::<Option<Vec<_>>>()?;
-    Some(Predicate { name: goal.name.clone(), points, constants: Vec::new() })
+    Some(Predicate {
+        name: goal.name.clone(),
+        points,
+        constants: Vec::new(),
+    })
 }
 
 /// Lower a `midp`/`simtri`/`contri` goal of a low-level problem to its engine
@@ -1629,7 +1690,11 @@ pub fn lower_engine_goal(problem: &Problem, goal: &Predicate) -> Option<Vec<Pred
         .collect();
     let term = Term {
         name: goal.name.clone(),
-        args: goal.points.iter().map(|&i| problem.point_name(i).to_string()).collect(),
+        args: goal
+            .points
+            .iter()
+            .map(|&i| problem.point_name(i).to_string())
+            .collect(),
     };
     let at = |n: &String| problem.points[ids[n.as_str()] as usize].value;
     let same = |a: &[String]| {
@@ -1642,7 +1707,11 @@ pub fn lower_engine_goal(problem: &Problem, goal: &Predicate) -> Option<Vec<Pred
         .map(|np| {
             Some(Predicate {
                 name: np.name,
-                points: np.points.iter().map(|n| ids.get(n.as_str()).copied()).collect::<Option<Vec<_>>>()?,
+                points: np
+                    .points
+                    .iter()
+                    .map(|n| ids.get(n.as_str()).copied())
+                    .collect::<Option<Vec<_>>>()?,
                 constants: np.constants,
             })
         })
@@ -1691,7 +1760,10 @@ mod tests {
         assert_eq!(inc.premises.len(), 11);
         assert_eq!(d["triangle"].new_points, vec!["a", "b", "c"]);
         assert_eq!(d["square"].new_points, vec!["x", "y"]);
-        assert_eq!(d["on_tline"].numerics, vec![Term::parse("tline a b c").unwrap()]);
+        assert_eq!(
+            d["on_tline"].numerics,
+            vec![Term::parse("tline a b c").unwrap()]
+        );
     }
 
     #[test]
@@ -1703,10 +1775,14 @@ mod tests {
 
     #[test]
     fn unknown_constructions_are_reported() {
-        let e = parse_problem("t", "a b c = triangle a b c; d = frobnicate d a b ? coll a b d")
-            .unwrap_err();
+        let e = parse_problem(
+            "t",
+            "a b c = triangle a b c; d = frobnicate d a b ? coll a b d",
+        )
+        .unwrap_err();
         assert!(e.contains("unknown construction `frobnicate`"), "{e}");
-        let e = parse_problem("t", "a b c = triangle a b c; d = on_line d ? coll a b d").unwrap_err();
+        let e =
+            parse_problem("t", "a b c = triangle a b c; d = on_line d ? coll a b d").unwrap_err();
         assert!(e.contains("argument mismatch"), "{e}");
     }
 
@@ -1768,7 +1844,11 @@ mod tests {
         // figure on which all of its premises hold.
         for (name, def) in definitions() {
             let generic = ["ncoll", "diff", "npara", "nperp"];
-            if def.preconditions.iter().any(|p| !generic.contains(&p.name.as_str())) {
+            if def
+                .preconditions
+                .iter()
+                .any(|p| !generic.contains(&p.name.as_str()))
+            {
                 continue;
             }
             let mut text = String::from("p1 p2 p3 p4 = quadrangle p1 p2 p3 p4; ");
@@ -1793,7 +1873,12 @@ mod tests {
             if news.is_empty() {
                 continue;
             }
-            text.push_str(&format!("{} = {} {} ? coll p1 p1 p2", news.join(" "), name, args.join(" ")));
+            text.push_str(&format!(
+                "{} = {} {} ? coll p1 p1 p2",
+                news.join(" "),
+                name,
+                args.join(" ")
+            ));
             let p = parse_problem(name, &text).expect("parses");
             let mut ok = false;
             let mut last = String::new();

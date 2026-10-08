@@ -67,7 +67,9 @@ fn mark(cx: f32, cy: f32, size: f32, color: &str, stroke: f32) -> String {
 }
 
 fn icon_svg(w: u32, h: u32, bg: Option<&str>, mark_size: f32, color: &str, stroke: f32) -> String {
-    let bg = bg.map_or(String::new(), |c| format!("<rect width=\"{w}\" height=\"{h}\" fill=\"{c}\"/>"));
+    let bg = bg.map_or(String::new(), |c| {
+        format!("<rect width=\"{w}\" height=\"{h}\" fill=\"{c}\"/>")
+    });
     format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">{bg}{}</svg>",
         mark(w as f32 / 2.0, h as f32 / 2.0, mark_size, color, stroke)
@@ -78,7 +80,11 @@ fn rasterize(svg: &str) -> Option<tiny_skia::Pixmap> {
     let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).ok()?;
     let size = tree.size().to_int_size();
     let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height())?;
-    resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::identity(),
+        &mut pixmap.as_mut(),
+    );
     Some(pixmap)
 }
 
@@ -86,7 +92,11 @@ fn rasterize(svg: &str) -> Option<tiny_skia::Pixmap> {
 /// has no transparent pixels to fill with black).
 fn opaque_png(svg: &str) -> Option<Vec<u8>> {
     let pixmap = rasterize(svg)?;
-    let rgb: Vec<u8> = pixmap.data().chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+    let rgb: Vec<u8> = pixmap
+        .data()
+        .chunks_exact(4)
+        .flat_map(|p| [p[0], p[1], p[2]])
+        .collect();
     let mut out = Vec::new();
     {
         let mut enc = png::Encoder::new(&mut out, pixmap.width(), pixmap.height());
@@ -117,24 +127,50 @@ pub fn icon(name: &str) -> Option<&'static [u8]> {
     static CACHE: OnceLock<Mutex<HashMap<&'static str, &'static [u8]>>> = OnceLock::new();
     let (key, build): (&'static str, RenderFn) = match name {
         "apple-touch-icon.png" => ("apple-touch-icon.png", || {
-            opaque_png(&icon_svg(180, 180, Some(LIGHT_BG), 180.0 * 0.68, ACCENT, 2.4))
+            opaque_png(&icon_svg(
+                180,
+                180,
+                Some(LIGHT_BG),
+                180.0 * 0.68,
+                ACCENT,
+                2.4,
+            ))
         }),
         "icon-192.png" => ("icon-192.png", || {
-            opaque_png(&icon_svg(192, 192, Some(LIGHT_BG), 192.0 * 0.68, ACCENT, 2.4))
+            opaque_png(&icon_svg(
+                192,
+                192,
+                Some(LIGHT_BG),
+                192.0 * 0.68,
+                ACCENT,
+                2.4,
+            ))
         }),
         "icon-512.png" => ("icon-512.png", || {
-            opaque_png(&icon_svg(512, 512, Some(LIGHT_BG), 512.0 * 0.68, ACCENT, 2.2))
+            opaque_png(&icon_svg(
+                512,
+                512,
+                Some(LIGHT_BG),
+                512.0 * 0.68,
+                ACCENT,
+                2.2,
+            ))
         }),
         "icon-maskable-512.png" => ("icon-maskable-512.png", || {
             opaque_png(&icon_svg(512, 512, Some(ACCENT), 300.0, "#ffffff", 2.2))
         }),
         "favicon.ico" => ("favicon.ico", || {
-            let png = rasterize(&icon_svg(32, 32, None, 31.0, ACCENT, 2.6))?.encode_png().ok()?;
+            let png = rasterize(&icon_svg(32, 32, None, 31.0, ACCENT, 2.6))?
+                .encode_png()
+                .ok()?;
             Some(ico_of_png(&png, 32))
         }),
         _ => return None,
     };
-    let mut m = CACHE.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut m = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(b) = m.get(key) {
         return Some(b);
     }
@@ -153,7 +189,9 @@ fn splash_spec(name: &str) -> Option<(u32, u32, bool, u32)> {
     };
     let (w, h) = dims.split_once('x')?;
     let (w, h): (u32, u32) = (w.parse().ok()?, h.parse().ok()?);
-    let &(_, _, r) = SPLASH_SCREENS.iter().find(|&&(cw, ch, r)| cw * r == w && ch * r == h)?;
+    let &(_, _, r) = SPLASH_SCREENS
+        .iter()
+        .find(|&&(cw, ch, r)| cw * r == w && ch * r == h)?;
     Some((w, h, dark, r))
 }
 
@@ -161,11 +199,18 @@ fn splash_spec(name: &str) -> Option<(u32, u32, bool, u32)> {
 pub fn splash(name: &str) -> Option<&'static [u8]> {
     static CACHE: OnceLock<Mutex<HashMap<String, &'static [u8]>>> = OnceLock::new();
     let (w, h, dark, r) = splash_spec(name)?;
-    let mut m = CACHE.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut m = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(b) = m.get(name) {
         return Some(b);
     }
-    let (bg, fg) = if dark { (DARK_BG, DARK_ACCENT) } else { (LIGHT_BG, ACCENT) };
+    let (bg, fg) = if dark {
+        (DARK_BG, DARK_ACCENT)
+    } else {
+        (LIGHT_BG, ACCENT)
+    };
     let png = opaque_png(&icon_svg(w, h, Some(bg), 120.0 * r as f32, fg, 2.0))?;
     let bytes: &'static [u8] = Box::leak(png.into_boxed_slice());
     m.insert(name.to_string(), bytes);
@@ -217,9 +262,18 @@ pub fn manifest_for(lang: crate::i18n::Lang) -> String {
 pub async fn manifest(headers: axum::http::HeaderMap) -> Response {
     (
         [
-            (header::CONTENT_TYPE, HeaderValue::from_static("application/manifest+json")),
-            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400")),
-            (header::VARY, HeaderValue::from_static("Accept-Language, Cookie")),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/manifest+json"),
+            ),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=86400"),
+            ),
+            (
+                header::VARY,
+                HeaderValue::from_static("Accept-Language, Cookie"),
+            ),
         ],
         manifest_for(crate::i18n::lang_from_headers(&headers)),
     )
@@ -245,7 +299,10 @@ pub async fn apple_touch_icon() -> Response {
 }
 
 pub async fn icon_file(Path(file): Path<String>) -> Response {
-    let known = matches!(file.as_str(), "icon-192.png" | "icon-512.png" | "icon-maskable-512.png");
+    let known = matches!(
+        file.as_str(),
+        "icon-192.png" | "icon-512.png" | "icon-maskable-512.png"
+    );
     match icon(&file).filter(|_| known) {
         Some(b) => bytes("image/png", ICON_CACHE, b),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -260,7 +317,11 @@ pub async fn splash_file(Path(file): Path<String>) -> Response {
 }
 
 pub async fn robots() -> Response {
-    bytes("text/plain; charset=utf-8", "public, max-age=86400", ROBOTS.as_bytes())
+    bytes(
+        "text/plain; charset=utf-8",
+        "public, max-age=86400",
+        ROBOTS.as_bytes(),
+    )
 }
 
 pub const LICENSES: &str = concat!(
@@ -270,7 +331,11 @@ pub const LICENSES: &str = concat!(
 );
 
 pub async fn licenses() -> Response {
-    bytes("text/plain; charset=utf-8", "public, max-age=86400", LICENSES.as_bytes())
+    bytes(
+        "text/plain; charset=utf-8",
+        "public, max-age=86400",
+        LICENSES.as_bytes(),
+    )
 }
 
 #[cfg(test)]
@@ -305,20 +370,43 @@ mod tests {
 
     #[test]
     fn the_mark_is_drawn_with_a_visible_stroke() {
-        let p = rasterize(&icon_svg(180, 180, Some(LIGHT_BG), 180.0 * 0.68, ACCENT, 2.4)).unwrap();
+        let p = rasterize(&icon_svg(
+            180,
+            180,
+            Some(LIGHT_BG),
+            180.0 * 0.68,
+            ACCENT,
+            2.4,
+        ))
+        .unwrap();
         let px = |x: u32, y: u32| {
             let c = p.pixel(x, y).unwrap();
             (c.red(), c.green(), c.blue())
         };
-        assert_eq!(px(2, 2), (0xf7, 0xf7, 0xf5), "corner is the light background");
+        assert_eq!(
+            px(2, 2),
+            (0xf7, 0xf7, 0xf5),
+            "corner is the light background"
+        );
         let accent = (0x1f, 0x4f, 0xa0);
         let ring: Vec<u32> = (0..90).filter(|&x| px(x, 90) == accent).collect();
-        assert!(ring.len() >= 6, "the circle's stroke is at least 6 px wide: {ring:?}");
+        assert!(
+            ring.len() >= 6,
+            "the circle's stroke is at least 6 px wide: {ring:?}"
+        );
         let outer = 90 - ring[0];
-        assert!((58..=64).contains(&outer), "mark ≈ 68 % of the width: radius {outer}");
+        assert!(
+            (58..=64).contains(&outer),
+            "mark ≈ 68 % of the width: radius {outer}"
+        );
         let m = rasterize(&icon_svg(512, 512, Some(ACCENT), 300.0, "#ffffff", 2.2)).unwrap();
-        let white: Vec<u32> = (0..256).filter(|&x| m.pixel(x, 256).unwrap().red() == 255).collect();
-        assert!(256 - white[0] <= 204, "maskable mark inside the 80 % safe circle");
+        let white: Vec<u32> = (0..256)
+            .filter(|&x| m.pixel(x, 256).unwrap().red() == 255)
+            .collect();
+        assert!(
+            256 - white[0] <= 204,
+            "maskable mark inside the 80 % safe circle"
+        );
     }
 
     #[test]
@@ -326,11 +414,23 @@ mod tests {
         use crate::i18n::Lang;
         let en: serde_json::Value = serde_json::from_str(&manifest_for(Lang::En)).unwrap();
         assert_eq!(en["lang"], "en");
-        assert!(en["description"].as_str().unwrap().starts_with("Describe, photograph or write"), "{en}");
+        assert!(
+            en["description"]
+                .as_str()
+                .unwrap()
+                .starts_with("Describe, photograph or write"),
+            "{en}"
+        );
         assert!(!MANIFEST.contains("Draw the figure"));
         let ro: serde_json::Value = serde_json::from_str(&manifest_for(Lang::Ro)).unwrap();
         assert_eq!(ro["lang"], "ro");
-        assert!(ro["description"].as_str().unwrap().starts_with("Descrie, fotografiază"), "{ro}");
+        assert!(
+            ro["description"]
+                .as_str()
+                .unwrap()
+                .starts_with("Descrie, fotografiază"),
+            "{ro}"
+        );
         assert_eq!(ro["icons"], en["icons"]);
     }
 
@@ -340,8 +440,12 @@ mod tests {
         assert_eq!(m["display"], "standalone");
         assert_eq!(m["start_url"], "/");
         assert_eq!(m["name"], "GeoSolver");
-        let pngs: Vec<&serde_json::Value> =
-            m["icons"].as_array().unwrap().iter().filter(|i| i["type"] == "image/png").collect();
+        let pngs: Vec<&serde_json::Value> = m["icons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["type"] == "image/png")
+            .collect();
         assert_eq!(pngs.len(), 3);
         for i in pngs {
             let file = i["src"].as_str().unwrap().strip_prefix("/icons/").unwrap();

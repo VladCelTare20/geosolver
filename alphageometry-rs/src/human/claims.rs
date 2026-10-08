@@ -1,14 +1,21 @@
 use super::atoms::{build_all, Atom, AtomSrc};
 use super::cert::certify_greedy;
-use super::chain::{atom_points, bfs, classes, decomps, decomps_upto, display_node, expr_badness, order_items, order_items_mode, ratio_expr, ratio_splits, ratio_splits_loose, single_angle, term_comb, Group, Path};
+use super::chain::{
+    atom_points, bfs, classes, decomps, decomps_upto, display_node, expr_badness, order_items,
+    order_items_mode, ratio_expr, ratio_splits, ratio_splits_loose, single_angle, term_comb, Group,
+    Path,
+};
+use super::classify::{
+    coll_targets, cyc_forms, fact_obligations, fact_points, fact_stmt, goal_obligations, kind,
+    pred_stmt, Kind, Obl, Target,
+};
 use super::ctx::QBASE;
-use crate::lincomb::VarId;
-use super::classify::{coll_targets, cyc_forms, fact_obligations, fact_points, fact_stmt, goal_obligations, kind, pred_stmt, Kind, Obl, Target};
 use super::ctx::{Ctx, FactClass};
 use super::model::*;
 use super::trace::Table;
 use crate::elimination::ANGLE_UNIT;
 use crate::lincomb::LinComb;
+use crate::lincomb::VarId;
 use crate::predicate::PointId;
 use crate::proof::{FactId, Reason as ER};
 use crate::rational::Rat;
@@ -100,7 +107,10 @@ impl LemmaCand {
 
 pub fn reason_stmt(r: &Reason) -> Option<&Stmt> {
     match r {
-        Reason::Hyp { stmt, .. } | Reason::Atom { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Lemma { stmt, .. } => Some(stmt),
+        Reason::Hyp { stmt, .. }
+        | Reason::Atom { stmt, .. }
+        | Reason::Fact { stmt, .. }
+        | Reason::Lemma { stmt, .. } => Some(stmt),
         _ => None,
     }
 }
@@ -108,7 +118,9 @@ pub fn reason_stmt(r: &Reason) -> Option<&Stmt> {
 pub fn same_cong(a: &Stmt, b: &Stmt) -> bool {
     let n = |x: (PointId, PointId)| (x.0.min(x.1), x.0.max(x.1));
     match (a, b) {
-        (Stmt::Cong { s1, s2 }, Stmt::Cong { s1: t1, s2: t2 }) => (n(*s1) == n(*t1) && n(*s2) == n(*t2)) || (n(*s1) == n(*t2) && n(*s2) == n(*t1)),
+        (Stmt::Cong { s1, s2 }, Stmt::Cong { s1: t1, s2: t2 }) => {
+            (n(*s1) == n(*t1) && n(*s2) == n(*t2)) || (n(*s1) == n(*t2) && n(*s2) == n(*t1))
+        }
         _ => a == b,
     }
 }
@@ -126,16 +138,40 @@ fn item_points(w: &Writer, i: usize, lem: &[LemmaRef]) -> Vec<PointId> {
     }
 }
 
-fn reduce_items(work: &[(usize, Rat, LinComb)], c: &LemmaCand, id: usize) -> Vec<(usize, Rat, LinComb)> {
-    let mut out: Vec<(usize, Rat, LinComb)> = work.iter().enumerate().filter(|(k, _)| !c.members.contains(k)).map(|(_, x)| x.clone()).collect();
+fn reduce_items(
+    work: &[(usize, Rat, LinComb)],
+    c: &LemmaCand,
+    id: usize,
+) -> Vec<(usize, Rat, LinComb)> {
+    let mut out: Vec<(usize, Rat, LinComb)> = work
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| !c.members.contains(k))
+        .map(|(_, x)| x.clone())
+        .collect();
     out.push((id, Rat::one(), c.sum.clone()));
     out
 }
 
 fn flip_reciprocal_chain(s: &mut Sentence) {
-    let Sentence::Chain { terms, links, then: None, .. } = s else { return };
+    let Sentence::Chain {
+        terms,
+        links,
+        then: None,
+        ..
+    } = s
+    else {
+        return;
+    };
     let reciprocal = |e: &Expr| match e {
-        Expr::Prod { factors } => factors.iter().any(|(x, k)| *k < 0 && !matches!(x, Expr::Num { .. })) && factors.iter().all(|(x, k)| *k < 0 || matches!(x, Expr::Num { .. })),
+        Expr::Prod { factors } => {
+            factors
+                .iter()
+                .any(|(x, k)| *k < 0 && !matches!(x, Expr::Num { .. }))
+                && factors
+                    .iter()
+                    .all(|(x, k)| *k < 0 || matches!(x, Expr::Num { .. }))
+        }
         _ => false,
     };
     if terms.len() < 2 || !terms.iter().all(reciprocal) {
@@ -172,7 +208,9 @@ pub fn sentence_reasons_mut(s: &mut Sentence, f: &mut dyn FnMut(&mut Reason)) {
                 }
             }
         }
-        Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => {
+        Sentence::Because { reasons, .. }
+        | Sentence::Pooled { reasons, .. }
+        | Sentence::Theorem { reasons, .. } => {
             for r in reasons.iter_mut() {
                 go(r, f);
             }
@@ -193,7 +231,11 @@ fn clean_because(parent: &Stmt, because: Vec<Reason>) -> Vec<Reason> {
     let mut out: Vec<Reason> = Vec::new();
     for b in because {
         let lifted: Vec<Reason> = match b {
-            Reason::Fact { ref stmt, because: ref inner, .. } if same_cong(stmt, parent) => clean_because(parent, inner.clone()),
+            Reason::Fact {
+                ref stmt,
+                because: ref inner,
+                ..
+            } if same_cong(stmt, parent) => clean_because(parent, inner.clone()),
             ref x if restating(parent, x) => Vec::new(),
             x => vec![x],
         };
@@ -222,7 +264,12 @@ pub fn drop_self_reasons(blocks: &mut [Block]) {
 fn shift_pending(ss: &mut [Sentence], off: usize) {
     for s in ss.iter_mut() {
         sentence_reasons_mut(s, &mut |r| {
-            if let Reason::Lemma { block: PENDING_BLOCK, sentence, .. } = r {
+            if let Reason::Lemma {
+                block: PENDING_BLOCK,
+                sentence,
+                ..
+            } = r
+            {
                 *sentence += off as u16;
             }
         });
@@ -241,7 +288,12 @@ fn bind_pending(ss: &mut [Sentence], id: u16) {
     }
 }
 
-fn path_from_groups(split: usize, l: &LinComb, items: &[(usize, Rat, LinComb)], groups: &[Vec<usize>]) -> Path {
+fn path_from_groups(
+    split: usize,
+    l: &LinComb,
+    items: &[(usize, Rat, LinComb)],
+    groups: &[Vec<usize>],
+) -> Path {
     let mut nodes = vec![l.clone()];
     let mut links: Vec<Group> = Vec::new();
     let mut cur = l.clone();
@@ -254,7 +306,13 @@ fn path_from_groups(split: usize, l: &LinComb, items: &[(usize, Rat, LinComb)], 
         nodes.push(cur.clone());
         links.push(grp);
     }
-    Path { split, nodes, links, weight: 0, undirected: false }
+    Path {
+        split,
+        nodes,
+        links,
+        weight: 0,
+        undirected: false,
+    }
 }
 
 pub const GOAL: FactId = FactId::MAX - 1;
@@ -302,7 +360,9 @@ pub struct Writer<'c, 'a> {
     pub nodes: BTreeMap<FactId, Node>,
     pub claim_cost: BTreeSet<FactId>,
     pub bfs_budget: usize,
-    pub span_cache: std::sync::Mutex<BTreeMap<(FactId, Option<FactId>), std::sync::Arc<Vec<super::cert::Basis>>>>,
+    pub span_cache: std::sync::Mutex<
+        BTreeMap<(FactId, Option<FactId>), std::sync::Arc<Vec<super::cert::Basis>>>,
+    >,
     pub extra: Vec<u32>,
     pub route_spent: std::sync::atomic::AtomicUsize,
 }
@@ -313,11 +373,20 @@ pub fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx
     }
     let mut cost = atom.cost;
     if let Some(f) = atom.fact() {
-        if claims.contains(&cx.displayable(f)) && matches!(atom.src, AtomSrc::Engine(_) | AtomSrc::Line(_)) {
+        if claims.contains(&cx.displayable(f))
+            && matches!(atom.src, AtomSrc::Engine(_) | AtomSrc::Line(_))
+        {
             cost = 1;
         }
     }
-    let foreign = if atom.pts.is_empty() { atom_points(cx, atom).iter().filter(|p| !focus.contains(p)).count() } else { atom.pts.iter().filter(|p| !focus.contains(p)).count() } as u32;
+    let foreign = if atom.pts.is_empty() {
+        atom_points(cx, atom)
+            .iter()
+            .filter(|p| !focus.contains(p))
+            .count()
+    } else {
+        atom.pts.iter().filter(|p| !focus.contains(p)).count()
+    } as u32;
     cost * 4 + foreign.min(4) + atom.sources.len() as u32
 }
 
@@ -325,10 +394,26 @@ impl<'c, 'a> Writer<'c, 'a> {
     pub fn new(cx: &'c Ctx<'a>) -> Writer<'c, 'a> {
         let atoms = build_all(cx);
         let extra = vec![0; atoms.len()];
-        Writer { cx, atoms, nodes: BTreeMap::new(), claim_cost: BTreeSet::new(), bfs_budget: 20_000, span_cache: std::sync::Mutex::new(BTreeMap::new()), extra, route_spent: std::sync::atomic::AtomicUsize::new(0) }
+        Writer {
+            cx,
+            atoms,
+            nodes: BTreeMap::new(),
+            claim_cost: BTreeSet::new(),
+            bfs_budget: 20_000,
+            span_cache: std::sync::Mutex::new(BTreeMap::new()),
+            extra,
+            route_spent: std::sync::atomic::AtomicUsize::new(0),
+        }
     }
 
-    pub fn certify(&self, tb: Table, target: &LinComb, h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(Vec<(usize, Rat)>, i64)> {
+    pub fn certify(
+        &self,
+        tb: Table,
+        target: &LinComb,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        exclude: Option<FactId>,
+    ) -> Option<(Vec<(usize, Rat)>, i64)> {
         let mut banned: BTreeSet<usize> = BTreeSet::new();
         let mut best = self.certify_inner(tb, target, h, focus, exclude, &banned)?;
         for _ in 0..6 {
@@ -354,11 +439,22 @@ impl<'c, 'a> Writer<'c, 'a> {
         Some(best)
     }
 
-    pub fn certify_banned(&self, tb: Table, target: &LinComb, h: FactId, focus: &BTreeSet<PointId>, banned: &BTreeSet<usize>) -> Option<(Vec<(usize, Rat)>, i64)> {
+    pub fn certify_banned(
+        &self,
+        tb: Table,
+        target: &LinComb,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        banned: &BTreeSet<usize>,
+    ) -> Option<(Vec<(usize, Rat)>, i64)> {
         let mut banned = banned.clone();
         for _ in 0..6 {
             let r = self.certify_inner(tb, target, h, focus, None, &banned)?;
-            let bad: Vec<usize> = r.0.iter().filter(|(_, l)| l.denom_i64().is_none_or(|d| d > 2)).map(|(i, _)| *i).collect();
+            let bad: Vec<usize> =
+                r.0.iter()
+                    .filter(|(_, l)| l.denom_i64().is_none_or(|d| d > 2))
+                    .map(|(i, _)| *i)
+                    .collect();
             if bad.is_empty() {
                 return Some(r);
             }
@@ -367,18 +463,39 @@ impl<'c, 'a> Writer<'c, 'a> {
         None
     }
 
-    fn certify_inner(&self, tb: Table, target: &LinComb, h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>, banned: &BTreeSet<usize>) -> Option<(Vec<(usize, Rat)>, i64)> {
+    fn certify_inner(
+        &self,
+        tb: Table,
+        target: &LinComb,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        exclude: Option<FactId>,
+        banned: &BTreeSet<usize>,
+    ) -> Option<(Vec<(usize, Rat)>, i64)> {
         let cx = self.cx;
         let mut idx: Vec<(u32, usize)> = self
             .atoms
             .iter()
             .enumerate()
-            .filter(|(i, a)| a.table == tb && a.admissible(h) && (exclude.is_none() || a.fact() != exclude) && !banned.contains(i))
-            .map(|(i, a)| (eff(a, focus, &self.claim_cost, cx) + self.extra.get(i).copied().unwrap_or(0), i))
+            .filter(|(i, a)| {
+                a.table == tb
+                    && a.admissible(h)
+                    && (exclude.is_none() || a.fact() != exclude)
+                    && !banned.contains(i)
+            })
+            .map(|(i, a)| {
+                (
+                    eff(a, focus, &self.claim_cost, cx) + self.extra.get(i).copied().unwrap_or(0),
+                    i,
+                )
+            })
             .collect();
         idx.sort();
-        let rows: Vec<(u32, &LinComb)> = idx.iter().map(|(c, i)| (*c, &self.atoms[*i].row)).collect();
-        let cert = certify_greedy(&cx.piv[tb.idx()], &rows, target, &|k| self.atoms[idx[k].1].cost > 0)?;
+        let rows: Vec<(u32, &LinComb)> =
+            idx.iter().map(|(c, i)| (*c, &self.atoms[*i].row)).collect();
+        let cert = certify_greedy(&cx.piv[tb.idx()], &rows, target, &|k| {
+            self.atoms[idx[k].1].cost > 0
+        })?;
         let mut cost = 0i64;
         let out: Vec<(usize, Rat)> = cert
             .into_iter()
@@ -390,20 +507,37 @@ impl<'c, 'a> Writer<'c, 'a> {
         Some((out, cost))
     }
 
-    pub fn in_admissible_span(&self, tb: Table, row: &LinComb, h: FactId, exclude: Option<FactId>) -> bool {
+    pub fn in_admissible_span(
+        &self,
+        tb: Table,
+        row: &LinComb,
+        h: FactId,
+        exclude: Option<FactId>,
+    ) -> bool {
         let key = (h, exclude);
-        let hit = self.span_cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned();
+        let hit = self
+            .span_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .cloned();
         let bases = match hit {
             Some(b) => b,
             None => {
-                let mut v: Vec<super::cert::Basis> = Table::ALL.iter().map(|t| super::cert::Basis::new(&self.cx.piv[t.idx()], false)).collect();
+                let mut v: Vec<super::cert::Basis> = Table::ALL
+                    .iter()
+                    .map(|t| super::cert::Basis::new(&self.cx.piv[t.idx()], false))
+                    .collect();
                 for (i, a) in self.atoms.iter().enumerate() {
                     if a.admissible(h) && (exclude.is_none() || a.fact() != exclude) {
                         v[a.table.idx()].insert(i as u32, &a.row);
                     }
                 }
                 let v = std::sync::Arc::new(v);
-                self.span_cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, v.clone());
+                self.span_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(key, v.clone());
                 v
             }
         };
@@ -418,7 +552,13 @@ impl<'c, 'a> Writer<'c, 'a> {
         }
     }
 
-    pub fn certify_obls(&self, obls: &[Obl], h: FactId, focus: &BTreeSet<PointId>, exclude: Option<FactId>) -> Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> {
+    pub fn certify_obls(
+        &self,
+        obls: &[Obl],
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        exclude: Option<FactId>,
+    ) -> Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> {
         let mut best: Option<(&'static str, Vec<Part>, i64, Vec<FactId>)> = None;
         for o in obls {
             if self.cx.timed_out() {
@@ -445,7 +585,11 @@ impl<'c, 'a> Writer<'c, 'a> {
                 match best_t {
                     Some((s, c, chosen)) => {
                         total += c;
-                        parts.push(Part { target: chosen, support: s, route: None });
+                        parts.push(Part {
+                            target: chosen,
+                            support: s,
+                            route: None,
+                        });
                     }
                     None => {
                         ok = false;
@@ -453,7 +597,8 @@ impl<'c, 'a> Writer<'c, 'a> {
                     }
                 }
             }
-            let total = total + 4 * o.requires.iter().filter(|&&r| !self.cx.is_hyp(r)).count() as i64;
+            let total =
+                total + 4 * o.requires.iter().filter(|&&r| !self.cx.is_hyp(r)).count() as i64;
             if ok && best.as_ref().is_none_or(|b| total < b.2) {
                 best = Some((o.label, parts, total, o.requires.clone()));
             }
@@ -483,12 +628,22 @@ impl<'c, 'a> Writer<'c, 'a> {
             .copied()
             .filter(|&f| {
                 let class = cx.class[f as usize];
-                let needs = class == FactClass::Derived || (class == FactClass::Silent && cx.fact_sources(f).contains(&f));
+                let needs = class == FactClass::Derived
+                    || (class == FactClass::Silent && cx.fact_sources(f).contains(&f));
                 needs && Some(f) != goal_fact
             })
             .collect();
         let me: &Writer = self;
-        let made: Vec<Option<Node>> = todo.par_iter().map(|&f| if cx.timed_out() { None } else { Some(me.make_node(f)) }).collect();
+        let made: Vec<Option<Node>> = todo
+            .par_iter()
+            .map(|&f| {
+                if cx.timed_out() {
+                    None
+                } else {
+                    Some(me.make_node(f))
+                }
+            })
+            .collect();
         for n in made.into_iter().flatten() {
             self.nodes.insert(n.fact, n);
         }
@@ -510,7 +665,11 @@ impl<'c, 'a> Writer<'c, 'a> {
         let cx = self.cx;
         if cx.deps.len() == 1 {
             let g = cx.deps[0];
-            if matches!(cx.t.facts.get(g as usize).map(|x| &x.reason), Some(ER::Collinear(_) | ER::Concyclic(_))) && cx.class[g as usize] == FactClass::Derived {
+            if matches!(
+                cx.t.facts.get(g as usize).map(|x| &x.reason),
+                Some(ER::Collinear(_) | ER::Concyclic(_))
+            ) && cx.class[g as usize] == FactClass::Derived
+            {
                 return Some(g);
             }
         }
@@ -547,7 +706,9 @@ impl<'c, 'a> Writer<'c, 'a> {
                 node.label = "identity";
             }
             Some(obls) => {
-                if let Some((label, parts, cost, req)) = self.certify_obls(&obls, f, &focus, Some(f)) {
+                if let Some((label, parts, cost, req)) =
+                    self.certify_obls(&obls, f, &focus, Some(f))
+                {
                     node.deps = self.deps_of(&parts);
                     for &r in &req {
                         for s in cx.fact_sources(r) {
@@ -588,7 +749,12 @@ impl<'c, 'a> Writer<'c, 'a> {
         let cx = self.cx;
         fact_obligations(cx, f).map(|mut o| {
             if let ER::Concyclic(p) | ER::Collinear(p) = &cx.t.facts[f as usize].reason {
-                o.extend(self.cover(p, matches!(cx.t.facts[f as usize].reason, ER::Concyclic(_)), f, Some(f)));
+                o.extend(self.cover(
+                    p,
+                    matches!(cx.t.facts[f as usize].reason, ER::Concyclic(_)),
+                    f,
+                    Some(f),
+                ));
             }
             o
         })
@@ -602,9 +768,15 @@ impl<'c, 'a> Writer<'c, 'a> {
             eprintln!("goal {:?} h {h} obligations {}", cx.goal, obls.len());
             for o in &obls {
                 for t in &o.targets {
-                    let all = self.certify(t.table, &t.row, FactId::MAX - 2, &BTreeSet::new(), None).is_some();
-                    let at_h = self.certify(t.table, &t.row, h, &BTreeSet::new(), None).is_some();
-                    let excl = self.certify(t.table, &t.row, h, &BTreeSet::new(), goal_fact).is_some();
+                    let all = self
+                        .certify(t.table, &t.row, FactId::MAX - 2, &BTreeSet::new(), None)
+                        .is_some();
+                    let at_h = self
+                        .certify(t.table, &t.row, h, &BTreeSet::new(), None)
+                        .is_some();
+                    let excl = self
+                        .certify(t.table, &t.row, h, &BTreeSet::new(), goal_fact)
+                        .is_some();
                     eprintln!("  target {:?} all {all} at_h {at_h} excl {excl}", t.stmt);
                     if let Some(g) = goal_fact {
                         for tb in Table::ALL {
@@ -619,7 +791,12 @@ impl<'c, 'a> Writer<'c, 'a> {
                                 }
                             }
                             for r in cx.t.rows_of(tb, g) {
-                                eprintln!("    row of goal fact in {:?}: closure-span {} all-span {}", tb, bc.contains(r), ba.contains(r));
+                                eprintln!(
+                                    "    row of goal fact in {:?}: closure-span {} all-span {}",
+                                    tb,
+                                    bc.contains(r),
+                                    ba.contains(r)
+                                );
                             }
                         }
                         eprintln!("    premises {:?}", cx.t.facts[g as usize].premises);
@@ -671,7 +848,10 @@ impl<'c, 'a> Writer<'c, 'a> {
         }
         let gp: BTreeSet<PointId> = cx.goal.points.iter().copied().collect();
         let fp: BTreeSet<PointId> = fact_points(cx, gf).into_iter().collect();
-        let merged = matches!((cx.goal.name.as_str(), &cx.t.facts[gf as usize].reason), ("coll", ER::Collinear(_)) | ("cyclic", ER::Concyclic(_)));
+        let merged = matches!(
+            (cx.goal.name.as_str(), &cx.t.facts[gf as usize].reason),
+            ("coll", ER::Collinear(_)) | ("cyclic", ER::Concyclic(_))
+        );
         if merged && fp.len() > gp.len() && gp.is_subset(&fp) {
             let fpts: Vec<PointId> = fact_points(cx, gf);
             let cyclic = matches!(cx.t.facts[gf as usize].reason, ER::Concyclic(_));
@@ -691,13 +871,23 @@ impl<'c, 'a> Writer<'c, 'a> {
         if pts.len() <= k || pts.len() > 8 {
             return Vec::new();
         }
-        let subsets: Vec<Vec<PointId>> = if cyclic { subsets4(pts).into_iter().map(|q| q.to_vec()).collect() } else { subsets3(pts) };
+        let subsets: Vec<Vec<PointId>> = if cyclic {
+            subsets4(pts).into_iter().map(|q| q.to_vec()).collect()
+        } else {
+            subsets3(pts)
+        };
         let mut usable: Vec<(Vec<PointId>, Vec<Target>)> = Vec::new();
         for q in subsets {
             let forms: Vec<Target> = if cyclic {
                 cyc_forms(cx, [q[0], q[1], q[2], q[3]])
             } else {
-                coll_targets(cx, &q, None).map(|(t, _)| t.into_iter().flat_map(|t| std::iter::once(t.clone()).chain(t.alts.clone())).collect()).unwrap_or_default()
+                coll_targets(cx, &q, None)
+                    .map(|(t, _)| {
+                        t.into_iter()
+                            .flat_map(|t| std::iter::once(t.clone()).chain(t.alts.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default()
             };
             let good: Vec<Target> = forms
                 .into_iter()
@@ -711,12 +901,18 @@ impl<'c, 'a> Writer<'c, 'a> {
                 usable.push((q, good));
             }
         }
-        let Some(first) = usable.first() else { return Vec::new() };
+        let Some(first) = usable.first() else {
+            return Vec::new();
+        };
         let mut have: BTreeSet<PointId> = first.0.iter().copied().collect();
         let mut chosen: Vec<usize> = vec![0];
         while have.len() < pts.len() {
-            let next = usable.iter().enumerate().find(|(i, (q, _))| !chosen.contains(i) && q.iter().filter(|p| !have.contains(p)).count() == 1);
-            let Some((i, (q, _))) = next else { return Vec::new() };
+            let next = usable.iter().enumerate().find(|(i, (q, _))| {
+                !chosen.contains(i) && q.iter().filter(|p| !have.contains(p)).count() == 1
+            });
+            let Some((i, (q, _))) = next else {
+                return Vec::new();
+            };
             have.extend(q.iter().copied());
             chosen.push(i);
         }
@@ -729,11 +925,20 @@ impl<'c, 'a> Writer<'c, 'a> {
                 first
             })
             .collect();
-        vec![Obl { label: if cyclic { "inscribed" } else { "coll" }, targets, requires: vec![] }]
+        vec![Obl {
+            label: if cyclic { "inscribed" } else { "coll" },
+            targets,
+            requires: vec![],
+        }]
     }
 
     pub fn recertify_with_claims(&mut self) {
-        let claims: BTreeSet<FactId> = self.nodes.values().filter(|n| n.role == Role::Claim).map(|n| n.fact).collect();
+        let claims: BTreeSet<FactId> = self
+            .nodes
+            .values()
+            .filter(|n| n.role == Role::Claim)
+            .map(|n| n.fact)
+            .collect();
         if claims.is_empty() {
             return;
         }
@@ -742,20 +947,44 @@ impl<'c, 'a> Writer<'c, 'a> {
         let first = *claims.iter().next().unwrap();
         let keys: Vec<FactId> = self.nodes.keys().copied().filter(|&k| k > first).collect();
         let me: &Writer = self;
-        let redone: Vec<Option<(FactId, &'static str, Vec<Part>, i64, Vec<FactId>, BTreeSet<FactId>)>> = keys
+        let redone: Vec<
+            Option<(
+                FactId,
+                &'static str,
+                Vec<Part>,
+                i64,
+                Vec<FactId>,
+                BTreeSet<FactId>,
+            )>,
+        > = keys
             .par_iter()
             .map(|&k| {
                 if me.cx.timed_out() {
                     return None;
                 }
                 let n = &me.nodes[&k];
-                if n.parts.is_none() || n.theorem || n.label == "identity" || n.parts.as_ref().is_some_and(|ps| ps.iter().any(|p| p.route.is_some())) {
+                if n.parts.is_none()
+                    || n.theorem
+                    || n.label == "identity"
+                    || n.parts
+                        .as_ref()
+                        .is_some_and(|ps| ps.iter().any(|p| p.route.is_some()))
+                {
                     return None;
                 }
-                let obls = if k == GOAL { me.goal_obls(n.extra.first().copied()) } else { fact_obligations(me.cx, k).unwrap_or_default() };
+                let obls = if k == GOAL {
+                    me.goal_obls(n.extra.first().copied())
+                } else {
+                    fact_obligations(me.cx, k).unwrap_or_default()
+                };
                 let focus = me.focus_of(k);
-                let exclude = if k == GOAL { n.extra.first().copied() } else { Some(k) };
-                let (label, parts, cost, req) = me.certify_obls(&obls, n.horizon, &focus, exclude)?;
+                let exclude = if k == GOAL {
+                    n.extra.first().copied()
+                } else {
+                    Some(k)
+                };
+                let (label, parts, cost, req) =
+                    me.certify_obls(&obls, n.horizon, &focus, exclude)?;
                 let mut deps = me.deps_of(&parts);
                 for &r in &req {
                     for s in me.cx.fact_sources(r) {
@@ -822,13 +1051,28 @@ impl<'c, 'a> Writer<'c, 'a> {
             }
             let n = &self.nodes[&k];
             let u = users.get(&k).map(|s| s.len()).unwrap_or(0);
-            let only_goal = users.get(&k).is_some_and(|s| s.len() == 1 && s.contains(&GOAL));
+            let only_goal = users
+                .get(&k)
+                .is_some_and(|s| s.len() == 1 && s.contains(&GOAL));
             let mut pts = fact_points(cx, k);
             for &e in &n.extra {
                 pts.extend(fact_points(cx, e));
             }
             let aux = pts.iter().any(|&p| cx.is_aux(p));
-            let size: usize = n.parts.as_ref().map(|ps| ps.iter().map(|p| p.support.iter().filter(|(i, _)| self.atoms[*i].cost > 0).count()).sum()).unwrap_or(0);
+            let size: usize = n
+                .parts
+                .as_ref()
+                .map(|ps| {
+                    ps.iter()
+                        .map(|p| {
+                            p.support
+                                .iter()
+                                .filter(|(i, _)| self.atoms[*i].cost > 0)
+                                .count()
+                        })
+                        .sum()
+                })
+                .unwrap_or(0);
             let long = size >= 3;
             let role = if n.parts.is_none() && !n.theorem {
                 Role::Raw
@@ -880,12 +1124,21 @@ impl<'c, 'a> Writer<'c, 'a> {
             let _ = goal_fact;
             self.nodes.get_mut(&k).unwrap().role = role;
         }
-        let mut claims: Vec<FactId> = self.nodes.values().filter(|n| n.role == Role::Claim).map(|n| n.fact).collect();
+        let mut claims: Vec<FactId> = self
+            .nodes
+            .values()
+            .filter(|n| n.role == Role::Claim)
+            .map(|n| n.fact)
+            .collect();
         claims.sort_unstable();
         if claims.len() > MAX_CLAIMS {
             let score = |c: &FactId| -> (usize, i64, std::cmp::Reverse<FactId>) {
                 let n = &self.nodes[c];
-                (users.get(c).map(|s| s.len()).unwrap_or(0), n.cost, std::cmp::Reverse(*c))
+                (
+                    users.get(c).map(|s| s.len()).unwrap_or(0),
+                    n.cost,
+                    std::cmp::Reverse(*c),
+                )
             };
             let mut ranked = claims.clone();
             ranked.sort_by_key(|c| std::cmp::Reverse(score(c)));
@@ -900,19 +1153,36 @@ impl<'c, 'a> Writer<'c, 'a> {
         match a.src {
             AtomSrc::Human(key) => atom_stmt(key, &a.args),
             AtomSrc::Hyp(f) => fact_stmt(self.cx, f),
-            AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => fact_stmt(self.cx, self.cx.displayable(f)),
+            AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => {
+                fact_stmt(self.cx, self.cx.displayable(f))
+            }
         }
     }
 
     fn restates(&self, n: &Node) -> bool {
         let Some(parts) = &n.parts else { return false };
-        let atoms: Vec<usize> = parts.iter().flat_map(|p| p.support.iter().filter(|(i, _)| self.atoms[*i].cost > 0).map(|(i, _)| *i)).collect();
-        !atoms.is_empty() && atoms.iter().all(|&i| same_cong(&self.atom_statement(i), &n.stmt))
+        let atoms: Vec<usize> = parts
+            .iter()
+            .flat_map(|p| {
+                p.support
+                    .iter()
+                    .filter(|(i, _)| self.atoms[*i].cost > 0)
+                    .map(|(i, _)| *i)
+            })
+            .collect();
+        !atoms.is_empty()
+            && atoms
+                .iter()
+                .all(|&i| same_cong(&self.atom_statement(i), &n.stmt))
     }
 
     pub fn live_nodes(&self) -> Vec<FactId> {
         let live = self.reachable();
-        self.nodes.keys().copied().filter(|k| live.contains(k) && *k != GOAL).collect()
+        self.nodes
+            .keys()
+            .copied()
+            .filter(|k| live.contains(k) && *k != GOAL)
+            .collect()
     }
 }
 
@@ -976,31 +1246,94 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let cx = self.w.cx;
         match a.src {
             AtomSrc::Human(key) => {
-                let from: Vec<u16> = a.sources.iter().filter_map(|s| self.block_of.get(&cx.displayable(*s)).copied()).collect();
+                let from: Vec<u16> = a
+                    .sources
+                    .iter()
+                    .filter_map(|s| self.block_of.get(&cx.displayable(*s)).copied())
+                    .collect();
                 if collapse {
                     if let Some((k, args)) = collapse_key(cx, a, h) {
                         let mut sorted = a.args.clone();
                         sorted.sort_unstable();
-                        let row = subsets4(&args).iter().position(|q| q.as_slice() == sorted.as_slice()).unwrap_or(0) as u16;
-                        return (Reason::Atom { key: k, stmt: Stmt::Cyclic { pts: args.clone() }, args, from }, row);
+                        let row = subsets4(&args)
+                            .iter()
+                            .position(|q| q.as_slice() == sorted.as_slice())
+                            .unwrap_or(0) as u16;
+                        return (
+                            Reason::Atom {
+                                key: k,
+                                stmt: Stmt::Cyclic { pts: args.clone() },
+                                args,
+                                from,
+                            },
+                            row,
+                        );
                     }
                 }
-                (Reason::Atom { key, stmt: atom_stmt(key, &a.args), args: a.args.clone(), from }, a.row_idx)
+                (
+                    Reason::Atom {
+                        key,
+                        stmt: atom_stmt(key, &a.args),
+                        args: a.args.clone(),
+                        from,
+                    },
+                    a.row_idx,
+                )
             }
-            AtomSrc::Hyp(f) => (Reason::Hyp { stmt: super::classify::dehelper(cx, fact_stmt(cx, f)), fact: f }, a.row_idx),
+            AtomSrc::Hyp(f) => (
+                Reason::Hyp {
+                    stmt: super::classify::dehelper(cx, fact_stmt(cx, f)),
+                    fact: f,
+                },
+                a.row_idx,
+            ),
             AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => {
                 let d = cx.displayable(f);
                 if let (Some(&b), Some(Role::Claim)) = (self.block_of.get(&d), self.role.get(&d)) {
-                    return (Reason::Claim { n: self.claim_no.get(&d).copied().unwrap_or(0), block: b, fact: f }, a.row_idx);
+                    return (
+                        Reason::Claim {
+                            n: self.claim_no.get(&d).copied().unwrap_or(0),
+                            block: b,
+                            fact: f,
+                        },
+                        a.row_idx,
+                    );
                 }
                 if let Some(r) = self.inline.get(&d) {
-                    if let Reason::Fact { stmt, block, because, .. } = r {
-                        return (Reason::Fact { stmt: stmt.clone(), fact: f, block: *block, because: because.clone() }, a.row_idx);
+                    if let Reason::Fact {
+                        stmt,
+                        block,
+                        because,
+                        ..
+                    } = r
+                    {
+                        return (
+                            Reason::Fact {
+                                stmt: stmt.clone(),
+                                fact: f,
+                                block: *block,
+                                because: because.clone(),
+                            },
+                            a.row_idx,
+                        );
                     }
                 }
                 let block = self.block_of.get(&d).copied();
-                let because = if block.is_none() && matches!(a.src, AtomSrc::Engine(_) | AtomSrc::Glue(_)) { self.human_justification(f, h).into_iter().collect() } else { Vec::new() };
-                (Reason::Fact { stmt: fact_stmt(cx, f), fact: f, block, because }, a.row_idx)
+                let because =
+                    if block.is_none() && matches!(a.src, AtomSrc::Engine(_) | AtomSrc::Glue(_)) {
+                        self.human_justification(f, h).into_iter().collect()
+                    } else {
+                        Vec::new()
+                    };
+                (
+                    Reason::Fact {
+                        stmt: fact_stmt(cx, f),
+                        fact: f,
+                        block,
+                        because,
+                    },
+                    a.row_idx,
+                )
             }
         }
     }
@@ -1012,20 +1345,36 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             return None;
         }
         let targets = super::check::stmt_targets(t, &fact_stmt(cx, f))?;
-        let [(tb, row)] = targets.as_slice() else { return None };
+        let [(tb, row)] = targets.as_slice() else {
+            return None;
+        };
         let want = super::library::quot_row(cx, *tb, &t.exact(*tb, row));
         let neg = want.negated();
-        let hit = self.w.atoms.iter().filter(|a| a.table == *tb && a.admissible(h) && matches!(a.src, AtomSrc::Human(k) if !super::theorems::is_identity(k))).find(|a| {
-            let c = super::library::quot_row(cx, *tb, &a.row);
-            c == want || c == neg
-        })?;
+        let hit = self
+            .w
+            .atoms
+            .iter()
+            .filter(|a| {
+                a.table == *tb
+                    && a.admissible(h)
+                    && matches!(a.src, AtomSrc::Human(k) if !super::theorems::is_identity(k))
+            })
+            .find(|a| {
+                let c = super::library::quot_row(cx, *tb, &a.row);
+                c == want || c == neg
+            })?;
         Some(self.atom_reason(hit, h, false).0)
     }
 
-    fn radii_groups(&self, support: &[(usize, Rat)], h: FactId) -> BTreeMap<usize, (Reason, u16, Rat)> {
+    fn radii_groups(
+        &self,
+        support: &[(usize, Rat)],
+        h: FactId,
+    ) -> BTreeMap<usize, (Reason, u16, Rat)> {
         let cx = self.w.cx;
         let t = cx.t;
-        let mut by_centre: BTreeMap<(AtomKey, PointId), Vec<(usize, PointId, PointId, Vec<u16>)>> = BTreeMap::new();
+        let mut by_centre: BTreeMap<(AtomKey, PointId), Vec<(usize, PointId, PointId, Vec<u16>)>> =
+            BTreeMap::new();
         for (i, _) in support {
             let a = &self.w.atoms[*i];
             if a.cost == 0 {
@@ -1033,15 +1382,22 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
             let entry = match a.src {
                 AtomSrc::Hyp(f) if a.table == Table::Ratio => {
-                    let Stmt::Cong { s1, s2 } = fact_stmt(cx, f) else { continue };
-                    let shared: Vec<PointId> = [s1.0, s1.1].into_iter().filter(|p| *p == s2.0 || *p == s2.1).collect();
+                    let Stmt::Cong { s1, s2 } = fact_stmt(cx, f) else {
+                        continue;
+                    };
+                    let shared: Vec<PointId> = [s1.0, s1.1]
+                        .into_iter()
+                        .filter(|p| *p == s2.0 || *p == s2.1)
+                        .collect();
                     let [o] = shared[..] else { continue };
                     let p = if s1.0 == o { s1.1 } else { s1.0 };
                     let q = if s2.0 == o { s2.1 } else { s2.0 };
                     (AtomKey::Radii, o, p, q, Vec::new())
                 }
                 AtomSrc::Human(k @ (AtomKey::Radii | AtomKey::Isosceles)) if a.args.len() == 3 => {
-                    let Reason::Atom { from, .. } = self.atom_reason(a, h, false).0 else { continue };
+                    let Reason::Atom { from, .. } = self.atom_reason(a, h, false).0 else {
+                        continue;
+                    };
                     (k, a.args[0], a.args[1], a.args[2], from)
                 }
                 _ => continue,
@@ -1069,9 +1425,16 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let mut found: Vec<(usize, u16, Rat)> = Vec::new();
             let mut from: Vec<u16> = Vec::new();
             for (i, p, q, f) in &members {
-                let (Some(ip), Some(iq)) = (args.iter().position(|x| x == p), args.iter().position(|x| x == q)) else { continue };
+                let (Some(ip), Some(iq)) = (
+                    args.iter().position(|x| x == p),
+                    args.iter().position(|x| x == q),
+                ) else {
+                    continue;
+                };
                 let (lo, hi) = (ip.min(iq), ip.max(iq));
-                let Some(rows) = super::check::check_rows(t, k, &[o, args[lo], args[hi]]) else { continue };
+                let Some(rows) = super::check::check_rows(t, k, &[o, args[lo], args[hi]]) else {
+                    continue;
+                };
                 let Some((_, r)) = rows.first() else { continue };
                 let mut idx = 0u16;
                 for x in 1..n {
@@ -1105,7 +1468,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 r
             }
             for (_, p, q, _) in &members {
-                if let (Some(ip), Some(iq)) = (args.iter().position(|x| x == p), args.iter().position(|x| x == q)) {
+                if let (Some(ip), Some(iq)) = (
+                    args.iter().position(|x| x == p),
+                    args.iter().position(|x| x == q),
+                ) {
                     let (a, b) = (root(&mut comp, ip), root(&mut comp, iq));
                     comp[a.max(b)] = a.min(b);
                 }
@@ -1116,7 +1482,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
             from.sort_unstable();
             from.dedup();
-            let reason = Reason::Atom { key: k, stmt: Stmt::Cong { s1: (o, args[1]), s2: (o, args[2]) }, args: args.clone(), from };
+            let reason = Reason::Atom {
+                key: k,
+                stmt: Stmt::Cong {
+                    s1: (o, args[1]),
+                    s2: (o, args[2]),
+                },
+                args: args.clone(),
+                from,
+            };
             for (i, row, s) in found {
                 out.insert(i, (reason.clone(), row, s));
             }
@@ -1124,12 +1498,21 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         out
     }
 
-    fn reasons_for(&self, support: &[(usize, Rat)], h: FactId, collapse: bool) -> (Vec<Reason>, Vec<Term>) {
+    fn reasons_for(
+        &self,
+        support: &[(usize, Rat)],
+        h: FactId,
+        collapse: bool,
+    ) -> (Vec<Reason>, Vec<Term>) {
         let cx = self.w.cx;
         let mut reasons: Vec<Reason> = Vec::new();
         let mut terms: Vec<Term> = Vec::new();
         let mut extra: Vec<Reason> = Vec::new();
-        let merged = if collapse { self.radii_groups(support, h) } else { BTreeMap::new() };
+        let merged = if collapse {
+            self.radii_groups(support, h)
+        } else {
+            BTreeMap::new()
+        };
         for (i, lam) in support {
             let a = &self.w.atoms[*i];
             if a.cost == 0 {
@@ -1149,7 +1532,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     reasons.len() - 1
                 }
             };
-            terms.push(Term { reason: pos as u16, row, coef });
+            terms.push(Term {
+                reason: pos as u16,
+                row,
+                coef,
+            });
             let mut stack: Vec<(usize, usize)> = a.via.iter().map(|&v| (v, 0)).collect();
             let mut seen: Vec<usize> = vec![*i];
             while let Some((v, depth)) = stack.pop() {
@@ -1193,7 +1580,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
                 let srcs_ok = a.sources.iter().all(|s| {
                     let d = cx.displayable(*s);
-                    self.allowed.contains(&d) || cx.class.get(d as usize).is_some_and(|c| matches!(c, FactClass::Hyp | FactClass::HypReg | FactClass::SilentHyp))
+                    self.allowed.contains(&d)
+                        || cx.class.get(d as usize).is_some_and(|c| {
+                            matches!(c, FactClass::Hyp | FactClass::HypReg | FactClass::SilentHyp)
+                        })
                 });
                 if !srcs_ok {
                     return false;
@@ -1201,7 +1591,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 match a.src {
                     AtomSrc::Engine(f) => {
                         let d = cx.displayable(f);
-                        self.role.get(&d).is_some_and(|r| *r == Role::Claim) && matches!(cx.t.facts[f as usize].reason, ER::SimilarTriangles(..))
+                        self.role.get(&d).is_some_and(|r| *r == Role::Claim)
+                            && matches!(cx.t.facts[f as usize].reason, ER::SimilarTriangles(..))
                     }
                     _ => a.cost <= 2,
                 }
@@ -1210,16 +1601,27 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             .collect()
     }
 
-
-    fn squared_ratio(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>, budget: &mut usize) -> Option<(Vec<Sentence>, usize, bool)> {
+    fn squared_ratio(
+        &mut self,
+        target: &Target,
+        support: &[(usize, Rat)],
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+        budget: &mut usize,
+    ) -> Option<(Vec<Sentence>, usize, bool)> {
         let two = Rat::from_int(2);
         if support.iter().any(|(_, l)| !(l * &two).is_integer()) {
             return None;
         }
         let sq = |e: &Expr| -> Option<Expr> {
             match e {
-                Expr::Seg { .. } => Some(Expr::Prod { factors: vec![(e.clone(), 2)] }),
-                Expr::Prod { factors } => Some(Expr::Prod { factors: factors.iter().map(|(x, k)| (x.clone(), 2 * k)).collect() }),
+                Expr::Seg { .. } => Some(Expr::Prod {
+                    factors: vec![(e.clone(), 2)],
+                }),
+                Expr::Prod { factors } => Some(Expr::Prod {
+                    factors: factors.iter().map(|(x, k)| (x.clone(), 2 * k)).collect(),
+                }),
                 _ => None,
             }
         };
@@ -1228,10 +1630,30 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             x.mul_assign_scalar(&two);
             x
         };
-        let splits: Vec<super::classify::Split> = target.splits.iter().filter_map(|s| Some(super::classify::Split { l: sq(&s.l)?, r: sq(&s.r)?, lraw: double(&s.lraw), rraw: double(&s.rraw) })).collect();
+        let splits: Vec<super::classify::Split> = target
+            .splits
+            .iter()
+            .filter_map(|s| {
+                Some(super::classify::Split {
+                    l: sq(&s.l)?,
+                    r: sq(&s.r)?,
+                    lraw: double(&s.lraw),
+                    rraw: double(&s.rraw),
+                })
+            })
+            .collect();
         let first = splits.first()?;
-        let stmt2 = Stmt::Eq { lhs: first.l.clone(), rhs: first.r.clone() };
-        let t2 = Target { table: Table::Ratio, row: double(&target.row), splits, stmt: stmt2.clone(), alts: Vec::new() };
+        let stmt2 = Stmt::Eq {
+            lhs: first.l.clone(),
+            rhs: first.r.clone(),
+        };
+        let t2 = Target {
+            table: Table::Ratio,
+            row: double(&target.row),
+            splits,
+            stmt: stmt2.clone(),
+            alts: Vec::new(),
+        };
         let support2: Vec<(usize, Rat)> = support.iter().map(|(i, l)| (*i, l * &two)).collect();
         let _ = budget;
         let (mut out, n, pooled) = self.chain_sentences(&t2, &support2, h, None, focus);
@@ -1246,16 +1668,39 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             return None;
         }
         let stmt = then.unwrap_or_else(|| target.stmt.clone());
-        out.push(Sentence::Because { stmt, reasons: vec![Reason::Lemma { stmt: stmt2, block: PENDING_BLOCK, sentence: last as u16 }], combination: vec![Term { reason: 0, row: 0, coef: Rat::new(1, 2) }] });
+        out.push(Sentence::Because {
+            stmt,
+            reasons: vec![Reason::Lemma {
+                stmt: stmt2,
+                block: PENDING_BLOCK,
+                sentence: last as u16,
+            }],
+            combination: vec![Term {
+                reason: 0,
+                row: 0,
+                coef: Rat::new(1, 2),
+            }],
+        });
         Some((out, n, false))
     }
 
-    fn chain_sentences(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> (Vec<Sentence>, usize, bool) {
+    fn chain_sentences(
+        &mut self,
+        target: &Target,
+        support: &[(usize, Rat)],
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+    ) -> (Vec<Sentence>, usize, bool) {
         let cx = self.w.cx;
         let odd = |l: &Rat| l.denom_i64().is_none_or(|d| d > 2);
         let rescued: Vec<(usize, Rat)>;
         let support = if support.iter().any(|(_, l)| odd(l)) {
-            let banned: BTreeSet<usize> = support.iter().filter(|(_, l)| odd(l)).map(|(i, _)| *i).collect();
+            let banned: BTreeSet<usize> = support
+                .iter()
+                .filter(|(_, l)| odd(l))
+                .map(|(i, _)| *i)
+                .collect();
             let row = target.row.clone();
             match self.w.certify_banned(target.table, &row, h, focus, &banned) {
                 Some((s, _)) if !s.iter().any(|(_, l)| odd(l)) => {
@@ -1286,7 +1731,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             })
             .collect();
         let path = if matches!(target.table, Table::Angle | Table::Ratio) {
-            bfs(cx, &self.w.atoms, &eligible, target.table, &fix_exact(cx, target, &splits), &penalty, self.w.bfs_budget)
+            bfs(
+                cx,
+                &self.w.atoms,
+                &eligible,
+                target.table,
+                &fix_exact(cx, target, &splits),
+                &penalty,
+                self.w.bfs_budget,
+            )
         } else {
             None
         };
@@ -1306,33 +1759,50 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             .iter()
             .filter(|(i, _)| self.w.atoms[*i].cost > 0 || target.table != Table::Angle)
             .map(|(i, l)| (*i, l.clone(), self.w.atoms[*i].q.clone()))
-            .filter(|(_, _, q)| target.table != Table::Angle || !q.terms.iter().all(|(v, _)| *v == ANGLE_UNIT))
+            .filter(|(_, _, q)| {
+                target.table != Table::Angle || !q.terms.iter().all(|(v, _)| *v == ANGLE_UNIT)
+            })
             .collect();
         let items: Vec<(usize, Rat, LinComb)> = items
             .into_iter()
             .flat_map(|(i, lam, q)| {
                 if target.table == Table::Angle && !lam.is_integer() && lam.abs() > Rat::one() {
-                    let half = if lam.is_negative() { Rat::new(-1, 2) } else { Rat::new(1, 2) };
+                    let half = if lam.is_negative() {
+                        Rat::new(-1, 2)
+                    } else {
+                        Rat::new(1, 2)
+                    };
                     vec![(i, &lam - &half, q.clone()), (i, half, q)]
                 } else {
                     vec![(i, lam, q)]
                 }
             })
             .collect();
-        let ex = if matches!(target.table, Table::Angle | Table::Ratio) { fix_exact(cx, target, &splits) } else { Vec::new() };
+        let ex = if matches!(target.table, Table::Angle | Table::Ratio) {
+            fix_exact(cx, target, &splits)
+        } else {
+            Vec::new()
+        };
         if std::env::var_os("HP_ITEMS").is_some() {
             let names = |p: PointId| super::text::disp(cx.t.name(p));
             let nm = super::text::FnNames(&names);
             eprintln!("CHAIN {} (h {h})", super::text::stmt(&nm, &target.stmt));
             for (i, lam, _) in &items {
                 let (r, _) = self.atom_reason(&self.w.atoms[*i], h, false);
-                eprintln!("  item {i} lam {lam} cost {} eff-src {}: {}", self.w.atoms[*i].cost, self.w.atoms[*i].sources.len(), super::text::reason(&nm, &r, &BTreeMap::new()));
+                eprintln!(
+                    "  item {i} lam {lam} cost {} eff-src {}: {}",
+                    self.w.atoms[*i].cost,
+                    self.w.atoms[*i].sources.len(),
+                    super::text::reason(&nm, &r, &BTreeMap::new())
+                );
             }
         }
         let mut budget = ORDER_BUDGET;
         let mut best: Option<(i64, usize, Vec<Vec<usize>>)> = None;
         for (si, (l, r)) in ex.iter().enumerate() {
-            if let Some((groups, cost)) = order_items(cx, target.table, l, r, &items, &mut budget, DIRECT_CAP) {
+            if let Some((groups, cost)) =
+                order_items(cx, target.table, l, r, &items, &mut budget, DIRECT_CAP)
+            {
                 let cost = cost + long_penalty(groups.len());
                 if best.as_ref().is_none_or(|b| cost < b.0) {
                     best = Some((cost, si, groups));
@@ -1340,19 +1810,30 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
         }
         stamp("cs order", t_cs);
-        let clean = best.as_ref().is_some_and(|(c, _, g)| *c <= 10 * g.len() as i64 + 6);
+        let clean = best
+            .as_ref()
+            .is_some_and(|(c, _, g)| *c <= 10 * g.len() as i64 + 6);
         let mut split: Option<(usize, LemmaSplit)> = None;
         if !clean {
             for (si, (l, r)) in ex.iter().enumerate() {
-                if let Some(ls) = self.lemma_plan(target.table, l, r, &items, focus, &mut budget, false) {
+                if let Some(ls) =
+                    self.lemma_plan(target.table, l, r, &items, focus, &mut budget, false)
+                {
                     if split.as_ref().is_none_or(|s| ls.cost < s.1.cost) {
                         split = Some((si, ls));
                     }
                 }
             }
         }
-        stamp(&format!("cs lemma plan (budget left {budget}, split {})", split.is_some()), t_cs);
-        let full = |s: &Option<(usize, LemmaSplit)>| s.as_ref().is_some_and(|x| !x.1.groups.is_empty());
+        stamp(
+            &format!(
+                "cs lemma plan (budget left {budget}, split {})",
+                split.is_some()
+            ),
+            t_cs,
+        );
+        let full =
+            |s: &Option<(usize, LemmaSplit)>| s.as_ref().is_some_and(|x| !x.1.groups.is_empty());
         let use_split = match (&best, &split) {
             (_, None) => false,
             (None, Some(_)) => full(&split),
@@ -1374,7 +1855,16 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         if target.table == Table::Angle {
             let mut halves: Option<(i64, usize, Vec<Vec<usize>>)> = None;
             for (si, (l, r)) in ex.iter().enumerate() {
-                if let Some((groups, cost)) = order_items_mode(cx, target.table, l, r, &items, &mut budget, DIRECT_CAP, true) {
+                if let Some((groups, cost)) = order_items_mode(
+                    cx,
+                    target.table,
+                    l,
+                    r,
+                    &items,
+                    &mut budget,
+                    DIRECT_CAP,
+                    true,
+                ) {
                     if halves.as_ref().is_none_or(|b| cost < b.0) {
                         halves = Some((cost, si, groups));
                     }
@@ -1387,9 +1877,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             }
             for (si, (l, r)) in ex.iter().enumerate() {
-                if let Some(ls) = self.lemma_plan(target.table, l, r, &items, focus, &mut budget, true) {
+                if let Some(ls) =
+                    self.lemma_plan(target.table, l, r, &items, focus, &mut budget, true)
+                {
                     if !ls.groups.is_empty() {
-                        if let Some(r) = self.build_split(target, si, &ex[si].0, &ls, h, then.clone(), focus) {
+                        if let Some(r) =
+                            self.build_split(target, si, &ex[si].0, &ls, h, then.clone(), focus)
+                        {
                             return r;
                         }
                     } else {
@@ -1406,23 +1900,40 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
         }
         if std::env::var_os("HP_POOL").is_some() {
-            eprintln!("POOLED {:?} table {:?} budget left {budget}", target.stmt, target.table);
+            eprintln!(
+                "POOLED {:?} table {:?} budget left {budget}",
+                target.stmt, target.table
+            );
             for (si, (l, r)) in ex.iter().enumerate() {
-                eprintln!("  split {si}: L {:?} R {:?} shapeL {:?} shapeR {:?}", l, r, super::chain::angle_shape(l), super::chain::angle_shape(r));
+                eprintln!(
+                    "  split {si}: L {:?} R {:?} shapeL {:?} shapeR {:?}",
+                    l,
+                    r,
+                    super::chain::angle_shape(l),
+                    super::chain::angle_shape(r)
+                );
             }
             for (i, lam, q) in &items {
                 let a = &self.w.atoms[*i];
-                eprintln!("  item {i} {:?} args {:?} lam {lam} q {:?}", a.src, a.args, q);
+                eprintln!(
+                    "  item {i} {:?} args {:?} lam {lam} q {:?}",
+                    a.src, a.args, q
+                );
             }
             for (i, lam) in support {
                 if !items.iter().any(|x| x.0 == *i) {
-                    eprintln!("  dropped support {i} {:?} lam {lam} cost {} q {:?}", self.w.atoms[*i].src, self.w.atoms[*i].cost, self.w.atoms[*i].q);
+                    eprintln!(
+                        "  dropped support {i} {:?} lam {lam} cost {} q {:?}",
+                        self.w.atoms[*i].src, self.w.atoms[*i].cost, self.w.atoms[*i].q
+                    );
                 }
             }
         }
         stamp("cs partial", t_cs);
         if target.table == Table::Ratio && support.iter().any(|(_, l)| !l.is_integer()) {
-            if let Some(r) = self.squared_ratio(target, support, h, then.clone(), focus, &mut budget) {
+            if let Some(r) =
+                self.squared_ratio(target, support, h, then.clone(), focus, &mut budget)
+            {
                 return r;
             }
         }
@@ -1440,12 +1951,29 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
         let n = reasons.len();
         if n <= SHORT_REASONS {
-            return (vec![Sentence::Because { stmt, reasons, combination }], 1, false);
+            return (
+                vec![Sentence::Because {
+                    stmt,
+                    reasons,
+                    combination,
+                }],
+                1,
+                false,
+            );
         }
         if matches!(target.table, Table::Angle | Table::Ratio) {
             let full: Vec<(usize, Rat, LinComb)> = items.clone();
-            let l0 = ex.first().map(|x| x.0.clone()).unwrap_or_else(LinComb::zero);
-            let ls = LemmaSplit { cost: i64::MAX / 4, plans: Vec::new(), reduced: full, groups: Vec::new(), halves: false };
+            let l0 = ex
+                .first()
+                .map(|x| x.0.clone())
+                .unwrap_or_else(LinComb::zero);
+            let ls = LemmaSplit {
+                cost: i64::MAX / 4,
+                plans: Vec::new(),
+                reduced: full,
+                groups: Vec::new(),
+                halves: false,
+            };
             let si = 0;
             if let Some(r) = self.build_split(target, si, &l0, &ls, h, Some(stmt.clone()), focus) {
                 if r.0.len() > 1 {
@@ -1453,10 +1981,24 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             }
         }
-        (vec![Sentence::Pooled { stmt, reasons, combination }], n, true)
+        (
+            vec![Sentence::Pooled {
+                stmt,
+                reasons,
+                combination,
+            }],
+            n,
+            true,
+        )
     }
 
-    fn trig_lemmas(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<(Vec<Sentence>, usize)> {
+    fn trig_lemmas(
+        &mut self,
+        target: &Target,
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+    ) -> Option<(Vec<Sentence>, usize)> {
         let cx = self.w.cx;
         let t = cx.t;
         let (s1, s2, k) = match &target.stmt {
@@ -1470,22 +2012,37 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut vars: Vec<VarId> = t.sines.iter().map(|s| t.sine_canon(s.var)).collect();
         vars.sort_unstable();
         vars.dedup();
-        let main = |v: VarId| t.sines.iter().find(|s| s.var == v).is_some_and(|s| [s.v, s.p, s.q].iter().all(|p| tri.contains(p)));
+        let main = |v: VarId| {
+            t.sines
+                .iter()
+                .find(|s| s.var == v)
+                .is_some_and(|s| [s.v, s.p, s.q].iter().all(|p| tri.contains(p)))
+        };
         vars.sort_by_key(|&v| (!main(v), v));
         for &v in &vars {
-            let sval = t.values[Table::Ratio.idx()].get(v as usize).copied().unwrap_or(0.0);
+            let sval = t.values[Table::Ratio.idx()]
+                .get(v as usize)
+                .copied()
+                .unwrap_or(0.0);
             if sval <= 1e-9 {
                 continue;
             }
             let mut lem: Vec<((PointId, PointId), Rat, LinComb)> = Vec::new();
             for s in [s1, s2] {
-                let Some(q) = super::classify::small_rational(t.dist(s.0, s.1) / (rlen * sval)) else { break };
+                let Some(q) = super::classify::small_rational(t.dist(s.0, s.1) / (rlen * sval))
+                else {
+                    break;
+                };
                 if q.denom_i64().is_none_or(|d| d > 2) || q.numer_i64().is_none_or(|n| n > 4) {
                     break;
                 }
-                let (Some(ds), Some(c)) = (t.dm(s.0, s.1), t.prime_const(&q)) else { break };
+                let (Some(ds), Some(c)) = (t.dm(s.0, s.1), t.prime_const(&q)) else {
+                    break;
+                };
                 let row = &(&(&ds - &rv) - &LinComb::singleton(v, Rat::one())) - &c;
-                if !t.holds(Table::Ratio, &row) || !self.w.in_admissible_span(Table::Ratio, &row, h, None) {
+                if !t.holds(Table::Ratio, &row)
+                    || !self.w.in_admissible_span(Table::Ratio, &row, h, None)
+                {
                     break;
                 }
                 lem.push((s, q, row));
@@ -1500,11 +2057,20 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let mut out: Vec<Sentence> = Vec::new();
             let mut stmts: Vec<(Stmt, usize)> = Vec::new();
             let mut est: Vec<TrigEst> = Vec::new();
-            let cands = self.trig_candidates(o, &tri, &rv, rlen, h, &lem.iter().map(|x| x.0).collect::<Vec<_>>());
+            let cands = self.trig_candidates(
+                o,
+                &tri,
+                &rv,
+                rlen,
+                h,
+                &lem.iter().map(|x| x.0).collect::<Vec<_>>(),
+            );
             let mut ok = true;
             for (s, q, row) in &lem {
                 let stmt = trig_stmt(*s, q, o, tri[0], &trig);
-                let support = match self.trig_ladder(row, *s, h, focus, &cands, &mut est, &mut out, o, tri[0]) {
+                let support = match self
+                    .trig_ladder(row, *s, h, focus, &cands, &mut est, &mut out, o, tri[0])
+                {
                     Some(sup) => sup,
                     None => match self.w.certify(Table::Ratio, row, h, focus, None) {
                         Some((sup, _)) => sup,
@@ -1519,12 +2085,23 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     Stmt::Eq { rhs, .. } => rhs.clone(),
                     _ => unreachable!(),
                 };
-                let (Some((_, lraw)), Some((_, rraw))) = (super::expr::eval(t, &l), super::expr::eval(t, &r)) else {
+                let (Some((_, lraw)), Some((_, rraw))) =
+                    (super::expr::eval(t, &l), super::expr::eval(t, &r))
+                else {
                     ok = false;
                     break;
                 };
-                let fake = Target { table: Table::Ratio, row: row.clone(), splits: vec![super::classify::Split { l, r, lraw, rraw }], stmt: stmt.clone(), alts: Vec::new() };
-                let ext: Vec<(LinComb, LemmaRef)> = est.iter().map(|e| (e.row.clone(), e.lref.clone())).collect();
+                let fake = Target {
+                    table: Table::Ratio,
+                    row: row.clone(),
+                    splits: vec![super::classify::Split { l, r, lraw, rraw }],
+                    stmt: stmt.clone(),
+                    alts: Vec::new(),
+                };
+                let ext: Vec<(LinComb, LemmaRef)> = est
+                    .iter()
+                    .map(|e| (e.row.clone(), e.lref.clone()))
+                    .collect();
                 match self.computation(&fake, &support, h, &ext) {
                     Some(c) => out.push(c),
                     None => {
@@ -1537,11 +2114,42 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if !ok {
                 continue;
             }
-            let reasons: Vec<Reason> = stmts.iter().map(|(s, i)| Reason::Lemma { stmt: s.clone(), block: PENDING_BLOCK, sentence: *i as u16 }).collect();
-            let combination = vec![Term { reason: 0, row: 0, coef: Rat::one() }, Term { reason: 1, row: 0, coef: Rat::from_int(-1) }];
-            out.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons, combination });
+            let reasons: Vec<Reason> = stmts
+                .iter()
+                .map(|(s, i)| Reason::Lemma {
+                    stmt: s.clone(),
+                    block: PENDING_BLOCK,
+                    sentence: *i as u16,
+                })
+                .collect();
+            let combination = vec![
+                Term {
+                    reason: 0,
+                    row: 0,
+                    coef: Rat::one(),
+                },
+                Term {
+                    reason: 1,
+                    row: 0,
+                    coef: Rat::from_int(-1),
+                },
+            ];
+            out.push(Sentence::Because {
+                stmt: then.unwrap_or_else(|| target.stmt.clone()),
+                reasons,
+                combination,
+            });
             prune_lemmas(&mut out);
-            let n = out.iter().map(|s| if let Sentence::Computation { links, .. } = s { links.len() } else { 1 }).sum();
+            let n = out
+                .iter()
+                .map(|s| {
+                    if let Sentence::Computation { links, .. } = s {
+                        links.len()
+                    } else {
+                        1
+                    }
+                })
+                .sum();
             return Some((out, n));
         }
         None
@@ -1556,15 +2164,30 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
     }
 
-    fn trig_candidates(&self, o: PointId, tri: &[PointId; 3], rv: &LinComb, rlen: f64, h: FactId, skip: &[(PointId, PointId)]) -> Vec<TrigCand> {
+    fn trig_candidates(
+        &self,
+        o: PointId,
+        tri: &[PointId; 3],
+        rv: &LinComb,
+        rlen: f64,
+        h: FactId,
+        skip: &[(PointId, PointId)],
+    ) -> Vec<TrigCand> {
         let cx = self.w.cx;
         let t = cx.t;
         let mut out: Vec<TrigCand> = Vec::new();
-        let main = |v: VarId| t.sines.iter().find(|s| s.var == v).is_some_and(|s| [s.v, s.p, s.q].iter().all(|p| tri.contains(p)));
+        let main = |v: VarId| {
+            t.sines
+                .iter()
+                .find(|s| s.var == v)
+                .is_some_and(|s| [s.v, s.p, s.q].iter().all(|p| tri.contains(p)))
+        };
         let mut vars: Vec<VarId> = t.sines.iter().map(|s| t.sine_canon(s.var)).collect();
         vars.sort_unstable();
         vars.dedup();
-        let same = |a: (PointId, PointId), b: (PointId, PointId)| (a.0 == b.0 && a.1 == b.1) || (a.0 == b.1 && a.1 == b.0);
+        let same = |a: (PointId, PointId), b: (PointId, PointId)| {
+            (a.0 == b.0 && a.1 == b.1) || (a.0 == b.1 && a.1 == b.0)
+        };
         for a in 0..t.n as PointId {
             for b in (a + 1)..t.n as PointId {
                 if a == o || b == o || skip.iter().any(|x| same(*x, (a, b))) {
@@ -1575,35 +2198,76 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     if cx.timed_out() {
                         return out;
                     }
-                    let sval = t.values[Table::Ratio.idx()].get(v as usize).copied().unwrap_or(0.0);
+                    let sval = t.values[Table::Ratio.idx()]
+                        .get(v as usize)
+                        .copied()
+                        .unwrap_or(0.0);
                     if sval <= 1e-9 {
                         continue;
                     }
-                    let Some(q) = super::classify::small_rational(t.dist(a, b) / (rlen * sval)) else { continue };
+                    let Some(q) = super::classify::small_rational(t.dist(a, b) / (rlen * sval))
+                    else {
+                        continue;
+                    };
                     if q.denom_i64().is_none_or(|d| d > 2) || q.numer_i64().is_none_or(|n| n > 4) {
                         continue;
                     }
                     let Some(c) = t.prime_const(&q) else { continue };
                     let row = &(&(&ds - rv) - &LinComb::singleton(v, Rat::one())) - &c;
-                    if !t.holds(Table::Ratio, &row) || !self.w.in_admissible_span(Table::Ratio, &row, h, None) {
+                    if !t.holds(Table::Ratio, &row)
+                        || !self.w.in_admissible_span(Table::Ratio, &row, h, None)
+                    {
                         continue;
                     }
                     let trig = match ratio_expr(cx, &LinComb::singleton(v, Rat::one())) {
                         Expr::Prod { factors } if factors.len() == 1 => factors[0].0.clone(),
                         _ => continue,
                     };
-                    out.push(TrigCand { seg: (a, b), q, row, trig, main: main(v) });
+                    out.push(TrigCand {
+                        seg: (a, b),
+                        q,
+                        row,
+                        trig,
+                        main: main(v),
+                    });
                 }
             }
         }
         out
     }
 
-    fn certify_ext(&self, row: &LinComb, h: FactId, focus: &BTreeSet<PointId>, ext: &[&LinComb], banned: &BTreeSet<usize>) -> Option<Vec<(usize, Rat)>> {
-        let los: Vec<usize> = (0..self.w.atoms.len()).filter(|&i| self.w.atoms[i].table == Table::Ratio && self.w.atoms[i].admissible(h) && !banned.contains(&i) && self.triangle_of(i).is_some()).collect();
+    fn certify_ext(
+        &self,
+        row: &LinComb,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        ext: &[&LinComb],
+        banned: &BTreeSet<usize>,
+    ) -> Option<Vec<(usize, Rat)>> {
+        let los: Vec<usize> = (0..self.w.atoms.len())
+            .filter(|&i| {
+                self.w.atoms[i].table == Table::Ratio
+                    && self.w.atoms[i].admissible(h)
+                    && !banned.contains(&i)
+                    && self.triangle_of(i).is_some()
+            })
+            .collect();
         let cost = |sup: &[(usize, Rat)]| -> u32 {
             let base = self.w.atoms.len();
-            sup.iter().map(|(i, _)| if *i >= base { 1 } else { self.w.atoms[*i].cost.max(1) + if self.triangle_of(*i).is_some() { 30 } else { 0 } }).sum()
+            sup.iter()
+                .map(|(i, _)| {
+                    if *i >= base {
+                        1
+                    } else {
+                        self.w.atoms[*i].cost.max(1)
+                            + if self.triangle_of(*i).is_some() {
+                                30
+                            } else {
+                                0
+                            }
+                    }
+                })
+                .sum()
         };
         let mut best: Option<(u32, Vec<(usize, Rat)>)> = None;
         if los.len() <= 120 {
@@ -1662,12 +2326,31 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         Some(sup)
     }
 
-    fn certify_route(&self, row: &LinComb, h: FactId, ext: &[&LinComb], banned: &BTreeSet<usize>) -> Option<Vec<(usize, Rat)>> {
+    fn certify_route(
+        &self,
+        row: &LinComb,
+        h: FactId,
+        ext: &[&LinComb],
+        banned: &BTreeSet<usize>,
+    ) -> Option<Vec<(usize, Rat)>> {
         let cx = self.w.cx;
         let base = self.w.atoms.len();
         let mut atoms: Vec<Atom> = self.w.atoms.clone();
         for e in ext {
-            atoms.push(Atom { src: AtomSrc::Glue(0), args: Vec::new(), table: Table::Ratio, row: (*e).clone(), q: (*e).clone(), cost: 1, sources: BTreeSet::new(), tmpl: 0, avail: 0, row_idx: 0, via: Vec::new(), pts: Vec::new() });
+            atoms.push(Atom {
+                src: AtomSrc::Glue(0),
+                args: Vec::new(),
+                table: Table::Ratio,
+                row: (*e).clone(),
+                q: (*e).clone(),
+                cost: 1,
+                sources: BTreeSet::new(),
+                tmpl: 0,
+                avail: 0,
+                row_idx: 0,
+                via: Vec::new(),
+                pts: Vec::new(),
+            });
         }
         let weights: Vec<i64> = atoms
             .iter()
@@ -1676,7 +2359,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 if i >= base {
                     return 1;
                 }
-                if a.table != Table::Ratio || !a.admissible(h) || banned.contains(&i) || a.cost == 0 {
+                if a.table != Table::Ratio || !a.admissible(h) || banned.contains(&i) || a.cost == 0
+                {
                     return super::route::OFF;
                 }
                 let k = match (&a.src, self.triangle_of(i)) {
@@ -1704,7 +2388,14 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         Some(super::route::support(&p))
     }
 
-    fn certify_ext_once(&self, row: &LinComb, h: FactId, focus: &BTreeSet<PointId>, ext: &[&LinComb], banned: &BTreeSet<usize>) -> Option<Vec<(usize, Rat)>> {
+    fn certify_ext_once(
+        &self,
+        row: &LinComb,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        ext: &[&LinComb],
+        banned: &BTreeSet<usize>,
+    ) -> Option<Vec<(usize, Rat)>> {
         let cx = self.w.cx;
         let tb = Table::Ratio;
         let base = self.w.atoms.len();
@@ -1715,32 +2406,77 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 .iter()
                 .enumerate()
                 .filter(|(i, a)| a.table == tb && a.admissible(h) && !banned.contains(i))
-                .map(|(i, a)| (eff(a, focus, &self.w.claim_cost, cx) + self.w.extra.get(i).copied().unwrap_or(0) + match (&self.w.atoms[i].src, self.triangle_of(i)) {
-                    (_, None) => 0,
-                    (AtomSrc::Human(AtomKey::ExtLawOfSines), _) => 20,
-                    _ => 60,
-                }, i)),
+                .map(|(i, a)| {
+                    (
+                        eff(a, focus, &self.w.claim_cost, cx)
+                            + self.w.extra.get(i).copied().unwrap_or(0)
+                            + match (&self.w.atoms[i].src, self.triangle_of(i)) {
+                                (_, None) => 0,
+                                (AtomSrc::Human(AtomKey::ExtLawOfSines), _) => 20,
+                                _ => 60,
+                            },
+                        i,
+                    )
+                }),
         );
         idx.sort();
-        let rows: Vec<(u32, &LinComb)> = idx.iter().map(|(c, i)| (*c, if *i >= base { ext[*i - base] } else { &self.w.atoms[*i].row })).collect();
-        let cert = certify_greedy(&cx.piv[tb.idx()], &rows, row, &|k| idx[k].1 >= base || self.w.atoms[idx[k].1].cost > 0)?;
+        let rows: Vec<(u32, &LinComb)> = idx
+            .iter()
+            .map(|(c, i)| {
+                (
+                    *c,
+                    if *i >= base {
+                        ext[*i - base]
+                    } else {
+                        &self.w.atoms[*i].row
+                    },
+                )
+            })
+            .collect();
+        let cert = certify_greedy(&cx.piv[tb.idx()], &rows, row, &|k| {
+            idx[k].1 >= base || self.w.atoms[idx[k].1].cost > 0
+        })?;
         Some(cert.into_iter().map(|(k, l)| (idx[k].1, l)).collect())
     }
 
     fn sine_law_atoms(&self, support: &[(usize, Rat)]) -> BTreeSet<usize> {
         let base = self.w.atoms.len();
-        let tris: BTreeSet<BTreeSet<PointId>> = support.iter().filter(|(i, _)| *i < base).filter_map(|(i, _)| self.triangle_of(*i)).collect();
-        (0..base).filter(|&i| self.w.atoms[i].table == Table::Ratio && self.triangle_of(i).is_some_and(|t| tris.contains(&t))).collect()
+        let tris: BTreeSet<BTreeSet<PointId>> = support
+            .iter()
+            .filter(|(i, _)| *i < base)
+            .filter_map(|(i, _)| self.triangle_of(*i))
+            .collect();
+        (0..base)
+            .filter(|&i| {
+                self.w.atoms[i].table == Table::Ratio
+                    && self.triangle_of(i).is_some_and(|t| tris.contains(&t))
+            })
+            .collect()
     }
 
     fn sines_laws(&self, support: &[(usize, Rat)]) -> usize {
         let base = self.w.atoms.len();
-        let tris: BTreeSet<BTreeSet<PointId>> = support.iter().filter(|(i, _)| *i < base).filter_map(|(i, _)| self.triangle_of(*i)).collect();
+        let tris: BTreeSet<BTreeSet<PointId>> = support
+            .iter()
+            .filter(|(i, _)| *i < base)
+            .filter_map(|(i, _)| self.triangle_of(*i))
+            .collect();
         tris.len()
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn trig_ladder(&mut self, row: &LinComb, seg: (PointId, PointId), h: FactId, focus: &BTreeSet<PointId>, cands: &[TrigCand], est: &mut Vec<TrigEst>, out: &mut Vec<Sentence>, o: PointId, r0: PointId) -> Option<Vec<(usize, Rat)>> {
+    fn trig_ladder(
+        &mut self,
+        row: &LinComb,
+        seg: (PointId, PointId),
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        cands: &[TrigCand],
+        est: &mut Vec<TrigEst>,
+        out: &mut Vec<Sentence>,
+        o: PointId,
+        r0: PointId,
+    ) -> Option<Vec<(usize, Rat)>> {
         let (est0, out0) = (est.len(), out.len());
         let r = self.trig_ladder_inner(row, seg, h, focus, cands, est, out, o, r0);
         if r.is_none() {
@@ -1751,7 +2487,18 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn trig_ladder_inner(&mut self, row: &LinComb, seg: (PointId, PointId), h: FactId, focus: &BTreeSet<PointId>, cands: &[TrigCand], est: &mut Vec<TrigEst>, out: &mut Vec<Sentence>, o: PointId, r0: PointId) -> Option<Vec<(usize, Rat)>> {
+    fn trig_ladder_inner(
+        &mut self,
+        row: &LinComb,
+        seg: (PointId, PointId),
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        cands: &[TrigCand],
+        est: &mut Vec<TrigEst>,
+        out: &mut Vec<Sentence>,
+        o: PointId,
+        r0: PointId,
+    ) -> Option<Vec<(usize, Rat)>> {
         let cx = self.w.cx;
         let t = cx.t;
         let dbg = std::env::var_os("HP_TRIG").is_some();
@@ -1765,17 +2512,33 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let sup = self.certify_ext(row, h, focus, &ext, &banned)?;
             let n = self.sines_laws(&sup);
             if dbg {
-                eprintln!("trig ladder: target {:?} needs {} law-of-sines triangles with {} lemmas", seg, n, est.len());
+                eprintln!(
+                    "trig ladder: target {:?} needs {} law-of-sines triangles with {} lemmas",
+                    seg,
+                    n,
+                    est.len()
+                );
             }
             if n <= 1 {
                 return Some(sup);
             }
-            let mut best: Option<((usize, bool, usize, usize), usize, Vec<(usize, Rat)>, BTreeSet<usize>)> = None;
+            let mut best: Option<(
+                (usize, bool, usize, usize),
+                usize,
+                Vec<(usize, Rat)>,
+                BTreeSet<usize>,
+            )> = None;
             for (ci, c) in cands.iter().enumerate() {
-                if c.seg == seg || est.iter().any(|e| e.cand == ci || cands[e.cand].seg == c.seg) {
+                if c.seg == seg
+                    || est
+                        .iter()
+                        .any(|e| e.cand == ci || cands[e.cand].seg == c.seg)
+                {
                     continue;
                 }
-                let Some(sc) = self.certify_ext(&c.row, h, focus, &ext, &banned) else { continue };
+                let Some(sc) = self.certify_ext(&c.row, h, focus, &ext, &banned) else {
+                    continue;
+                };
                 let nc = self.sines_laws(&sc);
                 if nc == 0 || nc > 2 {
                     continue;
@@ -1783,10 +2546,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 let laws = self.sine_law_atoms(&sc);
                 let mut ext2 = ext.clone();
                 ext2.push(&c.row);
-                let Some(s2) = self.certify_ext(row, h, focus, &ext2, &banned) else { continue };
+                let Some(s2) = self.certify_ext(row, h, focus, &ext2, &banned) else {
+                    continue;
+                };
                 let n2 = self.sines_laws(&s2);
                 if dbg {
-                    eprintln!("  candidate {:?} q={} uses {} triangles; target then needs {}", c.seg, c.q, nc, n2);
+                    eprintln!(
+                        "  candidate {:?} q={} uses {} triangles; target then needs {}",
+                        c.seg, c.q, nc, n2
+                    );
                 }
                 if n2 >= n {
                     continue;
@@ -1804,35 +2572,83 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             };
             let c = &cands[ci];
             let stmt = trig_stmt(c.seg, &c.q, o, r0, &c.trig);
-            let l = Expr::Seg { a: c.seg.0, b: c.seg.1 };
+            let l = Expr::Seg {
+                a: c.seg.0,
+                b: c.seg.1,
+            };
             let r = match &stmt {
                 Stmt::Eq { rhs, .. } => rhs.clone(),
                 _ => return None,
             };
-            let (Some((_, lraw)), Some((_, rraw))) = (super::expr::eval(t, &l), super::expr::eval(t, &r)) else { return None };
-            let fake = Target { table: Table::Ratio, row: c.row.clone(), splits: vec![super::classify::Split { l, r, lraw, rraw }], stmt: stmt.clone(), alts: Vec::new() };
-            let extl: Vec<(LinComb, LemmaRef)> = est.iter().map(|e| (e.row.clone(), e.lref.clone())).collect();
+            let (Some((_, lraw)), Some((_, rraw))) =
+                (super::expr::eval(t, &l), super::expr::eval(t, &r))
+            else {
+                return None;
+            };
+            let fake = Target {
+                table: Table::Ratio,
+                row: c.row.clone(),
+                splits: vec![super::classify::Split { l, r, lraw, rraw }],
+                stmt: stmt.clone(),
+                alts: Vec::new(),
+            };
+            let extl: Vec<(LinComb, LemmaRef)> = est
+                .iter()
+                .map(|e| (e.row.clone(), e.lref.clone()))
+                .collect();
             let sentence = self.computation(&fake, &sc, h, &extl)?;
             out.push(sentence);
             let mut pts = vec![c.seg.0, c.seg.1, o, r0];
             pts.sort_unstable();
             pts.dedup();
-            est.push(TrigEst { cand: ci, row: c.row.clone(), lref: LemmaRef { stmt, sentence: out.len() - 1, pts, scale: Rat::one() }, laws });
+            est.push(TrigEst {
+                cand: ci,
+                row: c.row.clone(),
+                lref: LemmaRef {
+                    stmt,
+                    sentence: out.len() - 1,
+                    pts,
+                    scale: Rat::one(),
+                },
+                laws,
+            });
             used_here = true;
         }
         None
     }
 
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-    fn trig_pair(&self, row: &LinComb, seg: (PointId, PointId), n: usize, h: FactId, focus: &BTreeSet<PointId>, cands: &[TrigCand], est: &[TrigEst], ext: &[&LinComb], banned: &BTreeSet<usize>) -> Option<((usize, bool, usize, usize), usize, Vec<(usize, Rat)>, BTreeSet<usize>)> {
+    fn trig_pair(
+        &self,
+        row: &LinComb,
+        seg: (PointId, PointId),
+        n: usize,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+        cands: &[TrigCand],
+        est: &[TrigEst],
+        ext: &[&LinComb],
+        banned: &BTreeSet<usize>,
+    ) -> Option<(
+        (usize, bool, usize, usize),
+        usize,
+        Vec<(usize, Rat)>,
+        BTreeSet<usize>,
+    )> {
         let cx = self.w.cx;
         let base = self.w.atoms.len();
         let mut firsts: Vec<(bool, usize, usize, Vec<(usize, Rat)>)> = Vec::new();
         for (ci, c) in cands.iter().enumerate() {
-            if c.seg == seg || est.iter().any(|e| e.cand == ci || cands[e.cand].seg == c.seg) {
+            if c.seg == seg
+                || est
+                    .iter()
+                    .any(|e| e.cand == ci || cands[e.cand].seg == c.seg)
+            {
                 continue;
             }
-            let Some(sc) = self.certify_ext(&c.row, h, focus, ext, banned) else { continue };
+            let Some(sc) = self.certify_ext(&c.row, h, focus, ext, banned) else {
+                continue;
+            };
             let nc = self.sines_laws(&sc);
             if nc == 0 || nc > 2 {
                 continue;
@@ -1840,7 +2656,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             firsts.push((!c.main, nc, ci, sc));
         }
         firsts.sort_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
-        let mut best: Option<((usize, bool, usize, usize), usize, Vec<(usize, Rat)>, BTreeSet<usize>)> = None;
+        let mut best: Option<(
+            (usize, bool, usize, usize),
+            usize,
+            Vec<(usize, Rat)>,
+            BTreeSet<usize>,
+        )> = None;
         for (nonmain, nc1, c1, sc1) in firsts.into_iter().take(12) {
             let mut ext1: Vec<&LinComb> = ext.to_vec();
             ext1.push(&cands[c1].row);
@@ -1848,17 +2669,27 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 if cx.timed_out() {
                     return best;
                 }
-                if c2i == c1 || c2.seg == seg || c2.seg == cands[c1].seg || est.iter().any(|e| e.cand == c2i || cands[e.cand].seg == c2.seg) {
+                if c2i == c1
+                    || c2.seg == seg
+                    || c2.seg == cands[c1].seg
+                    || est
+                        .iter()
+                        .any(|e| e.cand == c2i || cands[e.cand].seg == c2.seg)
+                {
                     continue;
                 }
-                let Some(sc2) = self.certify_ext(&c2.row, h, focus, &ext1, banned) else { continue };
+                let Some(sc2) = self.certify_ext(&c2.row, h, focus, &ext1, banned) else {
+                    continue;
+                };
                 let nc2 = self.sines_laws(&sc2);
                 if nc2 == 0 || nc2 > 2 || !sc2.iter().any(|(i, _)| *i == base + ext.len()) {
                     continue;
                 }
                 let mut ext2 = ext1.clone();
                 ext2.push(&c2.row);
-                let Some(s2) = self.certify_ext(row, h, focus, &ext2, banned) else { continue };
+                let Some(s2) = self.certify_ext(row, h, focus, &ext2, banned) else {
+                    continue;
+                };
                 let n2 = self.sines_laws(&s2);
                 if n2 >= n || !s2.iter().any(|(i, _)| *i == base + ext.len() + 1) {
                     continue;
@@ -1871,7 +2702,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
         if std::env::var_os("HP_TRIG").is_some() {
             if let Some(b) = &best {
-                eprintln!("  pair lookahead picks {:?} (target then needs {})", cands[b.1].seg, b.0 .0);
+                eprintln!(
+                    "  pair lookahead picks {:?} (target then needs {})",
+                    cands[b.1].seg, b.0 .0
+                );
             }
         }
         best
@@ -1888,7 +2722,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if p == o || (t.dist(o, p) - rl).abs() > 1e-9 * (1.0 + rl) {
                 continue;
             }
-            let Some(v) = t.var(Table::Ratio, o, p) else { continue };
+            let Some(v) = t.var(Table::Ratio, o, p) else {
+                continue;
+            };
             let diff = &LinComb::singleton(v, Rat::one()) - &LinComb::singleton(r0, Rat::one());
             if v == r0 || self.w.in_admissible_span(Table::Ratio, &diff, h, None) {
                 all.push(v);
@@ -1897,13 +2733,25 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         Some((r0, all))
     }
 
-    fn computation(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, ext: &[(LinComb, LemmaRef)]) -> Option<Sentence> {
+    fn computation(
+        &mut self,
+        target: &Target,
+        support: &[(usize, Rat)],
+        h: FactId,
+        ext: &[(LinComb, LemmaRef)],
+    ) -> Option<Sentence> {
         let mut s = self.computation_raw(target, support, h, ext)?;
         merge_right_angle_links(&mut s);
         Some(s)
     }
 
-    fn computation_raw(&mut self, target: &Target, support: &[(usize, Rat)], h: FactId, ext: &[(LinComb, LemmaRef)]) -> Option<Sentence> {
+    fn computation_raw(
+        &mut self,
+        target: &Target,
+        support: &[(usize, Rat)],
+        h: FactId,
+        ext: &[(LinComb, LemmaRef)],
+    ) -> Option<Sentence> {
         let cx = self.w.cx;
         let split = target.splits.first()?;
         let canon = |c: &LinComb| cx.t.canon_ratio(c);
@@ -1922,11 +2770,32 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
         };
         let base = self.w.atoms.len();
-        let row_of = |i: usize| if i >= base { &ext[i - base].0 } else { &self.w.atoms[i].row };
-        let mut items: Vec<(usize, Rat)> = support.iter().filter(|(i, _)| (*i >= base || self.w.atoms[*i].cost > 0) && !sub(row_of(*i)).is_zero()).cloned().collect();
+        let row_of = |i: usize| {
+            if i >= base {
+                &ext[i - base].0
+            } else {
+                &self.w.atoms[i].row
+            }
+        };
+        let mut items: Vec<(usize, Rat)> = support
+            .iter()
+            .filter(|(i, _)| {
+                (*i >= base || self.w.atoms[*i].cost > 0) && !sub(row_of(*i)).is_zero()
+            })
+            .cloned()
+            .collect();
         let mut cur = sub(&split.lraw);
-        let lhs = |c: &LinComb| c.terms.iter().filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true)).count();
-        let cancels = |c: &LinComb, row: &LinComb| row.terms.iter().any(|(v, _)| c.terms.iter().any(|(w, _)| w == v));
+        let lhs = |c: &LinComb| {
+            c.terms
+                .iter()
+                .filter(|(v, _)| cx.piv[1].get(*v as usize).copied().unwrap_or(true))
+                .count()
+        };
+        let cancels = |c: &LinComb, row: &LinComb| {
+            row.terms
+                .iter()
+                .any(|(v, _)| c.terms.iter().any(|(w, _)| w == v))
+        };
         let mut seq: Vec<(usize, Rat, LinComb)> = Vec::new();
         while !items.is_empty() {
             let (k, _) = items
@@ -1967,7 +2836,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let ng = groups.len();
         let focus: BTreeSet<PointId> = BTreeSet::new();
         for (gi, (mut members, after)) in groups.into_iter().enumerate() {
-            let next = if gi + 1 == ng { split.r.clone() } else { ratio_expr(cx, &after) };
+            let next = if gi + 1 == ng {
+                split.r.clone()
+            } else {
+                ratio_expr(cx, &after)
+            };
             let (_, prev_v) = super::expr::eval(cx.t, terms.last()?)?;
             let (_, next_v) = super::expr::eval(cx.t, &next)?;
             let mut residual = canon(&(&prev_v - &next_v));
@@ -1988,10 +2861,17 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 members.retain(|x| !x.1.is_zero());
             }
             let (rs, cs) = self.group_reasons(&members, h, &lemrefs, false);
-            links.push(Link { reasons: rs, combination: cs });
+            links.push(Link {
+                reasons: rs,
+                combination: cs,
+            });
             terms.push(next);
         }
-        Some(Sentence::Computation { comp: CompKind::Trig, terms, links })
+        Some(Sentence::Computation {
+            comp: CompKind::Trig,
+            terms,
+            links,
+        })
     }
 
     fn triangle_of(&self, i: usize) -> Option<BTreeSet<PointId>> {
@@ -2012,27 +2892,48 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         None
     }
 
-    fn group_reasons(&self, group: &[(usize, Rat)], h: FactId, lem: &[LemmaRef], collapse: bool) -> (Vec<Reason>, Vec<Term>) {
+    fn group_reasons(
+        &self,
+        group: &[(usize, Rat)],
+        h: FactId,
+        lem: &[LemmaRef],
+        collapse: bool,
+    ) -> (Vec<Reason>, Vec<Term>) {
         let base = self.w.atoms.len();
         let atoms: Vec<(usize, Rat)> = group.iter().filter(|(i, _)| *i < base).cloned().collect();
         let (mut rs, mut cs) = self.reasons_for(&atoms, h, collapse);
         for (i, lam) in group.iter().filter(|(i, _)| *i >= base) {
             let lr = &lem[*i - base];
-            rs.push(Reason::Lemma { stmt: lr.stmt.clone(), block: PENDING_BLOCK, sentence: lr.sentence as u16 });
-            cs.push(Term { reason: (rs.len() - 1) as u16, row: 0, coef: lam * &lr.scale });
+            rs.push(Reason::Lemma {
+                stmt: lr.stmt.clone(),
+                block: PENDING_BLOCK,
+                sentence: lr.sentence as u16,
+            });
+            cs.push(Term {
+                reason: (rs.len() - 1) as u16,
+                row: 0,
+                coef: lam * &lr.scale,
+            });
         }
         (rs, cs)
     }
-
 
     fn lemma_scale(&self, table: Table, a: &Expr, b: &Expr, sum: &LinComb) -> Option<Rat> {
         let cx = self.w.cx;
         let (_, ea) = super::expr::eval(cx.t, a)?;
         let (_, eb) = super::expr::eval(cx.t, b)?;
         let d = &ea - &eb;
-        let mut got = if table == Table::Angle { cx.quot.q(&d) } else { cx.t.canon_ratio(&d) };
+        let mut got = if table == Table::Angle {
+            cx.quot.q(&d)
+        } else {
+            cx.t.canon_ratio(&d)
+        };
         got.terms.retain(|(v, _)| *v != ANGLE_UNIT);
-        let mut want = if table == Table::Angle { sum.clone() } else { cx.t.canon_ratio(sum) };
+        let mut want = if table == Table::Angle {
+            sum.clone()
+        } else {
+            cx.t.canon_ratio(sum)
+        };
         want.terms.retain(|(v, _)| *v != ANGLE_UNIT);
         let scale = match (want.terms.first(), got.terms.first()) {
             (Some((v, k)), Some((w, g))) if v == w && !g.is_zero() => k / g,
@@ -2045,11 +2946,24 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
 
     fn cited(&self, all: &[(usize, Rat, LinComb)], h: FactId) -> usize {
         let base = self.w.atoms.len();
-        let atoms: Vec<(usize, Rat)> = all.iter().filter(|(i, _, _)| *i < base).map(|x| (x.0, x.1.clone())).collect();
-        self.reasons_for(&atoms, h, true).0.len() + all.iter().filter(|(i, _, _)| *i >= base).count()
+        let atoms: Vec<(usize, Rat)> = all
+            .iter()
+            .filter(|(i, _, _)| *i < base)
+            .map(|x| (x.0, x.1.clone()))
+            .collect();
+        self.reasons_for(&atoms, h, true).0.len()
+            + all.iter().filter(|(i, _, _)| *i >= base).count()
     }
 
-    fn pooled_steps(&self, table: Table, all: &mut Vec<(usize, Rat, LinComb)>, refs: &mut Vec<LemmaRef>, out: &mut Vec<Sentence>, h: FactId, focus: &BTreeSet<PointId>) {
+    fn pooled_steps(
+        &self,
+        table: Table,
+        all: &mut Vec<(usize, Rat, LinComb)>,
+        refs: &mut Vec<LemmaRef>,
+        out: &mut Vec<Sentence>,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+    ) {
         let cx = self.w.cx;
         let base = self.w.atoms.len();
         let mut guard = 0;
@@ -2120,55 +3034,134 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 };
                 for (a, end) in ends {
                     let shown = if table == Table::Angle {
-                        (display_node(cx, &a, directed, &[], focus), display_node(cx, &end, directed, &[], focus))
+                        (
+                            display_node(cx, &a, directed, &[], focus),
+                            display_node(cx, &end, directed, &[], focus),
+                        )
                     } else {
                         (Some(ratio_expr(cx, &a)), Some(ratio_expr(cx, &end)))
                     };
-                    let (Some(ea), Some(ee)) = shown else { continue };
-                    let nice = if table == Table::Angle { single_angle(&a).is_some() && single_angle(&end).is_some() && expr_badness(&ea) + expr_badness(&ee) == 0 } else { a.terms.len() + end.terms.len() <= 4 };
+                    let (Some(ea), Some(ee)) = shown else {
+                        continue;
+                    };
+                    let nice = if table == Table::Angle {
+                        single_angle(&a).is_some()
+                            && single_angle(&end).is_some()
+                            && expr_badness(&ea) + expr_badness(&ee) == 0
+                    } else {
+                        a.terms.len() + end.terms.len() <= 4
+                    };
                     if nice_only && !nice {
                         continue;
                     }
-                    let Some(scale) = self.lemma_scale(table, &ea, &ee, &s) else { continue };
-                    if members.len() > 3 && self.cited(&members.iter().map(|&k| all[k].clone()).collect::<Vec<_>>(), h) > MAX_POOLED {
+                    let Some(scale) = self.lemma_scale(table, &ea, &ee, &s) else {
+                        continue;
+                    };
+                    if members.len() > 3
+                        && self.cited(
+                            &members.iter().map(|&k| all[k].clone()).collect::<Vec<_>>(),
+                            h,
+                        ) > MAX_POOLED
+                    {
                         continue;
                     }
-                    let size = if table == Table::Angle { 0 } else { 2 * (a.terms.len() + end.terms.len()) as i64 };
-                    let cost = 3 * (expr_badness(&ea) + expr_badness(&ee)) + size - 4 * members.len() as i64;
+                    let size = if table == Table::Angle {
+                        0
+                    } else {
+                        2 * (a.terms.len() + end.terms.len()) as i64
+                    };
+                    let cost = 3 * (expr_badness(&ea) + expr_badness(&ee)) + size
+                        - 4 * members.len() as i64;
                     if best.as_ref().is_none_or(|b| cost < b.0) {
                         best = Some((cost, members.clone(), s.clone(), ea, ee, scale));
                     }
                 }
             }
             if std::env::var_os("HP_POOL").is_some() {
-                eprintln!("pooled_steps: n {n} cited {} tried {tried} best {:?}", self.cited(all, h), best.as_ref().map(|b| (b.0, b.1.clone())));
+                eprintln!(
+                    "pooled_steps: n {n} cited {} tried {tried} best {:?}",
+                    self.cited(all, h),
+                    best.as_ref().map(|b| (b.0, b.1.clone()))
+                );
             }
-            let Some((_, members, sum, ea, ee, scale)) = best else { break };
-            let group: Vec<(usize, Rat)> = members.iter().map(|&k| (all[k].0, all[k].1.clone())).collect();
+            let Some((_, members, sum, ea, ee, scale)) = best else {
+                break;
+            };
+            let group: Vec<(usize, Rat)> = members
+                .iter()
+                .map(|&k| (all[k].0, all[k].1.clone()))
+                .collect();
             let (reasons, combination) = self.group_reasons(&group, h, refs, true);
-            let stmt = if table == Table::Angle { Stmt::EqAngle { lhs: ea.clone(), rhs: ee.clone() } } else { Stmt::Eq { lhs: ea.clone(), rhs: ee.clone() } };
+            let stmt = if table == Table::Angle {
+                Stmt::EqAngle {
+                    lhs: ea.clone(),
+                    rhs: ee.clone(),
+                }
+            } else {
+                Stmt::Eq {
+                    lhs: ea.clone(),
+                    rhs: ee.clone(),
+                }
+            };
             let mut pts: Vec<PointId> = super::view::expr_points(&ea);
             pts.extend(super::view::expr_points(&ee));
             pts.sort_unstable();
             pts.dedup();
-            refs.push(LemmaRef { stmt: stmt.clone(), sentence: out.len(), pts, scale });
+            refs.push(LemmaRef {
+                stmt: stmt.clone(),
+                sentence: out.len(),
+                pts,
+                scale,
+            });
             if reasons.len() <= SHORT_REASONS {
-                out.push(Sentence::Because { stmt, reasons, combination });
+                out.push(Sentence::Because {
+                    stmt,
+                    reasons,
+                    combination,
+                });
             } else {
-                out.push(Sentence::Pooled { stmt, reasons, combination });
+                out.push(Sentence::Pooled {
+                    stmt,
+                    reasons,
+                    combination,
+                });
             }
             let id = base + refs.len() - 1;
-            let mut rest: Vec<(usize, Rat, LinComb)> = all.iter().enumerate().filter(|(k, _)| !members.contains(k)).map(|(_, x)| x.clone()).collect();
+            let mut rest: Vec<(usize, Rat, LinComb)> = all
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| !members.contains(k))
+                .map(|(_, x)| x.clone())
+                .collect();
             rest.push((id, Rat::one(), sum));
             *all = rest;
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn build_split(&mut self, target: &Target, si: usize, l: &LinComb, ls: &LemmaSplit, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<(Vec<Sentence>, usize, bool)> {
+    fn build_split(
+        &mut self,
+        target: &Target,
+        si: usize,
+        l: &LinComb,
+        ls: &LemmaSplit,
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+    ) -> Option<(Vec<Sentence>, usize, bool)> {
         let saved = (self.force_undirected, self.as_drawn);
         self.force_undirected = ls.halves;
-        let r = self.lemma_build(target, si, l, &ls.reduced, &ls.groups, &ls.plans, h, then, focus);
+        let r = self.lemma_build(
+            target,
+            si,
+            l,
+            &ls.reduced,
+            &ls.groups,
+            &ls.plans,
+            h,
+            then,
+            focus,
+        );
         self.force_undirected = saved.0;
         match r {
             Some((s, n)) => {
@@ -2185,7 +3178,16 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         }
     }
 
-    fn lemma_plan(&self, table: Table, l: &LinComb, r: &LinComb, items: &[(usize, Rat, LinComb)], focus: &BTreeSet<PointId>, budget: &mut usize, halves: bool) -> Option<LemmaSplit> {
+    fn lemma_plan(
+        &self,
+        table: Table,
+        l: &LinComb,
+        r: &LinComb,
+        items: &[(usize, Rat, LinComb)],
+        focus: &BTreeSet<PointId>,
+        budget: &mut usize,
+        halves: bool,
+    ) -> Option<LemmaSplit> {
         let cx = self.w.cx;
         if !matches!(table, Table::Angle | Table::Ratio) || items.len() < 3 {
             return None;
@@ -2206,9 +3208,19 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if std::env::var_os("HP_LEMMA").is_some() {
                 let names = |p: PointId| super::text::disp(cx.t.name(p));
                 let nm = super::text::FnNames(&names);
-                eprintln!("lemma candidates at depth {} (work {}):", plans.len(), work.len());
+                eprintln!(
+                    "lemma candidates at depth {} (work {}):",
+                    plans.len(),
+                    work.len()
+                );
                 for c in cands.iter().take(30) {
-                    eprintln!("  cost {} members {:?}: {} = {}", c.cost, c.members, super::text::expr(&nm, &c.lhs), super::text::expr(&nm, &c.rhs));
+                    eprintln!(
+                        "  cost {} members {:?}: {} = {}",
+                        c.cost,
+                        c.members,
+                        super::text::expr(&nm, &c.lhs),
+                        super::text::expr(&nm, &c.rhs)
+                    );
                 }
             }
             let next_id = base + plans.len();
@@ -2219,20 +3231,34 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     break;
                 }
                 let reduced = reduce_items(&work, c, next_id);
-                if let Some((groups, mc)) = order_items_mode(cx, table, l, r, &reduced, budget, MAIN_CAP, halves) {
+                if let Some((groups, mc)) =
+                    order_items_mode(cx, table, l, r, &reduced, budget, MAIN_CAP, halves)
+                {
                     hits += 1;
                     let total = acc + c.cost + mc + long_penalty(groups.len()) + SENTENCE_COST;
                     if best.as_ref().is_none_or(|b| total < b.cost) {
                         let mut all = plans.clone();
                         all.push(c.plan(&work));
-                        best = Some(LemmaSplit { cost: total, plans: all, reduced, groups, halves });
+                        best = Some(LemmaSplit {
+                            cost: total,
+                            plans: all,
+                            reduced,
+                            groups,
+                            halves,
+                        });
                     }
                 }
             }
             if best.is_some() {
                 return best;
             }
-            let Some(pick) = cands.iter().min_by_key(|c| (c.cost - 14 * c.members.len() as i64, c.members.clone())).cloned() else { break };
+            let Some(pick) = cands
+                .iter()
+                .min_by_key(|c| (c.cost - 14 * c.members.len() as i64, c.members.clone()))
+                .cloned()
+            else {
+                break;
+            };
             acc += pick.cost + SENTENCE_COST;
             plans.push(pick.plan(&work));
             work = reduce_items(&work, &pick, next_id);
@@ -2243,25 +3269,64 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         if plans.is_empty() {
             return None;
         }
-        Some(LemmaSplit { cost: i64::MAX / 4, plans, reduced: work, groups: Vec::new(), halves })
+        Some(LemmaSplit {
+            cost: i64::MAX / 4,
+            plans,
+            reduced: work,
+            groups: Vec::new(),
+            halves,
+        })
     }
 
-    fn lemma_candidates(&self, table: Table, work: &[(usize, Rat, LinComb)], focus: &BTreeSet<PointId>, budget: &mut usize, halves: bool) -> Vec<LemmaCand> {
+    fn lemma_candidates(
+        &self,
+        table: Table,
+        work: &[(usize, Rat, LinComb)],
+        focus: &BTreeSet<PointId>,
+        budget: &mut usize,
+        halves: bool,
+    ) -> Vec<LemmaCand> {
         let cx = self.w.cx;
         let n = work.len();
-        let max = if n > 18 { 3 } else if n > 12 { 4 } else { 5 }.min(n - 1);
-        let key = |v: VarId| if table == Table::Angle { v >= QBASE } else { cx.piv[1].get(v as usize).copied().unwrap_or(true) };
-        let iv: Vec<Vec<VarId>> = work.iter().map(|x| x.2.terms.iter().filter(|(v, _)| key(*v)).map(|(v, _)| *v).collect()).collect();
+        let max = if n > 18 {
+            3
+        } else if n > 12 {
+            4
+        } else {
+            5
+        }
+        .min(n - 1);
+        let key = |v: VarId| {
+            if table == Table::Angle {
+                v >= QBASE
+            } else {
+                cx.piv[1].get(v as usize).copied().unwrap_or(true)
+            }
+        };
+        let iv: Vec<Vec<VarId>> = work
+            .iter()
+            .map(|x| {
+                x.2.terms
+                    .iter()
+                    .filter(|(v, _)| key(*v))
+                    .map(|(v, _)| *v)
+                    .collect()
+            })
+            .collect();
         let mut seen: BTreeSet<u32> = BTreeSet::new();
         let mut frontier: Vec<u32> = (0..n).map(|k| 1u32 << k).collect();
         let mut out: Vec<LemmaCand> = Vec::new();
-        let (mut t_ends, mut t_disp, mut t_order, mut n_sub, mut n_disp, mut n_order) = (0f64, 0f64, 0f64, 0usize, 0usize, 0usize);
+        let (mut t_ends, mut t_disp, mut t_order, mut n_sub, mut n_disp, mut n_order) =
+            (0f64, 0f64, 0f64, 0usize, 0usize, 0usize);
         let timing = std::env::var_os("HP_TIME2").is_some();
         let _report = Reporter(timing, std::cell::Cell::new(String::new()));
         for _size in 2..=max {
             let mut next: Vec<u32> = Vec::new();
             for &m in &frontier {
-                let mv: BTreeSet<VarId> = (0..n).filter(|&k| m & (1 << k) != 0).flat_map(|k| iv[k].iter().copied()).collect();
+                let mv: BTreeSet<VarId> = (0..n)
+                    .filter(|&k| m & (1 << k) != 0)
+                    .flat_map(|k| iv[k].iter().copied())
+                    .collect();
                 for k in 0..n {
                     if m & (1 << k) != 0 || !iv[k].iter().any(|v| mv.contains(v)) {
                         continue;
@@ -2292,7 +3357,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         if ts.is_empty() || (!halves && ts.iter().any(|t| !t.0.is_integer())) {
                             continue;
                         }
-                        let starts: Vec<LinComb> = if ts.len() == 2 { vec![term_comb(&ts[0]), term_comb(&ts[1])] } else { vec![term_comb(&ts[0])] };
+                        let starts: Vec<LinComb> = if ts.len() == 2 {
+                            vec![term_comb(&ts[0]), term_comb(&ts[1])]
+                        } else {
+                            vec![term_comb(&ts[0])]
+                        };
                         for a in starts {
                             let end = LinComb::combine(&a, &s, &Rat::from_int(-1));
                             if single_angle(&a).is_some() && single_angle(&end).is_some() {
@@ -2310,22 +3379,29 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 if ends.is_empty() {
                     continue;
                 }
-                let sub: Vec<(usize, Rat, LinComb)> = members.iter().map(|&k| work[k].clone()).collect();
+                let sub: Vec<(usize, Rat, LinComb)> =
+                    members.iter().map(|&k| work[k].clone()).collect();
                 for (a, end) in ends {
                     let td = std::time::Instant::now();
                     n_disp += 1;
                     let shown = if table == Table::Angle {
-                        (display_node(cx, &a, !halves, &[], focus), display_node(cx, &end, !halves, &[], focus))
+                        (
+                            display_node(cx, &a, !halves, &[], focus),
+                            display_node(cx, &end, !halves, &[], focus),
+                        )
                     } else {
                         (Some(ratio_expr(cx, &a)), Some(ratio_expr(cx, &end)))
                     };
                     if timing {
                         t_disp += td.elapsed().as_secs_f64();
                     }
-                    let (Some(ea), Some(ee)) = shown else { continue };
+                    let (Some(ea), Some(ee)) = shown else {
+                        continue;
+                    };
                     let to = std::time::Instant::now();
                     n_order += 1;
-                    let ordered = order_items_mode(cx, table, &a, &end, &sub, budget, SUB_CAP, halves);
+                    let ordered =
+                        order_items_mode(cx, table, &a, &end, &sub, budget, SUB_CAP, halves);
                     if timing {
                         t_order += to.elapsed().as_secs_f64();
                         _report.1.set(format!("lemma_candidates n {n} subsets {n_sub} ends {:.1} ms, display {n_disp} {:.1} ms, order {n_order} {:.1} ms, budget left {}", t_ends * 1e3, t_disp * 1e3, t_order * 1e3, *budget));
@@ -2333,7 +3409,16 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     if let Some((groups, c)) = ordered {
                         let bad = expr_badness(&ea) + expr_badness(&ee);
                         let cost = c + long_penalty(groups.len()) + 3 * bad;
-                        out.push(LemmaCand { members: members.clone(), sum: s.clone(), start: a.clone(), end: end.clone(), groups, cost, lhs: ea.clone(), rhs: ee.clone() });
+                        out.push(LemmaCand {
+                            members: members.clone(),
+                            sum: s.clone(),
+                            start: a.clone(),
+                            end: end.clone(),
+                            groups,
+                            cost,
+                            lhs: ea.clone(),
+                            rhs: ee.clone(),
+                        });
                     }
                     if *budget == 0 {
                         return out;
@@ -2346,18 +3431,41 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
     fn chain_gives_then(&self, s: &Sentence) -> bool {
-        let Sentence::Chain { terms, then: Some(st), .. } = s else { return true };
+        let Sentence::Chain {
+            terms,
+            then: Some(st),
+            ..
+        } = s
+        else {
+            return true;
+        };
         if !matches!(st, Stmt::Cyclic { .. } | Stmt::Coll { .. }) {
             return true;
         }
         let cx = self.w.cx;
-        let (Some((tb, a)), Some((_, b))) = (super::expr::eval(cx.t, &terms[0]), super::expr::eval(cx.t, terms.last().unwrap())) else { return false };
+        let (Some((tb, a)), Some((_, b))) = (
+            super::expr::eval(cx.t, &terms[0]),
+            super::expr::eval(cx.t, terms.last().unwrap()),
+        ) else {
+            return false;
+        };
         let diff = &a - &b;
-        let Some(forms) = super::check::conclusion_forms(cx.t, st) else { return false };
-        forms.iter().any(|(_, x)| super::check::residual_ok(cx, tb, &diff, x, true) || super::check::residual_ok(cx, tb, &diff, &x.negated(), true))
+        let Some(forms) = super::check::conclusion_forms(cx.t, st) else {
+            return false;
+        };
+        forms.iter().any(|(_, x)| {
+            super::check::residual_ok(cx, tb, &diff, x, true)
+                || super::check::residual_ok(cx, tb, &diff, &x.negated(), true)
+        })
     }
 
-    fn route_now(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
+    fn route_now(
+        &mut self,
+        target: &Target,
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+    ) -> Option<Vec<Sentence>> {
         if !matches!(target.table, Table::Angle | Table::Ratio) {
             return None;
         }
@@ -2367,39 +3475,69 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         form.alts.clear();
         let splits = super::search::route_splits(w, &mut form);
         let g = if target.table == Table::Angle {
-            self.halve_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, false))
+            self.halve_graph
+                .get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, false))
         } else {
-            self.ratio_graph.get_or_init(|| {
-                super::route::Graph::new(cx, &w.atoms, Table::Ratio, false)
-            })
+            self.ratio_graph
+                .get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Ratio, false))
         };
         let weights: Vec<i64> = w
             .atoms
             .iter()
-            .map(|a| if a.table == target.table && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .map(|a| {
+                if a.table == target.table && a.cost > 0 && a.admissible(h) {
+                    eff(a, focus, &w.claim_cost, cx) as i64 + 2
+                } else {
+                    super::route::OFF
+                }
+            })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
-        let budget = if target.table == Table::Ratio { 1200 } else { 3000 };
+        let budget = if target.table == Table::Ratio {
+            1200
+        } else {
+            3000
+        };
         let found = g.search(cx, &splits, budget, i64::MAX, &spent, &weights);
         if std::env::var_os("HP_ROUTE").is_some() {
-            eprintln!("route_now {:?} {:?}: {} splits, found {:?}", form.table, form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
+            eprintln!(
+                "route_now {:?} {:?}: {} splits, found {:?}",
+                form.table,
+                form.stmt,
+                splits.len(),
+                found.as_ref().map(|p| p.links.len())
+            );
         }
         let p = found?;
         let s = self.path_sentences(&form, &p, h, then, focus, &[])?;
         s.iter().all(|x| self.chain_gives_then(x)).then_some(s)
     }
 
-    fn route_drawn(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
+    fn route_drawn(
+        &mut self,
+        target: &Target,
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+    ) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let w = self.w;
         let weights: Vec<i64> = w
             .atoms
             .iter()
-            .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .map(|a| {
+                if a.table == Table::Angle && a.cost > 0 && a.admissible(h) {
+                    eff(a, focus, &w.claim_cost, cx) as i64 + 2
+                } else {
+                    super::route::OFF
+                }
+            })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
         let degenerate = LinComb::singleton(crate::elimination::ANGLE_UNIT, Rat::new(1, 3));
-        let mut forms: Vec<Target> = std::iter::once(target.clone()).chain(target.alts.iter().cloned()).collect();
+        let mut forms: Vec<Target> = std::iter::once(target.clone())
+            .chain(target.alts.iter().cloned())
+            .collect();
         if let Stmt::Coll { pts } = &target.stmt {
             if let Some((ts, _)) = super::classify::coll_targets(cx, pts, None) {
                 for t in ts {
@@ -2412,14 +3550,25 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let mut form = f.clone();
             form.alts.clear();
             let _ = super::search::route_splits(w, &mut form);
-            let splits: Vec<(LinComb, LinComb)> = super::search::undirected_splits(w, &form).into_iter().filter(|(l, r)| !(l.is_zero() && *r == degenerate)).collect();
+            let splits: Vec<(LinComb, LinComb)> = super::search::undirected_splits(w, &form)
+                .into_iter()
+                .filter(|(l, r)| !(l.is_zero() && *r == degenerate))
+                .collect();
             let used = spent.load(std::sync::atomic::Ordering::Relaxed);
             if splits.is_empty() || used >= DRAWN_BUDGET {
                 continue;
             }
-            let found = self.drawn_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true)).search(cx, &splits, DRAWN_BUDGET - used, i64::MAX, &spent, &weights);
+            let found = self
+                .drawn_graph
+                .get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true))
+                .search(cx, &splits, DRAWN_BUDGET - used, i64::MAX, &spent, &weights);
             if std::env::var_os("HP_ROUTE").is_some() {
-                eprintln!("route_drawn {:?}: {} splits, found {:?}", form.stmt, splits.len(), found.as_ref().map(|p| p.links.len()));
+                eprintln!(
+                    "route_drawn {:?}: {} splits, found {:?}",
+                    form.stmt,
+                    splits.len(),
+                    found.as_ref().map(|p| p.links.len())
+                );
             }
             let Some(p) = found else { continue };
             let saved = self.force_undirected;
@@ -2427,14 +3576,23 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let s = self.path_sentences(&form, &p, h, then.clone(), focus, &[]);
             self.force_undirected = saved;
             let Some(s) = s else { continue };
-            if s.iter().all(|x| self.chain_meets_target(x, target) && self.chain_gives_then(x)) && !s.iter().any(multiple_directed) {
+            if s.iter()
+                .all(|x| self.chain_meets_target(x, target) && self.chain_gives_then(x))
+                && !s.iter().any(multiple_directed)
+            {
                 return Some(s);
             }
         }
         None
     }
 
-    fn line_lemma(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
+    fn line_lemma(
+        &mut self,
+        target: &Target,
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+    ) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let t = cx.t;
         let w = self.w;
@@ -2449,7 +3607,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             for j in i + 1..pts.len() {
                 let (u, v) = (pts[i], pts[j]);
                 for x in 0..t.n as PointId {
-                    if x == u || x == v || t.name(x).starts_with('_') || cx.collinear_hyp(&[u, v, x]) {
+                    if x == u
+                        || x == v
+                        || t.name(x).starts_with('_')
+                        || cx.collinear_hyp(&[u, v, x])
+                    {
                         continue;
                     }
                     let ((ux, uy), (vx, vy), (xx, xy)) = (t.coord(u), t.coord(v), t.coord(x));
@@ -2476,10 +3638,20 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 continue;
             }
             let stmt = Stmt::Coll { pts: c.to_vec() };
-            let Some((lts, _)) = super::classify::coll_targets(cx, &c, None) else { continue };
-            let Some(lt) = lts.into_iter().next() else { continue };
+            let Some((lts, _)) = super::classify::coll_targets(cx, &c, None) else {
+                continue;
+            };
+            let Some(lt) = lts.into_iter().next() else {
+                continue;
+            };
             let ls = match self.route_now(&lt, h, Some(stmt.clone()), focus) {
-                Some(x) if !x.iter().any(|y| multiple_directed(y) || matches!(y, Sentence::Pooled { .. })) => x,
+                Some(x)
+                    if !x
+                        .iter()
+                        .any(|y| multiple_directed(y) || matches!(y, Sentence::Pooled { .. })) =>
+                {
+                    x
+                }
                 _ => match self.route_drawn(&lt, h, Some(stmt.clone()), focus) {
                     Some(x) => x,
                     None => continue,
@@ -2488,7 +3660,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if !matches!(ls.last(), Some(Sentence::Chain { then: Some(st), .. }) if *st == stmt) {
                 continue;
             }
-            let Some(proto) = w.atoms.iter().find(|a| a.table == Table::Angle && a.cost > 0) else { return None };
+            let Some(proto) = w
+                .atoms
+                .iter()
+                .find(|a| a.table == Table::Angle && a.cost > 0)
+            else {
+                return None;
+            };
             let mut atoms = w.atoms.clone();
             let mut la = proto.clone();
             la.q = cx.quot.q(&row);
@@ -2499,20 +3677,40 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let mut weights: Vec<i64> = w
                 .atoms
                 .iter()
-                .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+                .map(|a| {
+                    if a.table == Table::Angle && a.cost > 0 && a.admissible(h) {
+                        eff(a, focus, &w.claim_cost, cx) as i64 + 2
+                    } else {
+                        super::route::OFF
+                    }
+                })
                 .collect();
             weights.push(3);
             let mut form = target.clone();
             form.alts.clear();
             let splits = super::search::route_splits(w, &mut form);
             let spent = std::sync::atomic::AtomicUsize::new(0);
-            let Some(p) = g.search(cx, &splits, 2000, i64::MAX, &spent, &weights) else { continue };
-            if !p.links.iter().flatten().any(|(i, _)| *i == base) || p.links.iter().flatten().any(|(_, l)| !l.abs().is_one()) {
+            let Some(p) = g.search(cx, &splits, 2000, i64::MAX, &spent, &weights) else {
+                continue;
+            };
+            if !p.links.iter().flatten().any(|(i, _)| *i == base)
+                || p.links.iter().flatten().any(|(_, l)| !l.abs().is_one())
+            {
                 continue;
             }
-            let lem = [LemmaRef { stmt: stmt.clone(), sentence: ls.len() - 1, pts: c.to_vec(), scale: Rat::one() }];
-            let Some(ms) = self.path_sentences(&form, &p, h, then.clone(), focus, &lem) else { continue };
-            if ms.iter().any(|y| multiple_directed(y) || matches!(y, Sentence::Pooled { .. })) {
+            let lem = [LemmaRef {
+                stmt: stmt.clone(),
+                sentence: ls.len() - 1,
+                pts: c.to_vec(),
+                scale: Rat::one(),
+            }];
+            let Some(ms) = self.path_sentences(&form, &p, h, then.clone(), focus, &lem) else {
+                continue;
+            };
+            if ms
+                .iter()
+                .any(|y| multiple_directed(y) || matches!(y, Sentence::Pooled { .. }))
+            {
                 continue;
             }
             if std::env::var_os("HP_ROUTE").is_some() {
@@ -2526,20 +3724,39 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
     fn chain_meets_target(&self, s: &Sentence, target: &Target) -> bool {
-        let Sentence::Chain { terms, then: Some(_), .. } = s else { return true };
+        let Sentence::Chain {
+            terms,
+            then: Some(_),
+            ..
+        } = s
+        else {
+            return true;
+        };
         let t = self.w.cx.t;
-        let (Some((tb, a)), Some((_, b))) = (super::expr::eval(t, &terms[0]), super::expr::eval(t, terms.last().unwrap())) else { return false };
+        let (Some((tb, a)), Some((_, b))) = (
+            super::expr::eval(t, &terms[0]),
+            super::expr::eval(t, terms.last().unwrap()),
+        ) else {
+            return false;
+        };
         if tb != target.table {
             return false;
         }
         let diff = &a - &b;
         std::iter::once(target).chain(target.alts.iter()).any(|f| {
             let row = t.exact(f.table, &f.row);
-            super::check::residual_ok(self.w.cx, tb, &diff, &row, true) || super::check::residual_ok(self.w.cx, tb, &diff, &row.negated(), true)
+            super::check::residual_ok(self.w.cx, tb, &diff, &row, true)
+                || super::check::residual_ok(self.w.cx, tb, &diff, &row.negated(), true)
         })
     }
 
-    fn halved_lemma(&mut self, lhs: &Expr, rhs: &Expr, h: FactId, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
+    fn halved_lemma(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        h: FactId,
+        focus: &BTreeSet<PointId>,
+    ) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let t = cx.t;
         let (hl, hr0) = (halve_expr(lhs)?, halve_expr(rhs)?);
@@ -2552,7 +3769,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 Expr::Lin { terms } => terms,
                 x => vec![(Rat::one(), x)],
             };
-            terms.push((Rat::one(), Expr::Const { degrees: Rat::from_int(90) }));
+            terms.push((
+                Rat::one(),
+                Expr::Const {
+                    degrees: Rat::from_int(90),
+                },
+            ));
             Expr::Lin { terms }
         };
         let (_, rraw) = super::expr::eval(t, &hr)?;
@@ -2560,23 +3782,52 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             return None;
         }
         let row = cx.quot.q(&(&lraw - &rraw));
-        let fake = Target { table: Table::Angle, row, splits: vec![super::classify::Split { l: hl.clone(), r: hr.clone(), lraw: lraw.clone(), rraw: rraw.clone() }], stmt: Stmt::EqAngle { lhs: hl, rhs: hr }, alts: Vec::new() };
+        let fake = Target {
+            table: Table::Angle,
+            row,
+            splits: vec![super::classify::Split {
+                l: hl.clone(),
+                r: hr.clone(),
+                lraw: lraw.clone(),
+                rraw: rraw.clone(),
+            }],
+            stmt: Stmt::EqAngle { lhs: hl, rhs: hr },
+            alts: Vec::new(),
+        };
         let splits = fix_exact(cx, &fake, &[(cx.quot.q(&lraw), cx.quot.q(&rraw))]);
         let w = self.w;
-        let g = self.halve_graph.get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, false));
+        let g = self
+            .halve_graph
+            .get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, false));
         let weights: Vec<i64> = w
             .atoms
             .iter()
-            .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .map(|a| {
+                if a.table == Table::Angle && a.cost > 0 && a.admissible(h) {
+                    eff(a, focus, &w.claim_cost, cx) as i64 + 2
+                } else {
+                    super::route::OFF
+                }
+            })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
         let t0 = std::time::Instant::now();
         let found = g.search(cx, &splits, 3000, i64::MAX, &spent, &weights);
         if std::env::var_os("HP_TIME").is_some() {
-            eprintln!("halved lemma route: {:.1} ms, {} expansions, found {}", t0.elapsed().as_secs_f64() * 1000.0, spent.load(std::sync::atomic::Ordering::Relaxed), found.is_some());
+            eprintln!(
+                "halved lemma route: {:.1} ms, {} expansions, found {}",
+                t0.elapsed().as_secs_f64() * 1000.0,
+                spent.load(std::sync::atomic::Ordering::Relaxed),
+                found.is_some()
+            );
         }
         let p = found?;
-        if p.nodes.iter().any(|x| classes(x).iter().all(|(_, k)| k.numer_i64().is_some_and(|n| n % 2 == 0)) && !classes(x).is_empty()) {
+        if p.nodes.iter().any(|x| {
+            classes(x)
+                .iter()
+                .all(|(_, k)| k.numer_i64().is_some_and(|n| n % 2 == 0))
+                && !classes(x).is_empty()
+        }) {
             return None;
         }
         let s = self.path_sentences(&fake, &p, h, None, focus, &[])?;
@@ -2600,10 +3851,31 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut refs: Vec<LemmaRef> = Vec::new();
         let mut links = 0;
         for plan in plans {
-            let stmt = if target.table == Table::Angle { Stmt::EqAngle { lhs: plan.lhs.clone(), rhs: plan.rhs.clone() } } else { Stmt::Eq { lhs: plan.lhs.clone(), rhs: plan.rhs.clone() } };
+            let stmt = if target.table == Table::Angle {
+                Stmt::EqAngle {
+                    lhs: plan.lhs.clone(),
+                    rhs: plan.rhs.clone(),
+                }
+            } else {
+                Stmt::Eq {
+                    lhs: plan.lhs.clone(),
+                    rhs: plan.rhs.clone(),
+                }
+            };
             let (_, lraw) = super::expr::eval(self.w.cx.t, &plan.lhs)?;
             let (_, rraw) = super::expr::eval(self.w.cx.t, &plan.rhs)?;
-            let fake = Target { table: target.table, row: plan.sum.clone(), splits: vec![super::classify::Split { l: plan.lhs.clone(), r: plan.rhs.clone(), lraw, rraw }], stmt: stmt.clone(), alts: Vec::new() };
+            let fake = Target {
+                table: target.table,
+                row: plan.sum.clone(),
+                splits: vec![super::classify::Split {
+                    l: plan.lhs.clone(),
+                    r: plan.rhs.clone(),
+                    lraw,
+                    rraw,
+                }],
+                stmt: stmt.clone(),
+                alts: Vec::new(),
+            };
             let p = path_from_groups(0, &plan.start, &plan.items, &plan.groups);
             let mut s = self.path_sentences(&fake, &p, h, None, focus, &refs)?;
             if target.table == Table::Angle && doubled_chain(&s) {
@@ -2618,17 +3890,36 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 return None;
             }
             let ends = match &s[0] {
-                Sentence::Chain { terms, .. } => Some((terms[0].clone(), terms[terms.len() - 1].clone())),
-                Sentence::Because { stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }, .. } => Some((lhs.clone(), rhs.clone())),
+                Sentence::Chain { terms, .. } => {
+                    Some((terms[0].clone(), terms[terms.len() - 1].clone()))
+                }
+                Sentence::Because {
+                    stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs },
+                    ..
+                } => Some((lhs.clone(), rhs.clone())),
                 _ => None,
             };
             let (stmt, scale) = match ends {
                 Some((a, b)) => {
-                    let st = if target.table == Table::Angle { Stmt::EqAngle { lhs: a.clone(), rhs: b.clone() } } else { Stmt::Eq { lhs: a.clone(), rhs: b.clone() } };
+                    let st = if target.table == Table::Angle {
+                        Stmt::EqAngle {
+                            lhs: a.clone(),
+                            rhs: b.clone(),
+                        }
+                    } else {
+                        Stmt::Eq {
+                            lhs: a.clone(),
+                            rhs: b.clone(),
+                        }
+                    };
                     let (_, ea) = super::expr::eval(self.w.cx.t, &a)?;
                     let (_, eb) = super::expr::eval(self.w.cx.t, &b)?;
                     let strip = |c: LinComb| -> LinComb {
-                        let mut x = if target.table == Table::Angle { self.w.cx.quot.q(&c) } else { self.w.cx.t.canon_ratio(&c) };
+                        let mut x = if target.table == Table::Angle {
+                            self.w.cx.quot.q(&c)
+                        } else {
+                            self.w.cx.t.canon_ratio(&c)
+                        };
                         x.terms.retain(|(v, _)| *v != ANGLE_UNIT);
                         x
                     };
@@ -2654,22 +3945,41 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             pts.extend(super::view::expr_points(&plan.rhs));
             pts.sort_unstable();
             pts.dedup();
-            refs.push(LemmaRef { stmt, sentence: out.len(), pts, scale });
+            refs.push(LemmaRef {
+                stmt,
+                sentence: out.len(),
+                pts,
+                scale,
+            });
             out.extend(s);
         }
         if groups.is_empty() {
             let mut work: Vec<(usize, Rat, LinComb)> = reduced.to_vec();
             self.pooled_steps(target.table, &mut work, &mut refs, &mut out, h, focus);
-            if !out.is_empty() && work.len() >= 2 && matches!(target.table, Table::Angle | Table::Ratio) {
+            if !out.is_empty()
+                && work.len() >= 2
+                && matches!(target.table, Table::Angle | Table::Ratio)
+            {
                 let mut r = l.clone();
                 for (_, lam, q) in &work {
                     r = LinComb::combine(&r, q, &-lam);
                 }
                 let mut budget = MAIN_CAP;
-                if let Some((groups, _)) = order_items_mode(self.w.cx, target.table, l, &r, &work, &mut budget, MAIN_CAP, self.force_undirected) {
+                if let Some((groups, _)) = order_items_mode(
+                    self.w.cx,
+                    target.table,
+                    l,
+                    &r,
+                    &work,
+                    &mut budget,
+                    MAIN_CAP,
+                    self.force_undirected,
+                ) {
                     let p = path_from_groups(si, l, &work, &groups);
                     if p.links.len() <= LONG_CHAIN {
-                        if let Some(s) = self.path_sentences(target, &p, h, then.clone(), focus, &refs) {
+                        if let Some(s) =
+                            self.path_sentences(target, &p, h, then.clone(), focus, &refs)
+                        {
                             links += p.links.len();
                             out.extend(s);
                             prune_lemmas(&mut out);
@@ -2684,14 +3994,30 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let (mut reasons, mut combination) = self.reasons_for(&atoms, h, true);
             for (i, lam) in all.iter().filter(|(i, _)| *i >= base) {
                 let lr = &refs[*i - base];
-                reasons.push(Reason::Lemma { stmt: lr.stmt.clone(), block: PENDING_BLOCK, sentence: lr.sentence as u16 });
-                combination.push(Term { reason: (reasons.len() - 1) as u16, row: 0, coef: lam * &lr.scale });
+                reasons.push(Reason::Lemma {
+                    stmt: lr.stmt.clone(),
+                    block: PENDING_BLOCK,
+                    sentence: lr.sentence as u16,
+                });
+                combination.push(Term {
+                    reason: (reasons.len() - 1) as u16,
+                    row: 0,
+                    coef: lam * &lr.scale,
+                });
             }
             let stmt = then.unwrap_or_else(|| target.stmt.clone());
             if reasons.len() <= SHORT_REASONS {
-                out.push(Sentence::Because { stmt, reasons, combination });
+                out.push(Sentence::Because {
+                    stmt,
+                    reasons,
+                    combination,
+                });
             } else {
-                out.push(Sentence::Pooled { stmt, reasons, combination });
+                out.push(Sentence::Pooled {
+                    stmt,
+                    reasons,
+                    combination,
+                });
             }
             prune_lemmas(&mut out);
             return Some((out, links + 1));
@@ -2704,11 +4030,23 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         Some((out, links))
     }
 
-    fn path_sentences(&mut self, target: &Target, p: &Path, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>, lem: &[LemmaRef]) -> Option<Vec<Sentence>> {
+    fn path_sentences(
+        &mut self,
+        target: &Target,
+        p: &Path,
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+        lem: &[LemmaRef],
+    ) -> Option<Vec<Sentence>> {
         let saved = self.as_drawn;
         if let Some(s) = self.path_sentences_mode(target, p, h, then.clone(), focus, lem, true) {
             let clean = s.iter().all(|x| match x {
-                Sentence::Chain { terms, directed: false, .. } => terms.iter().all(|t| matches!(t, Expr::Angle { .. })),
+                Sentence::Chain {
+                    terms,
+                    directed: false,
+                    ..
+                } => terms.iter().all(|t| matches!(t, Expr::Angle { .. })),
                 _ => true,
             });
             if clean {
@@ -2720,13 +4058,30 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn path_sentences_mode(&mut self, target: &Target, p: &Path, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>, lem: &[LemmaRef], allow_halve: bool) -> Option<Vec<Sentence>> {
+    fn path_sentences_mode(
+        &mut self,
+        target: &Target,
+        p: &Path,
+        h: FactId,
+        then: Option<Stmt>,
+        focus: &BTreeSet<PointId>,
+        lem: &[LemmaRef],
+        allow_halve: bool,
+    ) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let split = &target.splits[p.split.min(target.splits.len() - 1)];
         let n = p.nodes.len();
-        let even = |c: &LinComb| c.terms.iter().all(|(v, k)| *v < QBASE || (k.is_integer() && (k * &Rat::new(1, 2)).is_integer()));
+        let even = |c: &LinComb| {
+            c.terms
+                .iter()
+                .all(|(v, k)| *v < QBASE || (k.is_integer() && (k * &Rat::new(1, 2)).is_integer()))
+        };
         let halved: Path;
-        let doubled = allow_halve && target.table == Table::Angle && then.is_none() && p.nodes.iter().all(even) && p.nodes.iter().any(|x| !classes(x).is_empty());
+        let doubled = allow_halve
+            && target.table == Table::Angle
+            && then.is_none()
+            && p.nodes.iter().all(even)
+            && p.nodes.iter().any(|x| !classes(x).is_empty());
         if allow_halve && !doubled {
             return None;
         }
@@ -2743,7 +4098,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         y
                     })
                     .collect(),
-                links: p.links.iter().map(|g| g.iter().map(|(i, l)| (*i, l * &half)).collect()).collect(),
+                links: p
+                    .links
+                    .iter()
+                    .map(|g| g.iter().map(|(i, l)| (*i, l * &half)).collect())
+                    .collect(),
                 weight: p.weight,
                 undirected: p.undirected,
             };
@@ -2754,11 +4113,20 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let half_at = if (doubled || self.force_undirected) && target.table == Table::Angle {
             Some(0)
         } else {
-            (0..p.links.len()).find(|&j| !integral_node(&p.nodes[j]) || !integral_node(&p.nodes[j + 1]))
+            (0..p.links.len())
+                .find(|&j| !integral_node(&p.nodes[j]) || !integral_node(&p.nodes[j + 1]))
         };
         let w = self.w;
         let pts_of = |j: usize| -> Vec<PointId> {
-            let mut v: Vec<PointId> = p.links.get(j).map(|g| g.iter().flat_map(|(i, _)| item_points(w, *i, lem)).collect()).unwrap_or_default();
+            let mut v: Vec<PointId> = p
+                .links
+                .get(j)
+                .map(|g| {
+                    g.iter()
+                        .flat_map(|(i, _)| item_points(w, *i, lem))
+                        .collect()
+                })
+                .unwrap_or_default();
             v.sort_unstable();
             v.dedup();
             v
@@ -2787,39 +4155,82 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut links: Vec<Link> = Vec::new();
         for g in &p.links {
             let (rs, cs) = self.group_reasons(g, h, lem, false);
-            links.push(Link { reasons: rs, combination: cs });
+            links.push(Link {
+                reasons: rs,
+                combination: cs,
+            });
         }
         if half_at.is_none() && links.len() > LONG_CHAIN {
             let simple = |e: &Expr| !matches!(e, Expr::Lin { terms } if terms.iter().filter(|(_, x)| !matches!(x, Expr::Const { .. })).count() > 1);
             let mid = links.len() / 2;
-            let cut = (2..links.len() - 1).filter(|&j| simple(&terms[j].0)).min_by_key(|&j| (j as i64 - mid as i64).abs());
+            let cut = (2..links.len() - 1)
+                .filter(|&j| simple(&terms[j].0))
+                .min_by_key(|&j| (j as i64 - mid as i64).abs());
             if let Some(j) = cut {
                 let all: Vec<Expr> = terms.into_iter().map(|x| x.0).collect();
                 let directed = target.table == Table::Angle;
-                sentences.push(Sentence::Chain { terms: all[..=j].to_vec(), links: links[..j].to_vec(), then: None, directed });
-                sentences.push(Sentence::Chain { terms: all[j..].to_vec(), links: links[j..].to_vec(), then, directed });
+                sentences.push(Sentence::Chain {
+                    terms: all[..=j].to_vec(),
+                    links: links[..j].to_vec(),
+                    then: None,
+                    directed,
+                });
+                sentences.push(Sentence::Chain {
+                    terms: all[j..].to_vec(),
+                    links: links[j..].to_vec(),
+                    then,
+                    directed,
+                });
                 return Some(sentences);
             }
         }
         match half_at {
             None if links.len() == 1 && target.table != Table::Angle => {
                 let l = links.into_iter().next().unwrap();
-                sentences.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons: l.reasons, combination: l.combination });
+                sentences.push(Sentence::Because {
+                    stmt: then.unwrap_or_else(|| target.stmt.clone()),
+                    reasons: l.reasons,
+                    combination: l.combination,
+                });
             }
-            None if links.len() == 1 && then.as_ref().is_none_or(|t| matches!(t, Stmt::EqAngle { .. })) => {
+            None if links.len() == 1
+                && then
+                    .as_ref()
+                    .is_none_or(|t| matches!(t, Stmt::EqAngle { .. })) =>
+            {
                 let l = links.into_iter().next().unwrap();
-                sentences.push(Sentence::Because { stmt: then.unwrap_or_else(|| target.stmt.clone()), reasons: l.reasons, combination: l.combination });
+                sentences.push(Sentence::Because {
+                    stmt: then.unwrap_or_else(|| target.stmt.clone()),
+                    reasons: l.reasons,
+                    combination: l.combination,
+                });
             }
-            None => sentences.push(Sentence::Chain { terms: terms.into_iter().map(|x| x.0).collect(), links, then, directed: target.table == Table::Angle }),
+            None => sentences.push(Sentence::Chain {
+                terms: terms.into_iter().map(|x| x.0).collect(),
+                links,
+                then,
+                directed: target.table == Table::Angle,
+            }),
             Some(h0) => {
                 self.as_drawn = true;
                 if h0 > 0 {
                     let t1: Vec<Expr> = terms[..=h0].iter().map(|x| x.0.clone()).collect();
-                    sentences.push(Sentence::Chain { terms: t1, links: links[..h0].to_vec(), then: None, directed: true });
+                    sentences.push(Sentence::Chain {
+                        terms: t1,
+                        links: links[..h0].to_vec(),
+                        then: None,
+                        directed: true,
+                    });
                 }
                 let mut t2: Vec<Expr> = Vec::new();
                 for j in h0..n {
-                    let e = display_node(cx, &p.nodes[j], false, &[&pts_of(j), &pts_of(j.saturating_sub(1))], focus);
+                    let e = display_node(
+                        cx,
+                        &p.nodes[j],
+                        false,
+                        &[&pts_of(j), &pts_of(j.saturating_sub(1))],
+                        focus,
+                    );
                     if e.is_none() && std::env::var_os("HP_BFS").is_some() {
                         eprintln!("undirected node {j} has no display: {:?}", p.nodes[j]);
                     }
@@ -2835,7 +4246,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         }
                     }
                 }
-                sentences.push(Sentence::Chain { terms: t2, links: l2, then, directed: false });
+                sentences.push(Sentence::Chain {
+                    terms: t2,
+                    links: l2,
+                    then,
+                    directed: false,
+                });
             }
         }
         Some(sentences)
@@ -2863,7 +4279,8 @@ fn negate_expr(e: Expr) -> Expr {
                     x => (-k, x),
                 })
                 .collect();
-            if terms.len() == 1 && terms[0].0.is_one() && !matches!(terms[0].1, Expr::Const { .. }) {
+            if terms.len() == 1 && terms[0].0.is_one() && !matches!(terms[0].1, Expr::Const { .. })
+            {
                 terms.into_iter().next().unwrap().1
             } else {
                 let mut t = terms;
@@ -2872,7 +4289,9 @@ fn negate_expr(e: Expr) -> Expr {
             }
         }
         Expr::Const { degrees } => Expr::Const { degrees: -degrees },
-        x => Expr::Lin { terms: vec![(Rat::from_int(-1), x)] },
+        x => Expr::Lin {
+            terms: vec![(Rat::from_int(-1), x)],
+        },
     }
 }
 
@@ -2886,7 +4305,11 @@ fn penalty(a: &Atom) -> i64 {
     p + 5 * a.sources.len() as i64
 }
 
-pub fn fix_exact(cx: &Ctx, target: &Target, splits: &[(LinComb, LinComb)]) -> Vec<(LinComb, LinComb)> {
+pub fn fix_exact(
+    cx: &Ctx,
+    target: &Target,
+    splits: &[(LinComb, LinComb)],
+) -> Vec<(LinComb, LinComb)> {
     if target.table != Table::Angle {
         return splits.to_vec();
     }
@@ -2905,29 +4328,99 @@ pub fn fix_exact(cx: &Ctx, target: &Target, splits: &[(LinComb, LinComb)]) -> Ve
 }
 
 pub fn atom_stmt(key: AtomKey, a: &[PointId]) -> Stmt {
-    let ang = |x: PointId, y: PointId, z: PointId| Expr::Angle { a: x, b: y, c: z, directed: true };
+    let ang = |x: PointId, y: PointId, z: PointId| Expr::Angle {
+        a: x,
+        b: y,
+        c: z,
+        directed: true,
+    };
     match key {
         AtomKey::Inscribed => Stmt::Cyclic { pts: a.to_vec() },
-        AtomKey::Thales => Stmt::AngleConst { angle: Expr::Angle { a: a[0], b: a[2], c: a[1], directed: false }, degrees: Rat::from_int(90) },
-        AtomKey::TangentChord => Stmt::Tangent { p: a[0], line: (a[0], a[1]), circle: vec![a[4]] },
-        AtomKey::PerpBisector => Stmt::Perp { l1: (a[0], a[1]), l2: (a[2], a[3]) },
-        AtomKey::Parallel => Stmt::Para { l1: (a[0], a[1]), l2: (a[2], a[3]) },
-        AtomKey::Radii | AtomKey::Isosceles => Stmt::Cong { s1: (a[0], a[1]), s2: (a[0], a[2]) },
+        AtomKey::Thales => Stmt::AngleConst {
+            angle: Expr::Angle {
+                a: a[0],
+                b: a[2],
+                c: a[1],
+                directed: false,
+            },
+            degrees: Rat::from_int(90),
+        },
+        AtomKey::TangentChord => Stmt::Tangent {
+            p: a[0],
+            line: (a[0], a[1]),
+            circle: vec![a[4]],
+        },
+        AtomKey::PerpBisector => Stmt::Perp {
+            l1: (a[0], a[1]),
+            l2: (a[2], a[3]),
+        },
+        AtomKey::Parallel => Stmt::Para {
+            l1: (a[0], a[1]),
+            l2: (a[2], a[3]),
+        },
+        AtomKey::Radii | AtomKey::Isosceles => Stmt::Cong {
+            s1: (a[0], a[1]),
+            s2: (a[0], a[2]),
+        },
         AtomKey::CentralAngle if a.len() == 5 => Stmt::Eq {
-            lhs: Expr::Angle { a: a[1], b: a[3], c: a[2], directed: false },
-            rhs: Expr::Lin { terms: vec![(Rat::one(), Expr::Const { degrees: Rat::from_int(180) }), (Rat::new(-1, 2), Expr::Angle { a: a[1], b: a[0], c: a[2], directed: false })] },
+            lhs: Expr::Angle {
+                a: a[1],
+                b: a[3],
+                c: a[2],
+                directed: false,
+            },
+            rhs: Expr::Lin {
+                terms: vec![
+                    (
+                        Rat::one(),
+                        Expr::Const {
+                            degrees: Rat::from_int(180),
+                        },
+                    ),
+                    (
+                        Rat::new(-1, 2),
+                        Expr::Angle {
+                            a: a[1],
+                            b: a[0],
+                            c: a[2],
+                            directed: false,
+                        },
+                    ),
+                ],
+            },
         },
         AtomKey::CentralAngle => Stmt::Eq {
             lhs: ang(a[1], a[0], a[2]),
-            rhs: Expr::Lin { terms: vec![(Rat::from_int(2), ang(a[1], a[3], a[2]))] },
+            rhs: Expr::Lin {
+                terms: vec![(Rat::from_int(2), ang(a[1], a[3], a[2]))],
+            },
         },
         AtomKey::PowerOfPoint => Stmt::Eq {
-            lhs: Expr::Prod { factors: vec![(Expr::Seg { a: a[0], b: a[1] }, 1), (Expr::Seg { a: a[0], b: a[2] }, 1)] },
-            rhs: Expr::Prod { factors: vec![(Expr::Seg { a: a[0], b: a[3] }, 1), (Expr::Seg { a: a[0], b: a[4] }, 1)] },
+            lhs: Expr::Prod {
+                factors: vec![
+                    (Expr::Seg { a: a[0], b: a[1] }, 1),
+                    (Expr::Seg { a: a[0], b: a[2] }, 1),
+                ],
+            },
+            rhs: Expr::Prod {
+                factors: vec![
+                    (Expr::Seg { a: a[0], b: a[3] }, 1),
+                    (Expr::Seg { a: a[0], b: a[4] }, 1),
+                ],
+            },
         },
-        AtomKey::Midline => Stmt::Para { l1: (a[0], a[1]), l2: (a[2], a[3]) },
-        AtomKey::Orthocentre => Stmt::Perp { l1: (a[3], a[0]), l2: (a[1], a[2]) },
-        k => super::theorems::stmt(k, a).unwrap_or(Stmt::Formula { text: k.as_str().to_string(), pts: a.to_vec() }),
+        AtomKey::Midline => Stmt::Para {
+            l1: (a[0], a[1]),
+            l2: (a[2], a[3]),
+        },
+        AtomKey::Orthocentre => Stmt::Perp {
+            l1: (a[3], a[0]),
+            l2: (a[1], a[2]),
+        },
+        k => super::theorems::stmt(k, a).unwrap_or(Stmt::Formula {
+            text: k.as_str().to_string(),
+            pts: a.to_vec(),
+        }),
     }
 }
 
@@ -2953,14 +4446,38 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let cx = self.w.cx;
         let d = cx.displayable(r);
         if let (Some(&b), Some(Role::Claim)) = (self.block_of.get(&d), self.role.get(&d)) {
-            return Reason::Claim { n: self.claim_no.get(&d).copied().unwrap_or(0), block: b, fact: d };
+            return Reason::Claim {
+                n: self.claim_no.get(&d).copied().unwrap_or(0),
+                block: b,
+                fact: d,
+            };
         }
-        if let Some(Reason::Fact { stmt, block, because, .. }) = self.inline.get(&d) {
-            return Reason::Fact { stmt: stmt.clone(), fact: r, block: *block, because: because.clone() };
+        if let Some(Reason::Fact {
+            stmt,
+            block,
+            because,
+            ..
+        }) = self.inline.get(&d)
+        {
+            return Reason::Fact {
+                stmt: stmt.clone(),
+                fact: r,
+                block: *block,
+                because: because.clone(),
+            };
         }
         let block = self.block_of.get(&d).copied();
-        let because = if block.is_none() { self.human_justification(r, r + 1).into_iter().collect() } else { Vec::new() };
-        Reason::Fact { stmt: fact_stmt(cx, r), fact: r, block, because }
+        let because = if block.is_none() {
+            self.human_justification(r, r + 1).into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        Reason::Fact {
+            stmt: fact_stmt(cx, r),
+            fact: r,
+            block,
+            because,
+        }
     }
 
     pub fn node_sentences(&mut self, f: FactId) -> (Vec<Sentence>, usize, bool) {
@@ -2978,12 +4495,24 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     let d = cx.displayable(p);
                     if cx.is_hyp(p) {
                         if matches!(cx.class[p as usize], FactClass::Hyp) {
-                            reasons.push(Reason::Hyp { stmt: super::classify::dehelper(cx, fact_stmt(cx, p)), fact: p });
+                            reasons.push(Reason::Hyp {
+                                stmt: super::classify::dehelper(cx, fact_stmt(cx, p)),
+                                fact: p,
+                            });
                         }
                     } else if let Some(&b) = self.block_of.get(&d) {
                         match self.role.get(&d) {
-                            Some(Role::Claim) => reasons.push(Reason::Claim { n: self.claim_no[&d], block: b, fact: d }),
-                            _ => reasons.push(Reason::Fact { stmt: fact_stmt(cx, d), fact: d, block: Some(b), because: vec![] }),
+                            Some(Role::Claim) => reasons.push(Reason::Claim {
+                                n: self.claim_no[&d],
+                                block: b,
+                                fact: d,
+                            }),
+                            _ => reasons.push(Reason::Fact {
+                                stmt: fact_stmt(cx, d),
+                                fact: d,
+                                block: Some(b),
+                                because: vec![],
+                            }),
                         }
                     } else if let Some(r) = self.inline.get(&d) {
                         reasons.push(r.clone());
@@ -2992,16 +4521,34 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
             let key = match node.kind {
                 Kind::Theorem(k) | Kind::Formula(k) => k,
-                Kind::Merge if matches!(cx.t.facts.get(f as usize).map(|x| &x.reason), Some(ER::TangentMerge(..))) => TheoremKey::TangentMerge,
+                Kind::Merge
+                    if matches!(
+                        cx.t.facts.get(f as usize).map(|x| &x.reason),
+                        Some(ER::TangentMerge(..))
+                    ) =>
+                {
+                    TheoremKey::TangentMerge
+                }
                 Kind::Merge => TheoremKey::PointMerge,
                 _ => TheoremKey::Other,
             };
-            out.push(Sentence::Theorem { key, stmt: node.stmt.clone(), reasons });
+            out.push(Sentence::Theorem {
+                key,
+                stmt: node.stmt.clone(),
+                reasons,
+            });
             return (out, 0, false);
         }
         let Some(parts) = node.parts.clone() else {
-            let cites = cx.t.facts.get(f as usize).map(|x| x.premises.clone()).unwrap_or_default();
-            out.push(Sentence::Raw { engine_fact: f, cites });
+            let cites =
+                cx.t.facts
+                    .get(f as usize)
+                    .map(|x| x.premises.clone())
+                    .unwrap_or_default();
+            out.push(Sentence::Raw {
+                engine_fact: f,
+                cites,
+            });
             return (out, 0, false);
         };
         let node_kind = node.kind;
@@ -3014,7 +4561,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
             let then = if pi + 1 == nparts {
                 match (&node_stmt, node_kind) {
-                    (Stmt::Cyclic { .. } | Stmt::Coll { .. }, _) if part.target.table == Table::Angle => Some(node_stmt.clone()),
+                    (Stmt::Cyclic { .. } | Stmt::Coll { .. }, _)
+                        if part.target.table == Table::Angle =>
+                    {
+                        Some(node_stmt.clone())
+                    }
                     _ => None,
                 }
             } else {
@@ -3034,7 +4585,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 Some(route) => {
                     let saved = self.force_undirected;
                     self.force_undirected = route.undirected;
-                    let r = self.path_sentences(&part.target, route, h, then.clone(), &focus, &[]).map(|s| (s, route.links.len(), false));
+                    let r = self
+                        .path_sentences(&part.target, route, h, then.clone(), &focus, &[])
+                        .map(|s| (s, route.links.len(), false));
                     self.force_undirected = saved;
                     r.filter(|(s, _, _)| s.iter().all(|x| self.chain_meets_target(x, &part.target)))
                 }
@@ -3068,7 +4621,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     }
                 }
             }
-            if part.target.table == Table::Angle && s.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
+            if part.target.table == Table::Angle
+                && s.iter().any(|x| matches!(x, Sentence::Pooled { .. }))
+            {
                 if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
                     if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
                         s = r;
@@ -3084,30 +4639,56 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let requires = self.w.nodes[&f].requires.clone();
         let req_reasons: Vec<Reason> = requires.iter().map(|&r| self.fact_reason(r)).collect();
         if node_label == "centre" || node_label == "central" {
-            out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+            out.push(Sentence::Because {
+                stmt: node_stmt.clone(),
+                reasons: Vec::new(),
+                combination: Vec::new(),
+            });
             return (out, links, pooled);
         }
         if f == GOAL && node_label == MERGED {
-            out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+            out.push(Sentence::Because {
+                stmt: node_stmt.clone(),
+                reasons: Vec::new(),
+                combination: Vec::new(),
+            });
             return (out, links, pooled);
         }
         match node_kind {
             Kind::Sim | Kind::Congruent | Kind::Isosceles if f != GOAL => {
                 let mut folded: Vec<Reason> = Vec::new();
                 out.retain(|s| match s {
-                    Sentence::Because { stmt: st @ Stmt::Cong { .. }, reasons, .. } if reasons.len() == 1 && reason_stmt(&reasons[0]).is_some_and(|r| same_cong(r, st)) => {
+                    Sentence::Because {
+                        stmt: st @ Stmt::Cong { .. },
+                        reasons,
+                        ..
+                    } if reasons.len() == 1
+                        && reason_stmt(&reasons[0]).is_some_and(|r| same_cong(r, st)) =>
+                    {
                         folded.push(reasons[0].clone());
                         false
                     }
                     _ => true,
                 });
-                out.push(Sentence::Because { stmt: node_stmt.clone(), reasons: folded, combination: Vec::new() });
+                out.push(Sentence::Because {
+                    stmt: node_stmt.clone(),
+                    reasons: folded,
+                    combination: Vec::new(),
+                });
             }
             Kind::Cong => {
-                out.push(Sentence::Theorem { key: TheoremKey::ArcChord, stmt: node_stmt.clone(), reasons: req_reasons });
+                out.push(Sentence::Theorem {
+                    key: TheoremKey::ArcChord,
+                    stmt: node_stmt.clone(),
+                    reasons: req_reasons,
+                });
             }
             Kind::Theorem(k) => {
-                out.push(Sentence::Theorem { key: k, stmt: node_stmt.clone(), reasons: req_reasons });
+                out.push(Sentence::Theorem {
+                    key: k,
+                    stmt: node_stmt.clone(),
+                    reasons: req_reasons,
+                });
             }
             _ => {}
         }
@@ -3139,14 +4720,38 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             }
             let u = *us.iter().next().unwrap();
             if let Some(parts) = &self.w.nodes[&u].parts {
-                let via: Vec<usize> = parts.iter().flat_map(|p| p.support.iter().map(|x| x.0)).filter(|&i| self.w.atoms[i].fact().map(|g| cx.displayable(g)) == Some(c) || self.w.atoms[i].sources.iter().any(|s| cx.displayable(*s) == c)).collect();
+                let via: Vec<usize> = parts
+                    .iter()
+                    .flat_map(|p| p.support.iter().map(|x| x.0))
+                    .filter(|&i| {
+                        self.w.atoms[i].fact().map(|g| cx.displayable(g)) == Some(c)
+                            || self.w.atoms[i]
+                                .sources
+                                .iter()
+                                .any(|s| cx.displayable(*s) == c)
+                    })
+                    .collect();
                 let stmts: Vec<Stmt> = via.iter().map(|&i| self.w.atom_statement(i)).collect();
-                let human = via.iter().all(|&i| matches!(self.w.atoms[i].src, AtomSrc::Human(AtomKey::Radii | AtomKey::Isosceles)));
+                let human = via.iter().all(|&i| {
+                    matches!(
+                        self.w.atoms[i].src,
+                        AtomSrc::Human(AtomKey::Radii | AtomKey::Isosceles)
+                    )
+                });
                 let h = self.w.nodes[&c].horizon.max(c) + 1;
                 let proven = |s: &Stmt| {
-                    super::check::stmt_targets(cx.t, s).is_some_and(|rows| rows.iter().all(|(tb, r)| cx.support_facts(*tb, &cx.t.exact(*tb, r), h).is_some()))
+                    super::check::stmt_targets(cx.t, s).is_some_and(|rows| {
+                        rows.iter()
+                            .all(|(tb, r)| cx.support_facts(*tb, &cx.t.exact(*tb, r), h).is_some())
+                    })
                 };
-                if human && !stmts.is_empty() && stmts.iter().all(|s| matches!(s, Stmt::Cong { .. }) && same_cong(s, &stmts[0])) && proven(&stmts[0]) {
+                if human
+                    && !stmts.is_empty()
+                    && stmts
+                        .iter()
+                        .all(|s| matches!(s, Stmt::Cong { .. }) && same_cong(s, &stmts[0]))
+                    && proven(&stmts[0])
+                {
                     restate.insert(c, stmts[0].clone());
                     continue;
                 }
@@ -3155,7 +4760,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 continue;
             }
             let un = &self.w.nodes[&u];
-            if matches!(un.stmt, Stmt::Cong { .. } | Stmt::EqAngle { .. }) && un.deps.iter().all(|d| *d == c || !self.w.nodes.contains_key(d)) {
+            if matches!(un.stmt, Stmt::Cong { .. } | Stmt::EqAngle { .. })
+                && un
+                    .deps
+                    .iter()
+                    .all(|d| *d == c || !self.w.nodes.contains_key(d))
+            {
                 absorb.insert(c, u);
             }
         }
@@ -3179,7 +4789,10 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let started = std::time::Instant::now();
             let (sentences, links, pooled) = self.node_sentences(f);
             if std::env::var_os("HP_TIME").is_some() {
-                eprintln!("present node {f}: {:.1} ms", started.elapsed().as_secs_f64() * 1e3);
+                eprintln!(
+                    "present node {f}: {:.1} ms",
+                    started.elapsed().as_secs_f64() * 1e3
+                );
             }
             if std::env::var_os("HP_TIME").is_some() {
                 eprintln!("  node {f}: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
@@ -3193,8 +4806,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     let because: Vec<Reason> = sentences
                         .iter()
                         .flat_map(|s| match s {
-                            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().flat_map(|l| l.reasons.clone()).collect::<Vec<_>>(),
-                            Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.clone(),
+                            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => {
+                                links
+                                    .iter()
+                                    .flat_map(|l| l.reasons.clone())
+                                    .collect::<Vec<_>>()
+                            }
+                            Sentence::Because { reasons, .. }
+                            | Sentence::Pooled { reasons, .. }
+                            | Sentence::Theorem { reasons, .. } => reasons.clone(),
                             Sentence::Raw { .. } => Vec::new(),
                         })
                         .collect();
@@ -3204,7 +4824,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                             dedup.push(r);
                         }
                     }
-                    self.inline.insert(f, Reason::Fact { stmt, fact: f, block: None, because: dedup });
+                    self.inline.insert(
+                        f,
+                        Reason::Fact {
+                            stmt,
+                            fact: f,
+                            block: None,
+                            because: dedup,
+                        },
+                    );
                     self.allowed.insert(f);
                 }
                 Role::MergeConclusion => {
@@ -3237,8 +4865,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     }
                     points.sort_unstable();
                     points.dedup();
-                    let mut body = if role == Role::Raw && !sentences.iter().any(|s| matches!(s, Sentence::Raw { .. })) {
-                        vec![Sentence::Raw { engine_fact: f, cites: cx.t.facts[f as usize].premises.clone() }]
+                    let mut body = if role == Role::Raw
+                        && !sentences.iter().any(|s| matches!(s, Sentence::Raw { .. }))
+                    {
+                        vec![Sentence::Raw {
+                            engine_fact: f,
+                            cites: cx.t.facts[f as usize].premises.clone(),
+                        }]
                     } else {
                         sentences
                     };
@@ -3251,7 +4884,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         stmt = un.stmt.clone();
                         facts.push(u);
                         horizon = horizon.max(un.horizon);
-                        body.push(Sentence::Because { stmt: stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+                        body.push(Sentence::Because {
+                            stmt: stmt.clone(),
+                            reasons: Vec::new(),
+                            combination: Vec::new(),
+                        });
                         self.block_of.insert(u, id);
                         self.role.insert(u, Role::Claim);
                         self.claim_no.insert(u, k);
@@ -3259,10 +4896,25 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     }
                     if let (Some(s), BlockKind::Claim(_)) = (restate.get(&f), kind) {
                         stmt = s.clone();
-                        body.push(Sentence::Because { stmt: stmt.clone(), reasons: Vec::new(), combination: Vec::new() });
+                        body.push(Sentence::Because {
+                            stmt: stmt.clone(),
+                            reasons: Vec::new(),
+                            combination: Vec::new(),
+                        });
                     }
                     let objects = objects_of(&stmt);
-                    self.blocks.push(Block { id, kind, stmt, body, engine_facts: facts, points, objects, step: id, tag: false, horizon });
+                    self.blocks.push(Block {
+                        id,
+                        kind,
+                        stmt,
+                        body,
+                        engine_facts: facts,
+                        points,
+                        objects,
+                        step: id,
+                        tag: false,
+                        horizon,
+                    });
                     self.block_of.insert(f, id);
                     self.allowed.insert(f);
                     let _ = (links, pooled);
@@ -3274,7 +4926,11 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut facts = merge_facts;
         facts.extend(goal.extra.iter().copied());
         let t0 = std::time::Instant::now();
-        let (mut body, _, _) = if goal.parts.is_some() { self.node_sentences(GOAL) } else { (Vec::new(), 0, false) };
+        let (mut body, _, _) = if goal.parts.is_some() {
+            self.node_sentences(GOAL)
+        } else {
+            (Vec::new(), 0, false)
+        };
         if std::env::var_os("HP_TIME").is_some() {
             eprintln!("present goal: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
         }
@@ -3289,21 +4945,41 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         points.sort_unstable();
         points.dedup();
         if facts.is_empty() {
-            facts = goal.deps.iter().copied().filter(|&d| d != GOAL && cx.in_cl.get(d as usize).copied().unwrap_or(false)).collect();
+            facts = goal
+                .deps
+                .iter()
+                .copied()
+                .filter(|&d| d != GOAL && cx.in_cl.get(d as usize).copied().unwrap_or(false))
+                .collect();
             if facts.is_empty() {
                 facts.extend(cx.closure.last().copied());
             }
         }
         let stmt = goal.stmt.clone();
         let objects = objects_of(&stmt);
-        self.blocks.push(Block { id, kind: BlockKind::Conclusion, stmt, body: all, engine_facts: facts, points, objects, step: id, tag: false, horizon: goal.horizon });
+        self.blocks.push(Block {
+            id,
+            kind: BlockKind::Conclusion,
+            stmt,
+            body: all,
+            engine_facts: facts,
+            points,
+            objects,
+            step: id,
+            tag: false,
+            horizon: goal.horizon,
+        });
     }
 }
 
 fn objects_of(stmt: &Stmt) -> Vec<ObjRef> {
     match stmt {
-        Stmt::Cyclic { pts } => vec![ObjRef::Circle { through: pts.clone() }],
-        Stmt::Coll { pts } => vec![ObjRef::Line { through: pts.clone() }],
+        Stmt::Cyclic { pts } => vec![ObjRef::Circle {
+            through: pts.clone(),
+        }],
+        Stmt::Coll { pts } => vec![ObjRef::Line {
+            through: pts.clone(),
+        }],
         _ => Vec::new(),
     }
 }
@@ -3314,7 +4990,10 @@ pub fn raw_block(cx: &Ctx, id: u16, f: FactId, horizon: FactId) -> Block {
         id,
         kind: BlockKind::Raw,
         stmt: fact_stmt(cx, f),
-        body: vec![Sentence::Raw { engine_fact: f, cites: fact.premises.clone() }],
+        body: vec![Sentence::Raw {
+            engine_fact: f,
+            cites: fact.premises.clone(),
+        }],
         engine_facts: vec![f],
         points: fact_points(cx, f),
         objects: Vec::new(),
@@ -3348,7 +5027,10 @@ fn trig_stmt(s: (PointId, PointId), q: &Rat, o: PointId, r0: PointId, trig: &Exp
     }
     f.push((Expr::Seg { a: o, b: r0 }, 1));
     f.push((trig.clone(), 1));
-    Stmt::Eq { lhs: Expr::Seg { a: s.0, b: s.1 }, rhs: Expr::Prod { factors: f } }
+    Stmt::Eq {
+        lhs: Expr::Seg { a: s.0, b: s.1 },
+        rhs: Expr::Prod { factors: f },
+    }
 }
 
 fn prune_lemmas(out: &mut Vec<Sentence>) {
@@ -3358,7 +5040,10 @@ fn prune_lemmas(out: &mut Vec<Sentence>) {
         used[n - 1] = true;
         for s in out.iter_mut() {
             sentence_reasons_mut(s, &mut |r| {
-                if let Reason::Lemma { block, sentence, .. } = r {
+                if let Reason::Lemma {
+                    block, sentence, ..
+                } = r
+                {
                     if *block == PENDING_BLOCK && (*sentence as usize) < n {
                         used[*sentence as usize] = true;
                     }
@@ -3384,7 +5069,10 @@ fn prune_lemmas(out: &mut Vec<Sentence>) {
         });
         for s in out.iter_mut() {
             sentence_reasons_mut(s, &mut |r| {
-                if let Reason::Lemma { block, sentence, .. } = r {
+                if let Reason::Lemma {
+                    block, sentence, ..
+                } = r
+                {
                     if *block == PENDING_BLOCK && (*sentence as usize) < n {
                         *sentence = map[*sentence as usize];
                     }
@@ -3396,15 +5084,30 @@ fn prune_lemmas(out: &mut Vec<Sentence>) {
 
 fn even_expr(e: &Expr) -> bool {
     match e {
-        Expr::Lin { terms } => !terms.is_empty() && terms.iter().all(|(k, x)| matches!(x, Expr::Const { degrees } if degrees.is_zero()) || (k.is_integer() && (k * &Rat::new(1, 2)).is_integer())),
+        Expr::Lin { terms } => {
+            !terms.is_empty()
+                && terms.iter().all(|(k, x)| {
+                    matches!(x, Expr::Const { degrees } if degrees.is_zero())
+                        || (k.is_integer() && (k * &Rat::new(1, 2)).is_integer())
+                })
+        }
         _ => false,
     }
 }
 
 fn multiple_directed(s: &Sentence) -> bool {
-    let Sentence::Chain { terms, directed: true, .. } = s else { return false };
+    let Sentence::Chain {
+        terms,
+        directed: true,
+        ..
+    } = s
+    else {
+        return false;
+    };
     terms.iter().any(|e| match e {
-        Expr::Lin { terms } => terms.iter().any(|(k, x)| matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }) && !k.abs().is_one()),
+        Expr::Lin { terms } => terms.iter().any(|(k, x)| {
+            matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }) && !k.abs().is_one()
+        }),
         _ => false,
     })
 }
@@ -3419,7 +5122,11 @@ fn halve_expr(e: &Expr) -> Option<Expr> {
     }
     let Expr::Lin { terms } = e else { return None };
     let half = Rat::new(1, 2);
-    let out: Vec<(Rat, Expr)> = terms.iter().filter(|(_, x)| !matches!(x, Expr::Const { .. })).map(|(k, x)| (k * &half, x.clone())).collect();
+    let out: Vec<(Rat, Expr)> = terms
+        .iter()
+        .filter(|(_, x)| !matches!(x, Expr::Const { .. }))
+        .map(|(k, x)| (k * &half, x.clone()))
+        .collect();
     match out.as_slice() {
         [(k, x)] if k.is_one() => Some(x.clone()),
         [] => None,
@@ -3432,16 +5139,28 @@ fn right_angle_only(l: &Link) -> bool {
 }
 
 fn merge_right_angle_links(s: &mut Sentence) {
-    let Sentence::Computation { terms, links, .. } = s else { return };
+    let Sentence::Computation { terms, links, .. } = s else {
+        return;
+    };
     let mut k = 0;
     while k < links.len() {
         if links.len() >= 2 && right_angle_only(&links[k]) {
-            let (a, b) = if k + 1 < links.len() { (k, k + 1) } else { (k - 1, k) };
+            let (a, b) = if k + 1 < links.len() {
+                (k, k + 1)
+            } else {
+                (k - 1, k)
+            };
             let second = links.remove(b);
             let first = &mut links[a];
             let base = first.reasons.len() as u16;
             first.reasons.extend(second.reasons);
-            first.combination.extend(second.combination.into_iter().map(|t| Term { reason: t.reason + base, row: t.row, coef: t.coef }));
+            first
+                .combination
+                .extend(second.combination.into_iter().map(|t| Term {
+                    reason: t.reason + base,
+                    row: t.row,
+                    coef: t.coef,
+                }));
             terms.remove(a + 1);
             continue;
         }

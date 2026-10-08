@@ -39,7 +39,12 @@ impl Kind {
         }
     }
 
-    pub const ALL: [Kind; 4] = [Kind::Goal, Kind::HypGeneric, Kind::HypSpecial, Kind::Degenerate];
+    pub const ALL: [Kind; 4] = [
+        Kind::Goal,
+        Kind::HypGeneric,
+        Kind::HypSpecial,
+        Kind::Degenerate,
+    ];
 }
 
 /// One fuzz input: a corpus statement whose goal must not be proved (for
@@ -111,8 +116,9 @@ impl Rng {
 }
 
 fn fnv(s: &str) -> u64 {
-    s.bytes()
-        .fold(0xCBF2_9CE4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01B3))
+    s.bytes().fold(0xCBF2_9CE4_8422_2325u64, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x100_0000_01B3)
+    })
 }
 
 const PREDICATES: &[(&str, usize)] = &[
@@ -126,7 +132,9 @@ const PREDICATES: &[(&str, usize)] = &[
     ("s_angle", 3),
     ("rconst", 4),
 ];
-const ANGLES: &[&str] = &["15", "30", "45", "60", "75", "90", "105", "120", "135", "150"];
+const ANGLES: &[&str] = &[
+    "15", "30", "45", "60", "75", "90", "105", "120", "135", "150",
+];
 const RATIOS: &[&str] = &["1/2", "2", "1/3", "3/2", "2/3", "3", "3/4"];
 
 fn point_args(t: &Term) -> Vec<&str> {
@@ -161,7 +169,9 @@ pub fn well_formed(t: &Term) -> bool {
 }
 
 fn swap_point(goal: &Term, names: &[String], rng: &mut Rng) -> Option<(Term, String)> {
-    let idx: Vec<usize> = (0..goal.args.len()).filter(|&i| !is_number_arg(&goal.args[i])).collect();
+    let idx: Vec<usize> = (0..goal.args.len())
+        .filter(|&i| !is_number_arg(&goal.args[i]))
+        .collect();
     if idx.is_empty() {
         return None;
     }
@@ -176,7 +186,9 @@ fn swap_point(goal: &Term, names: &[String], rng: &mut Rng) -> Option<(Term, Str
 }
 
 fn transpose(goal: &Term, rng: &mut Rng) -> Option<(Term, String)> {
-    let idx: Vec<usize> = (0..goal.args.len()).filter(|&i| !is_number_arg(&goal.args[i])).collect();
+    let idx: Vec<usize> = (0..goal.args.len())
+        .filter(|&i| !is_number_arg(&goal.args[i]))
+        .collect();
     if idx.len() < 2 {
         return None;
     }
@@ -186,7 +198,10 @@ fn transpose(goal: &Term, rng: &mut Rng) -> Option<(Term, String)> {
     }
     let mut t = goal.clone();
     t.args.swap(i, j);
-    Some((t, format!("transpose {} <-> {}", goal.args[i], goal.args[j])))
+    Some((
+        t,
+        format!("transpose {} <-> {}", goal.args[i], goal.args[j]),
+    ))
 }
 
 fn repredicate(goal: &Term, names: &[String], rng: &mut Rng) -> Option<(Term, String)> {
@@ -222,7 +237,10 @@ fn repredicate(goal: &Term, names: &[String], rng: &mut Rng) -> Option<(Term, St
 }
 
 fn resegment(goal: &Term, names: &[String], rng: &mut Rng) -> Option<(Term, String)> {
-    if !matches!(goal.name.as_str(), "cong" | "para" | "perp" | "eqangle" | "eqratio") {
+    if !matches!(
+        goal.name.as_str(),
+        "cong" | "para" | "perp" | "eqangle" | "eqratio"
+    ) {
         return swap_point(goal, names, rng);
     }
     let k = rng.below(goal.args.len() / 2);
@@ -244,7 +262,13 @@ fn mutate_goal(goal: &Term, names: &[String], rng: &mut Rng) -> Option<(Term, St
     well_formed(&t).then_some((t, how))
 }
 
-fn figures(prob: &AgProblem, seed: u64, want: usize, tries: u64, prefer_goal: bool) -> Result<Vec<FigureSample>, String> {
+fn figures(
+    prob: &AgProblem,
+    seed: u64,
+    want: usize,
+    tries: u64,
+    prefer_goal: bool,
+) -> Result<Vec<FigureSample>, String> {
     let mut good = Vec::new();
     let mut other = Vec::new();
     for k in 0..tries {
@@ -265,9 +289,10 @@ fn figures(prob: &AgProblem, seed: u64, want: usize, tries: u64, prefer_goal: bo
 }
 
 fn false_conjunct(goal: &Term, figs: &[FigureSample]) -> Option<Term> {
-    goal_conjuncts(goal, &figs[0]).ok()?.into_iter().find(|c| {
-        well_formed(c) && figs.iter().all(|f| matches!(term_holds(c, f), Ok(false)))
-    })
+    goal_conjuncts(goal, &figs[0])
+        .ok()?
+        .into_iter()
+        .find(|c| well_formed(c) && figs.iter().all(|f| matches!(term_holds(c, f), Ok(false))))
 }
 
 fn with_goal(prob: &AgProblem, goal: Term) -> AgProblem {
@@ -349,7 +374,10 @@ fn degenerate_pins(
         pins.insert(names[2].clone(), a + (b - a) * t);
         return Some((
             pins,
-            format!("collinear base: {} on line {}{} (t = {t})", names[2], names[0], names[1]),
+            format!(
+                "collinear base: {} on line {}{} (t = {t})",
+                names[2], names[0], names[1]
+            ),
         ));
     }
     let i = rng.below(names.len());
@@ -380,7 +408,8 @@ pub fn generate(problems: &[(String, String)], cfg: &Config) -> Generated {
         let base = match figures(&prob, seed0, want, 150, true) {
             Ok(f) if f.len() >= want && f[0].goal_holds => f,
             Ok(_) => {
-                out.skipped.push((name.clone(), "too few figures where the goal holds".into()));
+                out.skipped
+                    .push((name.clone(), "too few figures where the goal holds".into()));
                 continue;
             }
             Err(e) => {
@@ -528,7 +557,9 @@ pub fn split_geo(src: &str) -> Option<(Vec<String>, String)> {
 fn geo_points(stmts: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     for s in stmts {
-        let Some((lhs, rhs)) = s.split_once('=') else { continue };
+        let Some((lhs, rhs)) = s.split_once('=') else {
+            continue;
+        };
         if lhs.trim_start().starts_with("assume") {
             continue;
         }
@@ -570,7 +601,9 @@ fn geo_tokens(s: &str) -> Vec<String> {
 
 fn mutate_equation(goal: &str, points: &[String], rng: &mut Rng) -> Option<(String, String)> {
     let mut toks = geo_tokens(goal);
-    let pts: Vec<usize> = (0..toks.len()).filter(|&i| points.contains(&toks[i])).collect();
+    let pts: Vec<usize> = (0..toks.len())
+        .filter(|&i| points.contains(&toks[i]))
+        .collect();
     let nums: Vec<usize> = (0..toks.len())
         .filter(|&i| toks[i].parse::<f64>().is_ok())
         .collect();
@@ -605,7 +638,10 @@ fn mutate_equation(goal: &str, points: &[String], rng: &mut Rng) -> Option<(Stri
         _ => {
             let (l, r) = goal.split_once('=')?;
             let k = *rng.pick(&["2", "3", "1/2"]);
-            return Some((format!("{} = {k} * ({})", l.trim(), r.trim()), format!("scale right side by {k}")));
+            return Some((
+                format!("{} = {k} * ({})", l.trim(), r.trim()),
+                format!("scale right side by {k}"),
+            ));
         }
     };
     Some((toks.concat(), how))
@@ -620,7 +656,9 @@ fn geo_weakenings(stmts: &[String]) -> Vec<(Vec<String>, String)> {
             out.push((w, format!("drop `{s}`")));
             continue;
         }
-        let Some((lhs, rhs)) = s.split_once('=') else { continue };
+        let Some((lhs, rhs)) = s.split_once('=') else {
+            continue;
+        };
         let (lhs, rhs) = (lhs.trim(), rhs.trim());
         if i == 0 || lhs.contains(char::is_whitespace) || rhs == "free" {
             continue;
@@ -721,11 +759,13 @@ pub fn generate_geo(programs: &[(String, String)], cfg: &Config) -> Generated {
         }
         let cons = stmts.join("\n");
         if !equation_truths(&cons, &goal, n).is_some_and(|t| t.iter().all(|x| *x == Some(true))) {
-            out.skipped.push((name.clone(), "goal does not hold on every sample".into()));
+            out.skipped
+                .push((name.clone(), "goal does not hold on every sample".into()));
             continue;
         }
         let points = geo_points(&stmts);
-        let encode = |stmts: &[String], goal: &str| format!("{GEO_PREFIX}{} ? {goal}", stmts.join("; "));
+        let encode =
+            |stmts: &[String], goal: &str| format!("{GEO_PREFIX}{} ? {goal}", stmts.join("; "));
         let mut seen: HashSet<String> = HashSet::new();
         seen.insert(goal.replace(' ', ""));
         let mut made = 0;
@@ -795,7 +835,11 @@ pub fn solve_geo_case(name: &str, text: &str) -> Outcome {
         out.detail = "no ` ? ` goal separator".into();
         return out;
     };
-    let cons: String = cons.split(';').map(str::trim).collect::<Vec<_>>().join("\n");
+    let cons: String = cons
+        .split(';')
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n");
     out.parsed = true;
     out.goal_numeric = equation_truths(&cons, goal, 1).and_then(|t| t.first().copied().flatten());
     let provers: [(&str, Prover); 2] = [
@@ -839,13 +883,19 @@ pub fn corpus_text(cases: &[Case]) -> String {
 }
 
 fn ddar_only(problem: &crate::Problem) -> Attempt {
-    match catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(problem)))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        quiet(|| solve_problem_with_proof(problem))
+    })) {
         Err(_) => Attempt::Panicked,
         Ok(Err(e)) => Attempt::NotProved {
             status: "engine-panic",
             detail: e,
         },
-        Ok(Ok(Some(proof))) => Attempt::Proved { proof, aux: vec![], problem: problem.clone() },
+        Ok(Ok(Some(proof))) => Attempt::Proved {
+            proof,
+            aux: vec![],
+            problem: problem.clone(),
+        },
         Ok(Ok(None)) => Attempt::NotProved {
             status: "unproved",
             detail: "DDAR closure does not reach the goal".into(),
@@ -902,7 +952,11 @@ pub fn solve_case(name: &str, text: &str, budget: Duration, aux: bool) -> Outcom
         }
         let mut p = tr.problem.clone();
         p.goal = Some(g.clone());
-        let attempt = if aux { prove_goal(&p, deadline) } else { ddar_only(&p) };
+        let attempt = if aux {
+            prove_goal(&p, deadline)
+        } else {
+            ddar_only(&p)
+        };
         match attempt {
             Attempt::Proved { proof, aux: a, .. } => {
                 proofs.push(proof);
@@ -941,7 +995,12 @@ pub fn solve_case(name: &str, text: &str, budget: Duration, aux: bool) -> Outcom
 
 /// Child side of a process-isolated fuzz run: solve one named case of a cases
 /// file with the full pipeline.
-pub fn child_main(cases_file: &std::path::Path, name: &str, budget: Duration, proofs_dir: Option<&std::path::Path>) -> Outcome {
+pub fn child_main(
+    cases_file: &std::path::Path,
+    name: &str,
+    budget: Duration,
+    proofs_dir: Option<&std::path::Path>,
+) -> Outcome {
     let text = std::fs::read_to_string(cases_file).unwrap_or_default();
     let cases = corpus::read_corpus(&text).unwrap_or_default();
     let o = match cases.iter().find(|(n, _)| n == name) {
@@ -989,6 +1048,10 @@ pub fn tsv_row(case: &Case, o: &Outcome) -> String {
         clean(&case.mutation),
         o.status,
         o.secs,
-        if o.detail.is_empty() { "-".into() } else { clean(&o.detail) },
+        if o.detail.is_empty() {
+            "-".into()
+        } else {
+            clean(&o.detail)
+        },
     )
 }

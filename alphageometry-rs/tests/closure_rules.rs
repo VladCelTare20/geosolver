@@ -32,7 +32,11 @@ fn geo(src: &str) -> Problem {
 
 fn geo_false(src: &str) -> Problem {
     let c = compile(src).unwrap();
-    assert_eq!(c.goal_numerically_holds, Some(false), "near-miss goal must be false:\n{src}");
+    assert_eq!(
+        c.goal_numerically_holds,
+        Some(false),
+        "near-miss goal must be false:\n{src}"
+    );
     c.problem
 }
 
@@ -41,14 +45,20 @@ const ALL: &[&str] = &[];
 /// Fires only with `rule`, and is otherwise out of DDAR's reach.
 fn needs(rule: &str, p: &Problem) {
     assert!(proves(p, ALL), "not proved with every rule on");
-    assert!(!proves(p, &[rule]), "proved without `{rule}`: the test does not exercise it");
+    assert!(
+        !proves(p, &[rule]),
+        "proved without `{rule}`: the test does not exercise it"
+    );
 }
 
 /// [`needs`] for a goal another rule also reaches by a different route
 /// (the triangle-equality rule gets `coll` from Stewart's squared lengths).
 fn needs_all(rules: &[&str], p: &Problem) {
     assert!(proves(p, ALL), "not proved with every rule on");
-    assert!(!proves(p, rules), "proved without {rules:?}: the test does not exercise them");
+    assert!(
+        !proves(p, rules),
+        "proved without {rules:?}: the test does not exercise them"
+    );
 }
 
 fn never(p: &Problem) {
@@ -61,7 +71,9 @@ fn squared_lengths_third_altitude() {
         "sqlen",
         &geo("A B C = triangle\nH = point: perp(A, H, B, C), perp(B, H, C, A)\nprove perp(C, H, A, B)"),
     );
-    never(&geo_false("A B C = triangle\nH = point: perp(A, H, B, C)\nprove perp(C, H, A, B)"));
+    never(&geo_false(
+        "A B C = triangle\nH = point: perp(A, H, B, C)\nprove perp(C, H, A, B)",
+    ));
     never(&geo_false(
         "A B C = triangle\nM = midpoint(A, B)\nH = point: perp(A, H, B, C), perp(B, H, C, M)\nprove perp(C, H, A, B)",
     ));
@@ -88,18 +100,27 @@ fn squared_lengths_irrational_ratio_via_pythagoras() {
     needs("sqlen", &p);
     let d = close(&p, ALL);
     assert!(d.rcompute_deps(p.goal.as_ref().unwrap()).is_some());
-    assert!(d.rcompute(p.goal.as_ref().unwrap()).is_none(), "√2 is not rational");
+    assert!(
+        d.rcompute(p.goal.as_ref().unwrap()).is_none(),
+        "√2 is not rational"
+    );
     never(&low(&format!("{ISO_RIGHT} ? cong a b c a")));
     never(&low(&format!("{ISO_RIGHT} ? rconst a b c a 3/2")));
-    never(&low("c@0_0 = ; a@3_1 = ; b@-2_6 = perp c a c b ? rcompute a b c a"));
+    never(&low(
+        "c@0_0 = ; a@3_1 = ; b@-2_6 = perp c a c b ? rcompute a b c a",
+    ));
 }
 
-const STEWART: &str = "a@0_0 = ; c@1_0 = ; b@0.5_1.9364916731037085 = rconst a b a c 2, rconst b c a c 2";
+const STEWART: &str =
+    "a@0_0 = ; c@1_0 = ; b@0.5_1.9364916731037085 = rconst a b a c 2, rconst b c a c 2";
 
 #[test]
 fn squared_lengths_stewart_median() {
     let mid = "m@0.75_0.96824583655185425 = coll b m c, cong m b m c";
-    needs("sqlen", &low(&format!("{STEWART}; {mid} ? rcompute a m a c")));
+    needs(
+        "sqlen",
+        &low(&format!("{STEWART}; {mid} ? rcompute a m a c")),
+    );
     never(&low(&format!("{STEWART}; {mid} ? rconst a m a c 3/2")));
     never(&low(&format!(
         "{STEWART}; m@0.6_1.5491933384829668 = coll b m c ? rcompute a m a c"
@@ -113,7 +134,9 @@ const TRANSVERSAL: &str = "a@0_0 = ; b@4_0 = ; c@0_4 = ; f@2_0 = coll a f b; e@0
 fn menelaus_ratio_from_a_transversal() {
     needs(
         "menelaus",
-        &low(&format!("{TRANSVERSAL}, cong a f f b ? eqratio b d d c e a c e")),
+        &low(&format!(
+            "{TRANSVERSAL}, cong a f f b ? eqratio b d d c e a c e"
+        )),
     );
     never(&low(
         "a@0_0 = ; b@4_0 = ; c@0_4 = ; f@1_0 = coll a f b; e@0_2 = coll c e a; \
@@ -157,9 +180,11 @@ fn ceva_converse_concurrent_cevians() {
 fn ceva_converse_gergonne_point() {
     needs(
         "menelaus",
-        &geo("A B C = triangle\nI = incenter(A, B, C)\nTa = foot(I, line(B, C))\n\
+        &geo(
+            "A B C = triangle\nI = incenter(A, B, C)\nTa = foot(I, line(B, C))\n\
               Tb = foot(I, line(C, A))\nTc = foot(I, line(A, B))\n\
-              X = meet(line(A, Ta), line(B, Tb))\nprove coll(C, Tc, X)"),
+              X = meet(line(A, Ta), line(B, Tb))\nprove coll(C, Tc, X)",
+        ),
     );
     never(&geo_false(
         "A B C = triangle\nI = incenter(A, B, C)\nTa = foot(I, line(B, C))\n\
@@ -172,13 +197,17 @@ fn ceva_converse_gergonne_point() {
 fn bisectors_concur_at_incentre_and_excentre() {
     needs(
         "bisconc",
-        &geo("A B C = triangle\nX = meet(bisector(B, A, C), bisector(A, B, C))\n\
-              prove eqangle(C, B, C, X, C, X, C, A)"),
+        &geo(
+            "A B C = triangle\nX = meet(bisector(B, A, C), bisector(A, B, C))\n\
+              prove eqangle(C, B, C, X, C, X, C, A)",
+        ),
     );
     needs(
         "bisconc",
-        &geo("A B C = triangle\nX = meet(bisector(B, A, C), perp_line(B, bisector(A, B, C)))\n\
-              prove eqangle(C, B, C, X, C, X, C, A)"),
+        &geo(
+            "A B C = triangle\nX = meet(bisector(B, A, C), perp_line(B, bisector(A, B, C)))\n\
+              prove eqangle(C, B, C, X, C, X, C, A)",
+        ),
     );
     never(&geo_false(
         "A B C = triangle\nX = meet(bisector(B, A, C), line(B, midpoint(C, A)))\n\
@@ -195,7 +224,9 @@ fn rcompute_is_a_determined_ratio() {
         Some(ddar::rational::Rat::new(1, 2))
     );
     assert!(proves(&p, ALL));
-    never(&low("a@0_0 = ; b@4_1 = ; m@1_0.25 = coll a m b ? rcompute a m a b"));
+    never(&low(
+        "a@0_0 = ; b@4_1 = ; m@1_0.25 = coll a m b ? rcompute a m a b",
+    ));
     never(&low("a@0_0 = ; b@4_1 = ; c@1_3 = ? rcompute a c a b"));
 }
 

@@ -18,9 +18,9 @@ mod human_view;
 mod i18n;
 mod mcp;
 mod present;
-mod pwa;
 #[cfg(test)]
 mod proof_audit;
+mod pwa;
 mod render;
 mod security;
 mod spread;
@@ -128,13 +128,22 @@ fn cmd_doctor(args: &[String]) -> ExitCode {
         }
     }
     let Some(bin) = translate::claude_bin() else {
-        println!("AI: off — the `claude` CLI was not found (install it, or set AGSTUDIO_CLAUDE_BIN)");
+        println!(
+            "AI: off — the `claude` CLI was not found (install it, or set AGSTUDIO_CLAUDE_BIN)"
+        );
         return ExitCode::from(1);
     };
     println!("claude CLI: {}", bin.display());
     let status = translate::status();
-    let via = if translate::token_in_env() { "CLAUDE_CODE_OAUTH_TOKEN" } else { "stored sign-in" };
-    println!("sign-in reported: {} ({via})", if status.logged_in { "yes" } else { "no" });
+    let via = if translate::token_in_env() {
+        "CLAUDE_CODE_OAUTH_TOKEN"
+    } else {
+        "stored sign-in"
+    };
+    println!(
+        "sign-in reported: {} ({via})",
+        if status.logged_in { "yes" } else { "no" }
+    );
     match translate::check_credentials() {
         Ok(reply) => {
             println!("model call: ok (replied {reply:?})");
@@ -179,7 +188,9 @@ impl Args {
             None => Ok(None),
             Some(v) => match v.parse::<f64>() {
                 Ok(s) if s.is_finite() && s > 0.0 => Ok(Some(s)),
-                _ => Err(format!("{flag} needs a positive number of seconds (got {v:?})")),
+                _ => Err(format!(
+                    "{flag} needs a positive number of seconds (got {v:?})"
+                )),
             },
         }
     }
@@ -250,7 +261,9 @@ fn cmd_serve(args: &[String]) -> ExitCode {
         Err(e) => return usage_error(&e),
     };
     if let Some(extra) = parsed.positional.first() {
-        return usage_error(&format!("serve takes no positional arguments (got {extra:?})"));
+        return usage_error(&format!(
+            "serve takes no positional arguments (got {extra:?})"
+        ));
     }
     let port: u16 = match parsed.get("--port").map(str::parse) {
         None => 8787,
@@ -293,13 +306,26 @@ fn cmd_backup(args: &[String]) -> ExitCode {
     };
     let dest = match parsed.positional.as_slice() {
         [d] => std::path::PathBuf::from(d),
-        [] => return usage_error("backup needs a destination file, e.g. agstudio backup agstudio-backup.db"),
-        more => return usage_error(&format!("backup takes one destination (got {})", more.len())),
+        [] => {
+            return usage_error(
+                "backup needs a destination file, e.g. agstudio backup agstudio-backup.db",
+            )
+        }
+        more => {
+            return usage_error(&format!(
+                "backup takes one destination (got {})",
+                more.len()
+            ))
+        }
     };
     let src = parsed
         .get("--db")
         .map(str::to_string)
-        .or_else(|| std::env::var("AGSTUDIO_DB").ok().filter(|v| !v.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("AGSTUDIO_DB")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        })
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("./agstudio.db"));
     match db::backup(&src, &dest) {
@@ -330,12 +356,21 @@ struct Prepared {
     args: Args,
 }
 
-fn prepare(cmd: &str, args: &[String], switches: &[&str], valued: &[&str]) -> Result<Prepared, ExitCode> {
+fn prepare(
+    cmd: &str,
+    args: &[String],
+    switches: &[&str],
+    valued: &[&str],
+) -> Result<Prepared, ExitCode> {
     let parsed = parse_args(args, switches, valued).map_err(|e| usage_error(&e))?;
     let theme = parsed.theme().map_err(|e| usage_error(&e))?;
     let program = match parsed.positional.as_slice() {
         [p] => p.clone(),
-        [] => return Err(usage_error(&format!("{cmd} needs a .geo program or file path"))),
+        [] => {
+            return Err(usage_error(&format!(
+                "{cmd} needs a .geo program or file path"
+            )))
+        }
         [_, extra, ..] => {
             return Err(usage_error(&format!(
                 "{cmd} takes one program (quote it); unexpected extra argument {extra:?}"
@@ -421,7 +456,10 @@ fn cmd_translate(args: &[String]) -> ExitCode {
         Err(e) => return usage_error(&e),
     };
     let (theme, timeout) = match (parsed.theme(), parsed.secs("--timeout")) {
-        (Ok(t), Ok(s)) => (t, s.map_or(engine::DEFAULT_SOLVE_TIMEOUT, Duration::from_secs_f64)),
+        (Ok(t), Ok(s)) => (
+            t,
+            s.map_or(engine::DEFAULT_SOLVE_TIMEOUT, Duration::from_secs_f64),
+        ),
         (Err(e), _) | (_, Err(e)) => return usage_error(&e),
     };
     let out = out_flags(&parsed);
@@ -493,7 +531,8 @@ fn cmd_translate(args: &[String]) -> ExitCode {
 
 /// Make `limit` (plus [`worker::GRACE`]) a hard bound on the rest of the command.
 fn arm_hard_limit(cmd: &str, flag: &str, limit: Duration) -> std::time::Instant {
-    let present_by = std::time::Instant::now() + (limit + worker::GRACE).saturating_sub(worker::PRESENT_MARGIN);
+    let present_by =
+        std::time::Instant::now() + (limit + worker::GRACE).saturating_sub(worker::PRESENT_MARGIN);
     worker::arm_watchdog(
         limit + worker::GRACE,
         format!(
@@ -534,7 +573,12 @@ fn looks_like_a_path(arg: &str) -> bool {
 
 /// Write requested outputs (figure SVG, and a combined proof+figure PNG/PDF
 /// report) and print the proof to the terminal.
-fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, present_by: std::time::Instant) -> ExitCode {
+fn emit_solution(
+    sol: &Solution,
+    out: &OutFlags,
+    title: Option<&str>,
+    present_by: std::time::Instant,
+) -> ExitCode {
     if let Some(path) = &out.svg {
         match std::fs::write(path, &sol.svg) {
             Ok(()) => println!("Figure written to {path}"),
@@ -551,7 +595,9 @@ fn emit_solution(sol: &Solution, out: &OutFlags, title: Option<&str>, present_by
             }
         }
         if let Some(path) = &out.pdf {
-            match render::report_pdf_from_json(&view, i18n::Lang::En, false).and_then(|b| Ok(std::fs::write(path, b)?)) {
+            match render::report_pdf_from_json(&view, i18n::Lang::En, false)
+                .and_then(|b| Ok(std::fs::write(path, b)?))
+            {
                 Ok(()) => println!("PDF written to {path}"),
                 Err(e) => eprintln!("warning: PDF export failed: {e}"),
             }
@@ -640,7 +686,10 @@ mod tests {
     fn missing_geo_file_is_not_compiled_as_text() {
         assert!(load_program("/nonexistent/problem.geo").is_err());
         assert!(load_program("problem.GEO").is_err());
-        assert_eq!(load_program("A = free\nprove coll(A,A,A)").unwrap(), "A = free\nprove coll(A,A,A)");
+        assert_eq!(
+            load_program("A = free\nprove coll(A,A,A)").unwrap(),
+            "A = free\nprove coll(A,A,A)"
+        );
         assert!(load_program("a@1_2 b@3_4 = ? coll a b a").is_ok());
     }
 }

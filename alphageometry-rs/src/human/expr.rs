@@ -14,7 +14,10 @@ pub fn interior(t: &EngineTrace, a: PointId, b: PointId, c: PointId) -> Option<L
     if nu < 1e-12 || nw < 1e-12 {
         return None;
     }
-    let theta = ((u.0 * w.0 + u.1 * w.1) / (nu * nw)).clamp(-1.0, 1.0).acos() / std::f64::consts::PI;
+    let theta = ((u.0 * w.0 + u.1 * w.1) / (nu * nw))
+        .clamp(-1.0, 1.0)
+        .acos()
+        / std::f64::consts::PI;
     let phi = t.value(Table::Angle, &raw);
     for s in [1i64, -1] {
         let m = theta - s as f64 * phi;
@@ -30,18 +33,44 @@ pub fn interior(t: &EngineTrace, a: PointId, b: PointId, c: PointId) -> Option<L
 
 pub fn sine_var(t: &EngineTrace, angle: &Expr, cos: bool) -> Option<LinComb> {
     let (a, b, c, flip, shift) = match angle {
-        Expr::Angle { a, b, c, .. } => (*a, *b, *c, false, if cos { Rat::new(1, 2) } else { Rat::zero() }),
+        Expr::Angle { a, b, c, .. } => (
+            *a,
+            *b,
+            *c,
+            false,
+            if cos { Rat::new(1, 2) } else { Rat::zero() },
+        ),
         Expr::Lin { terms } if !cos && terms.len() == 2 => match (&terms[0], &terms[1]) {
-            ((k, Expr::Angle { a, b, c, .. }), (one, Expr::Const { degrees })) if one.is_one() && k.abs().is_one() => {
-                (*a, *b, *c, k.is_negative(), (degrees / &Rat::from_int(180)).mod_one())
+            ((k, Expr::Angle { a, b, c, .. }), (one, Expr::Const { degrees }))
+                if one.is_one() && k.abs().is_one() =>
+            {
+                (
+                    *a,
+                    *b,
+                    *c,
+                    k.is_negative(),
+                    (degrees / &Rat::from_int(180)).mod_one(),
+                )
             }
             _ => return None,
         },
         _ => return None,
     };
-    let probe = super::trace::SineVar { var: 0, v: b, p: a, q: c, flip, shift };
+    let probe = super::trace::SineVar {
+        var: 0,
+        v: b,
+        p: a,
+        q: c,
+        flip,
+        shift,
+    };
     let key = EngineTrace::sine_key(&probe);
-    let v = t.sines.iter().filter(|s| EngineTrace::sine_key(s) == key).map(|s| s.var).min()?;
+    let v = t
+        .sines
+        .iter()
+        .filter(|s| EngineTrace::sine_key(s) == key)
+        .map(|s| s.var)
+        .min()?;
     Some(LinComb::singleton(v, Rat::one()))
 }
 
@@ -54,8 +83,13 @@ pub fn eval(t: &EngineTrace, e: &Expr) -> Option<(Table, LinComb)> {
                 Some((Table::Angle, interior(t, *a, *b, *c)?))
             }
         }
-        Expr::LineAngle { l1, l2, .. } => Some((Table::Angle, &t.dir(l2.0, l2.1)? - &t.dir(l1.0, l1.1)?)),
-        Expr::Const { degrees } => Some((Table::Angle, LinComb::singleton(ANGLE_UNIT, degrees / &Rat::from_int(180)))),
+        Expr::LineAngle { l1, l2, .. } => {
+            Some((Table::Angle, &t.dir(l2.0, l2.1)? - &t.dir(l1.0, l1.1)?))
+        }
+        Expr::Const { degrees } => Some((
+            Table::Angle,
+            LinComb::singleton(ANGLE_UNIT, degrees / &Rat::from_int(180)),
+        )),
         Expr::Lin { terms } => {
             let mut out = LinComb::zero();
             let mut table = Table::Angle;

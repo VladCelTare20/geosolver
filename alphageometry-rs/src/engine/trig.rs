@@ -111,7 +111,13 @@ impl Spell {
 
     fn corner(&mut self, c: &Corner, flip: bool) -> String {
         let (a, b) = if flip { (c.p, c.q) } else { (c.q, c.p) };
-        format!("∠({}{},{}{})", self.p(c.v), self.p(a), self.p(c.v), self.p(b))
+        format!(
+            "∠({}{},{}{})",
+            self.p(c.v),
+            self.p(a),
+            self.p(c.v),
+            self.p(b)
+        )
     }
 
     fn class(&mut self, r: &ClassRef) -> String {
@@ -136,7 +142,11 @@ impl Spell {
 impl Ddar {
     /// Rows every table refused because the figure contradicts them.
     pub fn rejected_rows(&self) -> usize {
-        self.angle.core.rejected + self.dmul.core.rejected + self.dadd.core.rejected + self.dsq.core.rejected + self.trig.rejected
+        self.angle.core.rejected
+            + self.dmul.core.rejected
+            + self.dadd.core.rejected
+            + self.dsq.core.rejected
+            + self.trig.rejected
     }
 
     pub fn trig_stats(&self) -> (usize, usize, usize, usize) {
@@ -222,7 +232,11 @@ impl Ddar {
             _ if !k6.is_integer() => return None,
             2 | 10 => (scaled(&two, Rat::from_int(-1)), "sine of 30°", "1/2"),
             3 | 9 => (scaled(&two, Rat::new(-1, 2)), "sine of 45°", "√2/2"),
-            4 | 8 => (scaled(&three, Rat::new(1, 2)).mul(&scaled(&two, Rat::from_int(-1))), "sine of 60°", "√3/2"),
+            4 | 8 => (
+                scaled(&three, Rat::new(1, 2)).mul(&scaled(&two, Rat::from_int(-1))),
+                "sine of 60°",
+                "√3/2",
+            ),
             6 => (DistMul(LinComb::zero()), "sine of 90°", "1"),
             _ => return None,
         })
@@ -252,10 +266,16 @@ impl Ddar {
                     if self.num_identical(a, c) || self.num_identical(b, c) {
                         continue;
                     }
-                    if orientation(self.coord(a), self.coord(b), self.coord(c)) == 0 || self.numerically_flat(a, b, c) {
+                    if orientation(self.coord(a), self.coord(b), self.coord(c)) == 0
+                        || self.numerically_flat(a, b, c)
+                    {
                         continue;
                     }
-                    let (Some(x), Some(y), Some(z)) = (self.corner(a, b, c), self.corner(b, c, a), self.corner(c, a, b)) else {
+                    let (Some(x), Some(y), Some(z)) = (
+                        self.corner(a, b, c),
+                        self.corner(b, c, a),
+                        self.corner(c, a, b),
+                    ) else {
                         continue;
                     };
                     tris.push([x, y, z]);
@@ -283,7 +303,8 @@ impl Ddar {
         }
         let mut changed = self.trig_multiple_angles(&tris, &classes);
         let virt: FxHashSet<Class> = self.trig.vsvar.keys().cloned().collect();
-        let is_const = |c: &[(VarId, Rat)]| c.iter().all(|(v, _)| *v == ANGLE_UNIT) || virt.contains(c);
+        let is_const =
+            |c: &[(VarId, Rat)]| c.iter().all(|(v, _)| *v == ANGLE_UNIT) || virt.contains(c);
         let mut count: FxHashMap<Vec<(VarId, Rat)>, usize> = FxHashMap::default();
         for cl in &classes {
             for c in cl {
@@ -297,7 +318,10 @@ impl Ddar {
                 if !alive[i] {
                     continue;
                 }
-                let shared = classes[i].iter().filter(|c| count[*c] >= 2 || is_const(c)).count();
+                let shared = classes[i]
+                    .iter()
+                    .filter(|c| count[*c] >= 2 || is_const(c))
+                    .count();
                 if shared < 2 {
                     alive[i] = false;
                     dropped = true;
@@ -318,7 +342,10 @@ impl Ddar {
             }
             admitted += 1;
             let t = tris[i];
-            let shared: Vec<bool> = classes[i].iter().map(|c| count[c] >= 2 || is_const(c)).collect();
+            let shared: Vec<bool> = classes[i]
+                .iter()
+                .map(|c| count[c] >= 2 || is_const(c))
+                .collect();
             for k in 0..3 {
                 if shared[k] {
                     let e = buckets.entry(classes[i][k].clone()).or_default();
@@ -332,12 +359,19 @@ impl Ddar {
                     continue;
                 }
                 let (cx, cy) = (t[x], t[y]);
-                let key = if cx.key <= cy.key { (cx.key, cy.key) } else { (cy.key, cx.key) };
+                let key = if cx.key <= cy.key {
+                    (cx.key, cy.key)
+                } else {
+                    (cy.key, cx.key)
+                };
                 if !self.trig.los_done.insert(key) {
                     continue;
                 }
                 let (sx, sy) = (self.sin_var(&cx), self.sin_var(&cy));
-                let (ox, oy) = (if cy.p == cx.v { cy.q } else { cy.p }, if cx.p == cy.v { cx.q } else { cx.p });
+                let (ox, oy) = (
+                    if cy.p == cx.v { cy.q } else { cy.p },
+                    if cx.p == cy.v { cx.q } else { cx.p },
+                );
                 let opp_x = self.raw_dist_mul(cy.v, ox);
                 let opp_y = self.raw_dist_mul(cx.v, oy);
                 let row = opp_x.mul(&sy).div(&opp_y.mul(&sx));
@@ -361,7 +395,9 @@ impl Ddar {
         keys.sort();
         for k in keys {
             let corners = buckets[&k].clone();
-            if let (Some(vs), Some(c)) = (self.trig.vsvar.get(&k).cloned(), corners.first().copied()) {
+            if let (Some(vs), Some(c)) =
+                (self.trig.vsvar.get(&k).cloned(), corners.first().copied())
+            {
                 if self.trig.vlink_done.insert((k.clone(), c.key)) {
                     let s = self.sin_var(&c);
                     let deps = angles[&c.key].1.clone();
@@ -370,7 +406,10 @@ impl Ddar {
                 }
             }
             if k.iter().all(|(v, _)| *v == ANGLE_UNIT) {
-                let frac = k.first().map(|(_, r)| r.mod_one()).unwrap_or_else(Rat::zero);
+                let frac = k
+                    .first()
+                    .map(|(_, r)| r.mod_one())
+                    .unwrap_or_else(Rat::zero);
                 if let Some((value, name, text)) = self.known_sine(&frac) {
                     for c in &corners {
                         if !self.trig.known_done.insert(c.key) {
@@ -389,7 +428,11 @@ impl Ddar {
                     break;
                 }
                 let (c1, c2) = (w[0], w[1]);
-                let key = if c1.key <= c2.key { (c1.key, c2.key) } else { (c2.key, c1.key) };
+                let key = if c1.key <= c2.key {
+                    (c1.key, c2.key)
+                } else {
+                    (c2.key, c1.key)
+                };
                 if !self.trig.eq_done.insert(key) {
                     continue;
                 }
@@ -398,7 +441,11 @@ impl Ddar {
                 let mut deps = angles[&c1.key].1.clone();
                 deps.extend(angles[&c2.key].1.iter().copied());
                 let mut sp = Spell::default();
-                let stmt = format!("|sin {}| = |sin {}|", sp.corner(&c1, false), sp.corner(&c2, false));
+                let stmt = format!(
+                    "|sin {}| = |sin {}|",
+                    sp.corner(&c1, false),
+                    sp.corner(&c2, false)
+                );
                 changed |= self.trig_force(&s1.div(&s2), sp.reason(EQUAL_SINES, stmt), deps);
             }
         }
@@ -462,8 +509,15 @@ impl Ddar {
     /// `|sin|` of a class as a sine variable (LHS, rank 0, like the corner
     /// ones), linked to the first corner of `corners` in that class by an
     /// equal-sines row. `None` for a class whose sine is (numerically) zero.
-    fn class_sine(&mut self, class: &Class, corners: &FxHashMap<Class, Corner>, origin: Option<ClassRef>) -> Option<DistMul> {
-        let value = (std::f64::consts::PI * self.angle.value_of(&Self::class_angle(class))).sin().abs();
+    fn class_sine(
+        &mut self,
+        class: &Class,
+        corners: &FxHashMap<Class, Corner>,
+        origin: Option<ClassRef>,
+    ) -> Option<DistMul> {
+        let value = (std::f64::consts::PI * self.angle.value_of(&Self::class_angle(class)))
+            .sin()
+            .abs();
         if value < 1e-9 {
             return None;
         }
@@ -528,7 +582,9 @@ impl Ddar {
                 for j in 0..n {
                     let k = Rat::new(j, n);
                     let c = self.class_shift(x, k.clone());
-                    let shifted = self.angle.simplify(&Self::class_angle(x).add(&self.angle.const_frac(k.clone())));
+                    let shifted = self
+                        .angle
+                        .simplify(&Self::class_angle(x).add(&self.angle.const_frac(k.clone())));
                     let origin = ClassRef {
                         shift: k,
                         neg: shifted.0.terms[..] != c[..],
@@ -546,7 +602,10 @@ impl Ddar {
                 let xt = sp.class(&xr);
                 let nt = sp.corner(&corners[&nx], false);
                 let (name, stmt) = if n == 2 {
-                    ("double-angle formula", format!("x = {xt}, 2x ≡ ±{nt}: |sin x|·|sin(x + 90°)| = |sin 2x| / 2"))
+                    (
+                        "double-angle formula",
+                        format!("x = {xt}, 2x ≡ ±{nt}: |sin x|·|sin(x + 90°)| = |sin 2x| / 2"),
+                    )
                 } else {
                     (
                         "triple-angle formula",
@@ -579,7 +638,9 @@ impl Ddar {
             .keys()
             .chain(self.trig.vsvar.keys())
             .map(|c| {
-                let v = (std::f64::consts::PI * self.angle.value_of(&Self::class_angle(c))).sin().abs();
+                let v = (std::f64::consts::PI * self.angle.value_of(&Self::class_angle(c)))
+                    .sin()
+                    .abs();
                 (v, c.clone())
             })
             .collect();
@@ -637,7 +698,10 @@ impl Ddar {
                             continue;
                         };
                         let r_rep = wrap(sigma * self.angle.value_of(&w_s));
-                        if !near(r_rep, r_int) || r_rep < CONVERSE_MARGIN || 1.0 - p_int - r_rep < CONVERSE_MARGIN {
+                        if !near(r_rep, r_int)
+                            || r_rep < CONVERSE_MARGIN
+                            || 1.0 - p_int - r_rep < CONVERSE_MARGIN
+                        {
                             continue;
                         }
                         if self.trig.conv_done.contains(&(r.key, p.key, w.clone())) {
@@ -645,11 +709,16 @@ impl Ddar {
                         }
                         let a_p_form = &angles[&p.key].0;
                         let v = Self::corner_class(&self.angle.simplify(&a_p_form.neg().sub(&w_s)));
-                        let known = |s: &Ddar, c: &Class| corners.contains_key(c) || s.trig.vsvar.contains_key(c);
+                        let known = |s: &Ddar, c: &Class| {
+                            corners.contains_key(c) || s.trig.vsvar.contains_key(c)
+                        };
                         if !known(self, &v) || !known(self, w) {
                             continue;
                         }
-                        let (Some(sv), Some(sw)) = (self.class_sine(&v, &corners, None), self.class_sine(w, &corners, None)) else {
+                        let (Some(sv), Some(sw)) = (
+                            self.class_sine(&v, &corners, None),
+                            self.class_sine(w, &corners, None),
+                        ) else {
                             continue;
                         };
                         let row = self
@@ -660,7 +729,10 @@ impl Ddar {
                         if !red.is_one() {
                             continue;
                         }
-                        let rel = self.raw_dir(r.v, r.p).sub(&self.raw_dir(r.v, r.q)).sub(&w_s);
+                        let rel = self
+                            .raw_dir(r.v, r.p)
+                            .sub(&self.raw_dir(r.v, r.q))
+                            .sub(&w_s);
                         if self.angle.simplify(&rel).is_zero() {
                             continue;
                         }
@@ -687,7 +759,9 @@ impl Ddar {
                              which has one root with 0 < t < 180° − P, and in this configuration ±w is that root \
                              ⇒ {at_r} = w"
                         );
-                        let fact = self.log.add(sp.reason("law of sines, converse", stmt), prem);
+                        let fact = self
+                            .log
+                            .add(sp.reason("law of sines, converse", stmt), prem);
                         fired += 1;
                         changed |= self.angle.force_zero(&rel, Some(fact));
                     }
@@ -724,7 +798,10 @@ mod tests {
         } else {
             assert_eq!(res.ok(), Some(false));
             assert_eq!(d.trig.rejected, 1);
-            assert!(!d.dmul.simplify(&row).is_one(), "the false row must not enter the system");
+            assert!(
+                !d.dmul.simplify(&row).is_one(),
+                "the false row must not enter the system"
+            );
         }
     }
 }
