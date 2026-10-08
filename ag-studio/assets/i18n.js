@@ -66,7 +66,17 @@
       "geo.label": ".geo program",
       "geo.help": "Syntax",
       "geo.help.title": ".geo in one minute",
-      "geo.help.body": "<p>One statement per line. Name points, construct new ones, then state the goal.</p><pre class=\"mono\">A B C = triangle\nH = orthocenter(A, B, C)\nM = midpoint(B, C)\nD = foot(A, line(B, C))\nP = point: coll(A, M, P), perp(P, H, A, M)\nprove cyclic(A, B, C, reflect(H, line(B, C)))</pre><p>Goals: <code>coll</code>, <code>perp</code>, <code>para</code>, <code>cong</code>, <code>cyclic</code>, <code>eqangle</code>, <code>eqratio</code>, or an equation such as <code>dist(A,D)^2 = 14</code>. Lines starting with <code>#</code> are comments.</p>",
+      "geo.help.body": "<p>One statement per line. Name points, construct new ones, then state the goal.</p><pre class=\"mono\">A B C = triangle\nH = orthocenter(A, B, C)\nM = midpoint(B, C)\nD = foot(A, line(B, C))\nP = point: coll(A, M, P), perp(P, H, A, M)\nprove cyclic(A, B, C, reflect(H, line(B, C)))</pre><p>Goals: <code>coll</code>, <code>perp</code>, <code>para</code>, <code>cong</code>, <code>cyclic</code>, <code>eqangle</code>, <code>eqratio</code>, or an equation such as <code>dist(A,D)^2 = 14</code>. Lines starting with <code>#</code> are comments.</p>" +
+        "<h4>Reference</h4><dl class=\"syn-ref\">" +
+        "<dt>Starting points</dt><dd><span><code>A B C = triangle</code></span><span><code>A B = segment</code></span><span><code>P = free</code></span></dd>" +
+        "<dt>Centres</dt><dd><span><code>midpoint(A, B)</code></span><span><code>circumcenter(A, B, C)</code></span><span><code>incenter(A, B, C)</code></span><span><code>excenter(A, B, C)</code></span><span><code>centroid(A, B, C)</code></span><span><code>orthocenter(A, B, C)</code></span><span><code>nine_point_center(A, B, C)</code></span></dd>" +
+        "<dt>Feet, reflections, lines</dt><dd><span><code>foot(P, line(A, B))</code></span><span><code>reflect(P, line(A, B))</code></span><span><code>reflect(P, O)</code> in a point</span><span><code>bisector(A, B, C)</code> of ∠ABC</span><span><code>perp_bisector(A, B)</code></span><span><code>perp_line(P, line(A, B))</code></span><span><code>para_line(P, line(A, B))</code></span></dd>" +
+        "<dt>Shapes</dt><dd><span><code>parallelogram(A, B, C)</code></span><span><code>eq_triangle(A, B)</code></span><span><code>iso_triangle(B, C)</code></span><span><code>C D = square(A, B)</code></span><span><code>shift(P, A, B)</code> P moved by AB</span></dd>" +
+        "<dt>Lines, circles, meets</dt><dd><span><code>line(A, B)</code></span><span><code>circle(O, A)</code></span><span><code>circle(A, B, C)</code></span><span><code>circumcircle(A, B, C)</code></span><span><code>meet(line(A, I), circumcircle(A, B, C))</code> the second meet when A is on both</span><span><code>T U = tangent(P, circle(O, A))</code></span></dd>" +
+        "<dt>A point on …</dt><dd><span><code>on_line(A, B)</code></span><span><code>on_circle(O, A)</code></span><span><code>on_circum(A, B, C)</code></span><span><code>on_dia(A, B)</code> sees AB at 90°</span><span><code>on_bline(A, B)</code> perpendicular bisector</span><span><code>on_pline(A, B, C)</code> through A, ∥ BC</span><span><code>on_tline(A, B, C)</code> through A, ⟂ BC</span></dd>" +
+        "<dt>Any other point</dt><dd><span><code>P = point: coll(B, C, P), dist(P, A) = dist(P, B)</code> every relation after the colon holds</span><span><code>assume …</code> a condition linking several points</span></dd>" +
+        "<dt>Relations</dt><dd><span><code>coll(A, B, C)</code></span><span><code>perp(A, B, C, D)</code></span><span><code>para(A, B, C, D)</code></span><span><code>cong(A, B, C, D)</code></span><span><code>cyclic(A, B, C, D)</code></span><span><code>eqangle(A, B, C, D, E, F, G, H)</code></span><span><code>eqratio(…)</code></span><span><code>angle(A, B, C) = 60</code></span><span>equations over <code>dist</code>, <code>angle</code>, <code>area</code> with <code>+ − * / ^ sqrt</code></span></dd>" +
+        "</dl>",
       "examples": "Examples",
       "examples.title": "Example problems",
       "unavailable.write_geo": "Write .geo instead",
@@ -104,6 +114,7 @@
 
       "err.title.compile": "The program has an error",
       "err.where": "Line {line}, column {col}",
+      "err.syntax": "See every construction and relation",
       "err.details": "Technical details",
       "err.title.network": "Can't reach the server",
       "err.body.network": "Check your connection, then try again.",
@@ -151,6 +162,11 @@
       "v.proved.immediate": "It follows at once from the deduction rules; no intermediate steps are needed.",
       "v.false": "The statement is false",
       "v.false.x": "A sampled figure contradicts it, so no proof can exist.",
+      "v.false.ai": "The AI's reading of your problem is false",
+      "v.ai.read": "This is the AI's reading of your problem. Check that Given and Prove below say what you meant.",
+      "v.ai.read.false": "This verdict is about the AI's reading of your problem. If Given or Prove below do not say what you meant, the problem was misread, and your statement may still be true.",
+      "v.ai.edit": "Check or edit it in .geo",
+      "st.ai": "AI reading",
       "v.numeric": "Holds numerically — no Euclidean proof",
       "v.numeric.x.one": "True in the sampled figure, but GeoSolver found no Euclidean proof. That is evidence, not a proof.",
       "v.numeric.x.other": "True in all {n} sampled figures, but GeoSolver found no Euclidean proof. That is evidence, not a proof.",
@@ -169,6 +185,8 @@
       "meta.shortest_search": "shortest-proof search: {t}",
       "v.time": "Not proved — time limit reached",
       "v.time.x": "The search stopped at the {s} s limit without finding a proof. The statement may still be true.",
+      "v.time.more": "Keep searching (up to {m} min)",
+      "v.time.more_s": "Keep searching (up to {s} s)",
       "note.budget": "No proof was found within the search budget.",
       "note.metric_error": "The Euclidean prover could not handle this goal.",
       "note.unsound": "A derivation was found but rejected, because the sampled figure contradicts it (likely a degenerate figure).",
@@ -693,6 +711,8 @@
       "stat.examined": "proofs tried",
       "show.steps": "Show the whole proof ({lines} with the hypotheses)",
       "show.fewer": "Show fewer steps",
+      "show.derivation": "Show the full derivation ({lines} with the hypotheses)",
+      "show.derivation.hide": "Hide the full derivation",
       "feat.title": "What you get",
       "feat.sub": "A proof you can audit, a figure that talks to it, and an honest verdict.",
       "feat.rigor.h": "Machine-checked steps",
@@ -771,7 +791,17 @@
       "geo.label": "Program .geo",
       "geo.help": "Sintaxă",
       "geo.help.title": ".geo într-⁠un minut",
-      "geo.help.body": "<p>O instrucțiune pe rând. Numește puncte, construiește altele noi, apoi scrie concluzia.</p><pre class=\"mono\">A B C = triangle\nH = orthocenter(A, B, C)\nM = midpoint(B, C)\nD = foot(A, line(B, C))\nP = point: coll(A, M, P), perp(P, H, A, M)\nprove cyclic(A, B, C, reflect(H, line(B, C)))</pre><p>Concluzii: <code>coll</code>, <code>perp</code>, <code>para</code>, <code>cong</code>, <code>cyclic</code>, <code>eqangle</code>, <code>eqratio</code> sau o ecuație precum <code>dist(A,D)^2 = 14</code>. Rândurile care încep cu <code>#</code> sunt comentarii.</p>",
+      "geo.help.body": "<p>O instrucțiune pe rând. Numește puncte, construiește altele noi, apoi scrie concluzia.</p><pre class=\"mono\">A B C = triangle\nH = orthocenter(A, B, C)\nM = midpoint(B, C)\nD = foot(A, line(B, C))\nP = point: coll(A, M, P), perp(P, H, A, M)\nprove cyclic(A, B, C, reflect(H, line(B, C)))</pre><p>Concluzii: <code>coll</code>, <code>perp</code>, <code>para</code>, <code>cong</code>, <code>cyclic</code>, <code>eqangle</code>, <code>eqratio</code> sau o ecuație precum <code>dist(A,D)^2 = 14</code>. Rândurile care încep cu <code>#</code> sunt comentarii.</p>" +
+        "<h4>Referință</h4><dl class=\"syn-ref\">" +
+        "<dt>Puncte de pornire</dt><dd><span><code>A B C = triangle</code></span><span><code>A B = segment</code></span><span><code>P = free</code></span></dd>" +
+        "<dt>Centre</dt><dd><span><code>midpoint(A, B)</code></span><span><code>circumcenter(A, B, C)</code></span><span><code>incenter(A, B, C)</code></span><span><code>excenter(A, B, C)</code></span><span><code>centroid(A, B, C)</code></span><span><code>orthocenter(A, B, C)</code></span><span><code>nine_point_center(A, B, C)</code></span></dd>" +
+        "<dt>Picioare, simetrice, drepte</dt><dd><span><code>foot(P, line(A, B))</code></span><span><code>reflect(P, line(A, B))</code></span><span><code>reflect(P, O)</code> față de un punct</span><span><code>bisector(A, B, C)</code> a ∠ABC</span><span><code>perp_bisector(A, B)</code></span><span><code>perp_line(P, line(A, B))</code></span><span><code>para_line(P, line(A, B))</code></span></dd>" +
+        "<dt>Figuri</dt><dd><span><code>parallelogram(A, B, C)</code></span><span><code>eq_triangle(A, B)</code></span><span><code>iso_triangle(B, C)</code></span><span><code>C D = square(A, B)</code></span><span><code>shift(P, A, B)</code> P translatat cu AB</span></dd>" +
+        "<dt>Drepte, cercuri, intersecții</dt><dd><span><code>line(A, B)</code></span><span><code>circle(O, A)</code></span><span><code>circle(A, B, C)</code></span><span><code>circumcircle(A, B, C)</code></span><span><code>meet(line(A, I), circumcircle(A, B, C))</code> a doua intersecție când A este pe ambele</span><span><code>T U = tangent(P, circle(O, A))</code></span></dd>" +
+        "<dt>Un punct pe …</dt><dd><span><code>on_line(A, B)</code></span><span><code>on_circle(O, A)</code></span><span><code>on_circum(A, B, C)</code></span><span><code>on_dia(A, B)</code> vede AB sub 90°</span><span><code>on_bline(A, B)</code> pe mediatoare</span><span><code>on_pline(A, B, C)</code> prin A, ∥ BC</span><span><code>on_tline(A, B, C)</code> prin A, ⟂ BC</span></dd>" +
+        "<dt>Orice alt punct</dt><dd><span><code>P = point: coll(B, C, P), dist(P, A) = dist(P, B)</code> au loc toate relațiile de după două puncte</span><span><code>assume …</code> o condiție care leagă mai multe puncte</span></dd>" +
+        "<dt>Relații</dt><dd><span><code>coll(A, B, C)</code></span><span><code>perp(A, B, C, D)</code></span><span><code>para(A, B, C, D)</code></span><span><code>cong(A, B, C, D)</code></span><span><code>cyclic(A, B, C, D)</code></span><span><code>eqangle(A, B, C, D, E, F, G, H)</code></span><span><code>eqratio(…)</code></span><span><code>angle(A, B, C) = 60</code></span><span>ecuații cu <code>dist</code>, <code>angle</code>, <code>area</code> și <code>+ − * / ^ sqrt</code></span></dd>" +
+        "</dl>",
       "examples": "Exemple",
       "examples.title": "Probleme exemplu",
       "unavailable.write_geo": "Scrie .geo",
@@ -809,6 +839,7 @@
 
       "err.title.compile": "Programul conține o eroare",
       "err.where": "Rândul {line}, coloana {col}",
+      "err.syntax": "Vezi toate construcțiile și relațiile",
       "err.details": "Detalii tehnice",
       "err.title.network": "Serverul nu poate fi contactat",
       "err.body.network": "Verifică conexiunea, apoi încearcă din nou.",
@@ -857,6 +888,11 @@
       "v.proved.immediate": "Rezultă imediat din regulile de deducție; nu sunt necesari pași intermediari.",
       "v.false": "Afirmația este falsă",
       "v.false.x": "O figură eșantionată o contrazice, deci nu poate exista o demonstrație.",
+      "v.false.ai": "Problema ta, așa cum a citit-⁠o AI-⁠ul, este falsă",
+      "v.ai.read": "Așa a citit AI-⁠ul problema ta. Verifică dacă Ipotezele și ce este de demonstrat, mai jos, spun ce ai vrut.",
+      "v.ai.read.false": "Verdictul privește problema așa cum a citit-⁠o AI-⁠ul. Dacă Ipotezele sau ce este de demonstrat, mai jos, nu spun ce ai vrut, problema a fost citită greșit, iar afirmația ta poate fi totuși adevărată.",
+      "v.ai.edit": "Verifică sau editează în .geo",
+      "st.ai": "Citirea AI",
       "v.numeric": "Adevărat numeric — fără demonstrație euclidiană",
       "v.numeric.x.one": "Adevărat în figura eșantionată, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație.",
       "v.numeric.x.few": "Adevărat în toate cele {n} figuri eșantionate, dar GeoSolver nu a găsit o demonstrație euclidiană. Este un indiciu numeric, nu o demonstrație.",
@@ -877,6 +913,8 @@
       "meta.shortest_search": "căutarea celei mai scurte demonstrații: {t}",
       "v.time": "Nedemonstrat — limita de timp a fost atinsă",
       "v.time.x": "Căutarea s-⁠a oprit la limita de {s} s fără a găsi o demonstrație. Afirmația poate fi totuși adevărată.",
+      "v.time.more": "Caută în continuare (până la {m} min)",
+      "v.time.more_s": "Caută în continuare (până la {s} s)",
       "note.budget": "Nu s-⁠a găsit o demonstrație în bugetul de căutare.",
       "note.metric_error": "Demonstratorul euclidian nu a putut trata această concluzie.",
       "note.unsound": "S-⁠a găsit o derivare, dar a fost respinsă: figura eșantionată o contrazice (probabil o figură degenerată).",
@@ -1041,7 +1079,7 @@
       "hp.crit.sas": "LUL",
       "hp.crit.sss": "LLL",
       "hp.crit.asa": "ULU",
-      "hp.setup.figure": "Unghiurile notate ∢ sunt citite din figură.",
+      "hp.setup.figure": "Unghiurile notate ∠ sunt citite din figură.",
       "hp.setup.directed_steps.one": "Unghiurile orientate sunt necesare doar la pasul {steps}, unde forma cu unghiuri din figură ar depinde de configurație.",
       "hp.setup.directed_steps.many": "Unghiurile orientate sunt necesare doar la pașii {steps}, unde forma cu unghiuri din figură ar depinde de configurație.",
       "hp.tag": "({n})",
@@ -1411,6 +1449,8 @@
       "show.lines.few": "{n} rânduri",
       "show.lines.other": "{n} de rânduri",
       "show.fewer": "Arată mai puțini pași",
+      "show.derivation": "Arată derivarea completă ({lines} cu ipotezele)",
+      "show.derivation.hide": "Ascunde derivarea completă",
       "feat.title": "Ce primești",
       "feat.sub": "O demonstrație pe care o poți verifica, o figură care o urmează și un verdict onest.",
       "feat.rigor.h": "Pași verificați automat",

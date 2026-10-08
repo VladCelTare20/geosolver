@@ -40,11 +40,16 @@
     { id: "false", en: "A false claim (median ⟂ side)", ro: "O afirmație falsă (mediana ⟂ latura)", tag: "false",
       c: { en: "A false claim: the median from C is perpendicular to AB.", ro: "O afirmație falsă: mediana din C este perpendiculară pe AB." },
       body: "A B C = triangle\nM = midpoint(A, B)\nprove perp(C, M, A, B)" },
-    { id: "numeric", en: "True, but only numerically", ro: "Adevărat, dar doar numeric", tag: "numeric",
-      c: { en: "The median splits the triangle into two triangles of equal area.", ro: "Mediana împarte triunghiul în două triunghiuri de arii egale." },
-      body: "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)" },
+    { id: "numeric", en: "One-seventh triangle (numeric only)", ro: "Triunghiul de o șeptime (doar numeric)", tag: "numeric",
+      c: { en: "One-seventh triangle: the cevians to the points that cut each side 1 : 2\nbound a triangle with one seventh of the area.", ro: "Triunghiul de o șeptime: cevienele spre punctele care împart laturile în raportul 1 : 2\ndelimitează un triunghi cu o șeptime din arie." },
+      body: "A B C = triangle\nD = point: coll(B, C, D), dist(B,D) = 2*dist(D,C), dist(B,D) + dist(D,C) = dist(B,C)\nE = point: coll(C, A, E), dist(C,E) = 2*dist(E,A), dist(C,E) + dist(E,A) = dist(C,A)\nF = point: coll(A, B, F), dist(A,F) = 2*dist(F,B), dist(A,F) + dist(F,B) = dist(A,B)\nP = meet(line(A, D), line(B, E))\nQ = meet(line(B, E), line(C, F))\nR = meet(line(C, F), line(A, D))\nprove 7*area(P,Q,R) = area(A,B,C)" },
   ];
   function exampleSrc(ex, lang) { return ex.c[lang || window.i18n.current()].split("\n").map(function (l) { return "# " + l + "\n"; }).join("") + ex.body; }
+  function exampleTitle(ex, lang) {
+    var line = ex.c[lang || window.i18n.current()].split("\n")[0], cut = line.length;
+    [" — ", " - ", " (", ": ", "; "].forEach(function (sep) { var i = line.indexOf(sep); if (i >= 0 && i < cut) cut = i; });
+    return line.slice(0, cut).trim().replace(/([^.])\.$/, "$1");
+  }
   function exampleOf(src) {
     for (var i = 0; i < EXAMPLES.length; i++) {
       if (src === exampleSrc(EXAMPLES[i], "en") || src === exampleSrc(EXAMPLES[i], "ro")) return EXAMPLES[i];
@@ -160,6 +165,14 @@
     }).catch(function () {
       if (attempt < 6) setTimeout(function () { loadStatus(attempt + 1); }, Math.min(30000, 2000 * Math.pow(2, attempt)));
     });
+  }
+  function refreshAiStatus() {
+    api("/api/status").then(function (r) {
+      if (!r.ok) return;
+      S.status = r.data;
+      paintAiPill();
+      paintGates();
+    }).catch(function () {});
   }
   window.addEventListener("online", function () {
     if (!S.status) loadStatus(1);
@@ -348,6 +361,11 @@
       paintSolveEnabled();
     });
     ta.addEventListener("scroll", sync);
+    function home() {
+      ta.scrollLeft = 0;
+      ta.scrollTop = 0;
+      sync();
+    }
     function setError(e) {
       err = e && e.line ? e : null;
       ta.setAttribute("aria-invalid", err ? "true" : "false");
@@ -368,7 +386,12 @@
     }
     return {
       get: function () { return ta.value; },
-      set: function (v) { ta.value = v; setError(null); render(); store.set("gs.draft.geo", v); paintSolveEnabled(); },
+      set: function (v) { ta.value = v; setError(null); render(); home(); store.set("gs.draft.geo", v); paintSolveEnabled(); },
+      focusStart: function () {
+        ta.focus({ preventScroll: true });
+        try { ta.setSelectionRange(0, 0); } catch (e) {}
+        home();
+      },
       refresh: render, setError: setError, focusError: focusError,
     };
   })();
@@ -383,7 +406,7 @@
     S.baseline = exampleSrc(ex);
     closeMenu();
     if (solveNow) solve();
-    else $("geo-input").focus();
+    else if (!coarse()) editor.focusStart();
   }
   function paintExamples() {
     $("examples-menu").innerHTML = EXAMPLES.map(function (ex) {
@@ -427,11 +450,13 @@
       var s = e.target.closest("[data-example-solve]");
       if (s) loadExample(s.getAttribute("data-example-solve"), true);
     });
-    $("syntax-btn").addEventListener("click", function () {
-      var open = $("syntax-help").hidden;
-      $("syntax-help").hidden = !open;
-      $("syntax-btn").setAttribute("aria-expanded", open ? "true" : "false");
-    });
+    $("syntax-btn").addEventListener("click", function () { setSyntax($("syntax-help").hidden); });
+  }
+  var SYNTAX_KEYS = ["unknown_construction", "unknown_shape", "unknown_relation", "arity", "arity_min", "not_a_point"];
+  function setSyntax(open) {
+    setMode("geo");
+    $("syntax-help").hidden = !open;
+    $("syntax-btn").setAttribute("aria-expanded", open ? "true" : "false");
   }
 
   // ---------------------------------------------------------------- effort --
@@ -713,6 +738,12 @@
     figTools(false);
     document.body.classList.remove("has-result");
   }
+  function dropResult() {
+    S.lastError = null;
+    if (S.activeHistory != null) { S.activeHistory = null; renderHistory(); }
+    clearResult();
+    show("state-empty");
+  }
   function figTools(on) {
     ["z-out", "z-in", "z-fit", "z-full", "z-svg"].forEach(function (id) { $(id).disabled = !on; });
     $("fig-hint").hidden = !on;
@@ -755,6 +786,8 @@
 
   function solve() {
     if (S.busy) return;
+    var more = S.extendNext;
+    S.extendNext = null;
     S.autoRetried = !!S.autoRetrying;
     S.autoRetrying = false;
     S.queued = false;
@@ -763,15 +796,17 @@
     var mode = S.mode;
     var geo = editor.get().trim();
     var describe = $("describe-input").value.trim();
-    if (mode === "geo" && !geo) { editor.setError({ message: t("err.empty_geo") }); $("geo-input").focus(); return; }
+    var extended = !!(more && mode === "geo" && S.status && S.status.extended_deadline_secs);
+    var solveLimit = extended ? S.status.extended_deadline_secs : S.deadline;
+    if (mode === "geo" && !geo) { dropResult(); editor.setError({ message: t("err.empty_geo") }); $("geo-input").focus(); return; }
     fieldError("describe-err", null); fieldError("photo-err", null);
-    if (mode === "describe" && !describe) { fieldError("describe-err", t("err.empty_describe")); $("describe-input").focus(); return; }
+    if (mode === "describe" && !describe) { dropResult(); fieldError("describe-err", t("err.empty_describe")); $("describe-input").focus(); return; }
     if (mode === "photo" && !S.photo && S.photoPending) {
       var waitFor = S.photoPending;
       waitFor.then(function () { if (S.photoPending === null && S.photo && S.mode === "photo" && !S.busy) solve(); });
       return;
     }
-    if (mode === "photo" && !S.photo) { S.photoErrKey = null; fieldError("photo-err", t("err.empty_photo")); $("photo-input").focus(); return; }
+    if (mode === "photo" && !S.photo) { dropResult(); S.photoErrKey = null; fieldError("photo-err", t("err.empty_photo")); $("photo-input").focus(); return; }
     if (mode !== "geo" && aiBlock()) return;
     editor.setError(null);
     S.lastError = null;
@@ -795,7 +830,7 @@
     function stage(i) {
       S.stage = { stages: stages, i: i };
       paintStage();
-      var limit = stages[i] === "translate" ? translateLimit() : S.deadline;
+      var limit = stages[i] === "translate" ? translateLimit() : solveLimit;
       startTimer(limit);
       watch(limit);
     }
@@ -803,7 +838,7 @@
     announce(t(mode === "geo" ? "solving.solving" : "solving.translating"));
     scrollToStatus();
 
-    var title = null;
+    var title = more ? more.title : null;
     var chain = Promise.resolve(geo);
     if (mode !== "geo") {
       var body = mode === "photo" ? { image_base64: S.photo.b64 } : { text: describe };
@@ -814,6 +849,7 @@
         title = r.data.title || null;
         editor.set(g);
         S.baseline = g;
+        S.aiReading = g.trim();
         stage(1);
         return g;
       });
@@ -823,7 +859,7 @@
       return api("/api/status", { signal: ctl.signal }).then(function (r) {
         if (!r.ok || r.data.solver_free !== false || ctl.signal.aborted) return g;
         clearTimeout(stall);
-        startQueued(r.data.queue_wait_secs || 5, function () { startTimer(S.deadline); watch(S.deadline); });
+        startQueued(r.data.queue_wait_secs || 5, function () { startTimer(solveLimit); watch(solveLimit); });
         return g;
       }, function (e) {
         if (e && e.name === "AbortError") throw e;
@@ -832,7 +868,9 @@
     }).then(function (g) {
       var tries = stoppedRefine ? 4 : 0;
       var post = function () {
-        return api("/api/solve", { method: "POST", body: { input: g, title: title }, signal: ctl.signal }).then(function (r) {
+        var body = { input: g, title: title };
+        if (extended) body.extended = true;
+        return api("/api/solve", { method: "POST", body: body, signal: ctl.signal }).then(function (r) {
           if (r.status === 503 && r.data && r.data.code === "busy_self" && tries-- > 0) {
             return new Promise(function (res) { setTimeout(res, 350); }).then(function () {
               if (ctl.signal.aborted) throw new DOMException("aborted", "AbortError");
@@ -923,6 +961,7 @@
         : { titleKey: "err.title.describe_long", body: d.error && d.code !== "body_too_large" ? d.error : null, bodyKey: d.error && d.code !== "body_too_large" ? null : "err.body.describe_long" };
     }
     if (!d.error || r.status === 504) return null;
+    if (d.code === "translate_unavailable") refreshAiStatus();
     var titleKey = d.code === "translate_timeout" ? "err.title.translate_timeout" : d.code === "heic" ? "err.title.photo_format" : "err.title.translate";
     return { titleKey: titleKey, body: d.error, retry: r.status >= 500 && d.code !== "translate_unavailable", detail: d.detail };
   }
@@ -934,6 +973,7 @@
     if (r.status === 401 && d.code === "sign_in") return { titleKey: "err.title.auth", body: d.error, bodyKey: d.error ? null : "err.body.auth", signin: true };
     if (r.status === 401) { authLost(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
+    if (r.status === 503 && d.code === "busy_extended") return { titleKey: "err.title.busy", body: d.error };
     if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", n: d.limit || 1, retry: true, retryAfter: r.retryAfter };
     if (r.status === 503 && (what !== "translate" || d.code === "busy")) return { titleKey: "err.title.busy", bodyKey: "err.body.busy", retry: true, retryAfter: r.retryAfter };
     if (what === "translate") {
@@ -963,6 +1003,7 @@
     if (e.bodyKey) e.body = errText(e, "body");
     var box = $("state-error");
     var where = e.diagnosis && e.diagnosis.line ? '<p class="err-where"><button type="button" class="link-btn" id="err-goto">' + esc(t("err.where", { line: e.diagnosis.line, col: e.diagnosis.col })) + "</button></p>" : "";
+    if (e.compile && e.diagnosis && SYNTAX_KEYS.indexOf(e.diagnosis.key) >= 0) where += '<p class="err-where"><button type="button" class="link-btn" id="err-syntax">' + esc(t("err.syntax")) + "</button></p>";
     var actions = "";
     if (e.retry) actions += '<button type="button" class="btn btn-secondary btn-sm" id="err-retry">' + icons.retry + "<span>" + esc(t("err.retry")) + "</span></button>";
     var autoRetry = e.retry && e.retryAfter && !S.autoRetried && !e.retryUntil ? (e.retryUntil = Date.now() + e.retryAfter * 1000) : e.retryUntil;
@@ -982,6 +1023,8 @@
     if (focusHead || !ae || ae === document.body) $("err-title").focus({ preventScroll: true });
     var g = $("err-goto");
     if (g) g.addEventListener("click", function () { editor.focusError(); });
+    var sx = $("err-syntax");
+    if (sx) sx.addEventListener("click", function () { setSyntax(true); $("syntax-help").scrollIntoView({ block: "nearest" }); });
     var rt = $("err-retry");
     if (rt) rt.addEventListener("click", solve);
     var cd = $("err-countdown");
@@ -1034,7 +1077,7 @@
         if (v.as_drawn) return { tone: "proved", icon: "check", head: t("v.proved.drawn"), text: t("v.proved.drawn.x") };
         if (humanOf(sol)) return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.hp") };
         return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.x") };
-      case "refuted": return { tone: "false", icon: "cross", head: t("v.false"), text: t("v.false.x") };
+      case "refuted": return { tone: "false", icon: "cross", head: t(aiReading(sol) ? "v.false.ai" : "v.false"), text: t("v.false.x") };
       case "holds-numerically": return { tone: "unproved", icon: "approx", head: t("v.numeric"), text: tp("v.numeric.x", sol.numeric_samples || (v.evidence && v.evidence.samples) || 0) };
       default:
         if (timeLimited) return { tone: "neutral", icon: "clock", head: t("v.time"), text: t("v.time.x", { s: Math.round(note.secs || S.deadline) }) };
@@ -1043,6 +1086,39 @@
         else if (["metric_error", "unsound", "replay"].indexOf(note.key) >= 0) text = t("v.not." + note.key);
         return { tone: "neutral", icon: "minus", head: t("v.not"), text: text };
     }
+  }
+  function aiReading(sol) {
+    return !!(S.aiReading && sol && sol.input && sol.input.trim() === S.aiReading);
+  }
+  function aiReadingNote(sol) {
+    if (!aiReading(sol)) return "";
+    var key = sol.status === "proved" ? "v.ai.read" : "v.ai.read.false";
+    return '<p class="hint ai-reading"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t(key)) +
+      ' <button type="button" class="link-btn" id="open-geo">' + esc(t("v.ai.edit")) + "</button></span></p>";
+  }
+  function canSearchLonger(sol) {
+    var note = (sol.view && sol.view.note) || {}, max = S.status && S.status.extended_deadline_secs;
+    return sol.status === "not-proved" && note.key === "time_limit" && !!max && (note.secs || S.deadline) < max && !!sol.input;
+  }
+  function searchLongerLabel(secs) {
+    var n = window.i18n.fmtNum;
+    return secs >= 120 && secs % 60 === 0 ? t("v.time.more", { m: n(secs / 60) }) : t("v.time.more_s", { s: n(secs) });
+  }
+  function searchLonger() {
+    var sol = S.sol;
+    if (S.busy || !sol || !canSearchLonger(sol)) return;
+    setMode("geo");
+    if (editor.get().trim() !== sol.input.trim()) editor.set(sol.input);
+    S.baseline = sol.input;
+    S.extendNext = { title: sol.title || null };
+    solve();
+  }
+  function openGeo() {
+    setMode("geo");
+    var c = $("panel-geo");
+    if (c && c.scrollIntoView) c.scrollIntoView({ block: "nearest" });
+    if (coarse()) $("tab-geo").focus({ preventScroll: true });
+    else editor.focusStart();
   }
   function hasSteps(sol) {
     return !!(sol.view && sol.view.proof && sol.view.proof.steps && sol.view.proof.steps.length);
@@ -1082,6 +1158,7 @@
     var guestNote = guest ? '<p class="hint guest-note"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t("hist.guest")) + ' <a href="/auth?mode=register">' + esc(t("nav.create")) + "</a></span></p>" : "";
     var counter = v.counterexample ? '<p class="counter"><strong>' + esc(t("counter.title")) + ".</strong> " + GS.math(counterText(v.counterexample), true) + "</p>" : "";
     var actions = '<div class="verdict-actions">' +
+      (canSearchLonger(sol) ? '<button type="button" class="btn btn-primary btn-sm" id="search-longer">' + icons.retry + "<span>" + esc(searchLongerLabel(S.status.extended_deadline_secs)) + "</span></button>" : "") +
       (sol.status === "proved" && hasSteps(sol) ? '<button type="button" class="btn btn-secondary btn-sm" id="copy-proof">' + icons.copy + "<span>" + esc(t("action.copy_proof")) + "</span></button>" : "") +
       '<button type="button" class="btn btn-secondary btn-sm" id="copy-geo">' + icons.code + "<span>" + esc(t("action.copy_geo")) + "</span></button>" +
       '<div class="menu-wrap"><button type="button" class="btn btn-secondary btn-sm" id="export-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu">' + icons.download + "<span>" + esc(t("action.export")) + "</span>" + icons.chevron + "</button>" +
@@ -1095,7 +1172,7 @@
     box.className = "verdict card tone-" + m.tone;
     box.innerHTML = '<div class="verdict-main"><span class="verdict-icon">' + icons[m.icon] + "</span><div class=\"grow\">" +
       '<h3 class="verdict-head" id="verdict-head" tabindex="-1">' + esc(m.head) + "</h3>" +
-      '<p class="verdict-text">' + esc(m.text) + "</p>" + counter +
+      '<p class="verdict-text">' + esc(m.text) + "</p>" + aiReadingNote(sol) + counter +
       '<p class="verdict-meta">' + meta.join("") + "</p>" +
       '<p class="refine" id="refine" hidden></p>' + guestNote +
       "</div></div>" + actions;
@@ -1107,6 +1184,10 @@
   function wireVerdictActions() {
     var cp = $("copy-proof");
     if (cp) cp.addEventListener("click", function () { copyText(proofText()); });
+    var og = $("open-geo");
+    if (og) og.addEventListener("click", openGeo);
+    var sl = $("search-longer");
+    if (sl) sl.addEventListener("click", searchLonger);
     $("copy-geo").addEventListener("click", function () { copyText(S.sol ? S.sol.input : editor.get()); });
     var btn = $("export-btn"), menu = $("export-menu");
     function close(focus) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (focus) btn.focus(); }
@@ -1166,7 +1247,7 @@
     S.rendering = false;
     renderFigure(sol);
     $("proof-area").hidden = false;
-    if (opts.announce) announce(m.head + ". " + m.text);
+    if (opts.announce) announce(m.head + ". " + m.text + (aiReading(sol) ? " " + t(sol.status === "proved" ? "v.ai.read" : "v.ai.read.false") : ""));
     if (opts.focus) {
       var narrow = window.matchMedia("(max-width: 1199px)").matches;
       if (narrow) scrollToStatus();
@@ -1190,6 +1271,7 @@
       return '<li class="math" tabindex="-1" data-points="' + esc(a.name) + '">' + GS.math(a.name) + ": " + GS.math(auxText(a)) + "</li>";
     }).join("");
     var html = '<h2 class="sr-only" id="st-h">' + esc(t("st.statement")) + "</h2>";
+    if (aiReading(sol)) html += '<p class="label st-ai">' + esc(t("st.ai")) + "</p>";
     if (sol.title) html += '<h3 class="st-title" title="' + esc(sol.title) + '">' + esc(sol.title) + "</h3>";
     if (given) html += '<div class="st-block"><h3 class="label">' + esc(t("st.given")) + '</h3><ul class="facts" role="list">' + given + "</ul></div>";
     if (v.goal) html += '<div class="st-block st-goal"><h3 class="label">' + esc(t("st.prove")) + '</h3><p class="math goal" tabindex="-1" data-points="' + esc((v.goal.points || []).join(" ")) + '">' + GS.fact(v.goal) + "</p></div>";
@@ -1381,6 +1463,7 @@
     var humanEn = human ? GS.humanText(human, v, { lang: "en", auxText: enAux }) : "";
     api("/api/humanize", { method: "POST", body: { problem: problem, proof: englishProof(), human: humanEn, aux: aux, lang: lang } }).then(function (r) {
       if (seq !== S.aiSeq) return;
+      if (r.data && r.data.code === "translate_unavailable") refreshAiStatus();
       if (!r.ok || !r.data.proof) throw new Error("ai");
       var html = markdown(r.data.proof);
       S.aiCache[key] = html;
@@ -1633,7 +1716,7 @@
     };
     var signed = function () {
       if (!sol.signed) return Promise.resolve(null);
-      return post({ signed: sol.signed.body, sig: sol.signed.sig, format: fmt, derivation: derivation }).then(function (res) { return res.status === 410 ? null : res; });
+      return post({ signed: sol.signed.body, sig: sol.signed.sig, title: sol.title || null, format: fmt, derivation: derivation }).then(function (res) { return res.status === 410 ? null : res; });
     };
     var recache = function () {
       if (!sol.history_id || !(S.status && S.status.signed_in)) return Promise.resolve(null);
@@ -1653,14 +1736,14 @@
       closeToast();
       GS.toast(t("export.failed", { msg: msg }), { ms: 7000 });
     };
-    post({ id: sol.id, format: fmt, derivation: derivation }).then(function (res) {
+    post({ id: sol.id, title: sol.title || null, format: fmt, derivation: derivation }).then(function (res) {
       if (res.status !== 410) return res;
       return signed().then(function (r2) {
         if (r2) return r2;
         return recache().then(function (id) {
           if (!id) return resolve();
           if (S.sol === sol) sol.id = id;
-          return post({ id: id, format: fmt, derivation: derivation });
+          return post({ id: id, title: sol.title || null, format: fmt, derivation: derivation });
         });
       });
     }).then(function (res) {
@@ -2194,6 +2277,11 @@
     if (S.history.length) renderHistory();
     if (S.sol) {
       var tab = currentProofTab();
+      var solEx = exampleOf(S.sol.input);
+      if (solEx && S.sol.title === exampleTitle(solEx, window.i18n.current() === "ro" ? "en" : "ro")) {
+        S.sol.title = exampleTitle(solEx);
+        paintDocTitle();
+      }
       renderVerdict(S.sol); renderStatement(S.sol); renderProof(S.sol); renderDetails(S.sol);
       viewer.svg && viewer.svg.setAttribute("aria-label", figureAria(S.sol));
       if (!$("proof-tabs").hidden) selectProofTab(tab);

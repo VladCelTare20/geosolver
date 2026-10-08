@@ -1587,6 +1587,21 @@ mod tests {
     }
 
     #[test]
+    fn the_one_seventh_triangle_example_holds_only_numerically_and_its_false_twin_is_refuted() {
+        let body = "A B C = triangle\n\
+            D = point: coll(B, C, D), dist(B,D) = 2*dist(D,C), dist(B,D) + dist(D,C) = dist(B,C)\n\
+            E = point: coll(C, A, E), dist(C,E) = 2*dist(E,A), dist(C,E) + dist(E,A) = dist(C,A)\n\
+            F = point: coll(A, B, F), dist(A,F) = 2*dist(F,B), dist(A,F) + dist(F,B) = dist(A,B)\n\
+            P = meet(line(A, D), line(B, E))\nQ = meet(line(B, E), line(C, F))\nR = meet(line(C, F), line(A, D))\n";
+        let sol = solve(&format!("{body}prove 7*area(P,Q,R) = area(A,B,C)"), &SolveOptions::default()).unwrap();
+        assert!(!sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::HoldsNumerically, "{}", sol.note);
+        let sol = solve(&format!("{body}prove 6*area(P,Q,R) = area(A,B,C)"), &SolveOptions::default()).unwrap();
+        assert!(!sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::Refuted, "{}", sol.note);
+    }
+
+    #[test]
     fn pythagoras_on_a_generic_triangle_is_not_proved() {
         let sol = solve(PYTHAGORAS_GENERIC, &SolveOptions::default()).unwrap();
         assert_eq!(sol.method, Method::Euclidean);

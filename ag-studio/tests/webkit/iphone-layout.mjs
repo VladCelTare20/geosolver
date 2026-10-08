@@ -61,6 +61,11 @@ try {
       check(sw <= iw, `${tag}: page fits with Syntax open (${sw} <= ${iw})`);
       if (SHOTS) await page.screenshot({ path: `${SHOTS}/${tag.replace(/ /g, '_')}-syntax.png` });
       await page.tap('#syntax-btn');
+      await page.tap('#examples-btn');
+      await page.tap('#examples-menu [data-example="imo2023"]');
+      await page.waitForTimeout(250);
+      const picked = await page.evaluate(() => { const ta = document.getElementById('geo-input'); return { left: ta.scrollLeft, focused: document.activeElement === ta, start: ta.value.split('\n')[0] }; });
+      check(picked.left === 0 && !picked.focused, `${tag}: picking an example leaves the editor at the start of its lines and does not raise the keyboard (${JSON.stringify(picked)})`);
       const fs = await page.evaluate(() => ['#geo-input', '#hl', '#gutter'].map((s) => getComputedStyle(document.querySelector(s)).fontSize));
       check(fs.every((v) => v === '16px'), `${tag}: editor layers are 16px (${fs})`);
       if (inset) {

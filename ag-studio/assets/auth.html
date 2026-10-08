@@ -95,14 +95,15 @@
   <main class="auth-main" id="main">
     <section class="auth-card card" aria-labelledby="heading">
       <div class="seg tabs" role="tablist" data-i18n-attr="aria-label:auth.tabs" aria-label="Sign in or create an account">
-        <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="form" tabindex="0" data-i18n="nav.signin">Sign in</button>
-        <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="form" tabindex="-1" data-i18n="nav.create">Create account</button>
+        <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="form-panel" tabindex="0" data-i18n="nav.signin">Sign in</button>
+        <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="form-panel" tabindex="-1" data-i18n="nav.create">Create account</button>
       </div>
       <div>
         <h1 id="heading">Welcome back</h1>
         <p class="sub" id="subhead">Sign in to solve, save and revisit your proofs.</p>
       </div>
-      <form class="auth-form" id="form" role="tabpanel" aria-labelledby="heading" novalidate>
+      <div id="form-panel" role="tabpanel" aria-labelledby="heading">
+      <form class="auth-form" id="form" novalidate>
         <div class="field">
           <label for="username" data-i18n="auth.username">Username</label>
           <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next" maxlength="32" required aria-describedby="user-msg">
@@ -119,6 +120,7 @@
         <div class="form-msg" id="form-msg"></div>
         <button type="submit" class="btn btn-primary auth-submit" id="submit">Sign in</button>
       </form>
+      </div>
     </section>
     <a class="back" href="/"><span aria-hidden="true">←</span><span data-i18n="nav.back">Back to GeoSolver</span></a>
   </main>

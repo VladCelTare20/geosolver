@@ -53,6 +53,7 @@ fn main() -> ExitCode {
             println!("agstudio {VERSION} ({REVISION})");
             ExitCode::SUCCESS
         }
+        Some("doctor") => cmd_doctor(&args[1..]),
         Some(worker::SUBCOMMAND) => ExitCode::from(worker::worker_main().clamp(0, 255) as u8),
         Some("mcp") => {
             if let Some(extra) = args.get(1) {
@@ -60,6 +61,7 @@ fn main() -> ExitCode {
             }
             // Bound what an abandoned (timed-out) search may still consume in
             // this long-lived process.
+            share_solver_threads();
             security::apply_process_limits();
             match mcp::serve() {
                 Ok(()) => ExitCode::SUCCESS,
@@ -91,6 +93,7 @@ fn print_usage() {
          agstudio serve [--port N]\n  \
          agstudio backup <dest.db> [--db PATH]\n  \
          agstudio mcp\n  \
+         agstudio doctor\n  \
          agstudio --version\n\n\
          `render`    solves a .geo program (or file), falling back to the aux search\n\
               (gives up after --timeout seconds, default {timeout}).\n\
@@ -98,10 +101,57 @@ fn print_usage() {
          `translate` turns a photo/description into .geo via the local `claude` CLI\n\
               (your Claude subscription — no API key); add --solve/--png/--pdf to go end to end.\n\
          `backup`    writes a consistent, self-contained copy of the database (AGSTUDIO_DB,\n\
-              or --db) to a new file, safely while the server runs.\n",
+              or --db) to a new file, safely while the server runs.\n\
+         `doctor`    checks the AI setup: finds the `claude` CLI and makes one tiny model call\n\
+              to test that its sign-in or CLAUDE_CODE_OAUTH_TOKEN is accepted.\n",
         timeout = engine::DEFAULT_SOLVE_TIMEOUT.as_secs(),
         budget = DEFAULT_BUDGET_SECS,
     )
+}
+
+fn share_solver_threads() {
+    if std::env::var_os("RAYON_NUM_THREADS").is_none() {
+        let cpus = std::thread::available_parallelism().map_or(2, |n| n.get());
+        worker::share_threads(cpus.saturating_sub(1).max(1));
+    }
+}
+
+fn cmd_doctor(args: &[String]) -> ExitCode {
+    if let Some(extra) = args.first() {
+        return usage_error(&format!("doctor takes no arguments (got {extra:?})"));
+    }
+    match security::Config::from_env(0) {
+        Ok(config) => config.export_claude_token(),
+        Err(e) => {
+            eprintln!("configuration error: {e}");
+            return ExitCode::from(2);
+        }
+    }
+    let Some(bin) = translate::claude_bin() else {
+        println!("AI: off — the `claude` CLI was not found (install it, or set AGSTUDIO_CLAUDE_BIN)");
+        return ExitCode::from(1);
+    };
+    println!("claude CLI: {}", bin.display());
+    let status = translate::status();
+    let via = if translate::token_in_env() { "CLAUDE_CODE_OAUTH_TOKEN" } else { "stored sign-in" };
+    println!("sign-in reported: {} ({via})", if status.logged_in { "yes" } else { "no" });
+    match translate::check_credentials() {
+        Ok(reply) => {
+            println!("model call: ok (replied {reply:?})");
+            println!("AI: on");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("model call: failed — {e:#}");
+            match translate::failure(&e) {
+                Some(translate::Failure::SignedOut) => println!(
+                    "AI: off — the credential was rejected. Run `claude setup-token` (or `claude auth login`) and update CLAUDE_CODE_OAUTH_TOKEN."
+                ),
+                _ => println!("AI: unknown — the call failed for another reason (network, rate limit, model name)."),
+            }
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn usage_error(msg: &str) -> ExitCode {
@@ -216,6 +266,7 @@ fn cmd_serve(args: &[String]) -> ExitCode {
     };
     config.export_claude_token();
     // Apply server-safe resource limits before any solving / rayon initialisation.
+    share_solver_threads();
     security::apply_process_limits();
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,

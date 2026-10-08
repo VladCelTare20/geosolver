@@ -127,8 +127,8 @@
 <div class="gs-note" id="gs-old" role="alert"><div lang="en"><h2>This browser is too old for GeoSolver</h2><p>Update it to Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 or newer, or open this page in another browser.</p></div><div lang="ro"><h2>Acest browser este prea vechi pentru GeoSolver</h2><p>Actualizează-⁠l la Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 sau mai nou, ori deschide pagina în alt browser.</p></div></div>
 <div class="gs-note" id="gs-fail" role="alert"><div lang="en"><h2>GeoSolver did not finish loading</h2><p>Reload the page. If this keeps happening, update your browser.</p><a href="">Reload</a></div><div lang="ro"><h2>GeoSolver nu s-⁠a încărcat complet</h2><p>Reîncarcă pagina. Dacă se repetă, actualizează browserul.</p><a href="">Reîncarcă</a></div></div>
 <noscript><div class="gs-note gs-show gs-both" role="alert"><div lang="en"><h2>GeoSolver needs JavaScript</h2><p>Turn JavaScript on in your browser settings, then reload this page.</p></div><div lang="ro"><h2>GeoSolver are nevoie de JavaScript</h2><p>Activează JavaScript în setările browserului, apoi reîncarcă pagina.</p></div></div></noscript>
-<a class="skip-link" href="#main" data-i18n="nav.skip">Skip to content</a>
 <header class="site-header has-signin">
+  <a class="skip-link" href="#main" data-i18n="nav.skip">Skip to content</a>
   <div class="inner">
     <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">
       <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -188,8 +188,13 @@
               <div class="stat"><div class="n" id="st-aux">1</div><div class="l" data-i18n="stat.aux">auxiliary point</div></div>
               <div class="stat"><div class="n" id="st-examined">19</div><div class="l" data-i18n="stat.examined">proofs tried</div></div>
             </div>
+            <div id="case-human-wrap" hidden>
+              <h4 class="label" style="margin:0 0 var(--s2)" data-i18n="hp.tab.proof">Proof</h4>
+              <p class="hint kbd-hint" id="hp-kbd" data-i18n="hp.kbd">↑ ↓ move between steps</p>
+              <div class="hp" id="human"></div>
+            </div>
             <div>
-              <h4 class="label" style="margin:0 0 var(--s2)" data-i18n="proof.tab.steps">Verified steps</h4>
+              <h4 class="label" style="margin:0 0 var(--s2)" id="steps-h" data-i18n="proof.tab.steps">Verified steps</h4>
               <p class="hint kbd-hint" id="steps-kbd" data-i18n="proof.kbd">↑ ↓ move between steps</p>
               <ol class="steps" id="steps"></ol>
               <button type="button" class="btn btn-secondary btn-sm more" id="more" aria-controls="steps"></button>

@@ -345,6 +345,9 @@ the gate key. `down` without `-v`, `stop`, `restart` and `up --build` keep it.
 | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 | `AGSTUDIO_MAX_CONCURRENT` | CPUs available, clamped to 2..8 | simultaneous heavy requests; each solve/export is one worker process |
 | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
+| `AGSTUDIO_SOLVE_DEADLINE_SECS` | 60 | wall-clock limit of one web solve or export (10–600); the request timeout grows to fit |
+| `AGSTUDIO_EXTENDED_DEADLINE_SECS` | 180 | limit of the "Keep searching" solve offered after a time-limit verdict (one at a time, server-wide; 0 = not offered; at most 900) |
+| `RAYON_NUM_THREADS` | unset | solver threads per worker; unset, the CPUs (cgroup quota included) minus one are shared among the workers running at once |
 | `AGSTUDIO_WORKER_MEM_MB` | 2048 | memory cap (`RLIMIT_DATA`: heap and thread stacks, not merely reserved address space) of each solve worker process; 0 = none |
 | `AGSTUDIO_HUMAN_PROOFS` | 1 | 0 turns off the human-style proof writer (the Proof tab, MCP and reports then show only the full derivation) |
 | `AGSTUDIO_RATE_PER_MIN` | 120 | per-IP `/api/*` requests per minute (0 = off) |
@@ -365,7 +368,7 @@ the gate key. `down` without `-v`, `stop`, `restart` and `up --build` keep it.
 | `AGSTUDIO_SHUTDOWN_GRACE_SECS` | 70 | on SIGTERM/SIGINT: stop accepting, let requests in flight finish for at most this long (default = solve deadline + worker grace + 5 s), checkpoint the DB, exit 0. Keep the service manager's stop timeout above it |
 | `AGSTUDIO_ACCESS_LOG` | on | one stdout line per request: UTC time, client IP, method, path (no query), status, milliseconds; `/healthz` and `/readyz` are not logged. `0` turns it off |
 | `AGSTUDIO_EXPORT_DIR` | `$XDG_DATA_HOME/geosolver/exports` (default `~/.local/share/geosolver/exports`) | MCP `export_report` writes only here (bare filenames, no overwrite unless asked) |
-| `AUX_MAX_RUNS`, `AUX_MAX_DEPTH`, `RAYON_NUM_THREADS` | server-safe | solver effort caps (set automatically; override to tune). The run/depth caps bound only the legacy fallback search; the default search runs until each solve's 60 s wall-clock limit, on `RAYON_NUM_THREADS` threads per solve |
+| `AUX_MAX_RUNS`, `AUX_MAX_DEPTH` | server-safe | solver effort caps (set automatically; override to tune). They bound only the legacy fallback search; the default search runs until each solve's wall-clock limit |
 
 Flags take `1`/`0`, `true`/`false`, `yes`/`no` or `on`/`off` in any case;
 any other value, or a number that does not parse, refuses to start (an empty
@@ -449,6 +452,17 @@ unavailable and point to the `.geo` tab, and AI explanations are not offered.
 - Licences: `LICENSE`, `NOTICE`, `THIRD_PARTY_LICENSES.md` (regenerate with
   `deploy/third-party-licenses.sh`) and the fonts' licences are installed in
   the image under `/usr/share/doc/geosolver/` and served at `/licenses`.
+
+Neither `claude auth status` nor the startup log can tell a valid token from an
+expired or revoked one: any non-empty `CLAUDE_CODE_OAUTH_TOKEN` counts as
+signed in until a model call is made. Check it with **`agstudio doctor`**, run
+with the service's environment: it makes one tiny model call and prints
+`AI: on`, or the CLI's own words (`Failed to authenticate. API Error: 401 …`)
+and exits 1. At run time, a call the API refuses is logged with what the CLI
+printed (`translate error: the claude CLI is not signed in … (claude said
+stdout: Failed to authenticate …)`), and for the next 10 minutes `/api/status`
+reports `translate_block: "not_logged_in"` so the app stops offering Describe
+and Photo; the next successful call clears it.
 
 ## Mobile / LAN access
 

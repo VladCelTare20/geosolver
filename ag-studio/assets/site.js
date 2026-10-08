@@ -900,7 +900,7 @@
       } else st = stmtHtml(b.stmt, "s");
       return fillKey("hp.we_show", { stmt: st });
     }
-    function roAngles(html) { return L === "ro" ? String(html).split("∠").join("∢") : html; }
+    function roAngles(html) { return html; }
     function article(def) {
       if (L !== "en" || /^(a|an|the) /.test(def)) return def;
       return "the " + def;
@@ -1117,7 +1117,7 @@
     var T = d.T;
     function rowsHtml(rows, tail) {
       var lhsLong = rows.length > 0 && rows[0].lhsLen > 12;
-      var html = '<table class="hp-chain' + (lhsLong ? " lhs-own" : "") + '" role="list"><tbody>';
+      var html = '<table class="hp-chain' + (lhsLong ? " lhs-own" : "") + '" role="presentation"><tbody role="list">';
       rows.forEach(function (r, i) {
         if (i === 0 && lhsLong) html += '<tr class="hp-lhs-row" role="presentation"><td class="hp-lhs math" colspan="4" role="presentation">' + r.lhs + "</td></tr>";
         html += '<tr class="hp-row" role="listitem" data-l="' + r.id + '" tabindex="-1">' +
@@ -1152,7 +1152,7 @@
           html += '<p class="hp-text">' + (first ? num : "") + p.text + tail + "</p>";
           if (p.compute) {
             html += '<button type="button" class="link-btn hp-compute-toggle" aria-expanded="false" tabindex="-1">' + esc(T("hp.compute.show")) + "</button>" +
-              '<div class="hp-compute" hidden><table class="hp-chain hp-sum" role="list"><tbody>' +
+              '<div class="hp-compute" hidden><table class="hp-chain hp-sum" role="presentation"><tbody role="list">' +
               p.compute.map(function (c) {
                 return '<tr class="hp-row" role="listitem" data-l="' + c.id + '" tabindex="-1"><td class="hp-coef" role="presentation">' + c.coef + ' ·</td><td class="hp-rhs math" role="presentation">(' + c.eq + ')</td><td class="hp-why math" role="presentation">' + c.why + "</td></tr>";
               }).join("") + "</tbody></table><p class=\"hp-text\">" + p.sum + "</p></div>";
