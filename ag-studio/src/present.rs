@@ -3015,12 +3015,13 @@ fn names_written(value: &serde_json::Value, known: &[String], out: &mut HashSet<
     }
 }
 
+#[cfg(test)]
 pub fn build(sol: &Solution) -> View {
-    let shown = displayed(sol);
+    let shown = displayed(sol, None);
     build_shown(shown.as_ref().unwrap_or(sol), shown.is_some())
 }
 
-fn build_shown(sol: &Solution, redrawn: bool) -> View {
+pub(crate) fn build_shown(sol: &Solution, redrawn: bool) -> View {
     build_with(sol, true, !redrawn && !reads_figure(sol))
 }
 
@@ -3029,14 +3030,24 @@ fn reads_figure(sol: &Solution) -> bool {
 }
 
 const REWRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+const REDRAW_SLACK: std::time::Duration = std::time::Duration::from_millis(2500);
+const MIN_REWRITE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// The solution as the page shows it. A human proof that reads angles off the
 /// figure was written against the engine's coordinates; when the page would
 /// redraw the figure, the proof is written again against the redrawn one (in
-/// at most `REWRITE_BUDGET`), so every ∠ it states holds in the figure shown.
-/// `None`: show `sol` as it is (and, if its proof reads the figure, undrawn).
-fn displayed(sol: &Solution) -> Option<Solution> {
+/// at most `REWRITE_BUDGET`, and only while `by` leaves room), so every ∠ it
+/// states holds in the figure shown. `None`: show `sol` as it is (and, if its
+/// proof reads the figure, undrawn).
+pub(crate) fn displayed(sol: &Solution, by: Option<std::time::Instant>) -> Option<Solution> {
     if !reads_figure(sol) {
+        return None;
+    }
+    let budget = match by {
+        None => REWRITE_BUDGET,
+        Some(by) => by.saturating_duration_since(std::time::Instant::now()).checked_sub(REDRAW_SLACK)?.min(REWRITE_BUDGET),
+    };
+    if budget < MIN_REWRITE {
         return None;
     }
     let fig = sol.figure.as_ref()?;
@@ -3048,14 +3059,14 @@ fn displayed(sol: &Solution) -> Option<Solution> {
     std::thread::Builder::new()
         .name("human-redrawn".into())
         .spawn(move || {
-            let opts = ddar::human::Opts { deadline: Some(std::time::Instant::now() + REWRITE_BUDGET), strict: false };
+            let opts = ddar::human::Opts { deadline: Some(std::time::Instant::now() + budget), strict: false };
             let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 ddar::quiet_panic::quiet(|| ddar::human::for_problem(&problem, &infos, &opts))
             }));
             let _ = tx.send(out.ok().flatten());
         })
         .ok()?;
-    let (hp, trace, deps, proof) = rx.recv_timeout(REWRITE_BUDGET + std::time::Duration::from_secs(1)).ok()??;
+    let (hp, trace, deps, proof) = rx.recv_timeout(budget + std::time::Duration::from_millis(500)).ok()??;
     if !hp.available || hp.metrics.timed_out {
         return None;
     }
@@ -3834,7 +3845,11 @@ pub fn human_text(sol: &Solution, lang: crate::i18n::Lang) -> Option<String> {
 }
 
 pub fn solution_json(sol: &Solution, title: Option<&str>) -> serde_json::Value {
-    let shown = displayed(sol);
+    solution_json_by(sol, title, None)
+}
+
+pub fn solution_json_by(sol: &Solution, title: Option<&str>, by: Option<std::time::Instant>) -> serde_json::Value {
+    let shown = displayed(sol, by);
     let sol = shown.as_ref().unwrap_or(sol);
     let view = build_shown(sol, shown.is_some());
     let mut v = serde_json::to_value(sol).unwrap_or_default();
@@ -3996,7 +4011,7 @@ mod tests {
         let sol = crate::engine::solve(src, &crate::engine::SolveOptions::default()).unwrap();
         assert!(reads_figure(&sol), "the flagship example's human proof reads its angles off the figure");
         let engine_fig = sol.figure.as_ref().unwrap().problem.clone();
-        let shown = displayed(&sol).expect("the engine's figure is redrawn for the page");
+        let shown = displayed(&sol, None).expect("the engine's figure is redrawn for the page");
         let fig = shown.figure.as_ref().unwrap().problem.clone();
         let moved = fig.points.iter().zip(&engine_fig.points).any(|(a, b)| (a.value.x - b.value.x).abs() + (a.value.y - b.value.y).abs() > 1e-6);
         assert!(moved, "the page draws a different instance than the engine solved on");

@@ -10,8 +10,10 @@ use resvg::usvg;
 
 use serde_json::Value;
 
+#[cfg(test)]
 use crate::engine::Solution;
 use crate::i18n::{self, Lang};
+#[cfg(test)]
 use crate::present;
 
 /// A font database built once (system fonts), reused for every render. usvg
@@ -440,11 +442,13 @@ pub fn report_png_from_json(v: &Value, lang: Lang, derivation: bool) -> Result<V
 
 /// The report for a [`Solution`] (CLI and MCP exports), in English, as one
 /// tall page.
+#[cfg(test)]
 pub fn report_svg(sol: &Solution, title: Option<&str>, _light: bool) -> String {
     report_from_json(&present::solution_json(sol, title), Lang::En, false)
 }
 
 /// [`report_svg`] as paginated A4 PDF.
+#[cfg(test)]
 pub fn report_pdf(sol: &Solution, title: Option<&str>) -> Result<Vec<u8>> {
     report_pdf_from_json(&present::solution_json(sol, title), Lang::En, false)
 }

@@ -555,7 +555,10 @@ pub fn worker_main() -> i32 {
     }
 }
 
+pub const PRESENT_MARGIN: Duration = Duration::from_secs(1);
+
 fn execute(req: &Request) -> Reply {
+    let present_by = std::time::Instant::now() + req.hard_limit().saturating_sub(PRESENT_MARGIN);
     let opts = req.options();
     let result = match req.mode {
         Mode::Solve => engine::solve_within(&req.input, &opts, Some(req.limit())),
@@ -563,7 +566,7 @@ fn execute(req: &Request) -> Reply {
     };
     let view = match &result {
         Ok(sol) if req.present || req.report.is_some() => {
-            Some(present::solution_json(sol, req.title.as_deref()))
+            Some(present::solution_json_by(sol, req.title.as_deref(), Some(present_by)))
         }
         _ => None,
     };
