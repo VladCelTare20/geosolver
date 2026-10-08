@@ -106,6 +106,7 @@ pub fn check_rows(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Vec<(T
             }
             out
         }
+        k if k.is_identity_label() => Vec::new(),
         k => super::theorems::spec(t, k, a)?.rows,
     })
 }
@@ -214,6 +215,7 @@ pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
             residual_ok(cx, tb, &(&a - &b), &(&x - &y), directed)
         }
         Sentence::Because { stmt, .. } | Sentence::Pooled { stmt, .. } => stmt == st,
+        Sentence::Chain { then: Some(t2), .. } if matches!(st, Stmt::Coll { .. } | Stmt::Para { .. } | Stmt::Perp { .. }) => t2 == st,
         Sentence::Computation { terms, .. } => {
             let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
             terms.first() == Some(lhs) && terms.last() == Some(rhs)
@@ -312,6 +314,12 @@ impl<'c, 'a> Checker<'c, 'a> {
                 super::theorems::Hyp::Line(p) => self.on_line(h, p),
                 super::theorems::Hyp::Circle(p) => self.on_circle(h, p),
                 super::theorems::Hyp::Eq(tb, row) => t.holds(*tb, row) && (self.proven(h, *tb, row) || self.verified(*tb, row)),
+                super::theorems::Hyp::EqOrHalf(tb, row) => {
+                    let mut two = row.clone();
+                    two.mul_assign_scalar(&Rat::from_int(2));
+                    let two = exact(t, *tb, two);
+                    t.holds(*tb, row) && (self.proven(h, *tb, row) || self.verified(*tb, row) || self.proven(h, *tb, &two) || self.verified(*tb, &two))
+                }
                 other => super::theorems::config_holds(t, other),
             };
             if !ok {
@@ -321,7 +329,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                 return false;
             }
         }
-        spec.rows.iter().all(|(tb, row)| t.holds(*tb, row) && self.verified(*tb, row))
+        spec.rows.iter().all(|(tb, row)| t.holds(*tb, row) && (super::theorems::is_identity(key) || self.verified(*tb, row)))
     }
 
     fn equidistant(&mut self, h: FactId, o: PointId, pts: &[PointId]) -> bool {
@@ -360,6 +368,13 @@ impl<'c, 'a> Checker<'c, 'a> {
         self.proven(h, Table::Angle, &r)
     }
 
+    fn reflex_inscribed(&self, a: &[PointId]) -> bool {
+        let t = self.cx.t;
+        let inscribed = super::theorems::interior_degrees(t, a[1], a[3], a[2]);
+        let central = super::theorems::interior_degrees(t, a[1], a[0], a[2]);
+        (inscribed - (180.0 - central / 2.0)).abs() < 1e-6
+    }
+
     pub fn template(&mut self, h: FactId, key: AtomKey, a: &[PointId]) -> bool {
         match key {
             AtomKey::Inscribed => a.len() >= 4 && self.on_circle(h, a),
@@ -368,7 +383,7 @@ impl<'c, 'a> Checker<'c, 'a> {
             AtomKey::PerpBisector => a.len() == 4 && self.equidistant(h, a[0], &[a[2], a[3]]) && self.equidistant(h, a[1], &[a[2], a[3]]),
             AtomKey::Parallel => a.len() == 6 && self.perp_proven(h, (a[0], a[1]), (a[4], a[5])) && self.perp_proven(h, (a[2], a[3]), (a[4], a[5])),
             AtomKey::Radii | AtomKey::Isosceles => a.len() >= 3 && self.equidistant(h, a[0], &a[1..]),
-            AtomKey::CentralAngle => a.len() == 4 && self.equidistant(h, a[0], &[a[1], a[2], a[3]]),
+            AtomKey::CentralAngle => (a.len() == 4 || (a.len() == 5 && a[4] == a[3] && self.reflex_inscribed(a))) && self.equidistant(h, a[0], &[a[1], a[2], a[3]]),
             AtomKey::PowerOfPoint => {
                 a.len() == 5 && self.on_circle(h, &[a[1], a[2], a[3], a[4]]) && self.on_line(h, &[a[0], a[1], a[2]]) && self.on_line(h, &[a[0], a[3], a[4]])
             }
@@ -380,6 +395,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                     && self.equidistant(h, a[1], &[a[4], a[3]])
             }
             AtomKey::Orthocentre => a.len() == 4 && self.perp_proven(h, (a[1], a[0]), (a[2], a[3])) && self.perp_proven(h, (a[2], a[0]), (a[3], a[1])),
+            k if k.is_identity_label() => true,
             k => self.theorem_ok(h, k, a),
         }
     }
@@ -402,12 +418,22 @@ impl<'c, 'a> Checker<'c, 'a> {
                 let b = blocks.iter().find(|b| b.id == *block).ok_or("lemma reason cites a missing block")?;
                 let s = b.body.get(*sentence as usize).ok_or("lemma reason cites a missing sentence")?;
                 if !self.establishes(s, stmt) {
+                    if std::env::var_os("HP_DEBUG").is_some() {
+                        eprintln!("lemma {stmt:?} vs sentence {s:?}");
+                    }
                     return Err("lemma reason cites a sentence that does not establish it".into());
                 }
             }
-            Reason::Hyp { fact, .. } => {
+            Reason::Hyp { fact, stmt } => {
                 if !matches!(cx.class.get(*fact as usize), Some(FactClass::Hyp)) || !cx.in_cl[*fact as usize] {
                     return Err(format!("hyp reason {fact} is not a hypothesis of the proof"));
+                }
+                if let Some(targets) = stmt_targets(cx.t, stmt) {
+                    for (tb, row) in targets {
+                        if !self.proven(fact + 1, tb, &row) && !self.proven(h, tb, &row) {
+                            return Err(format!("hyp reason {fact} states something the hypothesis does not give: {stmt:?}"));
+                        }
+                    }
                 }
             }
             Reason::Claim { block, fact, .. } => {
@@ -473,7 +499,8 @@ impl<'c, 'a> Checker<'c, 'a> {
             }
             let (t, row) = cache[&term.reason].get(term.row as usize)?.clone();
             let theorem = matches!(r, Reason::Atom { key, .. } if super::theorems::is_theorem(*key));
-            if theorem && !self.verified(t, &row) {
+            let identity = matches!(r, Reason::Atom { key, .. } if super::theorems::is_identity(*key));
+            if theorem && !identity && !self.verified(t, &row) {
                 return None;
             }
             if matches!(r, Reason::Atom { .. }) && !theorem && !self.proven(h, t, &row) {
@@ -494,6 +521,19 @@ impl<'c, 'a> Checker<'c, 'a> {
         let t = self.cx.t;
         let (tb, ea) = eval(t, a).ok_or("term does not evaluate")?;
         let (_, eb) = eval(t, b).ok_or("term does not evaluate")?;
+        if link.combination.is_empty() && link.reasons.iter().all(|r| matches!(r, Reason::Atom { key, .. } if key.is_identity_label())) {
+            if tb != Table::Angle || a == b || !self.residual_ok(tb, &(&ea - &eb), &LinComb::zero(), directed) {
+                return Err(format!("angle-addition link is not an identity: {:?} -> {:?}", a, b));
+            }
+            if let [Reason::Atom { key, args, .. }] = link.reasons.as_slice() {
+                if super::barem::identity_label(self.cx, a, b, directed) != Some((*key, args.clone())) {
+                    return Err(format!("identity link label {key:?} {args:?} does not describe {a:?} -> {b:?}"));
+                }
+            } else if !link.reasons.is_empty() {
+                return Err("identity link with several labels".into());
+            }
+            return Ok(());
+        }
         let (_, sum) = self.combo(blocks, h, &link.reasons, &link.combination, !directed).ok_or("link combination does not resolve, or uses an atom row outside the engine span")?;
         if link.combination.is_empty() {
             return Err("link without a combination".into());
@@ -548,6 +588,9 @@ impl<'c, 'a> Checker<'c, 'a> {
                             ok_all = pts.len() >= 3 && self.stmt_in_span_of_chain(&diff, st);
                         }
                         if !ok_all {
+                            if std::env::var_os("HP_DEBUG").is_some() {
+                                eprintln!("chain endpoints: terms {terms:?} then {st:?}");
+                            }
                             return Err("chain endpoints do not give the stated conclusion".into());
                         }
                     }
@@ -658,8 +701,32 @@ pub fn violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
     out
 }
 
-pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+pub fn setup_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+    let mut maximal: Vec<Vec<PointId>> = Vec::new();
+    for c in cx.circles.iter().filter(|c| c.src.is_empty() && c.pts.len() >= 3) {
+        if let Some(m) = maximal.iter_mut().find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3) {
+            for &p in &c.pts {
+                if !m.contains(&p) {
+                    m.push(p);
+                }
+            }
+        } else {
+            maximal.push(c.pts.clone());
+        }
+    }
     let mut out = Vec::new();
+    for l in &hp.setup {
+        if let SetupLine::Circle { through, .. } = l {
+            if through.len() >= 4 && !maximal.iter().any(|m| through.iter().all(|p| m.contains(p))) {
+                out.push(Violation { block: 0, rule: "I7", detail: format!("a setup circle lists points {through:?} whose concyclicity is not a hypothesis") });
+            }
+        }
+    }
+    out
+}
+
+pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+    let mut out = setup_violations(cx, hp);
     let mut bad = |block: u16, detail: String| out.push(Violation { block, rule: "I6", detail });
     for (i, b) in hp.blocks.iter().enumerate() {
         if b.step as usize != i + 1 {

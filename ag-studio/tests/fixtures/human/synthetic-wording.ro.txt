@@ -5,7 +5,7 @@ Ideea: este suficient să arătăm că ∡ABX = ∡XCA.
 1. Arătăm că ∡ABX = ∡XCA:
 
 ∡ABX = ∡ACX    [unghiuri înscrise în Ω]
-     = ∡XCA    [A, B, C, X conciclice] (1)
+     = ∡XCA    [unghiuri înscrise în (ABCX)] (1)
 
 2. Arătăm că AB ⟂ CX:
 

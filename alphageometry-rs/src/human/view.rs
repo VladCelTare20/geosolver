@@ -233,6 +233,7 @@ pub fn sentence(nm: &Namer, s: &Sentence) -> Value {
 pub fn setup(nm: &Namer, s: &SetupLine) -> Value {
     match s {
         SetupLine::DirectedAngles => json!({"kind": "directed_angles"}),
+        SetupLine::DirectedSteps { steps } => json!({"kind": "directed_steps", "steps": steps}),
         SetupLine::FigureAngles => json!({"kind": "figure_angles"}),
         SetupLine::Notation { triangle, circumcentre } => json!({
             "kind": "notation",

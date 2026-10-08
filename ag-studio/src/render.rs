@@ -169,13 +169,8 @@ fn escape_xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Map the few math glyphs the bundled font lacks to equivalents it carries.
-fn normalize_glyphs(s: &str) -> String {
-    s.replace('\u{27c2}', "\u{22a5}").replace('\u{2225}', "\u{2016}").replace('\u{2222}', "\u{2220}").replace('\u{2261}', "\u{2245}")
-}
-
 fn is_operator(tok: &str) -> bool {
-    matches!(tok, "=" | "+" | "\u{2212}" | "-" | "\u{b7}" | ":" | "/" | "\u{2044}" | "<" | ">" | "\u{2264}" | "\u{2265}" | "\u{2260}" | "\u{223c}" | "\u{2245}" | "\u{27c2}" | "\u{22a5}" | "\u{2225}" | "\u{2016}")
+    matches!(tok, "=" | "+" | "\u{2212}" | "-" | "\u{b7}" | ":" | "/" | "\u{2044}" | "<" | ">" | "\u{2264}" | "\u{2265}" | "\u{2260}" | "\u{223c}" | "\u{2245}" | "\u{2261}" | "\u{27c2}" | "\u{22a5}" | "\u{2225}" | "\u{2016}")
 }
 
 /// Words of `text`, with a relation or operator and its operands kept as one
@@ -296,7 +291,7 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
         "aconst" => format!("{} = {}\u{b0}", g(0), g(1)),
         "rconst" => format!("{} : {} = {}", g(0), g(1), g(2)),
         "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", g(0), g(1)),
-        "contri" => format!("\u{25b3}{} \u{2245} \u{25b3}{}", g(0), g(1)),
+        "contri" => format!("\u{25b3}{} {} \u{25b3}{}", g(0), if lang == Lang::Ro { '\u{2261}' } else { '\u{2245}' }, g(1)),
         "eqdist" => a.join(" = "),
         "points" => a.join(", "),
         _ => a.join(" "),
@@ -612,15 +607,14 @@ impl Typeset<'_> {
     }
 
     fn spans(&self, text: &str) -> String {
-        let text = normalize_glyphs(text);
         let mut out = String::new();
         let mut tok = String::new();
         let flush = |tok: &mut String, out: &mut String| {
             if tok.is_empty() {
                 return;
             }
-            let fn_len = ["sin", "cos", "tan"].iter().find(|f| tok.starts_with(**f) && tok[f.len()..].starts_with(['∠', '△'])).map_or(0, |f| f.len());
-            let lead: String = tok[..fn_len].to_string() + &tok[fn_len..].chars().take_while(|c| matches!(c, '△' | '∠' | '∡' | '½' | '|' | '(' | '[') || c.is_ascii_digit()).collect::<String>();
+            let fn_len = ["sin", "cos", "tan"].iter().find(|f| tok.starts_with(**f) && tok[f.len()..].starts_with(['∠', '∢', '△'])).map_or(0, |f| f.len());
+            let lead: String = tok[..fn_len].to_string() + &tok[fn_len..].chars().take_while(|c| matches!(c, '△' | '∠' | '∢' | '∡' | '½' | '|' | '(' | '[') || c.is_ascii_digit()).collect::<String>();
             let core = &tok[lead.len()..];
             let trail_len = core.chars().rev().take_while(|c| matches!(c, '|' | ')' | ']' | '²' | '³')).map(char::len_utf8).sum::<usize>();
             let (name, trail) = core.split_at(core.len() - trail_len);
@@ -635,7 +629,7 @@ impl Typeset<'_> {
             tok.clear();
         };
         for c in text.chars() {
-            if c.is_whitespace() || matches!(c, ',' | '.' | ';' | ':' | '=' | '+' | '−' | '·' | '∼' | '≅' | '⊥' | '‖' | '∥' | '⟂' | '/') {
+            if c.is_whitespace() || matches!(c, ',' | '.' | ';' | ':' | '=' | '+' | '−' | '·' | '∼' | '≅' | '≡' | '⊥' | '‖' | '∥' | '⟂' | '/') {
                 flush(&mut tok, &mut out);
                 out.push_str(&escape_xml(&c.to_string()));
             } else {
@@ -654,7 +648,7 @@ fn txt(x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, inner: 
 }
 
 fn plain(x: f32, y: f32, size: f32, weight: u32, fill: &str, family: &str, s: &str) -> String {
-    txt(x, y, size, weight, fill, family, &escape_xml(&normalize_glyphs(s)))
+    txt(x, y, size, weight, fill, family, &escape_xml(s))
 }
 
 fn wordmark(x: f32, y: f32) -> String {
@@ -1138,7 +1132,7 @@ fn hp_paragraph(text: &str, lead: Option<(&str, &str)>, cols: usize, ts: &Typese
     for (i, l) in lines.iter().enumerate() {
         let styled = lead.filter(|_| i == 0).and_then(|(h, style)| l.strip_prefix(h).map(|rest| (h, style, rest)));
         let inner = match styled {
-            Some((h, style, rest)) => format!("<tspan {style}>{}</tspan>{}", escape_xml(&normalize_glyphs(h)), ts.spans(rest)),
+            Some((h, style, rest)) => format!("<tspan {style}>{}</tspan>{}", escape_xml(h), ts.spans(rest)),
             None => ts.spans(l),
         };
         b.push_str(&txt(MARGIN, 12.0 + i as f32 * LEADING, BODY_FS, 400, INK, MATH, &inner));
@@ -1577,5 +1571,43 @@ mod tests {
             assert!(pages[0].contains('\u{220e}'));
             assert!(report_pages(&v, lang, true, true).len() <= 2, "{lang:?}");
         }
+    }
+
+    #[test]
+    fn export_fonts_carry_the_symbols_the_web_prints() {
+        let db = shared_fontdb();
+        let faces: Vec<_> = db.faces().filter(|f| f.families.iter().any(|(n, _)| n == "GeoSolver Sans" || n == "GeoSolver Math")).collect();
+        assert_eq!(faces.len(), 5, "{:?}", faces.iter().map(|f| &f.post_script_name).collect::<Vec<_>>());
+        for face in faces {
+            let missing = db
+                .with_face_data(face.id, |data, index| {
+                    let f = ttf_parser::Face::parse(data, index).expect("a bundled font parses");
+                    ['\u{2222}', '\u{2261}', '\u{27c2}', '\u{2225}', '\u{2221}', '\u{2220}', '\u{2229}'].into_iter().filter(|c| f.glyph_index(*c).is_none()).collect::<Vec<_>>()
+                })
+                .expect("face data");
+            assert!(missing.is_empty(), "{} lacks {missing:?}", face.post_script_name);
+        }
+    }
+
+    #[test]
+    fn the_romanian_report_prints_the_web_symbols() {
+        let report = |name: &str| {
+            let (v, h) = crate::human_view::tests::rendered(name);
+            let v = crate::human_view::tests::with_human(v, &h);
+            assert!(report_pdf_from_json(&v, Lang::Ro, false).is_ok_and(|b| b.starts_with(b"%PDF")));
+            report_from_json(&v, Lang::Ro, false)
+        };
+        let imo = report("imo-2004-p1");
+        for c in ['\u{2222}', '\u{27c2}', '\u{2221}', '\u{2225}'] {
+            assert!(imo.contains(c), "{c} is missing from the report");
+        }
+        let p2 = report("imo-2023-p2");
+        assert!(p2.contains("OAX</tspan> \u{2261} \u{25b3}<tspan font-style=\"italic\">OPX"), "congruence is \u{2261} in Romanian");
+        assert!(!p2.contains('\u{2245}'), "no \u{2245} in the Romanian report");
+        assert!(imo.contains("\u{2222}<tspan font-style=\"italic\">"), "the vertex names after \u{2222} are set as names");
+        assert!(!imo.contains('\u{2245}') && !imo.contains('\u{22a5}'), "no look-alike substitutes");
+        let ortho = report("orthocenter-reflection");
+        assert!(ortho.contains('\u{27c2}') && !ortho.contains('\u{22a5}'), "perpendicular stays \u{27c2}");
+        assert!(!imo.contains('\u{2016}'), "parallel stays \u{2225}");
     }
 }

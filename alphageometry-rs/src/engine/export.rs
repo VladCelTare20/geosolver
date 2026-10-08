@@ -83,6 +83,7 @@ impl Ddar {
             pair: [dir, dm, da, ds],
             primes,
             sines,
+            sine_canon_memo: Default::default(),
         }
     }
 }

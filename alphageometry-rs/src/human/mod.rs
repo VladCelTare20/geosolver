@@ -10,6 +10,7 @@ pub mod ctx;
 pub mod expr;
 pub mod library;
 pub mod model;
+pub mod route;
 pub mod search;
 pub mod text;
 pub mod theorems;
@@ -81,7 +82,37 @@ pub fn score(hp: &HumanProof) -> usize {
             _ => 0,
         })
         .sum();
-    hp.metrics.human_cost + 20 * hp.metrics.similar_steps + 2 * crowded
+    let m = &hp.metrics;
+    m.human_cost + 20 * m.similar_steps + 2 * crowded + 12 * m.multi_fact_links + 8 * doubled_directed(hp) + 4 * m.directed_chains + 20 * m.pooled + 6 * repeated_citations(hp)
+}
+
+pub fn doubled_directed(hp: &HumanProof) -> usize {
+    fn count(e: &Expr) -> usize {
+        match e {
+            Expr::Lin { terms } => terms.iter().map(|(k, x)| usize::from(k.abs() != crate::rational::Rat::one() && matches!(x, Expr::Angle { directed: true, .. } | Expr::LineAngle { directed: true, .. })) + count(x)).sum(),
+            _ => 0,
+        }
+    }
+    hp.blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .map(|s| match s {
+            Sentence::Chain { terms, directed: true, .. } => terms.iter().map(count).sum(),
+            Sentence::Because { stmt: Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }, .. } => count(lhs) + count(rhs),
+            _ => 0,
+        })
+        .sum()
+}
+
+pub fn repeated_citations(hp: &HumanProof) -> usize {
+    hp.blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .map(|s| match s {
+            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.windows(2).filter(|w| !w[0].reasons.is_empty() && w[0].reasons == w[1].reasons).count(),
+            _ => 0,
+        })
+        .sum()
 }
 
 fn guarded(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxInfo], opts: &Opts, library: bool) -> Option<HumanProof> {
@@ -101,8 +132,12 @@ pub fn write(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[AuxI
     let raw_steps = trace.closure(deps).len();
     let lib_only = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "only");
     let no_lib = std::env::var_os("HP_LIBRARY").is_some_and(|v| v == "0");
-    let base = if lib_only { None } else { guarded(trace, goal, deps, aux, opts, false) };
-    let lib = if no_lib { None } else { guarded(trace, goal, deps, aux, opts, true) };
+    let (base, lib) = std::thread::scope(|sc| {
+        let hb = if lib_only { None } else { Some(sc.spawn(|| guarded(trace, goal, deps, aux, opts, false))) };
+        let lib = if no_lib { None } else { guarded(trace, goal, deps, aux, opts, true) };
+        let base = hb.and_then(|h| h.join().ok().flatten());
+        (base, lib)
+    });
     let lib_ok = lib.as_ref().filter(|h| h.available && !h.metrics.timed_out && h.metrics.check_violations == 0 && !(restates_goal(trace, h) && base.as_ref().is_some_and(|b| b.available)));
     if std::env::var_os("HP_LIBSTAT").is_some() {
         let d = |h: Option<&HumanProof>| h.map(|h| format!("avail={} timed_out={} violations={} score={}", h.available, h.metrics.timed_out, h.metrics.check_violations, score(h))).unwrap_or_else(|| "none".into());
@@ -145,7 +180,12 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
     tick("atoms");
     w.first_pass();
     tick("first pass");
-    let found = if library { Some(search::optimise(&mut w)) } else { None };
+    let found = if library {
+        Some(search::optimise(&mut w))
+    } else {
+        search::optimise_with(&mut w, false);
+        None
+    };
     tick("search");
     w.select();
     if let Some(s) = &found {
@@ -182,6 +222,7 @@ fn write_inner(trace: &EngineTrace, goal: &Predicate, deps: &[FactId], aux: &[Au
         return Some(u);
     }
     barem::polish(&cx, &mut hp);
+    drop_unused_centres(&mut hp);
     tick("barem");
     fill_metrics(&cx, &w, &mut hp);
     hp.metrics.timed_out = cx.timed_out();
@@ -239,7 +280,7 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
     let t = cx.t;
     let mut maximal: Vec<Vec<PointId>> = Vec::new();
     for c in &cx.circles {
-        if c.pts.len() < 3 {
+        if c.pts.len() < 3 || !c.src.is_empty() {
             continue;
         }
         if let Some(m) = maximal.iter_mut().find(|m| c.pts.iter().filter(|p| m.contains(p)).count() >= 3) {
@@ -318,7 +359,13 @@ fn named_circles(cx: &Ctx, blocks: &[Block], aux: &[SetupLine]) -> Vec<SetupLine
             continue;
         }
         used_names.push(name.clone());
-        out.push(SetupLine::Circle { name, through: m.clone(), centre, diameter: None });
+        let g = &cx.goal;
+        let proved: Option<PointId> = match (g.name.as_str(), g.points.as_slice()) {
+            ("cong", [o1, _, o2, k]) if o1 == o2 && Some(*o1) == centre => Some(*k),
+            _ => None,
+        };
+        let through: Vec<PointId> = m.iter().copied().filter(|p| Some(*p) != proved).collect();
+        out.push(SetupLine::Circle { name, through, centre, diameter: None });
     }
     out
 }
@@ -328,6 +375,24 @@ fn all_reasons(s: &Sentence) -> Vec<&Reason> {
         Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.iter().flat_map(|l| l.reasons.iter()).collect(),
         Sentence::Because { reasons, .. } | Sentence::Pooled { reasons, .. } | Sentence::Theorem { reasons, .. } => reasons.iter().collect(),
         Sentence::Raw { .. } => Vec::new(),
+    }
+}
+
+fn drop_unused_centres(hp: &mut HumanProof) {
+    let mut used: Vec<PointId> = Vec::new();
+    for b in &hp.blocks {
+        used.extend(b.points.iter().copied());
+        used.extend(view::stmt_points(&b.stmt));
+        for s in &b.body {
+            used.extend(view::sentence_points(s));
+        }
+    }
+    for l in hp.setup.iter_mut() {
+        if let SetupLine::Circle { centre, .. } = l {
+            if centre.is_some_and(|o| !used.contains(&o)) {
+                *centre = None;
+            }
+        }
     }
 }
 

@@ -78,7 +78,7 @@ describe how points *relate*, and the engine samples a concrete figure.
 
 ## Introducing the base points
 ```
-A B C = triangle        # three free points in general position
+A B C = triangle        # a scalene acute triangle, drawn as a textbook would
 A B = segment           # two free points
 P = free                # one free point
 ```

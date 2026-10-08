@@ -40,6 +40,7 @@ pub enum GoalWords {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SetupLine {
     DirectedAngles,
+    DirectedSteps { steps: Vec<u16> },
     FigureAngles,
     Circle { name: String, through: Vec<PointId>, centre: Option<PointId>, diameter: Option<Line> },
     Aux { point: PointId, aux_index: usize, wording: Option<super::aux::AuxWording> },
@@ -176,10 +177,15 @@ pub enum AtomKey {
     CongruentSas,
     CongruentAsa,
     CongruentRhs,
+    SineSupplement,
+    SineComplement,
+    AngleAddition,
+    AngleSum,
+    ExteriorAngle,
 }
 
 impl AtomKey {
-    pub const ALL: [AtomKey; 40] = [
+    pub const ALL: [AtomKey; 45] = [
         AtomKey::Inscribed,
         AtomKey::Thales,
         AtomKey::TangentChord,
@@ -220,7 +226,15 @@ impl AtomKey {
         AtomKey::CongruentSas,
         AtomKey::CongruentAsa,
         AtomKey::CongruentRhs,
+        AtomKey::SineSupplement,
+        AtomKey::SineComplement,
+        AtomKey::AngleAddition,
+        AtomKey::AngleSum,
+        AtomKey::ExteriorAngle,
     ];
+    pub fn is_identity_label(self) -> bool {
+        matches!(self, AtomKey::AngleAddition | AtomKey::AngleSum | AtomKey::ExteriorAngle)
+    }
     pub fn as_str(self) -> &'static str {
         match self {
             AtomKey::Inscribed => "inscribed",
@@ -263,6 +277,11 @@ impl AtomKey {
             AtomKey::CongruentSas => "congruent_sas",
             AtomKey::CongruentAsa => "congruent_asa",
             AtomKey::CongruentRhs => "congruent_rhs",
+            AtomKey::SineSupplement => "sine_supplement",
+            AtomKey::SineComplement => "sine_complement",
+            AtomKey::AngleAddition => "angle_addition",
+            AtomKey::AngleSum => "angle_sum",
+            AtomKey::ExteriorAngle => "exterior_angle",
         }
     }
 }

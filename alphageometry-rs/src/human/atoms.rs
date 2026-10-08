@@ -32,6 +32,7 @@ pub struct Atom {
     pub avail: FactId,
     pub row_idx: u16,
     pub via: Vec<usize>,
+    pub pts: Vec<PointId>,
 }
 
 impl Atom {
@@ -152,7 +153,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                 continue;
             }
             let q = if table == Table::Angle { self.cx.quot.q(&row) } else { row.clone() };
-            self.atoms.push(Atom { src, args: args.clone(), table, row, q, cost, sources: sources.clone(), tmpl, avail, row_idx: k as u16, via: Vec::new() });
+            self.atoms.push(Atom { src, args: args.clone(), table, row, q, cost, sources: sources.clone(), tmpl, avail, row_idx: k as u16, via: Vec::new(), pts: Vec::new() });
         }
     }
 
@@ -173,7 +174,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                         let q = if tb == Table::Angle { cx.quot.q(&r) } else { r.clone() };
                         let glue = is_line && tb == Table::Angle;
                         let (src, cost) = if glue { (AtomSrc::Glue(g), 0) } else { (AtomSrc::Engine(g), 2) };
-                        self.atoms.push(Atom { src, args: vec![], table: tb, row: r, q, cost, sources: BTreeSet::new(), tmpl: g + 1, avail: g + 1, row_idx: k as u16, via: Vec::new() });
+                        self.atoms.push(Atom { src, args: vec![], table: tb, row: r, q, cost, sources: BTreeSet::new(), tmpl: g + 1, avail: g + 1, row_idx: k as u16, via: Vec::new(), pts: Vec::new() });
                     }
                 }
                 _ => {
@@ -289,8 +290,20 @@ impl<'c, 'a> Builder<'c, 'a> {
                 let mut s = BTreeSet::new();
                 match cx.support_facts(Table::Ratio, &row, h) {
                     Some(sup) => {
+                        let mut derived: Vec<FactId> = Vec::new();
                         for g in sup {
-                            s.extend(cx.fact_sources(g));
+                            let src = cx.fact_sources(g);
+                            if !src.is_empty() {
+                                derived.push(g);
+                            }
+                            s.extend(src);
+                        }
+                        let plain = |g: FactId| {
+                            matches!(super::classify::fact_stmt(cx, g), super::model::Stmt::Cong { .. } | super::model::Stmt::Congruent { .. } | super::model::Stmt::Coincide { .. } | super::model::Stmt::OnCircle { .. })
+                                || cx.t.rows_of(Table::Ratio, g).any(|r| cx.t.canon_ratio(r).terms.len() == 2)
+                        };
+                        if derived.iter().any(|&g| !plain(g)) {
+                            self.atoms[i].avail = NEVER;
                         }
                     }
                     None => {
@@ -415,7 +428,10 @@ impl<'c, 'a> Builder<'c, 'a> {
                             self.add_human(AtomKey::Thales, vec![a, b, z, o], 1, s, h);
                         } else if t.orient(a, o, b) != 0 {
                             let (h, s) = merge(&[&ab, &az, &bz]);
-                            self.add_human(AtomKey::CentralAngle, vec![o, a, b, z], 2, s, h);
+                            let inscribed = super::theorems::interior_degrees(t, a, z, b);
+                            let central = super::theorems::interior_degrees(t, a, o, b);
+                            let args = if (inscribed - (180.0 - central / 2.0)).abs() < 1e-6 && (inscribed - central / 2.0).abs() > 1e-6 { vec![o, a, b, z, z] } else { vec![o, a, b, z] };
+                            self.add_human(AtomKey::CentralAngle, args, 2, s, h);
                         }
                     }
                 }
@@ -521,10 +537,10 @@ impl<'c, 'a> Builder<'c, 'a> {
         start
     }
 
-    pub fn perps(&self) -> Vec<((PointId, PointId), (PointId, PointId), FactId, BTreeSet<FactId>)> {
+    pub fn perps(&self) -> Vec<((PointId, PointId), (PointId, PointId), FactId, BTreeSet<FactId>, Option<usize>)> {
         let cx = self.cx;
         let mut out = Vec::new();
-        for a in &self.atoms {
+        for (i, a) in self.atoms.iter().enumerate() {
             if a.avail == NEVER {
                 continue;
             }
@@ -533,15 +549,15 @@ impl<'c, 'a> Builder<'c, 'a> {
                     if let Some(p) = cx.hyp_pred.get(&f) {
                         if p.name == "perp" && p.points.len() == 4 {
                             let pts = &p.points;
-                            out.push(((pts[0], pts[1]), (pts[2], pts[3]), a.avail, BTreeSet::new()));
+                            out.push(((pts[0], pts[1]), (pts[2], pts[3]), a.avail, BTreeSet::new(), None));
                         }
                     }
                 }
                 AtomSrc::Human(AtomKey::PerpBisector) => {
-                    out.push(((a.args[0], a.args[1]), (a.args[2], a.args[3]), a.avail, a.sources.clone()));
+                    out.push(((a.args[0], a.args[1]), (a.args[2], a.args[3]), a.avail, a.sources.clone(), Some(i)));
                 }
                 AtomSrc::Human(AtomKey::Thales) => {
-                    out.push(((a.args[2], a.args[0]), (a.args[2], a.args[1]), a.avail, a.sources.clone()));
+                    out.push(((a.args[2], a.args[0]), (a.args[2], a.args[1]), a.avail, a.sources.clone(), Some(i)));
                 }
                 _ => {}
             }
@@ -560,8 +576,8 @@ impl<'c, 'a> Builder<'c, 'a> {
                 if i >= j {
                     continue;
                 }
-                let (l1, m1, h1, s1) = &perps[i];
-                let (l2, m2, h2, s2) = &perps[j];
+                let (l1, m1, h1, s1, v1) = &perps[i];
+                let (l2, m2, h2, s2, v2) = &perps[j];
                 let combos = [(*l1, *m1, *l2, *m2), (*l1, *m1, *m2, *l2), (*m1, *l1, *l2, *m2), (*m1, *l1, *m2, *l2)];
                 for (a, ma, b, mb) in combos {
                     if cls(ma).is_none() || cls(ma) != cls(mb) || cls(a) == cls(b) {
@@ -569,7 +585,13 @@ impl<'c, 'a> Builder<'c, 'a> {
                     }
                     let mut s = s1.clone();
                     s.extend(s2.iter().copied());
+                    let from = self.atoms.len();
                     self.add_human(AtomKey::Parallel, vec![a.0, a.1, b.0, b.1, ma.0, ma.1], 1, s, (*h1).max(*h2));
+                    let shared = a.0 == b.0 || a.0 == b.1 || a.1 == b.0 || a.1 == b.1;
+                    let via: Vec<usize> = if shared { Vec::new() } else { [*v1, *v2].into_iter().flatten().collect() };
+                    for at in &mut self.atoms[from..] {
+                        at.via = via.clone();
+                    }
                 }
             }
         }
@@ -613,7 +635,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                 }
             }
             m.sort_unstable();
-            for (l, mm, h, s) in &perps {
+            for (l, mm, h, s, _) in &perps {
                 for (pl, pm) in [(*l, *mm), (*mm, *l)] {
                     let pt = [pl.0, pl.1].into_iter().find(|p| [pm.0, pm.1].contains(p) && m.contains(p));
                     let Some(p) = pt else { continue };
@@ -675,6 +697,7 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
         b.propagate_via(r);
         b.theorems(r);
         b.rejustify();
+        b.rejustify_identities();
     }
     let mut map: Vec<Option<usize>> = Vec::with_capacity(b.atoms.len());
     let mut k = 0;
@@ -691,5 +714,24 @@ pub fn build_all(cx: &Ctx) -> Vec<Atom> {
         let via: Option<Vec<usize>> = a.via.iter().map(|&v| map.get(v).copied().flatten()).collect();
         a.via = via.unwrap_or_default();
     }
+    prefer_isosceles(cx, &mut b.atoms);
+    for a in b.atoms.iter_mut() {
+        a.pts = super::chain::atom_points(cx, a);
+    }
     b.atoms
+}
+
+fn prefer_isosceles(cx: &Ctx, atoms: &mut [Atom]) {
+    let key = |a: &Atom| super::library::quot_row(cx, a.table, &a.row);
+    let iso: Vec<(LinComb, FactId)> = atoms.iter().filter(|a| a.table == Table::Angle && matches!(a.src, AtomSrc::Human(AtomKey::Isosceles | AtomKey::Radii))).map(|a| (key(a), a.avail)).collect();
+    for a in atoms.iter_mut() {
+        if a.table != Table::Angle || !matches!(a.src, AtomSrc::Human(AtomKey::CentralAngle)) {
+            continue;
+        }
+        let k = key(a);
+        let n = k.negated();
+        if iso.iter().any(|(r, avail)| *avail <= a.avail && (*r == k || *r == n)) {
+            a.cost += 1;
+        }
+    }
 }

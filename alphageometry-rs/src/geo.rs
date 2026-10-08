@@ -50,7 +50,7 @@ pub struct ConstructionDoc {
 pub const CONSTRUCTIONS: &[ConstructionDoc] = &[
     ConstructionDoc {
         name: "triangle",
-        summary: "A B C = triangle           — three free points in general position",
+        summary: "A B C = triangle           — a scalene acute triangle as a textbook draws it (any triangle when nothing else fits)",
     },
     ConstructionDoc {
         name: "segment",
@@ -212,6 +212,22 @@ pub const RELATIONS: &[&str] = &[
 
 fn cross(u: Vec2, v: Vec2) -> f64 {
     u.x * v.y - u.y * v.x
+}
+
+thread_local! {
+    static TEXTBOOK_TRIANGLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+const TEXTBOOK_SEEDS: u64 = 200;
+
+fn textbook_triangle(a: Vec2, b: Vec2, c: Vec2) -> bool {
+    let angle = |p: Vec2, q: Vec2, r: Vec2| {
+        let (u, v) = (q - p, r - p);
+        cross(u, v).abs().atan2(u.x * v.x + u.y * v.y).to_degrees()
+    };
+    let mut t = [angle(a, b, c), angle(b, c, a), angle(c, a, b)];
+    t.sort_by(f64::total_cmp);
+    t[0] >= 35.0 && t[2] <= 82.0 && t[1] - t[0] >= 6.0 && t[2] - t[1] >= 6.0
 }
 
 struct Rng(u64);
@@ -1392,7 +1408,8 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
                 && (cross(b - a, c - a).abs() < 0.15
                     || distance(a, b) < 0.4
                     || distance(b, c) < 0.4
-                    || distance(a, c) < 0.4)
+                    || distance(a, c) < 0.4
+                    || (TEXTBOOK_TRIANGLE.with(|f| f.get()) && !textbook_triangle(a, b, c)))
             {
                 return Err(BuildError::Degenerate);
             }
@@ -3066,7 +3083,9 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
     let mut best_true: Option<(f64, Compiled)> = None;
     let mut fallback_false: Option<Compiled> = None;
     for seed in 1..=400u64 {
+        TEXTBOOK_TRIANGLE.with(|f| f.set(seed <= TEXTBOOK_SEEDS));
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
+        TEXTBOOK_TRIANGLE.with(|f| f.set(false));
         match built {
             Ok(Err(BuildError::Fatal(msg))) => {
                 result = Err(msg.into());

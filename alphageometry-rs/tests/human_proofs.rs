@@ -111,7 +111,7 @@ fn golden_examples_have_the_planned_shape() {
         for b in &hp.blocks {
             for s in &b.body {
                 if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } = s {
-                    assert!(links.len() <= 8, "a chain longer than eight links:\n{t}");
+                    assert!(links.iter().filter(|l| !human::barem::identity_only(l)).count() <= 8 && links.len() <= 12, "a chain longer than eight links:\n{t}");
                 }
             }
         }
@@ -122,7 +122,7 @@ fn golden_examples_have_the_planned_shape() {
     let (_, hp, t) = get("orthocenter_reflection");
     numbered(hp, t);
     assert!(t.contains("BC is the perpendicular bisector of HK"), "{t}");
-    assert!(t.contains("so H, A, K are collinear. (2)"), "{t}");
+    assert!(t.contains("so A, H, K are collinear. (2)"), "{t}");
     assert!(t.contains("Angles written \u{2220} are read from the figure."), "{t}");
     assert!(!t.contains("counter-clockwise"), "only figure angles are used:\n{t}");
     assert!(t.contains("So A, B, C, K lie on one circle, as required. \u{220e}"), "{t}");
@@ -132,20 +132,26 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("Let M be the midpoint of BC."), "{t}");
     assert!(t.contains("OM is the perpendicular bisector of BC"), "{t}");
     assert!(t.contains("MN is a midline of"), "{t}");
-    assert!(t.contains("Hence \u{25b3}AHB \u{223c} \u{25b3}MON. (4)"), "{t}");
-    assert!(t.contains("Hence \u{25b3}AHG \u{223c} \u{25b3}MOG. (5)"), "{t}");
-    assert!(t.contains("intercept theorem, AB \u{2225} MN"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHB \u{223c} \u{25b3}MON (AA). (5)"), "{t}");
+    assert!(t.contains("Hence \u{25b3}AHG \u{223c} \u{25b3}MOG (SAS). (6)"), "{t}");
+    assert!(t.contains("G is the centroid of \u{25b3}ABC, so AG = 2\u{b7}GM."), "{t}");
+    assert!(t.contains("= 1 / 2      [AG = 2\u{b7}GM, by (1)]"), "{t}");
     assert!(!t.contains("\u{25b3}ABG \u{223c} \u{25b3}MNG"), "{t}");
-    assert!(t.contains("So O, G, H lie on one line, as required. \u{220e}"), "{t}");
+    assert!(t.contains("\u{25b3}AHG \u{223c} \u{25b3}MOG, by (6), so \u{2220}AGH = \u{2220}MGO; as A, G, M are collinear") && t.contains("so O, G, H lie on one line, as required. \u{220e}"), "{t}");
+    assert!(!t.contains("counter-clockwise"), "no directed angles:\n{t}");
 
     let (_, hp, t) = get("orthocenter_vertex_distance");
     numbered(hp, t);
     assert!(t.contains("R = OA = OB = OC for its circumradius."), "{t}");
     assert!(t.contains("Plan: it suffices to show that AH = 2R\u{b7}cos A and M\u{2090}O = R\u{b7}cos A."), "{t}");
     assert!(t.contains("We show that AH = 2R\u{b7}cos A:"), "{t}");
-    assert!(t.contains("We show that BC = 2R\u{b7}sin A:"), "{t}");
-    assert!(t.contains("law of sines in \u{25b3}ABH"), "{t}");
+    assert!(t.contains("We show that AB = 2R\u{b7}sin C:"), "{t}");
+    assert!(t.contains("extended law of sines"), "{t}");
+    assert!(t.contains("law of sines in \u{25b3}BHA"), "{t}");
+    assert!(!t.contains("sin\u{2220}COA") && !t.contains("sin\u{2220}BOA") && !t.contains("sin\u{2220}COB"), "{t}");
+    assert!(t.lines().filter(|l| l.trim_start().starts_with('=')).count() <= 5, "{t}");
     assert!(t.contains("so AH = 2\u{b7}M\u{2090}O, as required. \u{220e}"), "{t}");
+    assert!(t.contains("central angle \u{2220}BOC = 2\u{2220}BAC"), "the angle at O on chord BC justifies \u{2220}OBM\u{2090} = 90\u{b0} \u{2212} A:\n{t}");
     assert!(!t.contains("|sin") && !t.contains("R\u{b7}R") && !t.contains("R\u{b2}\u{b7}sin\u{2220}OCB / R"), "{t}");
     let laws = |b: &ddar::human::Block| t.lines().count() > 0 && b.body.iter().all(|s| match s {
         Sentence::Computation { links, .. } => {
@@ -172,24 +178,29 @@ fn golden_examples_have_the_planned_shape() {
 
     let (_, hp, t) = get("imo_2004_p1");
     numbered(hp, t);
-    assert!(t.contains("Let \u{3c9}\u{2082} be the circle centred at O\u{2082} through C, N, R, P."), "{t}");
+    assert!(t.contains("Let \u{3c9}\u{2082} be the circle through C, N, R, P."), "{t}");
     assert!(t.contains("Let F be the foot of the perpendicular from B to AR."), "{t}");
     assert!(t.contains("OF is the perpendicular bisector of BN"), "{t}");
     assert!(t.contains("So R, N, F, O are concyclic."), "{t}");
-    assert!(t.contains("\u{2220}MCN = \u{bd}\u{b7}\u{2220}MON"), "{t}");
+    assert!(t.contains("= \u{bd}\u{b7}\u{2220}NOM    [central angle"), "{t}");
+    assert!(t.contains("NC \u{27c2} NB, by (1) and OF \u{27c2} NB, by (4), so NC \u{2225} OF. (5)"), "{t}");
+    assert!(t.contains("= \u{2221}NOF + \u{2221}PRN    [NC \u{2225} OF, by (5)]"), "{t}");
     assert!(t.contains("power of the point A"), "{t}");
-    assert!(t.contains("so R, A, F, P are collinear (the radical axis theorem)."), "{t}");
+    assert!(t.contains("so A lies on their radical axis, the line PR; hence R, A, F, P are collinear."), "{t}");
     assert!(t.contains("So P lies on the line BC, as required. \u{220e}"), "{t}");
 
     let (_, hp, t) = get("imo_2023_p2");
     numbered(hp, t);
     assert!(t.contains("Let \u{3a9} be the circumcircle of triangle ABC, with centre O"), "{t}");
-    assert!(!t.contains("Hence NB = NC."), "{t}");
+    assert!(t.contains("1. We show that NB = NC:") && t.contains("Hence NB = NC. (1)"), "NB = NC is used twice, so it is its own step:\n{t}");
+    assert!(!t.contains("NB = NC (inscribed angles"), "{t}");
     assert!(t.contains("So T, E, S, O are concyclic."), "{t}");
     assert!(t.contains("We show that XA = XP:"), "{t}");
     assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");
-    assert!(t.contains("So AX bisects \u{2220}BAC, as required. \u{220e}"), "{t}");
+    assert!(t.contains("so AX bisects \u{2220}BAC, as required. \u{220e}"), "{t}");
     assert!(!t.contains("OA : OX = OP : OX"), "{t}");
+    assert!(!t.contains("2\u{2221}"), "no doubled directed angles:\n{t}");
+    assert!(t.contains("We show that A, I, X are collinear:") && t.contains("[angle addition]"), "{t}");
     assert!(!hp.blocks.last().unwrap().engine_facts.is_empty());
 }
 
@@ -296,6 +307,69 @@ fn checker_rejects_corrupted_proofs() {
     assert!(!verify(&s, &m).is_empty(), "proof without a conclusion accepted");
 }
 
+fn identity_link(hp: &mut HumanProof) -> Option<(&mut Vec<Expr>, usize)> {
+    for b in hp.blocks.iter_mut() {
+        for s in b.body.iter_mut() {
+            if let Sentence::Chain { terms, links, .. } = s {
+                if let Some(k) = links.iter().position(|l| l.combination.is_empty() && matches!(l.reasons.as_slice(), [Reason::Atom { key, .. }] if key.is_identity_label())) {
+                    return Some((terms, k));
+                }
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn identity_links_are_checked_and_honestly_labelled() {
+    let c = geo_case("imo_2023_p2", "tests/golden/human/imo_2023_p2.geo");
+    let s = solve(&c);
+    let base = write(&s, &strict());
+    assert!(verify(&s, &base).is_empty());
+    let mut probe = base.clone();
+    assert!(identity_link(&mut probe).is_some(), "the golden proof exposes at least one angle addition");
+
+    let mut m = base.clone();
+    for b in m.blocks.iter_mut() {
+        for st in b.body.iter_mut() {
+            if let Sentence::Chain { links, .. } = st {
+                for l in links.iter_mut() {
+                    if let [Reason::Atom { key, args, .. }] = l.reasons.as_mut_slice() {
+                        if key.is_identity_label() && l.combination.is_empty() {
+                            *key = if *key == human::AtomKey::AngleSum { human::AtomKey::ExteriorAngle } else { human::AtomKey::AngleSum };
+                            *args = vec![0, 1, 2];
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(!verify(&s, &m).is_empty(), "a mislabelled angle addition accepted");
+
+    let mut m = base.clone();
+    let (terms, k) = identity_link(&mut m).unwrap();
+    terms[k + 1] = Expr::Lin { terms: vec![(Rat::one(), terms[k + 1].clone()), (Rat::one(), Expr::Const { degrees: Rat::from_int(30) })] };
+    assert!(!verify(&s, &m).is_empty(), "an angle addition that is not an identity accepted");
+
+    let mut m = base.clone();
+    let l = first_chain_link(&mut m, false).unwrap();
+    l.combination.clear();
+    l.reasons = vec![Reason::Atom { key: human::AtomKey::AngleAddition, stmt: Stmt::Formula { text: String::new(), pts: vec![] }, args: vec![], from: vec![] }];
+    assert!(!verify(&s, &m).is_empty(), "a fact link relabelled as angle addition accepted");
+}
+
+#[test]
+fn a_setup_line_never_states_the_goal() {
+    let c = geo_case("orthocenter_reflection", "examples/orthocenter_reflection.geo");
+    let s = solve(&c);
+    let base = write(&s, &strict());
+    assert!(verify(&s, &base).is_empty());
+    let ddar::predicate::Predicate { points, .. } = s.goal.clone();
+    let mut m = base.clone();
+    m.setup.push(human::SetupLine::Circle { name: "\u{3b3}".into(), through: points.clone(), centre: None, diameter: None });
+    assert!(!verify(&s, &m).is_empty(), "a setup circle through the goal's four points accepted:\n{}", human::render_en(&s.trace, &m, &s.aux));
+}
+
 #[test]
 fn a_corrupted_block_falls_back_to_the_raw_steps() {
     let c = geo_case("euler_line", "examples/euler_line.geo");
@@ -394,7 +468,7 @@ fn checker_rejects_false_atom_instances() {
         l.reasons.push(Reason::Atom { key, stmt: Stmt::Coll { pts: vec![a, b, cc] }, args, from: Vec::new() });
         hp
     };
-    let controls = [(AtomKey::Thales, vec![b, cc, n, o]), (AtomKey::PowerOfPoint, vec![a, b, m, cc, n])];
+    let controls = [(AtomKey::Thales, vec![b, cc, n, o]), (AtomKey::PowerOfPoint, vec![a, b, m, cc, n]), (AtomKey::CentralAngle, vec![o, n, cc, m, m]), (AtomKey::CentralAngle, vec![o, n, cc, b])];
     for (key, args) in controls {
         assert!(verify(&s, &with(key, args.clone())).is_empty(), "true {key:?} {args:?} rejected");
     }
@@ -405,6 +479,9 @@ fn checker_rejects_false_atom_instances() {
         (AtomKey::Midline, vec![o, m, b, a, cc]),
         (AtomKey::PerpBisector, vec![o, r, b, cc]),
         (AtomKey::Radii, vec![r, b, cc]),
+        (AtomKey::CentralAngle, vec![o, n, cc, b, b]),
+        (AtomKey::CentralAngle, vec![o, n, cc, m, b]),
+        (AtomKey::CentralAngle, vec![r, n, cc, m, m]),
     ];
     for (key, args) in false_instances {
         assert!(!verify(&s, &with(key, args.clone())).is_empty(), "false {key:?} {args:?} accepted");

@@ -153,14 +153,14 @@
           ],
           "fact": {
             "args": [
-              "H",
               "A",
+              "H",
               "K"
             ],
             "kind": "coll",
             "points": [
-              "H",
               "A",
+              "H",
               "K"
             ]
           },
@@ -170,9 +170,9 @@
         },
         {
           "deps": [
+            1,
             2,
             5,
-            6,
             7
           ],
           "fact": {
@@ -295,8 +295,8 @@
         "stmt": {
           "kind": "coll",
           "args": [
-            "H",
             "A",
+            "H",
             "K"
           ],
           "points": [
@@ -353,8 +353,8 @@
             "then": {
               "kind": "coll",
               "args": [
-                "H",
                 "A",
+                "H",
                 "K"
               ],
               "points": [
@@ -377,8 +377,8 @@
         "objects": [
           {
             "line": [
-              "H",
               "A",
+              "H",
               "K"
             ]
           }
@@ -410,7 +410,7 @@
             "kind": "chain",
             "terms": [
               "∠C",
-              "∠HBC − 90°",
+              "90° − ∠HBC",
               "∠BHK",
               "∠HKB",
               "∠AKB"
@@ -511,8 +511,8 @@
                   {
                     "kind": "coll",
                     "args": [
-                      "H",
                       "A",
+                      "H",
                       "K"
                     ],
                     "points": [
@@ -529,7 +529,7 @@
                   {
                     "reason": 0,
                     "row": 2,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               }
@@ -596,7 +596,7 @@
       "pure_chains": 2,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 98,
+      "words_en": 99,
       "lines_en": 9,
       "citations": 6,
       "aux_shown": 0,

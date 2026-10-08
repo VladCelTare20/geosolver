@@ -1009,3 +1009,48 @@ Remaining pooled sentences, each because no order of its facts has displayable i
 - Doubled directed angles (2∡IAP = 2∡APX) are stated as such when the engine's rows are only determined modulo 90°.
 - Directed chains stay directed when the figure-angle form fails the exact check (Euler's line similarity), so both conventions are printed.
 - Trig intermediates still name non-triangle angles (sin∠COA); `complement_sine` would let them read 90° − B.
+
+### 13.10 Final quality round (`wf/hp-final2`)
+
+The owner, verbatim: "make sure the proof is correct and understandable and resembles human proofs! BUT make sure that the proof is detailed enough so that anyone understands the solution!" This round re-routes proofs towards the barem goldens (`geosolver-bench/human-proofs/barem/golden/`) and then removes what independent reviewers could not follow. Everything below is presentation: the engine's facts and the solved set are unchanged, and every new kind of line is re-checked by `check.rs`.
+
+**Routes and atoms (first half of the round).**
+- Route search (`route.rs`): bidirectional Dijkstra over atoms, one atom per link, in an as-drawn (figure-angle) graph and a directed graph; budgets per search and per writer, a goal reserve, shapes cached per graph. Chains that do not give their conclusion, pooled parts and doubled directed chains are re-routed (`claims.rs:route_now`/`route_drawn`); a doubled lemma is re-routed for the halved statement (`halved_lemma`); a collinearity lemma replaces a doubled chain (`line_lemma`, IMO 2023 P2: A, I, X collinear).
+- Trig identity atoms `SineSupplement`, `SineComplement`, law of sines and extended law of sines as checked theorem atoms, so AH = 2R·cos A and OMₐ = R·cos A are each at most three lines.
+- Median to the hypotenuse (`barem.rs:median_hypotenuse`) and vertical angles (`vertical_angles`) replace doubled directed chains; similarity and congruence steps name their criterion.
+- Displayed figures are textbook triangles (acute, scalene, angles 35°–82°, `geo.rs:textbook_triangle`); PDF and PNG reports print the web's symbols (∢ ≡ ⟂ ∥).
+
+**Readability (second half).**
+- *Opaque links.* A single-fact link whose displayed angles change more than the fact explains (three or more angle terms, or two whose rays leave the fact's own lines) is split: the fact now changes exactly one angle, and the angle arithmetic around it is its own line, labelled `angle addition`, `angle sum in △XYZ` or `exterior angle of △XYZ` (`barem.rs:expose_addition`, `expose_middle`, `identity_label`). The labels are atoms (`AtomKey::AngleAddition`/`AngleSum`/`ExteriorAngle`) with no rows: the checker accepts such a link only when its two ends are equal identically (exactly, as drawn, for ∠; mod 180° for ∡) and the label is the one `identity_label` derives. A single-fact angle sentence ("△SRK ∼ △SBR, so ∠BRK = ∠BST") becomes such a chain when that helps (`because_chain`): IMO 2017 P4 now reads ∠BRK = ∠BRS + ∠SRK [angle addition] = ∠BRS + ∠SBR [△SRK ∼ △SBR] = ∠BST [exterior angle of △SRB]. A middle term is re-displayed when that makes both neighbouring links transparent (`redisplay_middles`, IMO 2023 P2 step 6: ∠AOP − ∠PTB = ∠AOP − ∠AEP = ∠AEP). Angle names stay stable along a chain (`stable_names`). Identity links do not count toward the eight-link cut. A ray that runs along a fact's line but the other way counts as a flip; a non-cyclic fact whose two changed angles differ in flip parity is opaque (∠BRK vs ∠BST, with T beyond S on RS), while a cyclic fact may flip (the exterior angle of a cyclic quadrilateral is that theorem's own reading). A three-vertex identity is accepted around a fact only when it is a triangle's angle sum or exterior angle.
+- *Honest radii.* A radii atom backed by a ratio chase is gone: "EP = EQ, by (2) and (3)" (IMO 2000 P1) and "FI = FG. Hence FI = FG" (JGEX E074-24) were the goal re-stated through a radii atom whose row was in the span of earlier similarities. Radii atoms with derived support now need each derived fact to state a length equality (`atoms.rs:radii`). IMO 2000 P1 now ends with the ratio chain EP = AE·NE/AN = … = EQ; E074-24 is an honest pooled sentence.
+- *Setup lines never state a derived fact (target 7).* Named circles list only hypothesis-level concyclicity (`mod.rs:named_circles`), and the checker rejects a setup circle whose points are concyclic only by a derived fact (rule I7, `check.rs:setup_violations`, test `a_setup_line_never_states_the_goal`). Corpus lines removed by this: "Let ω be the circle through A, B, D, E, M" (IMO 2016 P1), "Let ω be the circle through A, O, R, Q" and "… B, O, R, P" (IMO 2007 P4), "… A, D, Q, R" (IMO 2003 P4), and eleven JGEX lines.
+- *Theorem configurations.* Miquel's theorem is its own step and names the triangle, the three side points and the two circles; the configuration is generated once (`theorems.rs`, p < q). A congruence proved from a ratio and an angle cites the equal side ("AD = CB, so △ADM ≅ △CBM (SAS)", `congruence_side`). Arc–chord reads "equal or supplementary inscribed angles stand on equal chords" (true in every configuration). A directed hypothesis cited in a figure-angle chain is shown undirected when the figure allows (`undirected_hyps`). The plan is printed only when it lists every premise of the last step and every earlier step is cited later. A final chain that only restates collinearities and hypotheses is one sentence (IMO 2023 P2: "A, I, X collinear, by (7) and AI bisects ∠BAC, so AX bisects ∠BAC, as required").
+- *Squared ratios.* Before a ratio goal with half-integer coefficients is pooled, the squared statement is tried through the whole chain pipeline (`claims.rs:squared_ratio`; ratio table only, where halving a logarithm of positive lengths is sound).
+- *Renderer parity.* The browser now writes ≡ in Romanian for congruences cited inside a sentence (it used the UI language instead of the proof's); `desktop-e2e.mjs:humanParity` caught it.
+
+**Measured (base `0a6e67b` → `wf/hp-final2`).** Writer on every proved conjunct, `hpmetrics.py`; IMO timing sequential (one job, bench lock), JGEX with four jobs.
+
+| | IMO base | IMO final | JGEX base | JGEX final |
+|---|---|---|---|---|
+| conjuncts / panics / checker violations | 30 / 0 / 0 | 30 / 0 / 0 | 240 / 0 / 0 | 240 / 0 / 0 |
+| pooled sentences (proofs) | 3 (2) | 4 (2) | 1 (1) | 3 (2) |
+| multi-fact links | 16 | 20 | 24 | 57 |
+| proofs with 2∡ (2∡ uses) | 9 (95) | 5 (24) | 18 (36) | 8 (14) |
+| proofs in the directed convention | 19 | 19 | 82 | 76 |
+| steps / chain links | 351 / 931 | 338 / 971 | 657 / 1424 | 685 / 1563 |
+| writer ms median / p95 / max | 44 / 169 / 755 | 38 / 130 / 232 | 5.8 / 35 / 616 | 4.1 / 46 / 249 |
+
+Multi-fact links rose because half-angle intermediates (`½·∡PFA` lines) are no longer printed: the isosceles triangle and the central angle it serves now share one link ("FA = FP: triangle FAP is isosceles; inscribed angle ∠AQP = 180° − ½∠AFP"), which is the textbook justification but counts as two facts.
+
+**What still uses 2∡ or pooling, and why.** 2∡ remains where every as-drawn route found within budget is longer than the directed one or the figure-angle form changes with the configuration: IMO 2000 P6 (6 uses), 2008 P6 (2), 2011 P6 (9), 2016 P1 (4), 2019 P6 (3), and eight JGEX proofs (E022-9, E051-5, E039-28, E061-65 ×2, E061-66, 109f, morley). Pooled sentences: IMO 2008 P6 and 2015 P3 (ratio/angle supports with no chain within the eight-link and route budgets), JGEX E074-24 (it used to read "FI = FG. Hence FI = FG" through a radii atom that restated the goal; the honest form is pooled) and morley (trisector angle arithmetic with thirds).
+
+**Gates.** `cargo test --release --workspace --no-fail-fast`: every suite ok (ag-studio 327 passed). IMO under the bench lock (`--budget 120 --jobs 4 --threads 3 --mem-mb 2048`): PROVED 30/30 (16 DDAR alone, 14 with aux points), solved set and method identical to base. Human proofs: 30 IMO and 240 JGEX conjuncts (231 problems), 0 panics, 0 checker violations. Writer p95 on IMO 130 ms sequential. desktop-e2e 495 PASS (4 skipped: synthetic clipboard paste in Firefox, wheel in mobile WebKit), iphone-e2e 372 PASS, android-e2e 406 PASS.
+
+**Independent reviews** (`claude -p --model opus`, no tools, problem + coordinates + EN text; final round on this build): orthocentre reflection BLOCKING (the converse of the inscribed angle theorem and the same-side condition are not named, a barem-style choice, STYLE §1.10), Euler line MINOR, AH = 2·OMₐ MINOR, IMO 2004 P1 golden MINOR, IMO 2023 P2 golden BLOCKING (a central-angle link hides two isosceles triangles; a directed identity in step 5), corpus IMO 2004 P1 MINOR, IMO 2017 P4 MINOR (was BLOCKING: step 3 now exposes the exterior angle), IMO 2000 P1, 2005 P5, 2008 P6, 2012 P1, 2015 P3, 2019 P2, 2021 P3 BLOCKING.
+
+**Still weak.**
+- Concyclicity conclusions do not name the converse of the inscribed angle theorem or the same-side condition; reviewers block on this in several proofs.
+- Multi-fact labels still hide sub-arguments: "central angle" over two isosceles triangles (IMO 2023 P2 step 4), "inscribed angles in γ" over an exterior angle and an angle sum (2021 P3), hypothesis-only brackets over triangle sums (2019 P2 step 3).
+- Long corpus proofs (2008 P6, 2015 P3) keep steps whose justification is a list of ingredients; a congruence obtained from SAS similarity plus an equal side is labelled SAS (2005 P5); the Miquel step does not rule out the other intersection point (2000 P1).
+- Supplementary angles on a line are labelled `angle addition` ("∠OTX = 180° − ∠OTB [angle addition]").
+

@@ -4,15 +4,14 @@ use rustc_hash::FxHashMap;
 
 #[derive(Clone)]
 pub struct Basis {
-    rows: Vec<(VarId, LinComb, LinComb)>,
-    pivot: FxHashMap<VarId, usize>,
+    rows: FxHashMap<VarId, (LinComb, LinComb)>,
     pivotable: Vec<bool>,
     track: bool,
 }
 
 impl Basis {
     pub fn new(pivotable: &[bool], track: bool) -> Basis {
-        Basis { rows: Vec::new(), pivot: FxHashMap::default(), pivotable: pivotable.to_vec(), track }
+        Basis { rows: FxHashMap::default(), pivotable: pivotable.to_vec(), track }
     }
 
     pub fn len(&self) -> usize {
@@ -27,19 +26,21 @@ impl Basis {
         self.pivotable.get(v as usize).copied().unwrap_or(true)
     }
 
+    fn top_below(&self, v: &LinComb, bound: Option<VarId>) -> Option<(VarId, Rat)> {
+        v.terms.iter().rev().find(|(var, c)| bound.is_none_or(|b| *var < b) && self.can_pivot(*var) && !c.is_zero()).map(|(var, c)| (*var, c.clone()))
+    }
+
     pub fn reduce(&self, v: &mut LinComb, combo: &mut LinComb) {
-        let hits: Vec<(usize, Rat)> = v
-            .terms
-            .iter()
-            .filter_map(|(var, c)| self.pivot.get(var).map(|&i| (i, c.clone())))
-            .collect();
-        for (i, c) in hits {
-            let (_, row, rc) = &self.rows[i];
-            let neg = -&c;
-            v.iadd_mul(row, &neg);
-            if self.track {
-                combo.iadd_mul(rc, &neg);
+        let mut bound: Option<VarId> = None;
+        while let Some((var, c)) = self.top_below(v, bound) {
+            if let Some((row, rc)) = self.rows.get(&var) {
+                let neg = -&c;
+                v.iadd_mul(row, &neg);
+                if self.track {
+                    combo.iadd_mul(rc, &neg);
+                }
             }
+            bound = Some(var);
         }
     }
 
@@ -54,25 +55,13 @@ impl Basis {
         let mut v = row.clone();
         let mut combo = if self.track { LinComb::singleton(idx, Rat::one()) } else { LinComb::zero() };
         self.reduce(&mut v, &mut combo);
-        let Some((p, c)) = v.terms.iter().find(|(var, c)| self.can_pivot(*var) && !c.is_zero()).map(|(var, c)| (*var, c.clone())) else {
+        let Some((p, c)) = self.top_below(&v, None) else {
             return false;
         };
         let s = c.recip();
         v.mul_assign_scalar(&s);
         combo.mul_assign_scalar(&s);
-        for i in 0..self.rows.len() {
-            let k = self.rows[i].1.get(p);
-            if !k.is_zero() {
-                let neg = -&k;
-                let (_, row, rc) = &mut self.rows[i];
-                row.iadd_mul(&v, &neg);
-                if self.track {
-                    rc.iadd_mul(&combo, &neg);
-                }
-            }
-        }
-        self.pivot.insert(p, self.rows.len());
-        self.rows.push((p, v, combo));
+        self.rows.insert(p, (v, combo));
         true
     }
 

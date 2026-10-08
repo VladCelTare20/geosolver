@@ -19,6 +19,7 @@ pub struct Path {
     pub nodes: Vec<LinComb>,
     pub links: Vec<Group>,
     pub weight: i64,
+    pub undirected: bool,
 }
 
 pub fn classes(c: &LinComb) -> Vec<(VarId, Rat)> {
@@ -192,7 +193,7 @@ pub fn bfs(
             }
             seq.reverse();
             links.reverse();
-            let path = Path { split: si, nodes: seq.iter().map(|&k| nodes[k].clone()).collect(), links, weight: dist[end] };
+            let path = Path { split: si, nodes: seq.iter().map(|&k| nodes[k].clone()).collect(), links, weight: dist[end], undirected: false };
             if best.as_ref().is_none_or(|b| path.weight < b.weight) {
                 best = Some(path);
             }
@@ -522,6 +523,7 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
     };
     let mut found: Option<usize> = None;
     let mut spent = 0usize;
+    let mut memo: FxHashMap<u32, (LinComb, Option<i64>)> = FxHashMap::default();
     while let Some(Reverse((_, u))) = heap.pop() {
         if done[u] {
             continue;
@@ -537,33 +539,43 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
         *budget -= 1;
         spent += 1;
         let (mask, node, g) = (states[u].mask, states[u].node.clone(), states[u].g);
+        let step = |memo: &mut FxHashMap<u32, (LinComb, Option<i64>)>, from: &LinComb, m: u32, k: usize| -> (LinComb, Option<i64>) {
+            let m2 = m | (1 << k);
+            if let Some(hit) = memo.get(&m2) {
+                return hit.clone();
+            }
+            let nx = LinComb::combine(from, &items[k].2, &-&items[k].1);
+            let c = if m2 == full { (nx == *r).then_some(0) } else { shape(&nx) };
+            memo.insert(m2, (nx.clone(), c));
+            (nx, c)
+        };
         for k in 0..n {
             if mask & (1 << k) != 0 {
                 continue;
             }
-            let nx = LinComb::combine(&node, &items[k].2, &-&items[k].1);
             let m2 = mask | (1 << k);
+            let (nx, c1) = step(&mut memo, &node, mask, k);
             if m2 == full {
-                if nx == *r {
+                if c1.is_some() {
                     push(&mut states, &mut done, &mut index, &mut heap, m2, nx, g + 10, (u, vec![k]));
                 }
                 continue;
             }
-            if let Some(c) = shape(&nx) {
+            if let Some(c) = c1 {
                 push(&mut states, &mut done, &mut index, &mut heap, m2, nx, g + 10 + c, (u, vec![k]));
                 continue;
             }
+            let nx_vars: Vec<VarId> = nx.terms.iter().map(|(v, _)| *v).filter(|v| *v != ANGLE_UNIT).collect();
+            let prune = table == Table::Angle && (!halves || classes(&nx).len() >= 3);
             for k2 in 0..n {
                 if m2 & (1 << k2) != 0 {
                     continue;
                 }
-                let nx2 = LinComb::combine(&nx, &items[k2].2, &-&items[k2].1);
+                if prune && !items[k2].2.terms.iter().any(|(v, _)| nx_vars.binary_search(v).is_ok()) {
+                    continue;
+                }
                 let m3 = m2 | (1 << k2);
-                let c = if m3 == full {
-                    (nx2 == *r).then_some(0)
-                } else {
-                    shape(&nx2)
-                };
+                let (nx2, c) = step(&mut memo, &nx, m2, k2);
                 if let Some(c) = c {
                     push(&mut states, &mut done, &mut index, &mut heap, m3, nx2, g + 30 + c, (u, vec![k, k2]));
                     continue;
@@ -575,9 +587,8 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
                     if k3 <= k2 || m3 & (1 << k3) != 0 {
                         continue;
                     }
-                    let nx3 = LinComb::combine(&nx2, &items[k3].2, &-&items[k3].1);
                     let m4 = m3 | (1 << k3);
-                    let c = if m4 == full { (nx3 == *r).then_some(0) } else { shape(&nx3) };
+                    let (nx3, c) = step(&mut memo, &nx2, m3, k3);
                     if let Some(c) = c {
                         push(&mut states, &mut done, &mut index, &mut heap, m4, nx3, g + 45 + c, (u, vec![k, k2, k3]));
                     }
@@ -597,6 +608,35 @@ pub fn order_items_mode(cx: &Ctx, table: Table, l: &LinComb, r: &LinComb, items:
 }
 
 pub fn display_node(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
+    let e = display_node_any(cx, node, directed, near, focus)?;
+    if directed && fractional_angle(&e) {
+        return None;
+    }
+    if !directed && degenerate_angle(cx, &e) {
+        return None;
+    }
+    Some(e)
+}
+
+pub fn fractional_angle(e: &Expr) -> bool {
+    match e {
+        Expr::Lin { terms } => terms.iter().any(|(k, x)| matches!(x, Expr::Angle { .. } | Expr::LineAngle { .. }) && !k.is_integer()),
+        _ => false,
+    }
+}
+
+pub fn degenerate_angle(cx: &Ctx, e: &Expr) -> bool {
+    match e {
+        Expr::Angle { a, b, c, directed: false } => {
+            let v = super::theorems::interior_degrees(cx.t, *a, *b, *c);
+            !(1e-6..=180.0 - 1e-6).contains(&v)
+        }
+        Expr::Lin { terms } => terms.iter().any(|(_, x)| degenerate_angle(cx, x)),
+        _ => false,
+    }
+}
+
+fn display_node_any(cx: &Ctx, node: &LinComb, directed: bool, near: &[&[PointId]], focus: &BTreeSet<PointId>) -> Option<Expr> {
     if single_angle(node).is_some() {
         return angle_expr(cx, node, directed, near, focus);
     }
@@ -635,7 +675,8 @@ pub fn with_const(cx: &Ctx, mut terms: Vec<(Rat, Expr)>, node: &LinComb, directe
     let c = if directed { rest.get(ANGLE_UNIT).mod_one() } else { rest.get(ANGLE_UNIT) };
     terms.sort_by_key(|(k, _)| k.is_negative());
     if !c.is_zero() {
-        terms.push((Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
+        let at = if terms.iter().all(|(k, _)| k.is_negative()) { 0 } else { terms.len() };
+        terms.insert(at, (Rat::one(), Expr::Const { degrees: &c * &Rat::from_int(180) }));
     }
     Some(Expr::Lin { terms })
 }

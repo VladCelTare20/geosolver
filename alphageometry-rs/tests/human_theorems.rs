@@ -28,7 +28,7 @@ impl Fix {
         ns.iter().map(|n| self.id(n)).collect()
     }
     fn ctx(&self) -> Ctx<'_> {
-        let elsewhere = Predicate { name: "elsewhere".into(), points: Vec::new(), constants: Vec::new() };
+        let elsewhere = Predicate { name: self.goal.name.clone(), points: Vec::new(), constants: Vec::new() };
         Ctx::new(&self.trace, &elsewhere, &self.deps, &[], None)
     }
     fn generated(&self, key: AtomKey, args: &[PointId]) -> bool {
@@ -154,6 +154,18 @@ fn cases() -> Vec<Case> {
             src: "A B C = triangle\nO = circumcenter(A, B, C)\nH = orthocenter(A, B, C)\nMa = midpoint(B, C)\nprove dist(A, H) = 2 * dist(O, Ma)",
             pos: (AtomKey::ExtLawOfSines, &["A", "B", "C", "O"]),
             neg: &[(AtomKey::ExtLawOfSines, &["A", "B", "C", "H"]), (AtomKey::ExtLawOfSines, &["A", "B", "Ma", "O"])],
+        },
+        Case {
+            name: "sine of complementary angles",
+            src: "A B C = triangle\nO = circumcenter(A, B, C)\nH = orthocenter(A, B, C)\nMa = midpoint(B, C)\nprove dist(A, H) = 2 * dist(O, Ma)",
+            pos: (AtomKey::SineComplement, &["B", "A", "H", "A", "B", "C"]),
+            neg: &[(AtomKey::SineComplement, &["B", "A", "H", "A", "B", "C", "B"]), (AtomKey::SineComplement, &["B", "A", "C", "A", "B", "C"]), (AtomKey::SineComplement, &["B", "A", "H", "A", "B", "C", "A"])],
+        },
+        Case {
+            name: "sine of equal or supplementary angles",
+            src: "A B C = triangle\nO = circumcenter(A, B, C)\nH = orthocenter(A, B, C)\nMa = midpoint(B, C)\nprove dist(A, H) = 2 * dist(O, Ma)",
+            pos: (AtomKey::SineSupplement, &["C", "A", "B", "H", "A", "B", "C"]),
+            neg: &[(AtomKey::SineSupplement, &["C", "A", "B", "H", "A", "B"]), (AtomKey::SineSupplement, &["C", "A", "B", "A", "B", "H"]), (AtomKey::SineSupplement, &["C", "A", "B", "B", "A", "C"])],
         },
         Case {
             name: "congruence (SSS)",

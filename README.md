@@ -75,8 +75,14 @@ with **one fact per link** and the reason beside it
 uses is tagged (k) and cited "by (k)"; the last step restates the goal in the
 problem's words ("…, as required. ∎"). Angles written ∠ are read from the
 figure; directed angles ∡ are used only where a chain must not depend on the
-drawing, and are then defined in words. Trigonometric proofs go through
-lemmas of the form `BC = 2R·sin A`, one law of sines per step.
+drawing, and are then defined in words together with the steps that need them.
+When a fact gives one angle and the chain needs a neighbouring one, the step in
+between is its own line (`[angle addition]`, `[exterior angle of △DBL]`,
+`[angle sum in △PBC]`), checked like any other link. Setup lines only introduce
+objects; they never state anything the proof still has to show.
+Trigonometric proofs use the textbook forms `a = 2R·sin A`, `AH = 2R·cos A`
+and `OMₐ = R·cos A` (law of sines, extended law of sines, sin(90° − x) = cos x),
+each side in at most three lines.
 
 This text is a rewriting of the engine's own derivation; it does not come from a
 language model. Every claim, chain link and computation is **re-verified exactly**

@@ -520,6 +520,21 @@ pub fn coll_targets(cx: &Ctx, p: &[PointId], f: Option<FactId>) -> Option<(Vec<T
                 }
             }
         }
+        let (a, b) = (base[0], base[1]);
+        let stmt = Stmt::Coll { pts: vec![a, b, c] };
+        for (x, v, y) in [(a, b, c), (b, a, c), (a, c, b)] {
+            let mut refs: Vec<PointId> = Vec::new();
+            for l in cx.lines.iter().filter(|l| l.pts.contains(&v)) {
+                for &z in &l.pts {
+                    if ![x, v, y].contains(&z) && !refs.contains(&z) && refs.len() < 2 {
+                        refs.push(z);
+                    }
+                }
+            }
+            for z in refs {
+                forms.extend(angle_target(cx, ang_expr(x, v, z), ang_expr(y, v, z), stmt.clone()));
+            }
+        }
         out.push(with_alts(forms)?);
     }
     Some((out, requires))
