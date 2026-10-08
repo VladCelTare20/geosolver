@@ -9,16 +9,16 @@ Plan: it suffices to show that △AHG ∼ △MOG.
 3. OB = OC and MB = MC, so OM is the perpendicular bisector of BC; hence OM ⟂ BC. (3)
 4. AH ⟂ BC and OM ⟂ BC, by (3), so AH ∥ OM. (4)
 5. We show that △AHB ∼ △MON:
-    ∠HAB = ∠B − 90°      [AH ⟂ BC]
-         = 90° − ∠BMN    [MN is a midline of △CBA]
-         = ∠OMN          [OM ⟂ BC, by (3)]
-    ∠ABH = ∠A + 90°      [BH ⟂ AC]
-         = ∠MNC + 90°    [MN is a midline of △CBA]
-         = ∠MNO          [ON ⟂ AC, by (2)]
-Hence △AHB ∼ △MON. (5)
-6. AH ∥ OM, by (4), so ∠HAG = ∠OMA.
+    ∠BAH = 90° − ∠B      [AH ⟂ BC]
+         = 90° − ∠NMC    [MN is a midline of △CBA]
+         = ∠NMO          [OM ⟂ BC, by (3)]
+    ∠HBA = 90° − ∠A      [BH ⟂ AC]
+         = 90° − ∠CNM    [MN is a midline of △CBA]
+         = ∠ONM          [ON ⟂ AC, by (2)]
+Hence △AHB ∼ △MON (AA). (5)
+6. AH ∥ OM, by (4), so ∠GAH = ∠AMO.
     MG / AG = 1 / 2      [AG = 2·GM, by (1)]
             = MN / AB    [MN is a midline of △CBA]
             = OM / AH    [△AHB ∼ △MON, by (5)]
-Hence △AHG ∼ △MOG. (6)
-7. △AHG ∼ △MOG, by (6), so O, G, H lie on one line, as required. ∎
+Hence △AHG ∼ △MOG (SAS). (6)
+7. △AHG ∼ △MOG, by (6), so ∠AGH = ∠MGO; as A, G, M are collinear, these are vertical angles, so O, G, H lie on one line, as required. ∎

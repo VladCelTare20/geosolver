@@ -394,6 +394,9 @@ closed_keys!(AtomKey, eng::AtomKey, {
     CongruentRhs => "congruent_rhs",
     SineSupplement => "sine_supplement",
     SineComplement => "sine_complement",
+    AngleAddition => "angle_addition",
+    AngleSum => "angle_sum",
+    ExteriorAngle => "exterior_angle",
 });
 
 impl AtomKey {
@@ -1464,7 +1467,7 @@ impl Cx<'_> {
             .reasons
             .iter()
             .map(|r| match r {
-                Reason::Hyp { stmt, .. } if stmt.kind == "cyclic" && stmt.args.len() >= 4 => {
+                Reason::Hyp { stmt, .. } | Reason::Fact { stmt, block: None, .. } if stmt.kind == "cyclic" && stmt.args.len() >= 4 => {
                     Reason::Atom { key: AtomKey::Inscribed, args: stmt.args.clone(), stmt: stmt.clone(), from: Vec::new(), circle: Some(self.circle_ref(&stmt.args, None)) }
                 }
                 r => r.clone(),

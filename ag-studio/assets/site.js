@@ -641,6 +641,7 @@
     function inscribedLink(l) {
       return { reasons: (l.reasons || []).map(function (r) {
         if (r.kind === "hyp" && r.stmt && r.stmt.kind === "cyclic" && (r.stmt.args || []).length >= 4) return { kind: "atom", key: "inscribed", args: r.stmt.args, stmt: r.stmt, from: [], circle: circleRef(r.stmt.args, null) };
+        if (r.kind === "cyclic" && !r.lemma && r.block == null && (r.args || []).length >= 4) return { kind: "atom", key: "inscribed", args: r.args, stmt: { kind: "cyclic", args: r.args, points: r.points || r.args }, from: [], circle: circleRef(r.args, null) };
         return r;
       }), combination: l.combination };
     }

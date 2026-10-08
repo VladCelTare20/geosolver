@@ -106,6 +106,7 @@ pub fn check_rows(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Vec<(T
             }
             out
         }
+        k if k.is_identity_label() => Vec::new(),
         k => super::theorems::spec(t, k, a)?.rows,
     })
 }
@@ -394,6 +395,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                     && self.equidistant(h, a[1], &[a[4], a[3]])
             }
             AtomKey::Orthocentre => a.len() == 4 && self.perp_proven(h, (a[1], a[0]), (a[2], a[3])) && self.perp_proven(h, (a[2], a[0]), (a[3], a[1])),
+            k if k.is_identity_label() => true,
             k => self.theorem_ok(h, k, a),
         }
     }
@@ -519,9 +521,16 @@ impl<'c, 'a> Checker<'c, 'a> {
         let t = self.cx.t;
         let (tb, ea) = eval(t, a).ok_or("term does not evaluate")?;
         let (_, eb) = eval(t, b).ok_or("term does not evaluate")?;
-        if link.reasons.is_empty() && link.combination.is_empty() {
+        if link.combination.is_empty() && link.reasons.iter().all(|r| matches!(r, Reason::Atom { key, .. } if key.is_identity_label())) {
             if tb != Table::Angle || a == b || !self.residual_ok(tb, &(&ea - &eb), &LinComb::zero(), directed) {
                 return Err(format!("angle-addition link is not an identity: {:?} -> {:?}", a, b));
+            }
+            if let [Reason::Atom { key, args, .. }] = link.reasons.as_slice() {
+                if super::barem::identity_label(self.cx, a, b, directed) != Some((*key, args.clone())) {
+                    return Err(format!("identity link label {key:?} {args:?} does not describe {a:?} -> {b:?}"));
+                }
+            } else if !link.reasons.is_empty() {
+                return Err("identity link with several labels".into());
             }
             return Ok(());
         }

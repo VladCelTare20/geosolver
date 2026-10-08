@@ -290,8 +290,20 @@ impl<'c, 'a> Builder<'c, 'a> {
                 let mut s = BTreeSet::new();
                 match cx.support_facts(Table::Ratio, &row, h) {
                     Some(sup) => {
+                        let mut derived: Vec<FactId> = Vec::new();
                         for g in sup {
-                            s.extend(cx.fact_sources(g));
+                            let src = cx.fact_sources(g);
+                            if !src.is_empty() {
+                                derived.push(g);
+                            }
+                            s.extend(src);
+                        }
+                        let plain = |g: FactId| {
+                            matches!(super::classify::fact_stmt(cx, g), super::model::Stmt::Cong { .. } | super::model::Stmt::Congruent { .. } | super::model::Stmt::Coincide { .. } | super::model::Stmt::OnCircle { .. })
+                                || cx.t.rows_of(Table::Ratio, g).any(|r| cx.t.canon_ratio(r).terms.len() == 2)
+                        };
+                        if derived.iter().any(|&g| !plain(g)) {
+                            self.atoms[i].avail = NEVER;
                         }
                     }
                     None => {

@@ -527,6 +527,9 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::CongruentSas => format!("△{} ≅ △{} (SAS)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::CongruentAsa => format!("△{} ≅ △{} (ASA)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::CongruentRhs => format!("△{} ≅ △{} (RHS)", n.pts(&a[0..3]), n.pts(&a[3..6])),
+        AtomKey::AngleAddition => "angle addition".to_string(),
+        AtomKey::AngleSum => format!("angle sum in △{}", n.pts(&a[0..3])),
+        AtomKey::ExteriorAngle => format!("exterior angle of △{}", n.pts(&a[0..3])),
     }
 }
 
@@ -995,7 +998,9 @@ fn inscribed_link(l: &Link) -> Link {
         .reasons
         .iter()
         .map(|r| match r {
-            Reason::Hyp { stmt: st @ Stmt::Cyclic { pts }, .. } if pts.len() >= 4 => Reason::Atom { key: AtomKey::Inscribed, stmt: st.clone(), args: pts.clone(), from: Vec::new() },
+            Reason::Hyp { stmt: st @ Stmt::Cyclic { pts }, .. } | Reason::Fact { stmt: st @ Stmt::Cyclic { pts }, block: None, .. } if pts.len() >= 4 => {
+                Reason::Atom { key: AtomKey::Inscribed, stmt: st.clone(), args: pts.clone(), from: Vec::new() }
+            }
             r => r.clone(),
         })
         .collect();

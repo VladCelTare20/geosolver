@@ -2,14 +2,15 @@ Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circum
 
 Plan: it suffices to show that AH = 2R·cos A and MₐO = R·cos A.
 
-1. We show that AB = 2R·sin C:
-    AB = 2R·sin C    [extended law of sines in △CAB; OA = OC] (1)
-2. We show that AH = 2R·cos A:
+1. OB = OC and MₐB = MₐC, so OMₐ is the perpendicular bisector of BC; hence OMₐ ⟂ BC. (1)
+2. We show that AB = 2R·sin C:
+    AB = 2R·sin C    [extended law of sines in △CAB; OA = OC] (2)
+3. We show that AH = 2R·cos A:
     AH = AB·sin∠HBA / sin∠BHA    [law of sines in △BHA]
-       = AB·cos A / sin∠BHA      [∠ABH = A + 90°; BH ⟂ AC]
-       = AB·cos A / sin C        [C = ∠AHB; AH ⟂ BC]
-       = 2R·cos A                [by (1)] (2)
-3. We show that MₐO = R·cos A:
-    MₐO = R·sin∠MₐBO    [law of sines in △BMₐO; ∠OMₐB = 90°; OA = OB]
-        = R·cos A       [∠OBMₐ = 90° − A; central angle ∠BOC = 2∠BAC; OB = OC: triangle OBC is isosceles] (3)
-4. AH = 2R·cos A, by (2) and MₐO = R·cos A, by (3), so AH = 2·MₐO, as required. ∎
+       = AB·cos A / sin∠BHA      [∠ABH = 90° − A; BH ⟂ AC]
+       = AB·cos A / sin C        [C = 180° − ∠AHB; AH ⟂ BC]
+       = 2R·cos A                [by (2)] (3)
+4. We show that MₐO = R·cos A:
+    MₐO = R·sin∠MₐBO    [law of sines in △BMₐO; ∠OMₐB = 90° (OMₐ ⟂ BC, by (1)); OA = OB]
+        = R·cos A       [∠OBMₐ = 90° − A; central angle ∠BOC = 2∠BAC; OB = OC: triangle OBC is isosceles] (4)
+5. AH = 2R·cos A, by (3) and MₐO = R·cos A, by (4), so AH = 2·MₐO, as required. ∎
