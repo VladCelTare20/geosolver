@@ -107,7 +107,7 @@ recreated app container is found without restarting nginx. nginx alone sends `St
 hidden, so the header appears once).
 
 The build context is an allowlist (`.dockerignore`): only `Cargo.toml`,
-`Cargo.lock`, `ag-studio/`, `alphageometry-rs/` and `corpus/`,
+`Cargo.lock`, `ag-studio/`, `alphageometry-rs/`, `corpus/` and the licence files,
 minus `target/`, `node_modules/`, `.env`, `*.db*` and logs. `deploy/.env`,
 `deploy/certs/` and a local `agstudio.db` never reach the builder, and editing
 them does not invalidate the cargo build layer.

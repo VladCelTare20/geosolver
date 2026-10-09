@@ -4,6 +4,9 @@
 !ag-studio/
 !alphageometry-rs/
 !corpus/
+!LICENSE
+!NOTICE
+!THIRD_PARTY_LICENSES.md
 **/target/
 **/node_modules/
 **/.env
