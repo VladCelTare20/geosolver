@@ -265,7 +265,7 @@ A Cargo workspace:
 | [`ag-studio/`](ag-studio/) | this product: `engine` (in-process solve wrapper), `render` (SVG→PNG/PDF, report page), `translate` (photo/NL→`.geo` via the Claude CLI), `web` (axum server + UI), `mcp` (MCP server) |
 | [`corpus/`](corpus/) | AlphaGeometry problem sets & definitions (for testing / reference) |
 
-The `agstudio` binary has the subcommands `render`, `best`, `translate`, `serve`, `mcp`,
+The `agstudio` binary has the subcommands `render`, `best`, `translate`, `serve`, `mcp`, `doctor` (checks the AI sign-in with one tiny model call),
 `backup` (a consistent copy of the server database) and `--version`.
 
 ## Build & test

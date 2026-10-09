@@ -2413,9 +2413,10 @@ mod tests {
             report_from_json(&v, Lang::Ro, false)
         };
         let imo = report("imo-2004-p1");
-        for c in ['\u{2222}', '\u{27c2}', '\u{2221}', '\u{2225}'] {
+        for c in ['\u{2220}', '\u{27c2}', '\u{2221}', '\u{2225}'] {
             assert!(imo.contains(c), "{c} is missing from the report");
         }
+        assert!(!imo.contains('\u{2222}'), "Romanian figure angles print \u{2220}, as on the web");
         let p2 = report("imo-2023-p2");
         assert!(
             p2.contains("OAX</tspan> \u{2261} \u{25b3}<tspan font-style=\"italic\">OPX"),
@@ -2426,8 +2427,8 @@ mod tests {
             "no \u{2245} in the Romanian report"
         );
         assert!(
-            imo.contains("\u{2222}<tspan font-style=\"italic\">"),
-            "the vertex names after \u{2222} are set as names"
+            imo.contains("\u{2220}<tspan font-style=\"italic\">"),
+            "the vertex names after \u{2220} are set as names"
         );
         assert!(
             !imo.contains('\u{2245}') && !imo.contains('\u{22a5}'),
