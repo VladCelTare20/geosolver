@@ -606,11 +606,11 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
     // Text: verdict, method, proof, and the compiled low-level form.
     let mut text = String::new();
     text.push_str(&match sol.status {
-        engine::Status::Proved if sol.as_drawn => format!(
-            "PROVEN FOR THE CONFIGURATION DRAWN ONLY — {}; not a proof of the statement as a \
-             general theorem\n",
-            engine::AS_DRAWN_NOTE
-        ),
+        engine::Status::Proved if sol.as_drawn => {
+            "PROVEN FOR THE CONFIGURATION DRAWN ONLY — the hypotheses also allow a figure in \
+             which the statement fails, so this is not a proof of it as a general theorem\n"
+                .to_string()
+        }
         engine::Status::Proved => "PROVEN — classical Euclidean proof\n".to_string(),
         engine::Status::HoldsNumerically => format!(
             "NOT PROVEN — no Euclidean proof was found. The goal holds numerically in {} \

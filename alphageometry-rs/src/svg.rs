@@ -935,13 +935,18 @@ fn undirected_degrees(problem: &Problem, (x, v, y): (PointId, PointId, PointId))
     (n > 1e-18).then(|| (u.dot(w) / n).clamp(-1.0, 1.0).acos().to_degrees())
 }
 
-/// Whether an `eqangle`/`aconst` fact written with the vertex notation `∠XYZ`
-/// is true of the undirected angles of this figure. `Some(false)` means the
-/// fact holds only as a directed angle (mod 180°) and must be shown as `∡`;
-/// `None` when the notation does not apply (line-angle form, other predicates).
+/// Whether an `eqangle`/`aconst` fact that holds in this figure, written with
+/// the vertex notation `∠XYZ`, is also true of its undirected angles.
+/// `Some(false)` means it holds only as a directed angle (mod 180°) and must be
+/// shown as `∡`; `None` when the notation does not apply (line-angle form,
+/// other predicates) or the fact is false in the figure (a refuted goal keeps
+/// the notation it was stated in).
 pub fn undirected_reading_holds(problem: &Problem, pred: &Predicate) -> Option<bool> {
     const TOL: f64 = 1e-4;
     let p = &pred.points;
+    if crate::geo::numeric_holds(problem, pred) != Some(true) {
+        return None;
+    }
     match pred.name.as_str() {
         "eqangle" if p.len() == 8 => {
             let g1 = undirected_degrees(problem, vertex_form(p[0], p[1], p[2], p[3])?)?;

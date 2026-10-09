@@ -217,6 +217,7 @@ in
       default = { };
       example = {
         AGSTUDIO_GUEST_AI_PER_DAY = "60";
+        AGSTUDIO_AI_PER_DAY_TOTAL = "400";
       };
       description = "Further AGSTUDIO_* variables (deploy/DEPLOY.md lists them).";
     };

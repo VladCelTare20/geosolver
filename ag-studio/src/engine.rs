@@ -1794,6 +1794,43 @@ mod tests {
         Y = meet(line(B, C), line(P, Q))\nprove cong(M, X, M, Y)";
 
     #[test]
+    fn false_undirected_angle_claims_are_refuted_on_every_path() {
+        for src in [
+            "A B C = triangle\nD = parallelogram(A, B, C)\nprove angle(D, A, B) = angle(C, B, A)",
+            "A B = segment\nC = eq_triangle(A, B)\nD = reflect(A, B)\nprove angle(D, B, C) = 60",
+            "A B = segment\nC = point: angle(A, B, C) = 120, cong(B, A, B, C)\nprove angle(B, A, C) = 60",
+        ] {
+            let opts = SolveOptions::default();
+            let sol = solve_within(src, &opts, Some(Duration::from_secs(20))).unwrap();
+            assert!(!sol.proved, "{src}: {}", sol.note);
+            assert_eq!(sol.status, Status::Refuted, "{src}");
+            let best = solve_best(src, &opts, Duration::from_secs(10)).unwrap();
+            assert!(!best.proved, "best mode, {src}: {}", best.note);
+        }
+    }
+
+    #[test]
+    fn a_configuration_dependent_proof_is_marked_as_drawn() {
+        let sol = solve(
+            "A B C = triangle\nP = point: angle(P, B, A) = angle(P, C, A)\nprove cyclic(A, P, B, C)",
+            &SolveOptions::default(),
+        )
+        .unwrap();
+        if sol.proved {
+            assert!(sol.as_drawn, "{}", sol.note);
+            assert!(sol.note.starts_with(AS_DRAWN_NOTE), "{}", sol.note);
+            let json = serde_json::to_value(&sol).unwrap();
+            assert_eq!(json["as_drawn"], true);
+        }
+        let general = solve(
+            "A B C = triangle\nO = circumcenter(A, B, C)\nprove cong(O, A, O, B)",
+            &SolveOptions::default(),
+        )
+        .unwrap();
+        assert!(general.proved && !general.as_drawn, "{}", general.note);
+    }
+
+    #[test]
     fn refuted_metric_goal_is_not_proved() {
         let sol = solve(DIST_CONST_FREE, &SolveOptions::default()).unwrap();
         assert_eq!(sol.method, Method::Euclidean);

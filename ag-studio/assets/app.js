@@ -1153,7 +1153,7 @@
       sol.search === "shortest" ? t("meta.shortest_search", { t: GS.fmtSecs(sol.elapsed_secs) }) : GS.fmtSecs(sol.elapsed_secs),
       nSteps ? tp("meta.steps", nSteps) : "",
       sol.status === "holds-numerically" && sol.numeric_samples ? tp("meta.samples", sol.numeric_samples) : "",
-      sol.status === "proved" && v.as_drawn ? t("meta.as_drawn") : "",
+      sol.status === "proved" && v.as_drawn ? t(v.figure_dependent ? "meta.as_drawn_config" : "meta.as_drawn") : "",
     ].filter(Boolean).map(function (x) { return "<span>" + esc(x) + "</span>"; });
     var guest = S.status && S.status.guest && !S.status.signed_in;
     var guestNote = guest ? '<p class="hint guest-note"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t("hist.guest")) + ' <a href="/auth?mode=register">' + esc(t("nav.create")) + "</a></span></p>" : "";
