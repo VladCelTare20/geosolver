@@ -1073,6 +1073,7 @@
     var timeLimited = note.key === "time_limit";
     switch (sol.status) {
       case "proved":
+        if (v.figure_dependent) return { tone: "proved", icon: "check", head: t("v.proved.drawn"), text: t("v.proved.config.x") };
         if (!hasSteps(sol)) return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.immediate") };
         if (v.as_drawn) return { tone: "proved", icon: "check", head: t("v.proved.drawn"), text: t("v.proved.drawn.x") };
         if (humanOf(sol)) return { tone: "proved", icon: "check", head: t("v.proved"), text: t("v.proved.hp") };
@@ -2091,7 +2092,14 @@
     announce(used.length ? t("fig.point", { p: name, steps: used.join(", ") }) : t("fig.point.none", { p: name }));
   };
 
-  var peek = { el: null, big: false, figSeen: true, lit: false, timer: 0 };
+  var peek = { el: null, big: false, figSeen: true, lit: false, timer: 0, src: null };
+  function noteLitSource(e) {
+    var tg = e.target;
+    if (!tg || !tg.closest || !tg.closest("#proof-area, #verdict")) return;
+    peek.src = tg.closest(".hp-block, .step, li, [tabindex]") || tg;
+  }
+  document.addEventListener("pointerover", noteLitSource, true);
+  document.addEventListener("focusin", noteLitSource, true);
   function peekWanted() {
     return peek.lit && !peek.figSeen && !!viewer.svg && !viewer.isFull() && matchMedia("(max-width: 1023px)").matches && !document.body.classList.contains("drawer-open");
   }
@@ -2115,7 +2123,8 @@
     var b0 = viewer.base0 || viewer.base;
     var ratio = Math.max(0.6, Math.min(1.25, b0.h / b0.w));
     var W = document.documentElement.clientWidth, H = window.innerHeight;
-    var ae = document.activeElement, ar = ae && ae !== document.body && ae.getBoundingClientRect ? ae.getBoundingClientRect() : null;
+    var ae = peek.src && peek.src.isConnected ? peek.src : document.activeElement;
+    var ar = ae && ae !== document.body && ae.getBoundingClientRect ? ae.getBoundingClientRect() : null;
     var header = document.querySelector(".site-header"), hr = header.getBoundingClientRect();
     var top = getComputedStyle(header).position === "sticky" ? Math.max(0, hr.bottom) : 0;
     var atTop = !!ar && (ar.top + ar.bottom) / 2 > (top + H) / 2;

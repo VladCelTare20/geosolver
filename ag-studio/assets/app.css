@@ -749,6 +749,8 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
 .hist-empty { color: var(--text-2); font-size: var(--fs-13); padding: var(--s2) 4px; }
 
 .forget-device { margin-top: var(--s2); }
+.footer-links { margin-top: var(--s2); }
+.footer-links .link { display: inline-block; min-height: 44px; line-height: 44px; padding: 0 var(--s2); }
 .forget-device .link-btn { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; min-height: 44px; padding: 0 var(--s2); }
 .site-footer { max-width: var(--maxw); margin: 0 auto; padding: var(--s5) max(var(--s5), var(--sai-r)) max(var(--s5), var(--sai-b)) max(var(--s5), var(--sai-l)); color: var(--text-2); font-size: var(--fs-12); text-align: center; border-top: 1px solid var(--border); }
 
@@ -836,17 +838,18 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .zoom-label { min-width: 36px; margin-right: 2px; }
 }
 @media (max-width: 339px) {
+  .site-header.has-rail-toggle .wordmark { display: none; }
   .signin-btn { width: var(--hdr-ctl); padding: 0; }
   .signin-btn .lbl-ic { display: inline-flex; }
   .signin-btn .lbl { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 @media (max-width: 440px) {
-  .site-header.has-signin:not(.roomy) .wordmark span { display: none; }
+  .site-header.has-signin:not(.roomy) .wordmark span,
+  .site-header.has-rail-toggle:not(.roomy) .wordmark span { display: none; }
 }
 @media (max-width: 299px) {
   .site-header .inner { padding-left: max(var(--s2), var(--sai-l)); padding-right: max(var(--s2), var(--sai-r)); }
   .site-header.roomy .wordmark span { display: none; }
-  .site-header.has-rail-toggle .wordmark { display: none; }
   .shell, .has-rail .shell { padding: var(--s3) max(var(--s2), var(--sai-r)) var(--s6) max(var(--s2), var(--sai-l)); }
   .composer, .verdict, .statement, .proof, .state-solving, .state-error, .state-empty { padding-left: var(--s3); padding-right: var(--s3); }
   .details > summary, .details-body { padding-left: var(--s3); padding-right: var(--s3); }

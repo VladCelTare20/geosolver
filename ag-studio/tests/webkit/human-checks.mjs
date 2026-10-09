@@ -29,6 +29,7 @@ export async function humanProofFlow(page, tag, check, shot, opts = {}) {
   const lit = await page.evaluate(() => ({ hl: document.querySelectorAll('#fig-viewport .hl').length, active: !!document.querySelector('#human .hp-block.is-active') }));
   check(lit.hl > 0 && lit.active, `${tag}: ${opts.touch ? 'tapping' : 'hovering'} a proof block lights the figure (${lit.hl} lit)`);
   if (shot) await shot(page, 'human-block');
+  if (opts.peekMouse) await peekMouseCheck(page, tag, check, shot);
 
   if (opts.keyboard) {
     await page.focus('#human .hp-block[tabindex="0"]');
@@ -83,6 +84,40 @@ export async function humanProofFlow(page, tag, check, shot, opts = {}) {
   check(f.sw <= f.vw, `${tag}: the proof tabs fit (${f.sw}/${f.vw})`);
   if (shot) await shot(page, 'full-derivation-from-chip');
   return true;
+}
+
+async function peekMouseCheck(page, tag, check, shot) {
+  const vp = page.viewportSize();
+  await page.setViewportSize({ width: 683, height: 600 });
+  await page.waitForTimeout(300);
+  const n = await page.locator('#human .hp-block').count();
+  let tried = 0, worst = 0, at = -1;
+  for (let i = 0; i < n; i++) {
+    const placed = await page.evaluate((i) => {
+      const el = document.querySelectorAll('#human .hp-block')[i];
+      const r0 = el.getBoundingClientRect();
+      window.scrollBy(0, r0.top - window.innerHeight * 0.62);
+      const r = el.getBoundingClientRect();
+      return r.height < window.innerHeight / 2 && r.top > window.innerHeight / 2 && r.top + 14 < window.innerHeight ? { x: r.left + 40, y: r.top + 14 } : null;
+    }, i);
+    if (!placed) continue;
+    await page.mouse.move(placed.x, placed.y);
+    await page.waitForTimeout(350);
+    const o = await page.evaluate((i) => {
+      const p = document.getElementById('fig-peek');
+      if (!p || p.hidden) return null;
+      const a = p.getBoundingClientRect(), r = document.querySelectorAll('#human .hp-block')[i].getBoundingClientRect();
+      return Math.max(0, Math.min(a.right, r.right) - Math.max(a.left, r.left)) * Math.max(0, Math.min(a.bottom, r.bottom) - Math.max(a.top, r.top));
+    }, i);
+    if (o === null) continue;
+    tried++;
+    if (o > worst) { worst = o; at = i + 1; }
+  }
+  check(tried > 0 && worst === 0, `${tag}: with a mouse at 683 px the figure thumbnail never covers the hovered block (${tried} block(s) in the lower half; worst overlap ${Math.round(worst)} px² at block ${at})`);
+  if (shot) await shot(page, 'peek-mouse-683');
+  await page.mouse.move(1, 1);
+  await page.setViewportSize(vp);
+  await page.waitForTimeout(300);
 }
 
 export async function humanParity(page, tag, check, dir) {

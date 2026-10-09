@@ -555,6 +555,14 @@ fn const_str(pred: &Predicate) -> String {
 
 /// A predicate over point ids as a typed fact.
 fn fact_of_pred(problem: &Problem, names: &Names, pred: &Predicate) -> Fact {
+    let mut f = fact_of_pred_as_written(problem, names, pred);
+    if ddar::svg::undirected_reading_holds(problem, pred) == Some(false) {
+        f.args = f.args.iter().map(|a| ddar::svg::as_directed(a)).collect();
+    }
+    f
+}
+
+fn fact_of_pred_as_written(problem: &Problem, names: &Names, pred: &Predicate) -> Fact {
     let raw = |i: u32| problem.point_name(i).to_string();
     let n = |i: u32| names.get(&raw(i));
     let p = &pred.points;
@@ -3594,6 +3602,8 @@ pub struct View {
     pub svg: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub as_drawn: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub figure_dependent: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub human: Option<crate::human_view::HumanView>,
     /// GIVEN in the human proof's terms, when it differs from `given`
@@ -4311,10 +4321,12 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
             None
         },
     };
-    let as_drawn = sol.proved
-        && proof.steps.iter().any(|st| {
-            st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)"))
-        });
+    let figure_dependent = sol.proved && sol.as_drawn;
+    let as_drawn = figure_dependent
+        || sol.proved
+            && proof.steps.iter().any(|st| {
+                st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)"))
+            });
     let refuted = sol.status == Status::Refuted;
     let goal_in_figure = if refuted {
         crate::spread::Goal::Fails
@@ -4393,6 +4405,7 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
         proof_hidden,
         svg_proof,
         as_drawn,
+        figure_dependent,
         points,
         given,
         goal,

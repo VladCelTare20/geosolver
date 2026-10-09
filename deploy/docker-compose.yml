@@ -17,6 +17,8 @@ services:
       target: ${GEOSOLVER_TARGET:-runtime}
       args:
         GEOSOLVER_REVISION: ${GEOSOLVER_REVISION:-unknown}
+        CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
     restart: unless-stopped
     # SIGTERM drains solves in flight for up to 70 s (AGSTUDIO_SHUTDOWN_GRACE_SECS);
     # Docker's default 10 s would cut them off.
@@ -35,7 +37,7 @@ services:
     # size the box as slots x WORKER_MEM_MB + ~300 MB. The slot count follows
     # the CPU limit (min(max(CPUs,2),8)) unless AGSTUDIO_MAX_CONCURRENT is set.
     cpus: ${GEOSOLVER_CPUS:-2}
-    mem_limit: ${GEOSOLVER_MEM_LIMIT:-4g}
+    mem_limit: ${GEOSOLVER_MEM_LIMIT:-5g}
     pids_limit: 512
     read_only: true
     tmpfs:
@@ -44,7 +46,6 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    stop_grace_period: 15s
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/healthz"]
       interval: 30s

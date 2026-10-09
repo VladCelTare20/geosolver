@@ -89,7 +89,7 @@ async function guestRun(browser, eng, prof) {
     await shot('result');
     const pshot = (p, name) => shot(name);
     if (await page.evaluate(() => document.documentElement.lang === 'ro')) await humanRomanian(page, tag, check, pshot);
-    await humanProofFlow(page, tag, check, pshot, { touch: !!prof.touch && eng !== 'firefox', keyboard: !prof.touch });
+    await humanProofFlow(page, tag, check, pshot, { touch: !!prof.touch && eng !== 'firefox', keyboard: !prof.touch, peekMouse: !prof.touch && eng === 'chromium' });
     if (prof === PROFILES[0]) await humanParity(page, tag, check, path.resolve(path.dirname(new URL(import.meta.url).pathname), '../fixtures/human'));
 
     await page.focus('#steps li.step[tabindex="0"]');

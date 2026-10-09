@@ -330,11 +330,33 @@ pub const LICENSES: &str = concat!(
     include_str!("../assets/fonts/FONT-LICENSES.txt"),
 );
 
+fn licenses_page() -> &'static str {
+    static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| {
+        let body = LICENSES
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        format!(
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+             <meta name=\"color-scheme\" content=\"light dark\"><title>GeoSolver · Licences</title>\
+             <style>:root{{color-scheme:light dark}}body{{margin:0;background:#fff;color:#1a1a1a;\
+             font:16px/1.5 system-ui,sans-serif}}main{{max-width:46rem;margin:0 auto;\
+             padding:16px max(16px,env(safe-area-inset-right)) 32px max(16px,env(safe-area-inset-left))}}\
+             pre{{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 ui-monospace,monospace}}\
+             a{{color:#2554c7}}@media (prefers-color-scheme:dark){{body{{background:#121417;color:#e6e6e6}}\
+             a{{color:#8fb0ff}}}}</style></head><body><main><p><a href=\"/\">← GeoSolver</a></p>\
+             <h1>Licences</h1><pre>{body}</pre></main></body></html>"
+        )
+    })
+}
+
 pub async fn licenses() -> Response {
     bytes(
-        "text/plain; charset=utf-8",
+        "text/html; charset=utf-8",
         "public, max-age=86400",
-        LICENSES.as_bytes(),
+        licenses_page().as_bytes(),
     )
 }
 

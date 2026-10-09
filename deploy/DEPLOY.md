@@ -33,6 +33,18 @@ concurrency cap, a request-body limit, and CSP/security headers.
 > HSTS). Keep the app's own bind on loopback (or a private network only the
 > proxy can reach): `TRUST_PROXY` believes `X-Forwarded-For` from any
 > loopback/private peer. Route A's compose file sets the last two for you.
+>
+> `TRUST_PROXY` uses the **rightmost** `X-Forwarded-For` entry, so the proxy
+> must overwrite the header or append the real client address to it — never
+> pass a client's value through untouched, or every per-IP limit (rate, AI
+> budget, wrong-password lockout) is keyed on a value the client chose. The
+> shipped configs do: `deploy/nginx.conf` and `deploy/nginx-host.conf` set it
+> to `$remote_addr`, Caddy replaces it unless `trusted_proxies` says
+> otherwise, Cloudflare appends the address it saw, and Tailscale
+> Serve/Funnel overwrites it with the connection's source address (checked in
+> tailscale 1.102.2, `ipn/ipnlocal/serve.go:addProxyForwardedHeaders`; Go's
+> `ReverseProxy` with `Rewrite` also drops the incoming `X-Forwarded-*`
+> headers first). Any other proxy: check before turning `TRUST_PROXY` on.
 
 ### The shared password: the gate page
 
@@ -68,8 +80,9 @@ The number of simultaneous solves ("slots", `AGSTUDIO_MAX_CONCURRENT`)
 defaults to the CPUs the process may use, clamped to 2..8 — so a container
 limited to 2 CPUs gets 2 slots, a 16-thread host 8. Each solve runs in its own
 worker process capped at `AGSTUDIO_WORKER_MEM_MB` (2048 MB of committed
-memory), so **RAM ≥ slots × WORKER_MEM_MB + ~300 MB**: 2 slots fit in 4 GB,
-8 slots want 16 GB. Lower the slots or the per-worker cap on a small VPS.
+memory), so **RAM ≥ slots × WORKER_MEM_MB + ~300 MB**: 2 slots want 4.4 GB
+(the compose file's and route B's default limit is 5 GB), 8 slots want 17 GB.
+On a 4 GB box set `AGSTUDIO_WORKER_MEM_MB=1843` (2 slots), or lower the slots.
 
 Guests are keyed by their `gid` cookie, and all guests behind one address
 share every slot but one (slots − 1). Friends on one Wi-Fi network or behind
@@ -114,7 +127,7 @@ them does not invalidate the cargo build layer.
 
 The app container runs read-only with all capabilities dropped,
 `no-new-privileges`, a `pids` limit, and a CPU and memory limit
-(`GEOSOLVER_CPUS`, default 2; `GEOSOLVER_MEM_LIMIT`, default 4g — set them in
+(`GEOSOLVER_CPUS`, default 2; `GEOSOLVER_MEM_LIMIT`, default 5g — set them in
 `deploy/.env` following [sizing](#guests-solver-slots-and-sizing)). Both
 containers have health checks; `docker compose ps` shows them.
 
@@ -141,15 +154,22 @@ hook; check it with `sudo certbot renew --dry-run`. Do not use
 
 ```sh
 docker build -t geosolver --build-arg GEOSOLVER_REVISION=$(git rev-parse --short=12 HEAD) .
-pw=$(openssl rand -hex 16); echo "shared password: $pw"
+# once: the password goes in an owner-only env file that every `docker run` reuses
+install -m 600 /dev/null geosolver.env
+echo "AGSTUDIO_BASIC_AUTH=:$(openssl rand -hex 16)" >> geosolver.env
 docker run -d --name geosolver -p 127.0.0.1:8787:8787 \
-  -e AGSTUDIO_BASIC_AUTH=":$pw" \
+  --env-file geosolver.env \
   -e AGSTUDIO_PUBLIC_HOST=your.domain -e AGSTUDIO_TRUST_PROXY=1 -e AGSTUDIO_SECURE_COOKIES=1 \
   -v geosolver-data:/data \
   --read-only --tmpfs /tmp --tmpfs /home/agstudio:uid=10001,gid=10001,mode=0700 \
-  --cap-drop ALL --security-opt no-new-privileges --cpus 2 --memory 4g --pids-limit 512 \
-  --restart unless-stopped geosolver
+  --cap-drop ALL --security-opt no-new-privileges --cpus 2 --memory 5g --pids-limit 512 \
+  --stop-timeout 90 --restart unless-stopped geosolver
 ```
+
+Keep `geosolver.env` (the password is in it: `grep BASIC_AUTH geosolver.env`)
+and reuse it when you recreate the container; a new password signs every device
+out. `--stop-timeout 90` lets `docker stop` wait for solves in flight (Docker's
+default is 10 s).
 
 Then front it with your own TLS proxy (see the box at the top). The
 `geosolver-data` volume keeps accounts and history across `docker rm` and
@@ -202,6 +222,7 @@ geosolver.nixosModules.default
     memoryMax = "10G";
     cpuQuota = "800%";
     environment.AGSTUDIO_GUEST_AI_PER_DAY = "60";
+    environment.AGSTUDIO_AI_PER_DAY_TOTAL = "400";
     ai.package = pkgs.claude-code;        # optional; unfree, needs allowUnfree
   };
 })
@@ -235,16 +256,22 @@ prints the number of users and history rows, and never overwrites an existing
 file. The copy is one self-contained file, mode 0600.
 
 ```sh
-# A (compose): inside the container, then out of the volume
-docker compose -f deploy/docker-compose.yml exec app agstudio backup /data/backup-$(date +%F).db
-docker compose -f deploy/docker-compose.yml cp app:/data/backup-$(date +%F).db ./
-# B (docker run)
-docker exec geosolver agstudio backup /data/backup-$(date +%F).db && docker cp geosolver:/data/backup-$(date +%F).db ./
+# A (compose): written to the container's /tmp (a tmpfs), streamed out, then deleted
+(umask 077; docker compose -f deploy/docker-compose.yml exec -T app sh -c \
+  'agstudio backup /tmp/b.db >&2 && cat /tmp/b.db; s=$?; rm -f /tmp/b.db; exit $s' \
+  > geosolver-$(date +%F-%H%M%S).db)
+# B (docker run): the same through docker exec
+(umask 077; docker exec geosolver sh -c \
+  'agstudio backup /tmp/b.db >&2 && cat /tmp/b.db; s=$?; rm -f /tmp/b.db; exit $s' \
+  > geosolver-$(date +%F-%H%M%S).db)
 # C (systemd)
-sudo /opt/agstudio/agstudio backup /root/geosolver-$(date +%F).db --db /var/lib/agstudio/agstudio.db
+sudo /opt/agstudio/agstudio backup /root/geosolver-$(date +%F-%H%M%S).db --db /var/lib/agstudio/agstudio.db
 # D (NixOS)
 sudo geosolver-backup
 ```
+
+Nothing is left inside the data volume, and the timestamp makes a second run
+on the same day a new file (`agstudio backup` never overwrites one).
 
 Schedule it (a cron line or systemd timer per route; route D does it daily)
 and copy the files off the machine. The server also checkpoints the WAL into
@@ -257,11 +284,16 @@ filesystem or volume snapshot must include `agstudio.db-wal` and
 including the gate key, so signed-in devices stay signed in):
 
 ```sh
-# A (B: the same with docker stop/run/start on the geosolver container's volume)
+# A
 docker compose -f deploy/docker-compose.yml stop app
 docker compose -f deploy/docker-compose.yml run --rm --no-deps -T --entrypoint sh app -c \
   'set -e; cd /data; cat > restore.tmp; chmod 600 restore.tmp; rm -f agstudio.db-wal agstudio.db-shm; mv restore.tmp agstudio.db' < ./backup.db
 docker compose -f deploy/docker-compose.yml start app
+# B
+docker stop geosolver
+docker run --rm -i -v geosolver-data:/data --entrypoint sh geosolver -c \
+  'set -e; cd /data; cat > restore.tmp; chmod 600 restore.tmp; rm -f agstudio.db-wal agstudio.db-shm; mv restore.tmp agstudio.db' < ./backup.db
+docker start geosolver
 # C
 sudo systemctl stop agstudio
 sudo rm -f /var/lib/agstudio/agstudio.db-wal /var/lib/agstudio/agstudio.db-shm
@@ -275,7 +307,8 @@ paths.) Check it with `journalctl -u agstudio -n 20` and a sign-in.
 
 ## Updating and rolling back
 
-1. **Back up first** (above).
+1. **Back up first** (above). On a release older than `agstudio backup`, see
+   [Upgrading from a release without `agstudio backup`](#upgrading-from-a-release-without-agstudio-backup).
 2. Update: `git pull`, then
    `GEOSOLVER_REVISION=$(git rev-parse --short=12 HEAD) docker compose -f deploy/docker-compose.yml up -d --build`
    (route C: rebuild, `install`, `systemctl restart agstudio`; route D: update
@@ -284,12 +317,51 @@ paths.) Check it with `journalctl -u agstudio -n 20` and a sign-in.
    `agstudio --version`.
 
 The database records its schema version (`PRAGMA user_version`). An upgrade
-migrates it forward in place; an older build refuses to open a database
-written by a newer one (`schema version N, newer than this build's M`) rather
-than damaging it. So to roll back: check out the previous release, rebuild,
-and restore the backup taken in step 1. For quick rollbacks of route A, tag
+migrates it forward in place. Builds from this release on refuse to open a
+database written by a newer one (`schema version N, newer than this build's
+M`) rather than damaging it; older builds have no such check, but the one
+migration so far (version 0 → 1) only adds to the schema, and the previous
+release runs on a migrated database unchanged. So to roll back: check out the
+previous release, rebuild, and restore the backup taken in step 1. For quick rollbacks of route A, tag
 the running image before updating
 (`docker tag deploy-app:latest geosolver:previous`).
+
+### Upgrading from a release without `agstudio backup`
+
+Releases before this one (for example `0a6e67b`) have no `backup`,
+`--version` or `doctor` subcommand, so step 1 above fails with `unknown
+subcommand: backup`. For that one upgrade:
+
+1. **Password.** If your env file still has the template's
+   `AGSTUDIO_BASIC_AUTH=:CHANGE-ME-run-openssl-rand-hex-16` (the old
+   `.env.example` shipped it uncommented, and the old build accepted it), the
+   new build refuses to start. That password was published in this
+   repository, so treat it as compromised: set a new one
+   (`":$(openssl rand -hex 16)"`) before upgrading, and tell your users.
+2. **Back up with the service stopped** (a stopped server has checkpointed its
+   WAL into the main file, so `agstudio.db` alone is complete):
+
+   ```sh
+   # A
+   docker compose -f deploy/docker-compose.yml stop app
+   (umask 077; docker compose -f deploy/docker-compose.yml run --rm --no-deps -T      --entrypoint cat app /data/agstudio.db > geosolver-pre-upgrade.db)
+   # B
+   docker stop geosolver
+   (umask 077; docker run --rm -v geosolver-data:/data --entrypoint cat geosolver      /data/agstudio.db > geosolver-pre-upgrade.db)
+   # C
+   sudo systemctl stop agstudio
+   sudo cp -a /var/lib/agstudio/agstudio.db /root/geosolver-pre-upgrade.db
+   ```
+3. **Route C:** the unit and the env file changed too. Re-copy
+   `deploy/agstudio.service` to `/etc/systemd/system/`, run
+   `sudo systemctl daemon-reload`, and `sudo chmod 600 /etc/agstudio.env`
+   (the old instructions left it world-readable), then install the new binary
+   and `sudo systemctl start agstudio`. `systemctl show agstudio -p KillMode
+   -p OOMPolicy` should print `KillMode=mixed` and `OOMPolicy=continue`.
+4. **Route A:** compose now waits 90 s on stop and limits memory to 5 GB by
+   default (`GEOSOLVER_MEM_LIMIT`); `up -d --build` applies both.
+
+Sessions, history, accounts and gate cookies survive the upgrade.
 
 **`docker compose down -v` deletes the data volume** — accounts, history and
 the gate key. `down` without `-v`, `stop`, `restart` and `up --build` keep it.
@@ -298,9 +370,10 @@ the gate key. `down` without `-v`, `stop`, `restart` and `up --build` keep it.
 
 - Liveness: `GET /healthz` → `ok` (no password, any `Host`, never waits for a
   solve slot). Docker health checks use it for both containers.
-- Readiness: `GET /readyz` (unauthenticated) → 200 `{"ready":true,"db":"ok","solver_free":n,…}`
-  when the database takes a write, a solver slot is free and no shutdown is
-  under way; otherwise 503 with `Retry-After: 10`. It turns 503 whenever every
+- Readiness: `GET /readyz` (unauthenticated) → 200 `{"ready":true}` when the
+  database takes a write, a solver slot is free and no shutdown is under way;
+  otherwise 503 `{"ready":false}` with `Retry-After: 10` (no slot counts or
+  other detail, since anyone can call it). It turns 503 whenever every
   slot is busy, so point load balancers at it, never a restart-on-unhealthy
   health check.
 - Logs: `docker compose -f deploy/docker-compose.yml logs -f app` /
@@ -313,7 +386,8 @@ the gate key. `down` without `-v`, `stop`, `restart` and `up --build` keep it.
   manager must wait longer than that and must signal only the server, not its
   solve workers: `deploy/agstudio.service` and the NixOS module set
   `KillMode=mixed` and `TimeoutStopSec=90`, `deploy/docker-compose.yml` sets
-  `stop_grace_period: 90s` (Docker's default of 10 s would cut every solve in
+  `stop_grace_period: 90s` and route B's `docker run` passes
+  `--stop-timeout 90` (Docker's default of 10 s would cut every solve in
   flight). Workers notice a dead server within 100 ms and exit on their own.
   While running, the server also checkpoints the database every 10 minutes.
 - Memory: each solve worker is capped at `AGSTUDIO_WORKER_MEM_MB`. When the
@@ -341,7 +415,8 @@ the gate key. `down` without `-v`, `stop`, `restart` and `up --build` keep it.
 | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
 | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
 | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
-| `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid (0 = no daily cap; the per-minute limit always applies; accounts are never counted) |
+| `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid, for guests and accounts alike, so registering an account does not reset it (0 = no daily cap; the per-minute limit always applies) |
+| `AGSTUDIO_AI_PER_DAY_TOTAL` | 0 | server-wide `/api/translate` + `/api/humanize` calls per 24 h, every caller and address together: the ceiling on what the subscription spends (0 = none) |
 | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 | `AGSTUDIO_MAX_CONCURRENT` | CPUs available, clamped to 2..8 | simultaneous heavy requests; each solve/export is one worker process |
 | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
@@ -390,15 +465,24 @@ services:
     secrets: [agstudio_basic_auth]
 secrets:
   agstudio_basic_auth:
-    file: ./basic_auth.txt   # keep it out of version control, mode 600
+    file: ./basic_auth.txt   # keep it out of version control
 ```
+
+Outside Swarm, compose bind-mounts the file as it is (the long syntax's
+`uid`/`mode` are ignored), and the app runs as uid 10001, so the file must
+belong to that user or the app exits with `Permission denied`:
+`sudo chown 10001:10001 basic_auth.txt && sudo chmod 400 basic_auth.txt`. The
+same goes for a gate-key or Claude-token file.
 
 With systemd: `LoadCredential=basic_auth:/etc/agstudio/basic_auth` and
 `Environment=AGSTUDIO_BASIC_AUTH_FILE=%d/basic_auth`.
 
 Compose-only (read by `docker compose` from `deploy/.env`, not by the app):
 `GEOSOLVER_TARGET` (`runtime` or `ai`), `GEOSOLVER_CPUS`,
-`GEOSOLVER_MEM_LIMIT`, `GEOSOLVER_REVISION`.
+`GEOSOLVER_MEM_LIMIT`, `GEOSOLVER_REVISION`, and the build arguments
+`CARGO_BUILD_JOBS` (compile parallelism; empty = all cores) and
+`CLAUDE_CODE_VERSION` (the CLI in the `ai` image; empty = the version pinned
+in the Dockerfile).
 
 ## AI on a server: Describe, Photo and explanations
 
@@ -417,8 +501,12 @@ never an API key. A server needs the CLI and a subscription token:
      work (different uid, and macOS keeps the login in the Keychain).
    - **B:** `docker build --target ai …` and `-e CLAUDE_CODE_OAUTH_TOKEN=…`
      (or `--env-file`).
-   - **C (systemd):** install the CLI, add the token and
-     `AGSTUDIO_CLAUDE_BIN=<absolute path>` to `/etc/agstudio.env`, and apply
+   - **C (systemd):** install the CLI system-wide, e.g.
+     `sudo npm install -g @anthropic-ai/claude-code` (giving
+     `/usr/local/bin/claude`) or a copy under `/opt` — never under `/home` or
+     `/root`, which the unit cannot see (`ProtectHome=yes`; the CLI's own
+     per-user installer puts it in `~/.local/bin`). Add the token and
+     `AGSTUDIO_CLAUDE_BIN=/usr/local/bin/claude` to `/etc/agstudio.env`, and apply
      the override in the unit's comment (`MemoryDenyWriteExecute=no`, `HOME`
      and `CLAUDE_CONFIG_DIR` inside `/var/lib/agstudio`): the CLI's JIT needs
      writable+executable memory, and DynamicUser has no home of its own.
@@ -448,7 +536,9 @@ unavailable and point to the `.geo` tab, and AI explanations are not offered.
   Dockerfile pins its base images by digest (bump tag and digest together)
   and caches the cargo registry and `target/` with BuildKit, so a source edit
   rebuilds only the two workspace crates. `ARG CARGO_BUILD_JOBS` limits
-  compile parallelism on a shared builder.
+  compile parallelism on a shared builder, and the `ai` target installs a
+  pinned Claude Code CLI (`ARG CLAUDE_CODE_VERSION`); compose forwards both
+  from `deploy/.env`.
 - Licences: `LICENSE`, `NOTICE`, `THIRD_PARTY_LICENSES.md` (regenerate with
   `deploy/third-party-licenses.sh`) and the fonts' licences are installed in
   the image under `/usr/share/doc/geosolver/` and served at `/licenses`.
@@ -458,7 +548,24 @@ expired or revoked one: any non-empty `CLAUDE_CODE_OAUTH_TOKEN` counts as
 signed in until a model call is made. Check it with **`agstudio doctor`**, run
 with the service's environment: it makes one tiny model call and prints
 `AI: on`, or the CLI's own words (`Failed to authenticate. API Error: 401 …`)
-and exits 1. At run time, a call the API refuses is logged with what the CLI
+and exits 1. Run it inside the service's environment, not from a login shell:
+
+```sh
+# A
+docker compose -f deploy/docker-compose.yml exec app agstudio doctor
+# B
+docker exec geosolver agstudio doctor
+# C: the unit's env file, user and state directory (a plain `sudo …/agstudio doctor`
+#    sees none of them and reports "the claude CLI was not found")
+sudo systemd-run --wait --pipe -p EnvironmentFile=/etc/agstudio.env -p DynamicUser=yes \
+  -p StateDirectory=agstudio \
+  -p Environment='HOME=/var/lib/agstudio CLAUDE_CONFIG_DIR=/var/lib/agstudio/claude DISABLE_AUTOUPDATER=1' \
+  /opt/agstudio/agstudio doctor
+# D
+sudo geosolver-claude-token   # installs a token and runs the same self-test
+```
+
+At run time, a call the API refuses is logged with what the CLI
 printed (`translate error: the claude CLI is not signed in … (claude said
 stdout: Failed to authenticate …)`), and for the next 10 minutes `/api/status`
 reports `translate_block: "not_logged_in"` so the app stops offering Describe

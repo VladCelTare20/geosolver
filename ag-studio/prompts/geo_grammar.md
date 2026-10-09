@@ -142,7 +142,7 @@ The goal uses the same relation vocabulary, e.g.
    `point:` constraints only when nothing built-in expresses it.
 3. "The second time line AA₁ meets the circumcircle" → `meet(line(A,A1), circumcircle(A,B,C))`.
 4. "X on line BC", "X on ω" → `on_line`, `on_circle`, or a `point:` with `coll`/`on`.
-5. Angle equalities → `eqangle(...)` (directed) or `angle(...) = angle(...)`.
+5. Angle equalities as the problem states them (ordinary angles) → `angle(...) = angle(...)` or `angle(...) = <degrees>`: `angle(A,B,C)` is the undirected angle at B, strictly between 0° and 180° (a straight angle is `coll`). Use `eqangle(...)` only for directed angles mod 180°.
 6. Keep point names from the problem when given (map subscripts: A₁→A1, ω→its center).
 7. Output ONE goal. If the problem asks to prove several things, pick the main one.
 8. Do NOT add hypotheses that are not stated; do NOT invent numeric coordinates.

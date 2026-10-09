@@ -520,6 +520,9 @@ pub fn respread(fig: &Problem, aux_from: Option<usize>, src: &str, goal: Goal) -
             let Some(cand) = candidate(fig, aux_from, inst, rules.as_deref(), goal) else {
                 continue;
             };
+            if !same_angle_readings(fig, &cand) {
+                continue;
+            }
             let q = quality(&cand, &triangles);
             if best
                 .as_ref()
@@ -534,6 +537,12 @@ pub fn respread(fig: &Problem, aux_from: Option<usize>, src: &str, goal: Goal) -
     }
     let ((q, _), p) = best?;
     (q > current.0 + 0.05 + 0.25 * current.0.abs()).then_some(p)
+}
+
+fn same_angle_readings(fig: &Problem, cand: &Problem) -> bool {
+    fig.preds.iter().chain(fig.goal.as_ref()).all(|p| {
+        ddar::svg::undirected_reading_holds(fig, p) == ddar::svg::undirected_reading_holds(cand, p)
+    })
 }
 
 #[cfg(test)]

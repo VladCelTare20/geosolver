@@ -546,6 +546,13 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
         );
     }
 
+    if compiled.configuration_dependent {
+        println!(
+            "Note: the hypotheses also allow a figure where the goal fails — a proof \
+             holds only for the configuration drawn."
+        );
+    }
+
     write_svg_if_requested(&compiled.problem, opts);
 
     let start = Instant::now();

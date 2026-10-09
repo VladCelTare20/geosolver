@@ -248,6 +248,35 @@ async function deviceRun(engine, d, browser, scale) {
   }
 }
 
+const HEADER_WIDTHS = [300, 320, 340, 360, 375, 390, 393, 412, 430];
+
+async function signedInHeader(engine, browser) {
+  const ctx = await browser.newContext(ctxOpts(engine, { name: 'header', w: 412, h: 800, dsf: 2 }, false, 'light'));
+  const page = await ctx.newPage();
+  const tag = `${engine}-signed-in-header`;
+  try {
+    const user = `hdr${engine}${Date.now() % 1e8}`;
+    const r = await page.request.post(`${ACCT}/api/auth/register`, { data: { username: user, password: 'password123' } });
+    check(r.ok(), `${tag}: registered (${r.status()})`);
+    await page.goto(`${ACCT}/app`);
+    await page.waitForLoadState('networkidle');
+    for (const w of HEADER_WIDTHS) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await page.waitForTimeout(120);
+      const m = await page.evaluate(() => {
+        const h = document.querySelector('.site-header');
+        const t = document.querySelector('#rail-toggle');
+        return { h: Math.round(h.getBoundingClientRect().height), rail: !!(t && h.classList.contains('has-rail-toggle')) };
+      });
+      check(m.rail && m.h <= 70, `${tag}: one header row at ${w} px (${m.h} px tall, rail toggle ${m.rail})`);
+      if (w === 390) await shot(page, `${tag}-390.png`);
+    }
+  } catch (e) {
+    check(false, `${tag}: flow aborted: ${e.message.split('\n')[0]}`);
+  }
+  await ctx.close();
+}
+
 async function acctRun(engine, d, browser) {
   const dn = d.name.replace(/[^A-Za-z0-9]+/g, '');
   for (const land of [false, true]) {
@@ -282,6 +311,7 @@ for (const engine of ENGINES) {
     for (let i = 0; i < DEVS.length; i += 3) await Promise.all(DEVS.slice(i, i + 3).map((d) => deviceRun(engine, d, browser, scale)));
   }
   if (ACCT && SCALES.includes(100)) for (let i = 0; i < DEVS.length; i += 4) await Promise.all(DEVS.slice(i, i + 4).map((d) => acctRun(engine, d, browser)));
+  if (ACCT && SCALES.includes(100)) await signedInHeader(engine, browser);
   await browser.close();
 }
 fs.writeFileSync(path.join(OUT, `layout-findings-${ENGINES.join('_')}-${SCALES.join('_')}.json`), JSON.stringify(findings, null, 1));

@@ -135,3 +135,85 @@ fn an_overrunning_child_is_killed_at_the_deadline() {
     assert!(!out[0].proved);
     assert!(took < Duration::from_secs(5), "kill took {took:?}");
 }
+
+fn shown_angle_degrees(problem: &ddar::Problem, label: &str) -> Option<f64> {
+    let shown = |n: &str| {
+        let mut out = String::new();
+        for (i, ch) in n.chars().enumerate() {
+            match ch.to_digit(10) {
+                Some(d) if i > 0 => out.push(char::from_u32(0x2080 + d).unwrap()),
+                _ if ch == '\'' => out.push('\u{2032}'),
+                _ => out.extend(ch.to_uppercase()),
+            }
+        }
+        out
+    };
+    let mut names: Vec<(String, usize)> = problem
+        .points
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (shown(&p.name), i))
+        .collect();
+    names.sort_by_key(|(n, _)| std::cmp::Reverse(n.chars().count()));
+    let mut rest = label;
+    let mut ids = Vec::new();
+    while !rest.is_empty() {
+        let (n, i) = names.iter().find(|(n, _)| rest.starts_with(n.as_str()))?;
+        ids.push(*i);
+        rest = &rest[n.len()..];
+    }
+    let [x, v, y] = ids[..] else { return None };
+    let at = |i: usize| problem.points[i].value;
+    let (u, w) = (at(x) - at(v), at(y) - at(v));
+    Some(
+        (u.dot(w) / (u.norm() * w.norm()))
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees(),
+    )
+}
+
+#[test]
+fn every_displayed_undirected_angle_goal_is_true_in_its_figure() {
+    let mut checked = 0;
+    let mut directed = 0;
+    for (name, text) in read_corpus(JGEX).unwrap() {
+        if !text.contains("? eqangle") {
+            continue;
+        }
+        let t = parse_problem(&name, &text)
+            .and_then(|p| translate(&p, 1, 200))
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let mut problem = t.problem.clone();
+        problem.goal = t.goals.first().cloned();
+        let (_, goal) = ddar::svg::legend_lines(&problem);
+        let goal = goal.expect("a goal");
+        if goal.contains('\u{2221}') {
+            directed += 1;
+            continue;
+        }
+        let labels: Vec<&str> = goal
+            .split('\u{2220}')
+            .skip(1)
+            .map(|s| s.split([' ', '=']).next().unwrap_or(""))
+            .filter(|s| !s.starts_with('('))
+            .collect();
+        if labels.len() != 2 {
+            continue;
+        }
+        let a =
+            shown_angle_degrees(&problem, labels[0]).unwrap_or_else(|| panic!("{name}: {goal}"));
+        let b =
+            shown_angle_degrees(&problem, labels[1]).unwrap_or_else(|| panic!("{name}: {goal}"));
+        assert!(
+            (a - b).abs() < 1e-6,
+            "{name}: shows {goal} but the figure has {a:.4}° and {b:.4}°"
+        );
+        checked += 1;
+    }
+    assert!(checked >= 20, "only {checked} goals were checked");
+    assert!(
+        directed >= 1,
+        "the readings false in the figure are shown as directed angles"
+    );
+}

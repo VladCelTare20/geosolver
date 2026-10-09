@@ -254,6 +254,7 @@ pub fn time_limit_solution(input: &str, kind: InputKind, limit: Duration) -> Sol
         examined: None,
         figure: None,
         human: None,
+        as_drawn: false,
     }
 }
 

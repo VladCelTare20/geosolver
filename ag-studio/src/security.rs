@@ -14,7 +14,8 @@
 //! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
 //! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
 //! | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
-//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP guest `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid (0 = no daily cap; the per-minute limit always applies; accounts are never counted) |
+//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid, for guests and accounts alike, so registering an account does not reset it (0 = no daily cap; the per-minute limit always applies) |
+//! | `AGSTUDIO_AI_PER_DAY_TOTAL` | 0 | server-wide `/api/translate` + `/api/humanize` calls per 24 h, every caller and address together: the ceiling on what the subscription spends (0 = none) |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | CPUs available, clamped to 2..8 | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
@@ -193,6 +194,7 @@ pub struct Config {
     /// Guests may also use Describe and Photo.
     pub guest_ai: bool,
     pub guest_ai_per_day: u32,
+    pub ai_per_day_total: u32,
     pub max_concurrent: usize,
     pub rate_per_min: u32,
     pub translate_per_min: u32,
@@ -385,6 +387,7 @@ impl Config {
             guest_mode,
             guest_ai,
             guest_ai_per_day: env_num(&get, "AGSTUDIO_GUEST_AI_PER_DAY", 0)?,
+            ai_per_day_total: env_num(&get, "AGSTUDIO_AI_PER_DAY_TOTAL", 0)?,
             max_concurrent: env_num(&get, "AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8))?.max(1),
             rate_per_min: env_num(&get, "AGSTUDIO_RATE_PER_MIN", 120)?,
             translate_per_min: env_num(&get, "AGSTUDIO_TRANSLATE_PER_MIN", 12)?,
@@ -868,6 +871,7 @@ mod tests {
             "AGSTUDIO_AUTH_PER_MIN",
             "AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN",
             "AGSTUDIO_GUEST_AI_PER_DAY",
+            "AGSTUDIO_AI_PER_DAY_TOTAL",
             "AGSTUDIO_GATE_DAYS",
             "AGSTUDIO_MAX_BODY_KB",
             "AGSTUDIO_MAX_INPUT_CHARS",
@@ -1254,6 +1258,7 @@ pub struct RateLimiter {
     auth: HashMap<IpAddr, Window>,
     basic_fail: HashMap<IpAddr, Window>,
     guest_ai_day: HashMap<IpAddr, Window>,
+    ai_day_total: HashMap<(), Window>,
     last_sweep: Option<Instant>,
 }
 
@@ -1265,9 +1270,9 @@ impl RateLimiter {
         Self::hit_in(map, ip, limit, now, WINDOW)
     }
 
-    fn hit_in(
-        map: &mut HashMap<IpAddr, Window>,
-        ip: IpAddr,
+    fn hit_in<K: std::hash::Hash + Eq>(
+        map: &mut HashMap<K, Window>,
+        ip: K,
         limit: u32,
         now: Instant,
         window: Duration,
@@ -1339,9 +1344,10 @@ impl AppState {
         );
     }
 
-    /// Count one guest translation or AI explanation for `ip` against `AGSTUDIO_GUEST_AI_PER_DAY`;
-    /// false once the day's budget is spent.
-    pub fn guest_translation_allowed(&self, ip: IpAddr) -> bool {
+    /// Count one translation or AI explanation from `ip`, by a guest or an
+    /// account, against `AGSTUDIO_GUEST_AI_PER_DAY` and the server-wide
+    /// `AGSTUDIO_AI_PER_DAY_TOTAL`; false once either day's budget is spent.
+    pub fn ai_call_allowed(&self, ip: IpAddr) -> bool {
         let now = Instant::now();
         let mut r = relock(&self.rate);
         r.sweep(now);
@@ -1349,6 +1355,12 @@ impl AppState {
             &mut r.guest_ai_day,
             ip,
             self.config.guest_ai_per_day,
+            now,
+            DAY,
+        ) && RateLimiter::hit_in(
+            &mut r.ai_day_total,
+            (),
+            self.config.ai_per_day_total,
             now,
             DAY,
         )

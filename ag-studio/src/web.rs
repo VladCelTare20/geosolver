@@ -815,13 +815,7 @@ async fn readyz(State(state): State<Shared>) -> Response {
     let free = state.heavy.available_permits();
     let draining = state.draining.load(std::sync::atomic::Ordering::SeqCst);
     let ready = db_ok && free > 0 && !draining;
-    let body = Json(serde_json::json!({
-        "ready": ready,
-        "db": if db_ok { "ok" } else { "error" },
-        "solver_free": free,
-        "solver_slots": state.config.max_concurrent,
-        "draining": draining,
-    }));
+    let body = Json(serde_json::json!({ "ready": ready }));
     if ready {
         return body.into_response();
     }
@@ -2159,8 +2153,8 @@ async fn api_translate(
         }
     };
     let photo = matches!(input, Input::Image(_));
-    if let (Caller::Guest(_), Some(ip)) = (&caller, ip.as_ref()) {
-        if !state.guest_translation_allowed(ip.0 .0) {
+    if let Some(ip) = ip.as_ref() {
+        if !state.ai_call_allowed(ip.0 .0) {
             return err_code(
                 StatusCode::TOO_MANY_REQUESTS,
                 "daily",
@@ -2253,12 +2247,12 @@ struct HumanizeReq {
 
 /// Rewrite a machine (DDAR) proof into a flowing, human-readable proof in the
 /// chosen language, via the local Claude Opus subscription. Shares the per-minute
-/// bucket and the guests' daily budget (`AGSTUDIO_GUEST_AI_PER_DAY`) with
+/// bucket and the per-address daily budget (`AGSTUDIO_GUEST_AI_PER_DAY`) with
 /// `/api/translate`; guests keep it under `AGSTUDIO_GUEST_AI=0`. Any failure
 /// degrades to a 503 so the client can fall back to the machine proof.
 async fn api_humanize(
     State(state): State<Shared>,
-    caller: Caller,
+    _caller: Caller,
     ip: Option<axum::Extension<security::ClientIp>>,
     headers: HeaderMap,
     ApiJson(req): ApiJson<HumanizeReq>,
@@ -2272,16 +2266,18 @@ async fn api_humanize(
     }
     let max = state.config.max_input_chars;
     let aux_bytes: usize = req.aux.iter().map(String::len).sum();
+    let total = req.problem.len() + req.proof.len() + req.human.len() + aux_bytes;
     let over_limit = req.problem.len() > max
-        || req.proof.len() > 4 * max
-        || req.human.len() > 4 * max
+        || req.proof.len() > 2 * max
+        || req.human.len() > max
         || req.aux.len() > MAX_AUX_ITEMS
-        || aux_bytes > max;
+        || aux_bytes > max
+        || total > 3 * max;
     if over_limit {
         return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(lang, "err.too_long"));
     }
-    if let (Caller::Guest(_), Some(ip)) = (&caller, ip.as_ref()) {
-        if !state.guest_translation_allowed(ip.0 .0) {
+    if let Some(ip) = ip.as_ref() {
+        if !state.ai_call_allowed(ip.0 .0) {
             return err_code(
                 StatusCode::TOO_MANY_REQUESTS,
                 "daily",
@@ -3709,6 +3705,46 @@ mod tests {
         )
         .await;
         assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE);
+
+        let max = state.config.max_input_chars;
+        let step = "12. ∠ABC = ∠ADC (inscribed angles in ω; from 3, 7)\n";
+        let proof_of = |bytes: usize| step.repeat(bytes / step.len());
+        let near_cap = serde_json::json!({
+            "problem": "x".repeat(max - 1),
+            "proof": proof_of(2 * max - 64),
+            "human": "y".repeat(max - 1),
+        });
+        let (st, _, _) = call(&state, "POST", "/api/humanize", Some(&cookie), near_cap).await;
+        assert_eq!(
+            st,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "the sum is capped at 3 × the input limit"
+        );
+        for body in [
+            serde_json::json!({"problem": "p", "proof": proof_of(2 * max + 64)}),
+            serde_json::json!({"problem": "p", "proof": "1. coll A B C", "human": "y".repeat(max + 1)}),
+        ] {
+            let (st, _, _) = call(&state, "POST", "/api/humanize", Some(&cookie), body).await;
+            assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        let longest_real_proof = serde_json::json!({
+            "problem": "x".repeat(2000),
+            "proof": proof_of(150 * 140),
+            "human": "y".repeat(4000),
+        });
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/humanize",
+            Some(&cookie),
+            longest_real_proof,
+        )
+        .await;
+        assert_ne!(
+            st,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "a 150-step proof still fits"
+        );
     }
 
     /// Login/register share a tight per-IP bucket against credential stuffing.
@@ -5202,10 +5238,13 @@ mod tests {
             let server = tokio::spawn(serve_on(listener, state.clone()));
             let ready = bounded(http_get(addr, "/readyz")).await;
             assert!(ready.starts_with("HTTP/1.1 200"), "{ready}");
-            assert!(
-                ready.contains("\"db\":\"ok\"") && ready.contains("\"solver_free\":1"),
-                "{ready}"
-            );
+            assert!(ready.ends_with("{\"ready\":true}"), "{ready}");
+            for detail in ["solver", "slots", "draining", "\"db\""] {
+                assert!(
+                    !ready.contains(detail),
+                    "no capacity detail for outsiders: {ready}"
+                );
+            }
             let permit = state.heavy.clone().acquire_owned().await.unwrap();
             let busy = bounded(http_get(addr, "/readyz")).await;
             assert!(busy.starts_with("HTTP/1.1 503"), "{busy}");
@@ -6853,8 +6892,17 @@ mod tests {
         assert!(h[header::CONTENT_TYPE]
             .to_str()
             .unwrap()
-            .starts_with("text/plain"));
+            .starts_with("text/html"));
         let text = std::str::from_utf8(&body).unwrap();
+        assert!(
+            text.contains("name=\"viewport\""),
+            "phones lay it out at device width"
+        );
+        assert!(
+            text.contains("white-space:pre-wrap"),
+            "long lines wrap, no sideways scroll"
+        );
+        assert!(text.contains("<pre>"), "the licence text is preformatted");
         for must in [
             "Apache License, Version 2.0",
             "The Inter Project Authors",
@@ -7108,12 +7156,12 @@ mod tests {
         let sid = cookie_of(&sid);
         let as_user = [("authorization", auth.as_str()), ("cookie", sid.as_str())];
         for _ in 0..3 {
-            let (st, _, _) =
+            let (st, _, body) =
                 send(&state, build("POST", "/api/humanize", &as_user, Some(&hz))).await;
             assert_eq!(
                 st,
-                StatusCode::SERVICE_UNAVAILABLE,
-                "accounts are never counted"
+                StatusCode::TOO_MANY_REQUESTS,
+                "a new account from the same address does not reset the day's budget: {body}"
             );
         }
     }
@@ -7123,14 +7171,23 @@ mod tests {
         let (state, _dir) = ai_guest_state(true, false);
         let a: std::net::IpAddr = "203.0.113.5".parse().unwrap();
         for _ in 0..100 {
-            assert!(state.guest_translation_allowed(a), "0 = no daily cap");
+            assert!(state.ai_call_allowed(a), "0 = no daily cap");
         }
         let (state, _dir) = state_with(|c| c.guest_ai_per_day = 2);
         let b: std::net::IpAddr = "203.0.113.6".parse().unwrap();
-        assert!(state.guest_translation_allowed(a));
-        assert!(state.guest_translation_allowed(a));
-        assert!(!state.guest_translation_allowed(a));
-        assert!(state.guest_translation_allowed(b));
+        assert!(state.ai_call_allowed(a));
+        assert!(state.ai_call_allowed(a));
+        assert!(!state.ai_call_allowed(a));
+        assert!(state.ai_call_allowed(b));
+    }
+
+    #[test]
+    fn the_server_wide_daily_ai_cap_spans_every_address() {
+        let (state, _dir) = state_with(|c| c.ai_per_day_total = 3);
+        let calls: Vec<bool> = (1..=5)
+            .map(|i| state.ai_call_allowed(format!("198.51.100.{i}").parse().unwrap()))
+            .collect();
+        assert_eq!(calls, [true, true, true, false, false]);
     }
 
     fn jpeg_of(img: &image::RgbImage) -> Vec<u8> {

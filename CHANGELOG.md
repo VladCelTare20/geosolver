@@ -5,6 +5,33 @@ reports its git commit (`agstudio --version`, `/api/status`).
 
 ## Unreleased
 
+### Upgrading — action required
+- If your env file still has the old template's
+  `AGSTUDIO_BASIC_AUTH=:CHANGE-ME-run-openssl-rand-hex-16` (the previous
+  `.env.example` shipped it uncommented and the previous build accepted it),
+  this build refuses to start. That password was published in this
+  repository: set a new one before upgrading.
+- The previous release has no `agstudio backup`; back up by stopping the
+  service and copying `agstudio.db` (DEPLOY.md, "Upgrading from a release
+  without `agstudio backup`"). Route C: re-copy `deploy/agstudio.service`,
+  `systemctl daemon-reload`, and `chmod 600 /etc/agstudio.env`.
+- `AGSTUDIO_GUEST_AI_PER_DAY` now counts accounts too (per address), and
+  `AGSTUDIO_AI_PER_DAY_TOTAL` caps the whole server; `/readyz` answers only
+  `{"ready": bool}`.
+
+### Soundness
+- `angle(a,b,c) = angle(d,e,f)` and `angle(a,b,c) = k`, as goals and as
+  hypotheses, are undirected angles: they are no longer lowered to directed
+  line angles mod 180°, which reported supplementary angles as equal and a
+  120° angle as 60° (and drew "given ∠ABC = 120°" at 60°). The prover gets the
+  directed form with each angle's orientation read off the figure; a straight
+  or zero `angle(..)` is refused with a pointer to `coll`.
+- A proof whose goal fails in another figure satisfying every hypothesis is
+  marked "Proved as drawn — for the configuration drawn only" on the page,
+  in the PDF/PNG, over MCP and in the CLI note.
+- A directed angle fact whose `∠` reading is false in the figure is shown as
+  `∡` in GIVEN/PROVE, the legend and the reports.
+
 ### Deployment
 - `agstudio backup <dest.db>`: a consistent, self-contained copy of the live
   database (`VACUUM INTO`, integrity-checked, never overwrites). The server
@@ -89,6 +116,19 @@ reports its git commit (`agstudio --version`, `/api/status`).
 - PDF/PNG exports survive emoji, control characters and noncharacters.
 
 ### Fixed
+- `deploy/docker-compose.yml` had `stop_grace_period` twice, so compose
+  refused to parse it; CI now runs `docker compose config`. Compose and
+  route B default to a 5 GB memory limit (2 slots × 2048 MB + overhead),
+  route B passes `--stop-timeout 90`, the `ai` image pins the Claude Code
+  CLI, and compose forwards `CARGO_BUILD_JOBS`/`CLAUDE_CODE_VERSION`.
+- DEPLOY.md: backups no longer leave copies in the data volume and can run
+  twice a day; literal route B restore; secret files must belong to uid
+  10001; the host nginx bootstrap (port 80 first, then certbot, then 443);
+  per-route `agstudio doctor`; where to install the CLI for route C.
+- `/licenses` is an HTML page that fits a phone, linked from the footers.
+- When signed in, the header stays one row on phones from 300 to 440 px.
+- `/api/humanize` takes at most 32 KB of proof, 16 KB of human text and
+  48 KB in all.
 - Release convergence: the Docker build context admits the licence files the
   image installs; the Nix package source keeps `deploy/.env.example` (read by
   a test), so `nix flake check` passes; the workspace is `cargo fmt` clean and

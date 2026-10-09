@@ -338,9 +338,16 @@ accounts and history, hardened for public exposure — see **[deploy/DEPLOY.md](
 
 ```sh
 install -m 600 deploy/.env.example deploy/.env   # set AGSTUDIO_BASIC_AUTH, AGSTUDIO_PUBLIC_HOST
-docker compose -f deploy/docker-compose.yml up -d --build
-docker compose -f deploy/docker-compose.yml exec app agstudio backup /data/backup.db   # backups
+mkdir -p deploy/certs deploy/acme                # a throw-away certificate so nginx starts
+openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=localhost" \
+  -keyout deploy/certs/privkey.pem -out deploy/certs/fullchain.pem
+GEOSOLVER_REVISION=$(git rev-parse --short=12 HEAD) \
+  docker compose -f deploy/docker-compose.yml up -d --build
 ```
+
+Then get the real certificate and set up backups as
+[DEPLOY.md route A](deploy/DEPLOY.md#a-docker-compose--nginx-recommended)
+describes.
 
 Security defaults: the server **refuses to start on a public interface without
 authentication** (a shared password is enough — guests need no account, and

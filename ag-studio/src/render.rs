@@ -730,6 +730,10 @@ fn verdict_copy(v: &Value, lang: Lang) -> (String, String) {
     let secs = fmt_num(view["note"]["secs"].as_f64().unwrap_or(60.0), lang, 0);
     let t = |k: &str| i18n::t(lang, k).to_string();
     match status {
+        "proved" if view["figure_dependent"].as_bool() == Some(true) => (
+            t("report.verdict.as_drawn"),
+            t("report.explain.as_drawn_config"),
+        ),
         "proved" if view["as_drawn"].as_bool() == Some(true) => {
             (t("report.verdict.as_drawn"), t("report.explain.as_drawn"))
         }
@@ -1013,7 +1017,9 @@ fn report_pages_fit(
     if status == "holds-numerically" && samples > 0 {
         meta.push(tpn(lang, "report.samples", samples));
     }
-    if status == "proved" && view["as_drawn"].as_bool() == Some(true) {
+    if status == "proved" && view["figure_dependent"].as_bool() == Some(true) {
+        meta.push(i18n::t(lang, "report.as_drawn_config").to_string());
+    } else if status == "proved" && view["as_drawn"].as_bool() == Some(true) {
         meta.push(i18n::t(lang, "report.as_drawn").to_string());
     }
     head.push_str(&plain(
@@ -1598,11 +1604,26 @@ fn report_pages_fit(
         let mut y = MARGIN - 10.0;
         for i in 0..blocks.len() {
             let b = &blocks[i];
-            let need: f32 = b.h
+            let direct: f32 = b.h
                 + (1..=b.keep_next)
                     .filter_map(|k| blocks.get(i + k))
                     .map(|n| n.h)
                     .sum::<f32>();
+            let mut end = i + b.keep_next;
+            let mut k = i + 1;
+            while k <= end && k < blocks.len() {
+                end = end.max(k + blocks[k].keep_next);
+                k += 1;
+            }
+            let group: f32 = blocks[i..=end.min(blocks.len() - 1)]
+                .iter()
+                .map(|n| n.h)
+                .sum();
+            let need = if group <= KEEP_GROUP_MAX {
+                group
+            } else {
+                direct
+            };
             let top = if starts.len() == 1 {
                 MARGIN - 10.0
             } else {
@@ -1701,6 +1722,7 @@ const NOTE_FS: f32 = 9.0;
 const NOTE_LEADING: f32 = 12.0;
 const REASON_COLUMN_MIN: f32 = 130.0;
 const SPLIT_CHAINS_FROM: usize = 3;
+const KEEP_GROUP_MAX: f32 = 240.0;
 
 fn hp_rows(
     rows: &[crate::human_view::Row],
@@ -2360,6 +2382,58 @@ mod tests {
             assert_eq!(pages.len(), 1, "{lang:?}");
             assert!(pages[0].contains('\u{220e}'));
             assert!(report_pages(&v, lang, true, true).len() <= 2, "{lang:?}");
+        }
+    }
+
+    fn last_block_text(page: &str) -> String {
+        let body = page
+            .rsplit_once(&format!(
+                "<line x1=\"{MARGIN}\" y1=\"{:.1}\"",
+                PAGE_H - 40.0
+            ))
+            .map_or(page, |(b, _)| b);
+        let Some(last) = body
+            .split("<g transform=\"translate(0,")
+            .skip(1)
+            .filter(|c| c.contains("<text"))
+            .last()
+        else {
+            return String::new();
+        };
+        let mut out = String::new();
+        let mut inside = false;
+        for ch in last.chars() {
+            match ch {
+                '<' => inside = true,
+                '>' => inside = false,
+                c if !inside => out.push(c),
+                _ => {}
+            }
+        }
+        out.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn no_page_ends_with_a_step_heading() {
+        for name in ["imo-2004-p1", "imo-2023-p2", "euler-line"] {
+            let program = crate::human_view::tests::load(name).program;
+            let v = present::solution_json(
+                &solve(&program, &SolveOptions::default()).unwrap(),
+                Some(name),
+            );
+            for lang in [Lang::En, Lang::Ro] {
+                for derivation in [false, true] {
+                    let pages = report_pages(&v, lang, true, derivation);
+                    for (k, page) in pages[..pages.len() - 1].iter().enumerate() {
+                        let last = last_block_text(page);
+                        assert!(
+                            !last.ends_with(':'),
+                            "{name} {lang:?} derivation={derivation}: page {} ends with the heading {last:?}",
+                            k + 1
+                        );
+                    }
+                }
+            }
         }
     }
 

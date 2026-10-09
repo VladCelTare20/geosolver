@@ -912,6 +912,56 @@ fn pretty_angle(a: &str, b: &str, c: &str, d: &str) -> String {
     }
 }
 
+fn vertex_form(
+    a: PointId,
+    b: PointId,
+    c: PointId,
+    d: PointId,
+) -> Option<(PointId, PointId, PointId)> {
+    let (mut a, mut b, mut c, mut d) = (a, b, c, d);
+    if b == c || b == d {
+        std::mem::swap(&mut a, &mut b);
+    }
+    if a == d {
+        std::mem::swap(&mut c, &mut d);
+    }
+    (a == c).then_some((b, a, d))
+}
+
+fn undirected_degrees(problem: &Problem, (x, v, y): (PointId, PointId, PointId)) -> Option<f64> {
+    let at = |i: PointId| problem.points.get(i as usize).map(|p| p.value);
+    let (u, w) = (at(x)? - at(v)?, at(y)? - at(v)?);
+    let n = u.norm() * w.norm();
+    (n > 1e-18).then(|| (u.dot(w) / n).clamp(-1.0, 1.0).acos().to_degrees())
+}
+
+/// Whether an `eqangle`/`aconst` fact written with the vertex notation `∠XYZ`
+/// is true of the undirected angles of this figure. `Some(false)` means the
+/// fact holds only as a directed angle (mod 180°) and must be shown as `∡`;
+/// `None` when the notation does not apply (line-angle form, other predicates).
+pub fn undirected_reading_holds(problem: &Problem, pred: &Predicate) -> Option<bool> {
+    const TOL: f64 = 1e-4;
+    let p = &pred.points;
+    match pred.name.as_str() {
+        "eqangle" if p.len() == 8 => {
+            let g1 = undirected_degrees(problem, vertex_form(p[0], p[1], p[2], p[3])?)?;
+            let g2 = undirected_degrees(problem, vertex_form(p[4], p[5], p[6], p[7])?)?;
+            Some((g1 - g2).abs() < TOL)
+        }
+        "aconst" | "s_angle" if p.len() == 4 => {
+            let g = undirected_degrees(problem, vertex_form(p[0], p[1], p[2], p[3])?)?;
+            let k = pred.constants.first()?.to_f64().rem_euclid(180.0);
+            Some((g - k).abs() < TOL)
+        }
+        _ => None,
+    }
+}
+
+/// `∠` → `∡` in a typeset fact whose undirected reading is false in the figure.
+pub fn as_directed(text: &str) -> String {
+    text.replace('\u{2220}', "\u{2221}")
+}
+
 fn const_str(pred: &Predicate) -> String {
     pred.constants
         .first()
@@ -934,6 +984,15 @@ pub fn legend_lines(problem: &Problem) -> (Vec<String>, Option<String>) {
 }
 
 fn pretty(problem: &Problem, pred: &Predicate) -> String {
+    let text = pretty_as_written(problem, pred);
+    if undirected_reading_holds(problem, pred) == Some(false) {
+        as_directed(&text)
+    } else {
+        text
+    }
+}
+
+fn pretty_as_written(problem: &Problem, pred: &Predicate) -> String {
     let n = |i: usize| disp(problem.point_name(pred.points[i]));
     let nm = pred.points.len();
     match pred.name.as_str() {

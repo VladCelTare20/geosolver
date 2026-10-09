@@ -33,8 +33,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # ---- claude CLI (for the `ai` target only) ----
 FROM ${NODE_IMAGE} AS claude
-ARG CLAUDE_CODE_VERSION=latest
-RUN npm install -g --omit=dev "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ARG CLAUDE_CODE_VERSION=
+RUN npm install -g --omit=dev "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION:-2.1.292}" \
  && npm cache clean --force \
  && readlink -f /usr/local/bin/claude > /claude-target
 

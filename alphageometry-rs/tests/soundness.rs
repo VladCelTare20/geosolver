@@ -1470,3 +1470,142 @@ fn a_metric_goal_false_in_the_drawn_figure_is_refuted_before_the_provers_run() {
         Err(metric::MetricError::Refuted(_))
     ));
 }
+
+const PARALLELOGRAM_ADJACENT_EQUAL: &str =
+    "A B C = triangle\nD = parallelogram(A, B, C)\nprove angle(D, A, B) = angle(C, B, A)";
+const PARALLELOGRAM_ADJACENT_EQUAL_2: &str =
+    "A B C = triangle\nD = parallelogram(A, B, C)\nprove angle(D, A, B) = angle(A, B, C)";
+const EXTERIOR_120_AS_60: &str =
+    "A B = segment\nC = eq_triangle(A, B)\nD = reflect(A, B)\nprove angle(D, B, C) = 60";
+const EQUILATERAL_AS_120: &str = "A B = segment\nC = eq_triangle(A, B)\nprove angle(A, B, C) = 120";
+const GIVEN_120_BASE_60: &str =
+    "A B = segment\nC = point: angle(A, B, C) = 120, cong(B, A, B, C)\nprove angle(B, A, C) = 60";
+const AXIS_POINT_CONCYCLIC: &str = "B C = segment\nA = point: cong(A, B, A, C)\nM = midpoint(B, C)\nP = point: on(P, line(A, M))\nassume angle(P, B, A) = angle(P, C, A)\nprove cyclic(A, P, B, C)";
+
+fn proved_with_aux(src: &str) -> bool {
+    let Ok(c) = compile(src) else { return false };
+    if c.goal_numerically_holds == Some(false) {
+        return false;
+    }
+    let problem = c.problem;
+    bounded(120, move || {
+        ddar::aux_search::solve_with_aux_opts(&problem, 1, 400, false, true).0
+    })
+    .is_some()
+}
+
+#[test]
+fn undirected_angle_equalities_are_not_directed_ones() {
+    for src in [PARALLELOGRAM_ADJACENT_EQUAL, PARALLELOGRAM_ADJACENT_EQUAL_2] {
+        let c = compile(src).expect("compiles");
+        assert_eq!(
+            c.goal_numerically_holds,
+            Some(false),
+            "supplementary, not equal:\n{src}"
+        );
+        assert!(
+            !solve_problem(&c.problem).unwrap_or(false),
+            "DDAR proved a false angle equality:\n{src}"
+        );
+        assert!(
+            ddar::aux_search::solve_with_aux_opts(&c.problem, 1, 400, false, true)
+                .0
+                .is_none(),
+            "aux search proved a false angle equality:\n{src}"
+        );
+    }
+    assert!(ddar_claims_proof(
+        "A B C = triangle\nD = parallelogram(A, B, C)\nprove angle(D, A, B) = angle(D, C, B)"
+    ));
+}
+
+#[test]
+fn an_angle_value_is_the_undirected_angle_not_a_line_angle_mod_180() {
+    for src in [EXTERIOR_120_AS_60, EQUILATERAL_AS_120, GIVEN_120_BASE_60] {
+        let c = compile(src).expect("compiles");
+        assert_eq!(c.goal_numerically_holds, Some(false), "false value:\n{src}");
+        assert!(
+            !solve_problem(&c.problem).unwrap_or(false),
+            "DDAR proved a false angle value:\n{src}"
+        );
+        assert!(
+            ddar::aux_search::solve_with_aux_opts(&c.problem, 1, 400, false, true)
+                .0
+                .is_none(),
+            "aux search proved a false angle value:\n{src}"
+        );
+    }
+    for src in [
+        "A B = segment\nC = eq_triangle(A, B)\nD = reflect(A, B)\nprove angle(D, B, C) = 120",
+        "A B = segment\nC = eq_triangle(A, B)\nprove angle(A, B, C) = 60",
+        "A B = segment\nC = point: angle(A, B, C) = 120, cong(B, A, B, C)\nprove angle(B, A, C) = 30",
+    ] {
+        let c = compile(src).expect("compiles");
+        assert_eq!(c.goal_numerically_holds, Some(true), "{src}");
+        assert!(proved_with_aux(src), "a true angle value is still proved:\n{src}");
+    }
+}
+
+#[test]
+fn a_given_angle_is_drawn_at_its_stated_size() {
+    let c = compile(GIVEN_120_BASE_60).expect("compiles");
+    let at = |n: &str| c.problem.points.iter().find(|p| p.name == n).unwrap().value;
+    let (u, v) = (at("A") - at("B"), at("C") - at("B"));
+    let deg = (u.dot(v) / (u.norm() * v.norm())).acos().to_degrees();
+    assert!(
+        (deg - 120.0).abs() < 1e-6,
+        "∠ABC drawn as {deg}°, stated 120°"
+    );
+}
+
+#[test]
+fn straight_and_zero_angle_values_are_refused_not_proved() {
+    for src in [
+        "A B = segment\nC = midpoint(A, B)\nprove angle(A, B, C) = 180",
+        "A B = segment\nC = midpoint(A, B)\nprove angle(A, C, B) = 0",
+        "A B = segment\nC = midpoint(A, B)\nprove 2*angle(A, C, B) = 360",
+    ] {
+        assert!(!ddar_claims_proof(src), "{src}");
+        let e = compile(src).err().expect("refused");
+        assert!(e.to_string().contains("coll"), "{e}");
+    }
+}
+
+#[test]
+fn an_undirected_angle_hypothesis_does_not_force_the_directed_one() {
+    let c = compile(AXIS_POINT_CONCYCLIC).expect("compiles");
+    assert_eq!(
+        c.goal_numerically_holds,
+        Some(false),
+        "P on the axis is not on the circle"
+    );
+    assert!(!solve_problem(&c.problem).unwrap_or(false));
+    assert!(
+        ddar::aux_search::solve_with_aux_opts(&c.problem, 1, 400, false, true)
+            .0
+            .is_none()
+    );
+}
+
+#[test]
+fn a_goal_that_fails_in_another_valid_figure_is_flagged_as_drawn() {
+    for src in [
+        "A B C = triangle\nP = point: angle(P, B, A) = angle(P, C, A)\nprove cyclic(A, P, B, C)",
+        "A B C = triangle\nD = point: on(D, circumcircle(A, B, C))\nprove angle(A, B, C) + angle(A, D, C) = 180",
+        "A B C = triangle\nD = point: on(D, circumcircle(A, B, C))\nprove angle(A, B, C) - angle(A, D, C) = 0",
+        "A B C = triangle\nD = point: on(D, circumcircle(A, B, C))\nprove angle(A, B, C) = angle(A, D, C)",
+    ] {
+        let c = compile(src).expect("compiles");
+        if c.goal_numerically_holds == Some(true) && solve_problem(&c.problem).unwrap_or(false) {
+            assert!(c.configuration_dependent, "proved without the as-drawn flag:\n{src}");
+        }
+    }
+    for src in [
+        "A B C = triangle\nD = point: on(D, circumcircle(A, B, C))\nprove eqangle(B, A, B, C, D, A, D, C)",
+        "A B C = triangle\nO = circumcenter(A, B, C)\nprove cong(O, A, O, B)",
+        "A B C = triangle\nD = parallelogram(A, B, C)\nprove angle(D, A, B) = angle(D, C, B)",
+    ] {
+        let c = compile(src).expect("compiles");
+        assert!(!c.configuration_dependent, "a general theorem is not as-drawn:\n{src}");
+    }
+}

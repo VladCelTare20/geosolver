@@ -387,11 +387,9 @@ enum Rel {
     Perp(Vec<Expr>), // 4
     Para(Vec<Expr>), // 4
     Cyclic(Vec<Expr>),
-    Eqangle(Vec<Expr>),                // 8
-    Eqratio(Vec<Expr>),                // 8
-    On(Expr, Expr),                    // point, object
-    AngleConst(Expr, Expr, Expr, f64), // angle(a,b,c) = deg
-    AngleEq(Vec<Expr>),                // angle(a,b,c)=angle(d,e,f); 6 exprs
+    Eqangle(Vec<Expr>), // 8
+    Eqratio(Vec<Expr>), // 8
+    On(Expr, Expr),     // point, object
     /// `dist(..)*dist(..)*... = dist(..)*...` — product of lengths equality.
     /// Fields: flattened point exprs of the left side, then of the right side
     /// (2 exprs per distance).
@@ -884,10 +882,6 @@ fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
         (MExpr::Dist(a, b), MExpr::Num(v)) | (MExpr::Num(v), MExpr::Dist(a, b)) => {
             Rel::DistConst(id(a), id(b), *v)
         }
-        (MExpr::Angle(a, b, c), MExpr::Num(v)) => Rel::AngleConst(id(a), id(b), id(c), *v),
-        (MExpr::Angle(a, b, c), MExpr::Angle(d, e, f)) => {
-            Rel::AngleEq(vec![id(a), id(b), id(c), id(d), id(e), id(f)])
-        }
         _ => {
             if let (Some(l), Some(r)) = (as_dist_product(&lhs), as_dist_product(&rhs)) {
                 if l.len() >= 2 || r.len() >= 2 {
@@ -1124,11 +1118,34 @@ fn angsumeq_to_predicate(
         constants.push(-&n);
     }
     constants.push(-&(konst * &scale));
-    Some(Predicate {
-        name: "angeq".to_string(),
-        points,
-        constants,
-    })
+    Some(simplify_angeq(points, constants))
+}
+
+fn simplify_angeq(points: Vec<PointId>, constants: Vec<Rat>) -> Predicate {
+    let one = Rat::one();
+    let unit = |c: &Rat| c.is_one() || c.is_minus_one();
+    match (points.as_slice(), constants.as_slice()) {
+        ([y, x, _, z], [n, _, k]) if unit(n) => {
+            let half_turns = &(-k) / &Rat::from_int(180);
+            let deg = &half_turns.mod_one() * &Rat::from_int(180);
+            let (p, q) = if n == &one { (*x, *z) } else { (*z, *x) };
+            Predicate {
+                name: "aconst".to_string(),
+                points: vec![*y, p, *y, q],
+                constants: vec![deg],
+            }
+        }
+        ([y, x, _, z, e, d, _, f], [n, _, m, _, k]) if k.is_zero() && unit(n) && unit(m) => {
+            let (p, q) = if n == &one { (*x, *z) } else { (*z, *x) };
+            let (r, t) = if m == &one { (*f, *d) } else { (*d, *f) };
+            pred("eqangle", vec![*y, p, *y, q, *e, r, *e, t])
+        }
+        _ => Predicate {
+            name: "angeq".to_string(),
+            points,
+            constants,
+        },
+    }
 }
 
 /// Reconstruct an `AngSumEq` as an `lhs = rhs` metric equation (positive terms
@@ -2059,7 +2076,6 @@ enum CKind {
     Cyclic,
     Eqangle,
     Eqratio,
-    AConst(Rat),
     /// Product-of-lengths equality; the field is the number of distances on
     /// the left side (points hold 2 per distance, left then right).
     ProdEq(usize),
@@ -2134,14 +2150,6 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
             kind: CKind::Eqratio,
             pts: pts(scene, a)?,
         }),
-        Rel::AngleConst(a, b, c, deg) => {
-            let deg_rat = deg_to_rat(*deg)?;
-            let p = vec![pt(scene, b)?, pt(scene, a)?, pt(scene, b)?, pt(scene, c)?];
-            Ok(Lowered {
-                kind: CKind::AConst(deg_rat),
-                pts: p,
-            })
-        }
         Rel::ProdEq(lhs, rhs) => {
             let n_left = lhs.len() / 2;
             let mut p = pts(scene, lhs)?;
@@ -2169,6 +2177,15 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
             })
         }
         Rel::AngSumEq(terms, k) => {
+            if let [(c, _, _, _)] = terms.as_slice() {
+                let v = (k / c).to_f64();
+                if !(v > 0.0 && v < 180.0) {
+                    return Err(fatal(
+                        "an angle(..) is strictly between 0 and 180 degrees; \
+                         state a straight or zero angle as coll(..)",
+                    ));
+                }
+            }
             let mut p = Vec::with_capacity(3 * terms.len());
             let mut coefs = Vec::with_capacity(terms.len());
             for (c, x, y, z) in terms {
@@ -2204,22 +2221,6 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
                 pts,
             })
         }
-        Rel::AngleEq(a) => {
-            let p = vec![
-                pt(scene, &a[1])?,
-                pt(scene, &a[0])?,
-                pt(scene, &a[1])?,
-                pt(scene, &a[2])?,
-                pt(scene, &a[4])?,
-                pt(scene, &a[3])?,
-                pt(scene, &a[4])?,
-                pt(scene, &a[5])?,
-            ];
-            Ok(Lowered {
-                kind: CKind::Eqangle,
-                pts: p,
-            })
-        }
         Rel::On(p, obj) => {
             let pref = pt(scene, p)?;
             match eval_one(scene, obj)? {
@@ -2238,14 +2239,6 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
                 Value::Point(_) => Err(fatal("`on` expects an object (line/circle)")),
             }
         }
-    }
-}
-
-fn deg_to_rat(deg: f64) -> Result<Rat, BuildError> {
-    if deg.abs() < 9.0e15 && (deg - deg.round()).abs() < 1e-9 {
-        Ok(Rat::from_int(deg.round() as i64))
-    } else {
-        Err(fatal("angle in degrees must be an integer"))
     }
 }
 
@@ -2295,11 +2288,6 @@ impl Lowered {
                 let r1 = distance(c(0), c(1)) / distance(c(2), c(3));
                 let r2 = distance(c(4), c(5)) / distance(c(6), c(7));
                 out.push(r1 - r2);
-            }
-            CKind::AConst(deg) => {
-                let target = deg.to_f64() / 180.0;
-                let a = line_dir(c(0), c(1)) - line_dir(c(2), c(3));
-                out.push(ang_norm(a - target));
             }
             CKind::ProdEq(n_left) => {
                 let mut lhs = 1.0;
@@ -2403,11 +2391,6 @@ impl Lowered {
             CKind::Cyclic => pred("cyclic", pts),
             CKind::Eqangle => pred("eqangle", pts),
             CKind::Eqratio => pred("eqratio", pts),
-            CKind::AConst(deg) => Predicate {
-                name: "aconst".to_string(),
-                points: pts,
-                constants: vec![deg.clone()],
-            },
             CKind::ProdEq(n_left) => {
                 let total = pts.len() / 2;
                 let mut constants: Vec<Rat> = (0..total)
@@ -2974,6 +2957,10 @@ pub struct Compiled {
     pub goal_numerically_holds: Option<bool>,
     /// Number of samples tried before a valid figure was found.
     pub attempts: u32,
+    /// The goal holds in the returned figure but fails in another figure that
+    /// satisfies every stated hypothesis: a proof is valid only for the
+    /// configuration drawn, not as a general theorem.
+    pub configuration_dependent: bool,
 }
 
 /// Compile a high-level program into a low-level [`Problem`].
@@ -3108,7 +3095,9 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
     let mut true_builds = 0u32;
     let mut best_true: Option<(f64, Compiled)> = None;
     let mut fallback_false: Option<Compiled> = None;
+    let mut last_seed = 0u64;
     for seed in 1..=400u64 {
+        last_seed = seed;
         TEXTBOOK_TRIANGLE.with(|f| f.set(seed <= TEXTBOOK_SEEDS));
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
         TEXTBOOK_TRIANGLE.with(|f| f.set(false));
@@ -3151,6 +3140,7 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
                     problem,
                     goal_numerically_holds,
                     attempts: seed as u32,
+                    configuration_dependent: false,
                 };
                 if goal_numerically_holds == Some(false) {
                     goal_false_builds += 1;
@@ -3183,13 +3173,42 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
             }
         }
     }
-    if let Some((_, c)) = best_true {
+    if let Some((_, mut c)) = best_true {
+        c.configuration_dependent =
+            goal_false_builds > 0 || goal_fails_in_another_figure(stmts, last_seed);
         return Ok(c);
     }
     if let Some(c) = fallback_false {
         return Ok(c);
     }
     result
+}
+
+const CONFIGURATION_PROBES: u64 = 8;
+const CONFIGURATION_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn goal_fails_in_another_figure(stmts: &[Stmt], after_seed: u64) -> bool {
+    let started = std::time::Instant::now();
+    for seed in after_seed + 1..=after_seed + CONFIGURATION_PROBES {
+        if started.elapsed() > CONFIGURATION_PROBE_BUDGET {
+            break;
+        }
+        TEXTBOOK_TRIANGLE.with(|f| f.set(seed <= TEXTBOOK_SEEDS));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
+        TEXTBOOK_TRIANGLE.with(|f| f.set(false));
+        let Ok(Ok((scene, Some(goal), _))) = built else {
+            continue;
+        };
+        let problem = Problem {
+            points: scene.points,
+            preds: scene.preds,
+            goal: None,
+        };
+        if numeric_holds(&problem, &goal) == Some(false) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Build up to `n` valid instances of a coordinate-free construction, each with

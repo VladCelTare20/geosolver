@@ -221,6 +221,10 @@ pub struct Solution {
     /// presentation layer. Never serialized.
     #[serde(skip)]
     pub human: Option<HumanSource>,
+    /// Proved for the configuration drawn only: the stated hypotheses also
+    /// allow a figure in which the goal fails.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub as_drawn: bool,
 }
 
 /// The human proof writer's output with what is needed to name it: the raw
@@ -356,14 +360,25 @@ pub fn solve_within(
             {
                 return euclidean_flow(input, opts, deadline);
             }
-            deductive_flow(
+            let mut sol = deductive_flow(
                 compiled.problem,
                 input,
                 compiled.goal_numerically_holds,
                 opts,
                 deadline,
-            )
+            )?;
+            mark_as_drawn(&mut sol, compiled.configuration_dependent);
+            Ok(sol)
         }
+    }
+}
+
+pub const AS_DRAWN_NOTE: &str = "for the configuration drawn only — the hypotheses also allow a figure in which the statement fails";
+
+fn mark_as_drawn(sol: &mut Solution, configuration_dependent: bool) {
+    sol.as_drawn = sol.proved && configuration_dependent;
+    if sol.as_drawn {
+        sol.note = format!("{AS_DRAWN_NOTE}; {}", sol.note);
     }
 }
 
@@ -466,7 +481,7 @@ const METRIC_GOAL: &str = "metric goal";
 
 /// Compile a high-level `.geo` program, or parse a low-level problem, into a
 /// `Problem` plus any numeric goal check from the compiler.
-fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), String> {
+fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>, bool), String> {
     match kind {
         InputKind::Geo => {
             let compiled = geo::compile(input).map_err(|e| {
@@ -476,11 +491,15 @@ fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), S
                     format!("compile error: {e}")
                 }
             })?;
-            Ok((compiled.problem, compiled.goal_numerically_holds))
+            Ok((
+                compiled.problem,
+                compiled.goal_numerically_holds,
+                compiled.configuration_dependent,
+            ))
         }
         InputKind::LowLevel => match low_level_problem(input)? {
             (_, _, Some(_)) => Err(CONJUNCTION.to_string()),
-            (p, holds, None) => Ok((p, holds)),
+            (p, holds, None) => Ok((p, holds, false)),
         },
         InputKind::Corpus => {
             let (_, tr) = corpus_translation(input)?;
@@ -489,7 +508,7 @@ fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), S
             };
             let mut p = tr.problem;
             p.goal = Some(goal.clone());
-            Ok((p, Some(tr.goal_holds)))
+            Ok((p, Some(tr.goal_holds), false))
         }
     }
 }
@@ -682,6 +701,7 @@ fn conjunction_solution(
             aux_from,
         }),
         human: None,
+        as_drawn: false,
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -718,7 +738,7 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
         return euclid(opts);
     }
 
-    let (problem, goal_holds) = match to_problem(input, opts.kind) {
+    let (problem, goal_holds, configuration_dependent) = match to_problem(input, opts.kind) {
         Err(e) if e == METRIC_GOAL => return euclid(opts),
         Err(e) if e == CONJUNCTION => return solve_within(input, opts, Some(budget)),
         other => other?,
@@ -729,6 +749,7 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
     let mut sol =
         ddar::quiet_panic::quiet(|| best_deductive(input, opts, budget, problem, goal_holds))?;
     reconcile(&mut sol, true);
+    mark_as_drawn(&mut sol, configuration_dependent);
     Ok(sol)
 }
 
@@ -774,6 +795,7 @@ fn best_deductive(
                 aux_from: None,
             }),
             human: None,
+            as_drawn: false,
         }
     };
 
@@ -1262,6 +1284,7 @@ fn deductive_flow(
         examined: None,
         figure: Some(figure),
         human,
+        as_drawn: false,
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -1376,6 +1399,7 @@ fn euclidean_flow(
         examined: None,
         figure,
         human: None,
+        as_drawn: false,
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -2382,6 +2406,7 @@ mod tests {
             examined: None,
             figure: None,
             human: None,
+            as_drawn: false,
         }
     }
 }
@@ -2415,7 +2440,7 @@ mod corpus_tests {
                 Ok(tr.goals.len())
             }
             kind => {
-                let (p, _) = to_problem(input, kind)?;
+                let (p, _, _) = to_problem(input, kind)?;
                 render_figure(&p, &opts, None)?;
                 Ok(1)
             }
