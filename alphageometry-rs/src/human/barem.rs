@@ -3769,7 +3769,85 @@ fn plan_worthy(b: &Block) -> bool {
     !promoted && !sum && !matches!(b.stmt, Stmt::Formula { .. })
 }
 
+fn reasons_mut(r: &mut Reason, f: &mut dyn FnMut(&mut Reason)) {
+    if let Reason::Fact { because, .. } = r {
+        for b in because.iter_mut() {
+            reasons_mut(b, f);
+        }
+    }
+    f(r);
+}
+
+pub fn bisector_shape(st: &Stmt) -> Option<(bool, bool)> {
+    match st {
+        Stmt::EqAngle {
+            lhs:
+                Expr::Angle {
+                    a,
+                    b,
+                    c,
+                    directed: d1,
+                },
+            rhs:
+                Expr::Angle {
+                    a: a2,
+                    b: b2,
+                    c: c2,
+                    directed: d2,
+                },
+        } if b == b2 && c == a2 && a != c2 => Some((*d1, *d2)),
+        _ => None,
+    }
+}
+
+fn figure_bisectors(cx: &Ctx, hp: &mut HumanProof) {
+    let mut fix = |r: &mut Reason| {
+        if let Reason::Hyp { stmt, .. } = r {
+            if bisector_shape(stmt) == Some((true, true)) {
+                if let Some(u) = undirected_stmt(cx, stmt) {
+                    *stmt = u;
+                }
+            }
+        }
+    };
+    for b in hp.blocks.iter_mut() {
+        for s in b.body.iter_mut() {
+            match s {
+                Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => {
+                    for l in links.iter_mut() {
+                        for r in l.reasons.iter_mut() {
+                            reasons_mut(r, &mut fix);
+                        }
+                    }
+                }
+                Sentence::Because { reasons, .. }
+                | Sentence::Pooled { reasons, .. }
+                | Sentence::Theorem { reasons, .. } => {
+                    for r in reasons.iter_mut() {
+                        reasons_mut(r, &mut fix);
+                    }
+                }
+                Sentence::Raw { .. } => {}
+            }
+        }
+    }
+}
+
+fn directed_conclusion(hp: &HumanProof) -> bool {
+    let directed_angle = |e: &Expr| super::expr::has_angle(e) && super::expr::is_directed(e);
+    hp.goal == Some(GoalWords::Stmt)
+        && hp.blocks.last().is_some_and(|b| {
+            b.kind == BlockKind::Conclusion
+                && match &b.stmt {
+                    Stmt::EqAngle { lhs, rhs } => directed_angle(lhs) || directed_angle(rhs),
+                    Stmt::AngleConst { angle, .. } => directed_angle(angle),
+                    _ => false,
+                }
+        })
+}
+
 pub fn finish(cx: &Ctx, hp: &mut HumanProof) {
+    figure_bisectors(cx, hp);
     for (i, b) in hp.blocks.iter_mut().enumerate() {
         b.step = i as u16 + 1;
     }
@@ -3797,7 +3875,7 @@ pub fn finish(cx: &Ctx, hp: &mut HumanProof) {
         }
     }
     hp.goal = Some(goal_words(cx));
-    let directed = has_angle_chain(hp, cx, true);
+    let directed = has_angle_chain(hp, cx, true) || directed_conclusion(hp);
     let undirected = has_angle_chain(hp, cx, false);
     hp.setup.retain(|s| {
         !matches!(
@@ -3860,10 +3938,17 @@ pub fn goal_words(cx: &Ctx) -> GoalWords {
                 if let (Some(v), Some(v2)) = (shared(l1, l2), shared(l3, l4)) {
                     if v == v2 && shared(l1, l4) == Some(v) {
                         let other = |a: (PointId, PointId)| if a.0 == v { a.1 } else { a.0 };
-                        return GoalWords::Bisects {
-                            line: (v, other(l2)),
-                            angle: (other(l1), v, other(l4)),
-                        };
+                        let (x, y, z) = (other(l1), other(l2), other(l4));
+                        let half = super::theorems::interior_degrees(cx.t, x, v, y);
+                        let other_half = super::theorems::interior_degrees(cx.t, y, v, z);
+                        let inside = (1e-6..180.0 - 1e-6).contains(&half)
+                            && (half - other_half).abs() < 1e-6;
+                        if inside {
+                            return GoalWords::Bisects {
+                                line: (v, y),
+                                angle: (x, v, z),
+                            };
+                        }
                     }
                 }
             }

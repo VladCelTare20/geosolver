@@ -14,13 +14,13 @@
 //! | `AGSTUDIO_BASIC_AUTH_FAILS_PER_MIN` | 10 | per-IP *wrong* shared passwords per minute (Basic and the gate form together) before 429 (0 = off) |
 //! | `AGSTUDIO_GUEST_MODE` | on if `AGSTUDIO_BASIC_AUTH` is set, else off | `1`/`0` override. Visitors past the shared password may solve, export and humanize without an account (no history). `1` without a password refuses to start |
 //! | `AGSTUDIO_GUEST_AI` | same as guest mode | `0` keeps Describe and Photo (`/api/translate`) for accounts only; guests still get AI explanations |
-//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 0 | per-IP `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid, for guests and accounts alike, so registering an account does not reset it (0 = no daily cap; the per-minute limit always applies) |
+//! | `AGSTUDIO_GUEST_AI_PER_DAY` | 60 with guest mode, else 0 | per-IP `/api/translate` + `/api/humanize` calls per 24 h (one budget), counted once the request is valid, for guests and accounts alike, so registering an account does not reset it (0 = no daily cap; the per-minute limit always applies) |
 //! | `AGSTUDIO_AI_PER_DAY_TOTAL` | 0 | server-wide `/api/translate` + `/api/humanize` calls per 24 h, every caller and address together: the ceiling on what the subscription spends (0 = none) |
 //! | `AGSTUDIO_ALLOW_INSECURE` | off | permit a public bind with no auth (proxy only) |
 //! | `AGSTUDIO_MAX_CONCURRENT` | CPUs available, clamped to 2..8 | simultaneous heavy requests; each solve/export is one worker process |
 //! | `AGSTUDIO_QUEUE_WAIT_SECS` | 5 | how long a heavy request waits for a free slot before 503 + `Retry-After` (max 60) |
-//! | `AGSTUDIO_SOLVE_DEADLINE_SECS` | 60 | wall-clock limit of one web solve or export (10–600); the request timeout grows to fit |
-//! | `AGSTUDIO_EXTENDED_DEADLINE_SECS` | 180 | limit of the "Keep searching" solve offered after a time-limit verdict (one at a time, server-wide; 0 = not offered; at most 900) |
+//! | `AGSTUDIO_SOLVE_DEADLINE_SECS` | 60 | wall-clock limit of one web solve or export (10–600); the request timeout grows to fit. Your proxy's read timeout must exceed max(this, `EXTENDED_DEADLINE`) + 40 s (the shipped nginx and Caddy files wait 240 s) |
+//! | `AGSTUDIO_EXTENDED_DEADLINE_SECS` | 180 | limit of the "Keep searching" solve offered after a time-limit verdict (one at a time, server-wide; 0 = not offered; at most 900). Raising it means raising the proxy timeout too; a restart drains for `SHUTDOWN_GRACE_SECS` (70 s) only, so it cuts off a longer extended solve |
 //! | `RAYON_NUM_THREADS` | unset | solver threads per worker; unset, the CPUs (cgroup quota included) minus one are shared among the workers running at once |
 //! | `AGSTUDIO_WORKER_MEM_MB` | 2048 | memory cap (`RLIMIT_DATA`: heap and thread stacks, not merely reserved address space) of each solve worker process; 0 = none |
 //! | `AGSTUDIO_HUMAN_PROOFS` | 1 | 0 turns off the human-style proof writer (the Proof tab, MCP and reports then show only the full derivation) |
@@ -77,6 +77,17 @@ const MIN_BASIC_PASSWORD_CHARS: usize = 8;
 /// The marker of the template password in `deploy/.env.example`.
 const PLACEHOLDER_PASSWORD: &str = "change-me";
 
+const DEFAULT_GUEST_AI_PER_DAY: u32 = 60;
+
+const SET_PASSWORD_HINT: &str = "Run `openssl rand -hex 16` in a shell and put its output \
+     after the colon: `AGSTUDIO_BASIC_AUTH=:<output>`";
+
+fn is_unexpanded_command(pass: &str) -> bool {
+    let lower = pass.to_ascii_lowercase();
+    let backticked = pass.len() > 2 && pass.starts_with('`') && pass.ends_with('`');
+    pass.contains("$(") || pass.contains("${") || backticked || lower.contains("openssl rand")
+}
+
 /// The configured HTTP Basic credentials, kept only as SHA-256 digests so a
 /// comparison is constant-time and length-independent.
 #[derive(Clone)]
@@ -107,12 +118,17 @@ impl BasicAuth {
             ));
         }
         if pass.to_ascii_lowercase().contains(PLACEHOLDER_PASSWORD) {
-            return Err(
+            return Err(format!(
                 "AGSTUDIO_BASIC_AUTH is still the CHANGE-ME placeholder from deploy/.env.example, \
-                 which is published with the source. Set your own password, e.g. \
-                 `AGSTUDIO_BASIC_AUTH=:$(openssl rand -hex 16)`"
-                    .into(),
-            );
+                 which is published with the source. {SET_PASSWORD_HINT}"
+            ));
+        }
+        if is_unexpanded_command(pass) {
+            return Err(format!(
+                "AGSTUDIO_BASIC_AUTH holds a shell command, not its output: an env file does \
+                 not run `$(...)`, so the password would be that published text. \
+                 {SET_PASSWORD_HINT}"
+            ));
         }
         Ok(BasicAuth {
             user: user.map(|u| sha256(u.as_bytes())),
@@ -386,7 +402,15 @@ impl Config {
             gate_days: env_num(&get, "AGSTUDIO_GATE_DAYS", 180u32)?.clamp(1, 400),
             guest_mode,
             guest_ai,
-            guest_ai_per_day: env_num(&get, "AGSTUDIO_GUEST_AI_PER_DAY", 0)?,
+            guest_ai_per_day: env_num(
+                &get,
+                "AGSTUDIO_GUEST_AI_PER_DAY",
+                if guest_mode {
+                    DEFAULT_GUEST_AI_PER_DAY
+                } else {
+                    0
+                },
+            )?,
             ai_per_day_total: env_num(&get, "AGSTUDIO_AI_PER_DAY_TOTAL", 0)?,
             max_concurrent: env_num(&get, "AGSTUDIO_MAX_CONCURRENT", cpus.clamp(2, 8))?.max(1),
             rate_per_min: env_num(&get, "AGSTUDIO_RATE_PER_MIN", 120)?,
@@ -452,6 +476,31 @@ impl Config {
     /// The `/gate` password page (and its cookie) is in use.
     pub fn form_gate(&self) -> bool {
         self.basic_auth.is_some() && self.gate == GateMode::Form
+    }
+
+    /// Settings that start but probably do not do what the operator meant.
+    pub fn deployment_warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let loopback = self.bind.ip().is_loopback();
+        if !loopback && self.public_hosts.is_empty() {
+            out.push(
+                "AGSTUDIO_PUBLIC_HOST is not set, so on this non-loopback bind any Host \
+                 header is accepted (the DNS-rebinding guard is off). Set it to the name \
+                 the site is served as."
+                    .to_string(),
+            );
+        }
+        if loopback && !self.public_hosts.is_empty() && !self.trust_proxy {
+            out.push(
+                "AGSTUDIO_PUBLIC_HOST is set on a loopback bind (behind a proxy) but \
+                 AGSTUDIO_TRUST_PROXY is off: every visitor then shares the proxy's address \
+                 for the rate limits, the AI budget and the wrong-password lockout, so one \
+                 visitor's wrong guesses lock everyone out for a minute. Set \
+                 AGSTUDIO_TRUST_PROXY=1 if the proxy sets X-Forwarded-For."
+                    .to_string(),
+            );
+        }
+        out
     }
 
     /// A one-line human summary for the startup banner.
@@ -713,6 +762,49 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_proxies_wait_longer_than_the_longest_solve() {
+        let longest = cfg(&[]).unwrap().request_timeout().as_secs();
+        for (name, text, keys) in [
+            (
+                "nginx.conf",
+                include_str!("../../deploy/nginx.conf"),
+                &["proxy_read_timeout", "proxy_send_timeout"][..],
+            ),
+            (
+                "nginx-host.conf",
+                include_str!("../../deploy/nginx-host.conf"),
+                &["proxy_read_timeout", "proxy_send_timeout"][..],
+            ),
+            (
+                "Caddyfile",
+                include_str!("../../deploy/Caddyfile"),
+                &["read_timeout", "write_timeout"][..],
+            ),
+        ] {
+            for key in keys {
+                let secs: Vec<u64> = text
+                    .lines()
+                    .filter_map(|l| l.trim().strip_prefix(key))
+                    .filter_map(|v| {
+                        v.trim()
+                            .trim_end_matches(';')
+                            .strip_suffix('s')?
+                            .parse()
+                            .ok()
+                    })
+                    .collect();
+                assert!(!secs.is_empty(), "{name} sets {key}");
+                for s in secs {
+                    assert!(
+                        s > longest,
+                        "{name}: {key} {s}s would cut a \"Keep searching\" solve, which may take {longest}s"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_solve_deadlines_are_configurable_and_the_request_timeout_fits_them() {
         let c = cfg(&[]).unwrap();
         assert_eq!(c.solve_deadline, Duration::from_secs(60));
@@ -766,6 +858,76 @@ mod tests {
     }
 
     #[test]
+    fn deployment_warnings_name_the_silent_misconfigurations() {
+        let public = cfg(&[
+            ("AGSTUDIO_BIND", "0.0.0.0:8787"),
+            ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+        ])
+        .unwrap();
+        let w = public.deployment_warnings();
+        assert!(
+            w.iter()
+                .any(|m| m.contains("AGSTUDIO_PUBLIC_HOST is not set")),
+            "{w:?}"
+        );
+        let proxied = cfg(&[("AGSTUDIO_PUBLIC_HOST", "geo.example.com")]).unwrap();
+        let w = proxied.deployment_warnings();
+        assert!(
+            w.iter().any(|m| m.contains("AGSTUDIO_TRUST_PROXY is off")),
+            "{w:?}"
+        );
+        for fine in [
+            cfg(&[]).unwrap(),
+            cfg(&[
+                ("AGSTUDIO_PUBLIC_HOST", "geo.example.com"),
+                ("AGSTUDIO_TRUST_PROXY", "1"),
+            ])
+            .unwrap(),
+            cfg(&[
+                ("AGSTUDIO_BIND", "0.0.0.0:8787"),
+                ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+                ("AGSTUDIO_PUBLIC_HOST", "geo.example.com"),
+            ])
+            .unwrap(),
+        ] {
+            assert!(
+                fine.deployment_warnings().is_empty(),
+                "{:?}",
+                fine.deployment_warnings()
+            );
+        }
+    }
+
+    #[test]
+    fn every_template_line_uncomments_to_a_plain_assignment() {
+        let template = include_str!("../../deploy/.env.example");
+        let mut seen = 0;
+        for line in template.lines() {
+            let Some(rest) = line.strip_prefix("# ") else {
+                continue;
+            };
+            let Some((name, value)) = rest.split_once('=') else {
+                continue;
+            };
+            if name.is_empty()
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            {
+                continue;
+            }
+            seen += 1;
+            assert!(
+                !value.contains('#') && value == value.trim_end(),
+                "uncommenting {line:?} gives systemd the value {value:?}"
+            );
+        }
+        assert!(seen >= 30, "only {seen} variables in the template");
+        let c = cfg(&[("AGSTUDIO_GATE_DAYS", "180")]).unwrap();
+        assert_eq!(c.gate_days, 180);
+    }
+
+    #[test]
     fn the_published_template_password_refuses_to_start() {
         let template = include_str!("../../deploy/.env.example");
         let shipped: Vec<&str> = template
@@ -794,6 +956,23 @@ mod tests {
                 .any(|l| l.trim_start().starts_with("AGSTUDIO_BASIC_AUTH=")),
             "an unedited copy must leave the password unset, so a public bind refuses to start"
         );
+        for literal in [
+            ":$(openssl rand -hex 16)",
+            "$(openssl rand -hex 16)",
+            ":`openssl rand -hex 16`",
+            ":${GEOSOLVER_PASSWORD}",
+            "admin:openssl rand -hex 16",
+        ] {
+            let err = BasicAuth::parse(literal)
+                .err()
+                .unwrap_or_else(|| panic!("{literal:?} is the docs' command, not a password"));
+            assert!(
+                err.contains("shell command") && err.contains("openssl rand -hex 16"),
+                "{err}"
+            );
+            assert!(cfg(&[("AGSTUDIO_BASIC_AUTH", literal)]).is_err());
+        }
+        assert!(BasicAuth::parse(":3f9c2a7be81d4c60a5f1e2d3c4b5a697").is_ok());
         for bad in [
             ":CHANGE-ME-run-openssl-rand-hex-16",
             "op:change-me-please",
@@ -1097,6 +1276,27 @@ mod tests {
                 .unwrap()
                 .guest_ai_per_day,
             30
+        );
+        assert_eq!(
+            cfg(&[("AGSTUDIO_BASIC_AUTH", ":longenough")])
+                .unwrap()
+                .guest_ai_per_day,
+            DEFAULT_GUEST_AI_PER_DAY,
+            "guests spend the subscription only under a daily cap unless it is widened"
+        );
+        assert_eq!(
+            cfg(&[
+                ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+                ("AGSTUDIO_GUEST_AI_PER_DAY", "0")
+            ])
+            .unwrap()
+            .guest_ai_per_day,
+            0
+        );
+        assert_eq!(
+            cfg(&[]).unwrap().guest_ai_per_day,
+            0,
+            "no guests, no cap by default"
         );
     }
 

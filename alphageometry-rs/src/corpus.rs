@@ -1094,8 +1094,36 @@ fn holds(name: &str, x: &[Vec2], nums: &[f64], scale: f64) -> Option<bool> {
         "rconst" => {
             need(4) && nonzero(2, 3) && (dist(0, 1) / dist(2, 3) - nums.first()?).abs() < 1e-7
         }
+        "simtri" | "contri" => {
+            let sides = |o: usize| [dist(o, o + 1), dist(o + 1, o + 2), dist(o + 2, o)];
+            need(6)
+                && !holds("coll", &x[0..3], nums, scale)?
+                && !holds("coll", &x[3..6], nums, scale)?
+                && {
+                    let (s, t) = (sides(0), sides(3));
+                    let k = s[0] / t[0];
+                    let same_ratio = s
+                        .iter()
+                        .zip(t)
+                        .all(|(a, b)| (a / b - k).abs() < 1e-7 * k.max(1.0));
+                    same_ratio && (name == "simtri" || (k - 1.0).abs() < 1e-7)
+                }
+        }
         _ => return None,
     })
+}
+
+/// Orientation of the two triangles of a `simtri`/`contri` goal: `Some(true)`
+/// when they turn the same way, `None` when either is degenerate (collinear
+/// or with coincident points), which no triangle relation can be about.
+fn triangle_orientation(c: impl Fn(&str) -> Vec2, a: &[String]) -> Option<bool> {
+    let tri = |o: usize| [c(&a[o]), c(&a[o + 1]), c(&a[o + 2])];
+    let (t, u) = (tri(0), tri(3));
+    let scale = t.iter().chain(&u).map(|p| p.norm()).fold(1.0, f64::max);
+    let area = |p: [Vec2; 3]| cross(p[1] - p[0], p[2] - p[0]);
+    let (s, r) = (area(t), area(u));
+    let tiny = 1e-9 * scale * scale;
+    (s.abs() > tiny && r.abs() > tiny).then(|| s.signum() == r.signum())
 }
 
 #[derive(Clone, Debug)]
@@ -1193,7 +1221,7 @@ fn lower_premise(t: &Term) -> Result<Vec<NamedPred>, String> {
 
 fn lower_goal(
     t: &Term,
-    same_orientation: impl Fn(&[String]) -> bool,
+    same_orientation: impl Fn(&[String]) -> Option<bool>,
 ) -> Result<Vec<NamedPred>, String> {
     let p = |name: &str, pts: &[&String]| NamedPred {
         name: name.to_string(),
@@ -1208,7 +1236,14 @@ fn lower_goal(
         ]),
         "simtri" | "contri" if a.len() == 6 => {
             let (x, y, z, u, w, s) = (&a[0], &a[1], &a[2], &a[3], &a[4], &a[5]);
-            let mut out = if same_orientation(a) {
+            let Some(same) = same_orientation(a) else {
+                return Err(format!(
+                    "`{}` needs two genuine triangles, but {x} {y} {z} or {u} {w} {s} are \
+                     collinear in the figure",
+                    t.name
+                ));
+            };
+            let mut out = if same {
                 vec![
                     p("eqangle", &[y, x, y, z, w, u, w, s]),
                     p("eqangle", &[z, x, z, y, s, u, s, w]),
@@ -1452,12 +1487,9 @@ fn sample(prob: &AgProblem, seed: u64) -> Res<Sampled> {
             return fatal(format!("goal uses undefined point `{a}`"));
         }
     }
-    let orient = |a: &[String]| {
-        let c = |i: usize| fig.coords[a[i].as_str()];
-        cross(c(1) - c(0), c(2) - c(0)).signum() == cross(c(4) - c(3), c(5) - c(3)).signum()
-    };
+    let orient = |a: &[String]| triangle_orientation(|n| fig.coords[n], a);
     let goals = lower_goal(&prob.goal, orient).map_err(Fail::Fatal)?;
-    let mut goal_holds = true;
+    let mut goal_holds = whole_goal_holds(&prob.goal, |n| fig.coords[n], fig.radius());
     for g in &goals {
         let xs: Vec<Vec2> = g.points.iter().map(|n| fig.coords[n.as_str()]).collect();
         let nums: Vec<f64> = g.constants.iter().map(Rat::to_f64).collect();
@@ -1573,9 +1605,8 @@ impl FigureSample {
         }
     }
 
-    fn same_orientation(&self, a: &[String]) -> bool {
-        let c = |i: usize| self.coords[a[i].as_str()];
-        cross(c(1) - c(0), c(2) - c(0)).signum() == cross(c(4) - c(3), c(5) - c(3)).signum()
+    fn same_orientation(&self, a: &[String]) -> Option<bool> {
+        triangle_orientation(|n| self.coords[n], a)
     }
 }
 
@@ -1628,13 +1659,24 @@ pub fn term_holds(t: &Term, fig: &FigureSample) -> Result<bool, String> {
         }
     }
     let scale = fig.figure().radius();
-    let mut all = true;
+    let mut all = whole_goal_holds(t, |n| fig.coords[n], scale);
     for g in lower_goal(t, |a| fig.same_orientation(a))? {
         let xs: Vec<Vec2> = g.points.iter().map(|n| fig.coords[n.as_str()]).collect();
         let nums: Vec<f64> = g.constants.iter().map(Rat::to_f64).collect();
         all &= holds(&g.name, &xs, &nums, scale).ok_or_else(|| format!("cannot check `{t}`"))?;
     }
     Ok(all)
+}
+
+/// The statement itself, beyond the conjuncts DDAR proves: for `simtri` and
+/// `contri` all three side ratios (or sides), since the angle conjuncts alone
+/// are `0 = 0` on degenerate "triangles".
+fn whole_goal_holds(t: &Term, c: impl Fn(&str) -> Vec2, scale: f64) -> bool {
+    if !matches!(t.name.as_str(), "simtri" | "contri") || t.args.len() != 6 {
+        return true;
+    }
+    let xs: Vec<Vec2> = t.args.iter().map(|n| c(n)).collect();
+    holds(&t.name, &xs, &[], scale) == Some(true)
 }
 
 /// Whether an engine predicate holds numerically on a translated problem's
@@ -1696,11 +1738,7 @@ pub fn lower_engine_goal(problem: &Problem, goal: &Predicate) -> Option<Vec<Pred
             .map(|&i| problem.point_name(i).to_string())
             .collect(),
     };
-    let at = |n: &String| problem.points[ids[n.as_str()] as usize].value;
-    let same = |a: &[String]| {
-        cross(at(&a[1]) - at(&a[0]), at(&a[2]) - at(&a[0])).signum()
-            == cross(at(&a[4]) - at(&a[3]), at(&a[5]) - at(&a[3])).signum()
-    };
+    let same = |a: &[String]| triangle_orientation(|n| problem.points[ids[n] as usize].value, a);
     lower_goal(&term, same)
         .ok()?
         .into_iter()

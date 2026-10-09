@@ -314,7 +314,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .no-scroll, .no-scroll body { overflow: hidden; }
 .no-scroll body { position: fixed; left: 0; right: 0; width: 100%; }
 .link, .link-btn { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.link-btn { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; }
+.link-btn { border: 0; background: none; padding: 0; font: inherit; text-align: inherit; cursor: pointer; }
 .grow { flex: 1; min-width: 0; }
 .small { font-size: var(--fs-13); }
 
@@ -631,7 +631,8 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
   .hp-chain:not(.lhs-own) tr.hp-row:first-child { padding-left: 1.1em; }
   .hp-chain .hp-rhs { padding-right: 0; white-space: normal; }
   .hp-chain .hp-why { display: none; }
-  .hp-chain.show-why .hp-why:not(:empty) { display: block; text-indent: 0; padding: 0 0 2px 0.2em; }
+  .hp-chain.show-why .hp-why:not(:empty) { display: block; text-indent: 0; padding: 0 0 2px 0.2em; overflow-wrap: anywhere; }
+  .hp-chain .hp-why .hp-nb { white-space: normal; }
   .hp-row:focus td { background: none; }
   .hp-row:focus { background: var(--hl-a14); }
   .hp-row:focus-visible td:first-child { box-shadow: none; }
@@ -876,6 +877,7 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .fig-viewport, .fig-foot { forced-color-adjust: none; }
   .hist-item.is-active { outline: 2px solid Highlight; outline-offset: -2px; }
   .step.is-active, .step.uses-point, .facts li:focus-visible, .goal:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  .hp-block.is-active, .hp-row:focus td { outline: 2px solid Highlight; outline-offset: -2px; }
   .verdict { border-left: 4px solid CanvasText; }
   .chip[class*="tone-"] { border: 1px solid CanvasText; }
   .editor:focus-within, .input:focus, .textarea:focus { outline: 2px solid Highlight; outline-offset: 2px; }
@@ -925,7 +927,10 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .card { box-shadow: none; }
   .verdict { animation: none; break-inside: avoid; }
   .verdict, .chip, .fig-viewport, .step.is-conclusion .step-n { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .statement, .figure-panel, .step, .facts li, .hp-chain, .hp-lead { break-inside: avoid; }
+  .figure-panel, .step, .facts li, .hp-chain, .hp-lead { break-inside: avoid; }
+  .statement { break-inside: auto; }
+  .proof-head { break-after: avoid; }
+  .proof { break-before: auto; }
   .hp-block.is-active, .hp-row:focus td { background: none; }
   .figure-panel, .has-result .figure-panel { display: block; position: static; }
   .fig-frame, .fig-frame.is-full { position: static; height: auto !important; min-height: 0; max-height: none; border: 1px solid var(--border); border-radius: var(--r-card); padding: 0; }

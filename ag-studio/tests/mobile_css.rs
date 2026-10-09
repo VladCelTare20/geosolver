@@ -351,6 +351,15 @@ fn human_proof_controls_reach_48px_and_chains_fold_on_phones() {
         "reasons fold behind \"Show reasons\" on phones"
     );
     assert!(at(".hp-why-toggle", "display", "inline-block"));
+    assert!(
+        at(".hp-chain .hp-why .hp-nb", "white-space", "normal"),
+        "an opened reason wraps at a large system font instead of pushing the page sideways"
+    );
+    assert!(
+        !include_str!("../assets/site.js")
+            .contains(r#"r.key === "isosceles" && !plain ? '<span class="hp-nb">'"#),
+        "the isosceles note is a sentence, not one unbreakable atom"
+    );
     for r in all
         .iter()
         .filter(|r| r.selector.contains(".hp-") && r.selector.contains(":hover"))
@@ -391,6 +400,10 @@ fn narrow_screens_wrap_instead_of_scrolling_sideways() {
     assert!(plain(".actions", "flex-wrap", "wrap"));
     assert!(plain(".fig-tools", "flex-wrap", "wrap"));
     assert!(plain(".example-chips .btn", "white-space", "normal"));
+    assert!(
+        plain(".link-btn", "text-align", "inherit"),
+        "a wrapped inline link button lines up with the text around it, not centred"
+    );
     let at = |w: &str, sel: &str| {
         all.iter()
             .any(|r| r.media.iter().any(|m| m.contains(w)) && r.selector.contains(sel))

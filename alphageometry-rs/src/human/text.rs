@@ -532,17 +532,21 @@ pub fn stmt(n: &dyn PointNames, s: &Stmt) -> String {
 pub fn hyp_text(n: &dyn PointNames, s: &Stmt) -> String {
     if let Stmt::EqAngle {
         lhs: Expr::Angle { a, b, c, .. },
-        rhs:
-            Expr::Angle {
-                a: a2,
-                b: b2,
-                c: c2,
-                ..
-            },
+        rhs: Expr::Angle { c: c2, .. },
     } = s
     {
-        if b == b2 && c == a2 {
-            return format!("{} bisects ∠{}", n.pts(&[*b, *c]), n.pts(&[*a, *b, *c2]));
+        match super::barem::bisector_shape(s) {
+            Some((false, false)) => {
+                return format!("{} bisects ∠{}", n.pts(&[*b, *c]), n.pts(&[*a, *b, *c2]))
+            }
+            Some((true, true)) => {
+                return format!(
+                    "{} is the external bisector of ∠{}",
+                    n.pts(&[*b, *c]),
+                    n.pts(&[*a, *b, *c2])
+                )
+            }
+            _ => {}
         }
     }
     stmt(n, s)

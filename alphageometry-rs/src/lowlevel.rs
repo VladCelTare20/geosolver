@@ -39,6 +39,13 @@ pub fn check(problem: &Problem, input: &str) -> Result<(), String> {
         .as_ref()
         .ok_or("the problem has no goal (add `? <relation>`)")?;
     shape(goal, true)?;
+    if matches!(goal.name.as_str(), "simtri" | "contri") && conjuncts(problem, goal).is_none() {
+        return Err(format!(
+            "goal `{}` needs two genuine triangles, but one of them is collinear at the given \
+             coordinates",
+            written(problem, goal)
+        ));
+    }
     for pred in &problem.preds {
         if hypothesis_holds(problem, pred) == Some(false) {
             return Err(format!(
@@ -346,6 +353,14 @@ pub fn goal_holds(problem: &Problem, goal: &Predicate) -> Option<bool> {
         | "cyclic_with_centers" => None,
         _ => crate::corpus::pred_holds(problem, g),
     };
+    if matches!(goal.name.as_str(), "simtri" | "contri") {
+        let whole = crate::corpus::pred_holds(problem, goal)?;
+        let parts = conjuncts(problem, goal)?;
+        return parts
+            .iter()
+            .map(check)
+            .try_fold(whole, |all, h| h.map(|h| all && h));
+    }
     match conjuncts(problem, goal) {
         Some(parts) => parts
             .iter()

@@ -1019,6 +1019,64 @@ pub fn setup_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
     out
 }
 
+fn bisector_wording(cx: &Ctx, hp: &HumanProof) -> Vec<(u16, String)> {
+    fn walk<'a>(r: &'a Reason, out: &mut Vec<&'a Stmt>) {
+        match r {
+            Reason::Hyp { stmt, .. } => out.push(stmt),
+            Reason::Fact { because, .. } => because.iter().for_each(|b| walk(b, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for b in &hp.blocks {
+        let mut hyps: Vec<&Stmt> = Vec::new();
+        for s in &b.body {
+            match s {
+                Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links
+                    .iter()
+                    .flat_map(|l| &l.reasons)
+                    .for_each(|r| walk(r, &mut hyps)),
+                Sentence::Because { reasons, .. }
+                | Sentence::Pooled { reasons, .. }
+                | Sentence::Theorem { reasons, .. } => {
+                    reasons.iter().for_each(|r| walk(r, &mut hyps))
+                }
+                Sentence::Raw { .. } => {}
+            }
+        }
+        for st in hyps {
+            let (
+                Some(shape),
+                Stmt::EqAngle {
+                    lhs: Expr::Angle { a, b: v, c, .. },
+                    rhs: Expr::Angle { c: c2, .. },
+                },
+            ) = (super::barem::bisector_shape(st), st)
+            else {
+                continue;
+            };
+            let x = super::theorems::interior_degrees(cx.t, *a, *v, *c);
+            let y = super::theorems::interior_degrees(cx.t, *c, *v, *c2);
+            let equal = (x - y).abs() < 1e-6;
+            let wrong = match shape {
+                (false, false) => !equal,
+                (true, true) => equal,
+                _ => false,
+            };
+            if wrong {
+                out.push((
+                    b.id,
+                    format!(
+                        "a hypothesis is worded as {} bisector but the figure reads {x:.3} and {y:.3} degrees",
+                        if shape.0 { "an external" } else { "a" }
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
 pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
     let mut out = setup_violations(cx, hp);
     let mut bad = |block: u16, detail: String| {
@@ -1040,6 +1098,9 @@ pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
                 ),
             );
         }
+    }
+    for (block, detail) in bisector_wording(cx, hp) {
+        bad(block, detail);
     }
     let Some(goal) = &hp.goal else {
         if !hp.plan.is_empty() || hp.blocks.iter().any(|b| b.tag) {

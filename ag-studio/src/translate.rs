@@ -78,7 +78,7 @@ pub fn status() -> Status {
 /// Advisory only — the real gate is the translate call itself.
 fn detect_login() -> bool {
     if env_login_hint(|k| std::env::var(k).ok()) {
-        return true;
+        return cli_start_error().is_none();
     }
     let Some(bin) = claude_bin() else {
         return false;
@@ -97,6 +97,44 @@ fn detect_login() -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Why the installed `claude` CLI cannot even print its version, if it cannot
+/// (e.g. a sandbox forbidding the writable+executable memory its JIT needs).
+/// A token in the environment is otherwise taken as signed in without running
+/// the CLI at all, so a CLI that crashes on start would look "on".
+pub fn cli_start_error() -> Option<String> {
+    let bin = claude_bin()?;
+    let mut cmd = Command::new(&bin);
+    cmd.arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    scrub_env(&mut cmd);
+    match run_with_timeout(cmd, Duration::from_secs(15)) {
+        Ok(out) if out.status.success() => None,
+        Ok(out) => Some(format!(
+            "`{} --version` failed ({}): {}",
+            bin.display(),
+            out.status,
+            first_line(&out.stderr).unwrap_or_else(|| first_line(&out.stdout).unwrap_or_default())
+        )),
+        Err(e) => Some(format!("`{} --version` failed: {e:#}", bin.display())),
+    }
+}
+
+fn first_line(bytes: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(|l| l.chars().take(200).collect())
+}
+
+/// Running inside a container image (Docker, Podman).
+pub fn in_container() -> bool {
+    std::path::Path::new("/.dockerenv").exists()
+        || std::path::Path::new("/run/.containerenv").exists()
 }
 
 /// A subscription OAuth token in the environment counts as signed in. An
@@ -234,11 +272,12 @@ fn fail(kind: Failure, msg: impl std::fmt::Display + Send + Sync + 'static) -> a
 const EMPTY_MCP_CONFIG: &str = r#"{"mcpServers":{}}"#;
 
 const NOT_FOUND: &str = "the `claude` CLI was not found. Install it with \
-     `npm i -g @anthropic-ai/claude-code`, sign in with your subscription \
-     (run `claude`, then `/login`), or set AGSTUDIO_CLAUDE_BIN to its path.";
+     `npm i -g @anthropic-ai/claude-code` (in Docker: build the `ai` target, \
+     GEOSOLVER_TARGET=ai), or set AGSTUDIO_CLAUDE_BIN to its path.";
 
-const NOT_SIGNED_IN: &str = "the `claude` CLI is not signed in. Run `claude auth login` (it \
-     uses your Claude subscription — no API key), then retry.";
+const NOT_SIGNED_IN: &str = "the `claude` CLI is not signed in. On a server, run \
+     `claude setup-token` on any machine with a browser and set CLAUDE_CODE_OAUTH_TOKEN; \
+     on a desktop, run `claude auth login`. Both use your Claude subscription, no API key.";
 
 /// Remove every credential/endpoint override except the subscription OAuth
 /// token, plus the parent Claude Code session's own variables (when agstudio

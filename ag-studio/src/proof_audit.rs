@@ -248,6 +248,105 @@ fn stmts_of_reason<'a>(r: &'a Reason, out: &mut Vec<&'a Stmt>) {
     }
 }
 
+fn all_stmts(hp: &HumanProof) -> Vec<&Stmt> {
+    let mut stmts: Vec<&Stmt> = Vec::new();
+    for b in &hp.blocks {
+        stmts.push(&b.stmt);
+        for s in &b.body {
+            match s {
+                Sentence::Chain { links, then, .. } => {
+                    stmts.extend(then.iter());
+                    for r in links.iter().flat_map(|l| &l.reasons) {
+                        stmts_of_reason(r, &mut stmts);
+                    }
+                }
+                Sentence::Computation { links, .. } => {
+                    for r in links.iter().flat_map(|l| &l.reasons) {
+                        stmts_of_reason(r, &mut stmts);
+                    }
+                }
+                Sentence::Because { stmt, reasons, .. }
+                | Sentence::Pooled { stmt, reasons, .. }
+                | Sentence::Theorem { stmt, reasons, .. } => {
+                    stmts.push(stmt);
+                    for r in reasons {
+                        stmts_of_reason(r, &mut stmts);
+                    }
+                }
+                Sentence::Raw { .. } => {}
+            }
+        }
+    }
+    stmts
+}
+
+fn interior(fig: &Problem, names: &[String], p: u32, v: u32, q: u32) -> Option<f64> {
+    let (a, o, b) = (xy(fig, names, p)?, xy(fig, names, v)?, xy(fig, names, q)?);
+    let (u, w) = ((a.0 - o.0, a.1 - o.1), (b.0 - o.0, b.1 - o.1));
+    let n = (u.0 * u.0 + u.1 * u.1).sqrt() * (w.0 * w.0 + w.1 * w.1).sqrt();
+    (n > 1e-12).then(|| {
+        ((u.0 * w.0 + u.1 * w.1) / n)
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees()
+    })
+}
+
+pub fn bisector_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec<String> {
+    let mut bad = Vec::new();
+    let name = |id: u32| names.get(id as usize).cloned().unwrap_or_default();
+    for st in all_stmts(hp) {
+        let (
+            Some(shape),
+            Stmt::EqAngle {
+                lhs: Expr::Angle { a, b: v, c, .. },
+                rhs: Expr::Angle { c: c2, .. },
+            },
+        ) = (ddar::human::barem::bisector_shape(st), st)
+        else {
+            continue;
+        };
+        let (Some(x), Some(y)) = (
+            interior(fig, names, *a, *v, *c),
+            interior(fig, names, *c, *v, *c2),
+        ) else {
+            continue;
+        };
+        let equal = (x - y).abs() < 1e-4;
+        let worded = match shape {
+            (false, false) if !equal => "bisects",
+            (true, true) if equal => "is the external bisector of",
+            _ => continue,
+        };
+        bad.push(format!(
+            "{}{} {worded} ∠{}{}{} but the figure reads {x:.2}° and {y:.2}°",
+            name(*v),
+            name(*c),
+            name(*a),
+            name(*v),
+            name(*c2)
+        ));
+    }
+    if let Some(ddar::human::GoalWords::Bisects { line, angle }) = &hp.goal {
+        if let (Some(x), Some(y)) = (
+            interior(fig, names, angle.0, line.0, line.1),
+            interior(fig, names, line.1, line.0, angle.2),
+        ) {
+            if (x - y).abs() >= 1e-4 {
+                bad.push(format!(
+                    "the conclusion says {}{} bisects ∠{}{}{} but the figure reads {x:.2}° and {y:.2}°",
+                    name(line.0),
+                    name(line.1),
+                    name(angle.0),
+                    name(angle.1),
+                    name(angle.2)
+                ));
+            }
+        }
+    }
+    bad
+}
+
 pub fn angle_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec<String> {
     let at = |id: u32| xy(fig, names, id);
     let show = |e: &Expr| format!("{e:?}");
@@ -467,6 +566,7 @@ mod tests {
         let goal = fig.goal.as_ref()?;
         let mut bad: Vec<String> = Vec::new();
         bad.extend(angle_violations(&h.proof, &h.names, fig));
+        bad.extend(bisector_violations(&h.proof, &h.names, fig));
         bad.extend(setup_violations(&h.proof, &h.names, fig, goal));
         if let Err(e) = svg_draws(&sh.view.svg, fig) {
             bad.push(format!(
@@ -559,6 +659,75 @@ mod tests {
         assert!(
             svg_draws(&sh.view.svg, &moved).is_err(),
             "a figure other than the drawn one must not pass"
+        );
+    }
+
+    #[test]
+    fn an_external_bisector_is_never_said_to_bisect() {
+        for (name, src, must) in [
+            (
+                "excenter_bisector",
+                "A B C = triangle\nJ = excenter(A, B, C)\nprove eqangle(B, A, B, J, B, J, B, C)",
+                "BJ is the external bisector of \u{2220}ABC",
+            ),
+            (
+                "arc_midpoint_bisector",
+                include_str!("../../alphageometry-rs/examples/named/arc_midpoint_bisector.geo"),
+                "\u{2221}BAM = \u{2221}MAC",
+            ),
+            (
+                "incenter_excenter_cyclic",
+                include_str!("../../alphageometry-rs/examples/named/incenter_excenter_cyclic.geo"),
+                "is the external bisector of",
+            ),
+        ] {
+            let sol = crate::engine::solve(src, &SolveOptions::default()).unwrap();
+            assert!(sol.proved, "{name}: {}", sol.note);
+            let sh = shown(&sol);
+            let h = sh
+                .sol
+                .human
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name}: a human proof"));
+            let fig = &sh.sol.figure.as_ref().unwrap().problem;
+            let bad = bisector_violations(&h.proof, &h.names, fig);
+            assert!(bad.is_empty(), "{name}: {bad:?}");
+            let v = crate::present::solution_json(&sh.sol, Some(name));
+            let hv = crate::human_view::of_view(&v["view"])
+                .unwrap_or_else(|| panic!("{name}: a human view"));
+            for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
+                let text = crate::human_view::text(&hv, &v["view"], lang);
+                if lang == crate::i18n::Lang::En {
+                    assert!(text.contains(must), "{name}: {text}");
+                }
+                for wrong in [
+                    "BJ bisects",
+                    "AM bisects",
+                    "BI\u{2090} bisects",
+                    "J este bisectoarea \u{2220}",
+                ] {
+                    assert!(!text.contains(wrong), "{name} {lang:?}: {text}");
+                }
+            }
+        }
+        let sol = crate::engine::solve(
+            "A B C = triangle\nJ = excenter(A, B, C)\nprove eqangle(B, A, B, J, B, J, B, C)",
+            &SolveOptions::default(),
+        )
+        .unwrap();
+        let sh = shown(&sol);
+        let h = sh.sol.human.as_ref().unwrap();
+        let fig = &sh.sol.figure.as_ref().unwrap().problem;
+        let mut forged = h.proof.clone();
+        forged.goal = Some(ddar::human::GoalWords::Bisects {
+            line: (1, 3),
+            angle: (0, 1, 2),
+        });
+        let ids: Vec<&str> = h.names.iter().map(String::as_str).collect();
+        assert_eq!(&ids[..4], ["A", "B", "C", "J"], "{ids:?}");
+        assert!(
+            !bisector_violations(&forged, &h.names, fig).is_empty(),
+            "the audit catches a conclusion that calls an external bisector a bisector"
         );
     }
 

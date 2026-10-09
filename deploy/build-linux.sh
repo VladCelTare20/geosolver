@@ -13,9 +13,11 @@ fi
 echo "Building (release)…"
 cargo build --release --locked -p ag-studio
 
+bin="${CARGO_TARGET_DIR:-target}/release/agstudio"
+case "$bin" in /*) ;; *) bin="./$bin" ;; esac
 echo
-echo "Built: target/release/agstudio"
-echo "Try it locally:   ./target/release/agstudio serve"
+echo "Built: $bin"
+echo "Try it locally:   $bin serve"
 # shellcheck disable=SC2016
-echo 'On the LAN:      AGSTUDIO_BIND=0.0.0.0:8787 AGSTUDIO_BASIC_AUTH=":$(openssl rand -hex 16)" ./target/release/agstudio serve'
+echo 'On the LAN:       AGSTUDIO_BIND=0.0.0.0:8787 AGSTUDIO_BASIC_AUTH=":$(openssl rand -hex 16)"' "$bin serve"
 echo "Public:           see deploy/DEPLOY.md (systemd unit + TLS proxy)"

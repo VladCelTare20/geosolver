@@ -1059,12 +1059,28 @@
     a.textContent = "";
     if (msg) statusTimer = setTimeout(function () { a.textContent = msg; }, 400);
   }
+  function statusCard() {
+    var ids = ["state-solving", "verdict", "state-error"];
+    for (var i = 0; i < ids.length; i++) {
+      var c = $(ids[i]);
+      if (c && !c.hidden && c.getClientRects().length) return c;
+    }
+    return $("status-area");
+  }
   function scrollToStatus() {
+    var behavior = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     if (window.matchMedia("(max-width: 1199px)").matches) {
       var el = $("status-area");
       var top = el.getBoundingClientRect().top + window.scrollY - 72;
-      if (Math.abs(window.scrollY - top) > 40) window.scrollTo({ top: top, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      if (Math.abs(window.scrollY - top) > 40) window.scrollTo({ top: top, behavior: behavior });
+      return;
     }
+    var r = statusCard().getBoundingClientRect(), H = window.innerHeight;
+    var header = document.querySelector(".site-header");
+    var hb = header && getComputedStyle(header).position === "sticky" ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+    if (r.top >= hb + 8 && r.bottom <= H - 8) return;
+    var dy = r.top < hb + 8 ? r.top - hb - 16 : Math.min(r.top - hb - 16, r.bottom - H + 24);
+    if (Math.abs(dy) > 4) window.scrollBy({ top: dy, behavior: behavior });
   }
 
   // ---------------------------------------------------------------- verdict --
@@ -1251,7 +1267,7 @@
     if (opts.announce) announce(m.head + ". " + m.text + (aiReading(sol) ? " " + t(sol.status === "proved" ? "v.ai.read" : "v.ai.read.false") : ""));
     if (opts.focus) {
       var narrow = window.matchMedia("(max-width: 1199px)").matches;
-      if (narrow) scrollToStatus();
+      scrollToStatus();
       var ae = document.activeElement;
       var h = $("verdict-head");
       if (h && (narrow || !ae || ae === document.body || ae === $("solve") || $("state-solving").contains(ae))) h.focus({ preventScroll: true });

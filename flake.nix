@@ -33,7 +33,13 @@
                 "flake.nix"
                 "flake.lock"
               ])
-              && (rel == "deploy" || rel == "deploy/.env.example" || !(nixpkgs.lib.hasPrefix "deploy" rel));
+              && (builtins.elem rel [
+                "deploy"
+                "deploy/.env.example"
+                "deploy/nginx.conf"
+                "deploy/nginx-host.conf"
+                "deploy/Caddyfile"
+              ] || !(nixpkgs.lib.hasPrefix "deploy" rel));
           };
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--workspace" ];

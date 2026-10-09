@@ -580,14 +580,19 @@ fn hyp_stmt(nm: &Naming, s: &eng::Stmt) -> Stmt {
             },
     } = s
     {
-        if b == b2 && c == a2 && a != c2 {
+        let kind = match eng::barem::bisector_shape(s) {
+            Some((false, false)) => Some("bisects"),
+            Some((true, true)) => Some("ext_bisects"),
+            _ => None,
+        };
+        if let Some(kind) = kind.filter(|_| b == b2 && c == a2 && a != c2) {
             let line = names(nm, &[*b, *c]).concat();
             let angle = format!("\u{2220}{}", names(nm, &[*a, *b, *c2]).concat());
             let mut points = names(nm, &[*a, *b, *c, *c2]);
             points.sort();
             points.dedup();
             return Stmt {
-                kind: "bisects".into(),
+                kind: kind.into(),
                 args: vec![line, angle],
                 points,
             };
@@ -1204,7 +1209,7 @@ impl Cx<'_> {
         }
         let vars: Option<Vec<(&str, String)>> = match s.kind.as_str() {
             "coll" | "cyclic" => Some(vec![("pts", s.args.join(", "))]),
-            "bisects" => Some(vec![("line", a(0)), ("angle", a(1))]),
+            "bisects" | "ext_bisects" => Some(vec![("line", a(0)), ("angle", a(1))]),
             "tangent" => Some(vec![
                 ("line", a(0)),
                 ("p", a(1)),
@@ -3532,6 +3537,7 @@ pub mod tests {
             "formula",
             "eq",
             "bisects",
+            "ext_bisects",
         ]
         .iter()
         .map(|k| Stmt {

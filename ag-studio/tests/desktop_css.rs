@@ -57,6 +57,14 @@ fn print_shows_the_result_in_light_colours_without_controls() {
         print.contains(".figure-panel") && print.contains("break-inside: avoid"),
         "the figure must not split across pages"
     );
+    assert!(
+        print.contains(".statement { break-inside: auto; }"),
+        "the GIVEN/PROVE card may split, so page 1 is not left mostly empty"
+    );
+    assert!(
+        print.contains(".proof-head { break-after: avoid; }"),
+        "the PROOF heading stays with the proof, never alone at the foot of a page"
+    );
 }
 
 #[test]
@@ -132,5 +140,9 @@ fn contrast_and_forced_colours_keep_state_visible() {
     assert!(
         forced.contains(".status-pill.on .dot"),
         "the AI pill dot must survive forced colours"
+    );
+    assert!(
+        forced.contains(".hp-block.is-active, .hp-row:focus td { outline: 2px solid Highlight"),
+        "the lit proof block keeps a visible marker when backgrounds are dropped"
     );
 }

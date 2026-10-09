@@ -10,6 +10,9 @@
 # itself for the ${...} values below (build target, limits).
 services:
   app:
+    # The built image's name; GEOSOLVER_IMAGE_TAG=previous starts a tagged older
+    # build (DEPLOY.md, "Updating and rolling back").
+    image: geosolver-app:${GEOSOLVER_IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: Dockerfile
@@ -17,7 +20,7 @@ services:
       target: ${GEOSOLVER_TARGET:-runtime}
       args:
         GEOSOLVER_REVISION: ${GEOSOLVER_REVISION:-unknown}
-        CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-}
+        BUILD_JOBS: ${GEOSOLVER_BUILD_JOBS:-}
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
     restart: unless-stopped
     # SIGTERM drains solves in flight for up to 70 s (AGSTUDIO_SHUTDOWN_GRACE_SECS);

@@ -305,9 +305,9 @@
     };
   }
 
-  var HP_KINDS = { coll: 1, cyclic: 1, bisects: 1, tangent: 1, oncircle: 1, radical_axis: 1, coincide: 1 };
+  var HP_KINDS = { coll: 1, cyclic: 1, bisects: 1, ext_bisects: 1, tangent: 1, oncircle: 1, radical_axis: 1, coincide: 1 };
   var HP_KEEP = /^[a-zăâîșțşţ]/;
-  var HP_ANGULAR = { coll: 1, cyclic: 1, perp: 1, para: 1, eqangle: 1, aconst: 1, bisects: 1, tangent: 1 };
+  var HP_ANGULAR = { coll: 1, cyclic: 1, perp: 1, para: 1, eqangle: 1, aconst: 1, bisects: 1, ext_bisects: 1, tangent: 1 };
   var HP_UNORDERED = { cong: 1, perp: 1, para: 1, coll: 1, cyclic: 1 };
 
   function hpSame(a, b) {
@@ -419,7 +419,7 @@
         if (key) {
           var raw = s.args || [];
           var vars = s.kind === "coll" || s.kind === "cyclic" ? { pts: a.join(", ") }
-            : s.kind === "bisects" ? { line: g(0), angle: g(1) }
+            : s.kind === "bisects" || s.kind === "ext_bisects" ? { line: g(0), angle: g(1) }
             : s.kind === "tangent" ? { line: g(0), p: g(1), circle: math(circleRef([], raw[2])) }
             : s.kind === "oncircle" ? { p: g(0), circle: math(circleRef((s.points || []).filter(function (p) { return p !== raw[0]; }), null)) }
             : s.kind === "radical_axis" ? { p: g(0), line: math((raw[1] || "") + (raw[2] || "")) }
@@ -478,7 +478,7 @@
       if (sh.stmt) return stmtHtml(r.stmt, "s");
       if (sh.eq != null) return eqHtml(sh.eq);
       var s = SP(atomTemplate(sh.base, sh.args, ctx));
-      return r.key === "isosceles" && !plain ? '<span class="hp-nb">' + s + "</span>" : s;
+      return s;
     }
     var SAY = { perp_bisector: 1, orthocentre: 1, centroid: 1, midline: 1, parallel: 1, power_of_point: 1, median_hypotenuse: 1 };
     function atomSentence(r, st) {
@@ -514,7 +514,7 @@
     function factFor(s) {
       if (!s) return null;
       if (s.kind === "coll" || s.kind === "cyclic") return { kind: s.kind, args: s.points || [], points: s.points || [] };
-      if (s.kind === "bisects" || s.kind === "oncircle" || s.kind === "tangent" || s.kind === "radical_axis" || s.kind === "coincide" || s.kind === "formula" || s.kind === "eq") return null;
+      if (s.kind === "bisects" || s.kind === "ext_bisects" || s.kind === "oncircle" || s.kind === "tangent" || s.kind === "radical_axis" || s.kind === "coincide" || s.kind === "formula" || s.kind === "eq") return null;
       return s;
     }
     function lightOf(rs) {

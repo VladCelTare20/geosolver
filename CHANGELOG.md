@@ -120,7 +120,7 @@ reports its git commit (`agstudio --version`, `/api/status`).
   refused to parse it; CI now runs `docker compose config`. Compose and
   route B default to a 5 GB memory limit (2 slots × 2048 MB + overhead),
   route B passes `--stop-timeout 90`, the `ai` image pins the Claude Code
-  CLI, and compose forwards `CARGO_BUILD_JOBS`/`CLAUDE_CODE_VERSION`.
+  CLI, and compose forwards `GEOSOLVER_BUILD_JOBS`/`CLAUDE_CODE_VERSION`.
 - DEPLOY.md: backups no longer leave copies in the data volume and can run
   twice a day; literal route B restore; secret files must belong to uid
   10001; the host nginx bootstrap (port 80 first, then certbot, then 443);

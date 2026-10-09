@@ -16,7 +16,7 @@ ARG NODE_IMAGE=node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e3
 # ---- build ----
 FROM ${RUST_IMAGE} AS build
 ARG GEOSOLVER_REVISION=unknown
-ARG CARGO_BUILD_JOBS=
+ARG BUILD_JOBS=
 WORKDIR /src
 # The context is an allowlist (.dockerignore): sources, Cargo files and the
 # corpus only, never deploy/.env, TLS keys, databases or local worktrees.
@@ -28,7 +28,7 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     rm -f .cargo/config.toml alphageometry-rs/.cargo/config.toml \
- && GEOSOLVER_REVISION="$GEOSOLVER_REVISION" cargo build --release --locked -p ag-studio ${CARGO_BUILD_JOBS:+-j $CARGO_BUILD_JOBS} \
+ && GEOSOLVER_REVISION="$GEOSOLVER_REVISION" cargo build --release --locked -p ag-studio ${BUILD_JOBS:+-j $BUILD_JOBS} \
  && install -m 0755 target/release/agstudio /agstudio
 
 # ---- claude CLI (for the `ai` target only) ----

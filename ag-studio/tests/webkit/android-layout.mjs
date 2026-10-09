@@ -224,6 +224,17 @@ async function deviceRun(engine, d, browser, scale) {
         await measure(page, tag, 'result', { targets: engine === 'chromium' && !d.name.startsWith('Zoom') });
         await shot(page, `${tag}-04-result.png`);
         if (!land) await shot(page, `${tag}-05-result-full.png`, true);
+        const opened = await page.evaluate(() => {
+          const ts = [...document.querySelectorAll('#human .hp-why-toggle')].filter((b) => b.getClientRects().length);
+          ts.forEach((b) => b.click());
+          return ts.length;
+        });
+        if (opened) {
+          await page.waitForTimeout(200);
+          await measure(page, tag, `result with ${opened} "Show reasons" open`);
+          if (!land) await shot(page, `${tag}-05b-reasons-open.png`, true);
+          await page.evaluate(() => [...document.querySelectorAll('#human .hp-why-toggle')].filter((b) => b.getClientRects().length && b.getAttribute('aria-expanded') === 'true').forEach((b) => b.click()));
+        }
         await page.locator('#export-btn').scrollIntoViewIfNeeded();
         await page.click('#export-btn');
         await page.waitForTimeout(200);

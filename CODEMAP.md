@@ -34,7 +34,7 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 - [ag-studio/assets/](ag-studio/assets/CODEMAP.md) — the web pages (app, landing, sign-in), design system, fonts.
 - [ag-studio/tests/](ag-studio/tests/CODEMAP.md) — binary integration tests, source-level CSS/compat invariants, and the browser suites (iPhone, Android, desktop/iPad, compat, human-proof shots).
 - [alphageometry-rs/tests/](alphageometry-rs/tests/CODEMAP.md) — engine integration tests: soundness regressions, fuzz, corpora, examples, human proofs.
-- `deploy/` — compose + nginx (`nginx.conf`, ACME webroot, `certbot-deploy-hook.sh`), host proxies (`Caddyfile`, `nginx-host.conf`), the systemd unit, `build-linux.sh`, `third-party-licenses.sh`; `DEPLOY.md` is the operator guide and mirrors the env table in `ag-studio/src/security.rs`. `Dockerfile` (root) has the `runtime` (default) and `ai` targets.
+- `deploy/` — compose + nginx (`nginx.conf`, ACME webroot, `certbot-deploy-hook.sh`), host proxies (`Caddyfile`, `nginx-host.conf`), the systemd unit and its AI drop-in `agstudio-ai.conf`, `build-linux.sh`, `third-party-licenses.sh`; `DEPLOY.md` is the operator guide and mirrors the env table in `ag-studio/src/security.rs`. `Dockerfile` (root) has the `runtime` (default) and `ai` targets.
 - `nix/module.nix` — the NixOS module (`services.geosolver`); evaluated by hand with a test configuration, not by `nix flake check`.
 - `.github/workflows/ci.yml` — tests, bench rows, MSRV, Docker build + smoke test, licence list check.
 - `.dockerignore` — an allowlist: the two crates, `corpus/`, the Cargo files and the licence files the image installs; anything new the Dockerfile copies must be added there.

@@ -36,6 +36,34 @@ async function settle(page) {
   await page.waitForTimeout(400);
 }
 
+async function verdictInView(page, tag, mod) {
+  const at = () => page.evaluate(() => {
+    const r = document.getElementById('verdict').getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), ih: innerHeight, sy: Math.round(scrollY), focus: document.activeElement && document.activeElement.id };
+  });
+  await page.waitForTimeout(700);
+  let v = await at();
+  check(v.top >= 0 && v.bottom <= v.ih && v.focus === 'verdict-head', `${tag}: after Ctrl+Enter the verdict is on screen (${v.top}..${v.bottom} of ${v.ih}, scrollY ${v.sy}, focus ${v.focus})`);
+  const program = await page.inputValue('#geo-input');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.fill('#geo-input', '# a longer program\n# pushes the result down\n' + program);
+  await page.focus('#geo-input');
+  await page.keyboard.press(`${mod}+Enter`);
+  await page.waitForSelector('#state-solving:not([hidden])', { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  const busy = await page.evaluate(() => {
+    const c = document.getElementById('state-solving');
+    if (!c || c.hidden) return null;
+    const r = c.getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), ih: innerHeight };
+  });
+  if (busy) check(busy.top >= 0 && busy.bottom <= busy.ih, `${tag}: the Solving card with Cancel is on screen for a longer program (${busy.top}..${busy.bottom} of ${busy.ih})`);
+  await settle(page);
+  v = await at();
+  check(v.top >= 0 && v.bottom <= v.ih, `${tag}: a longer program's verdict is on screen too (${v.top}..${v.bottom} of ${v.ih}, scrollY ${v.sy})`);
+  await page.fill('#geo-input', program);
+}
+
 async function newPage(browser, eng, prof) {
   const ctx = await browser.newContext({
     viewport: prof.viewport, deviceScaleFactor: prof.dpr, colorScheme: prof.scheme || 'light', locale: prof.locale || 'en-US',
@@ -83,6 +111,7 @@ async function guestRun(browser, eng, prof) {
     await settle(page);
     const head = await visibleText(page, '#verdict');
     check(/Proved|Demonstrat/.test(head), `${tag}: Ctrl+Enter in the editor solves -> "${head.split('\n')[0]}"`);
+    if (!prof.touch && prof.viewport.width >= 1200) await verdictInView(page, tag, mod);
     f = await fits(page);
     check(f.sw <= f.vw, `${tag}: result fits ${f.sw}/${f.vw}`);
     await page.evaluate(() => window.scrollTo(0, 0));

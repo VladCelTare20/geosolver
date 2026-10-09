@@ -43,6 +43,10 @@ const DEFAULT_BUDGET_SECS: f64 = 20.0;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if asks_for_help(&args) {
+        print_usage();
+        return ExitCode::SUCCESS;
+    }
     match args.first().map(String::as_str) {
         Some("render") => cmd_render(&args[1..]),
         Some("translate") => cmd_translate(&args[1..]),
@@ -81,6 +85,18 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+fn asks_for_help(args: &[String]) -> bool {
+    let user_facing = matches!(
+        args.first().map(String::as_str),
+        Some("render" | "translate" | "best" | "serve" | "backup" | "doctor" | "mcp")
+    );
+    user_facing
+        && args[1..]
+            .iter()
+            .take_while(|a| a.as_str() != "--")
+            .any(|a| a == "--help" || a == "-h")
 }
 
 fn print_usage() {
@@ -650,6 +666,25 @@ mod tests {
 
     fn v(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn every_subcommand_takes_help() {
+        for sub in [
+            "serve",
+            "render",
+            "translate",
+            "best",
+            "backup",
+            "doctor",
+            "mcp",
+        ] {
+            assert!(asks_for_help(&v(&[sub, "--help"])), "{sub} --help");
+            assert!(asks_for_help(&v(&[sub, "-h"])), "{sub} -h");
+        }
+        assert!(!asks_for_help(&v(&["render", "--", "-h"])));
+        assert!(!asks_for_help(&v(&["serve", "--port", "8000"])));
+        assert!(!asks_for_help(&v(&[worker::SUBCOMMAND, "--help"])));
     }
 
     #[test]

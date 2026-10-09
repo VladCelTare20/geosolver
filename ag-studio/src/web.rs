@@ -345,6 +345,9 @@ async fn serve_until(
     if let Some(warning) = worker::memory_warning(state.config.max_concurrent) {
         println!("  Warning: {warning}");
     }
+    for warning in state.config.deployment_warnings() {
+        println!("  Warning: {warning}");
+    }
     println!("  Press Ctrl-C to stop.\n");
     report_translate_status(state.clone());
     let header_timeout = state.config.header_timeout;
@@ -394,14 +397,63 @@ fn report_translate_status(state: Shared) {
         };
         let on = format!("on ({who}; local Claude subscription)");
         let unverified = format!("{on} — CLAUDE_CODE_OAUTH_TOKEN is not checked until the first AI call; `agstudio doctor` tests it now");
-        let note = match state.translate_status().await {
-            s if s.logged_in && translate::token_in_env() => unverified.as_str(),
-            s if s.logged_in => on.as_str(),
-            s if s.installed => "installed — run `claude auth login` to enable",
-            _ => "off — install the `claude` CLI to enable",
+        let status = state.translate_status().await;
+        let broken = if status.installed && !status.logged_in && translate::token_in_env() {
+            tokio::task::spawn_blocking(translate::cli_start_error)
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+        let note = translate_banner(status, translate::in_container(), broken);
+        let note = match note {
+            TranslateBanner::Unverified => unverified,
+            TranslateBanner::On => on,
+            TranslateBanner::Other(s) => s,
         };
         println!("  AI translation: {note}");
     });
+}
+
+enum TranslateBanner {
+    Unverified,
+    On,
+    Other(String),
+}
+
+fn translate_banner(
+    s: translate::Status,
+    container: bool,
+    start_error: Option<String>,
+) -> TranslateBanner {
+    if let Some(e) = start_error {
+        return TranslateBanner::Other(format!(
+            "off — the `claude` CLI is installed but cannot start ({e}). Under systemd \
+             install deploy/agstudio-ai.conf (MemoryDenyWriteExecute=no); then \
+             `agstudio doctor` in the service's environment"
+        ));
+    }
+    match s {
+        s if s.logged_in && translate::token_in_env() => TranslateBanner::Unverified,
+        s if s.logged_in => TranslateBanner::On,
+        s if s.installed && container => TranslateBanner::Other(
+            "installed — set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) to enable".into(),
+        ),
+        s if s.installed => TranslateBanner::Other(
+            "installed — set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) on a server, \
+             or run `claude auth login`, to enable"
+                .into(),
+        ),
+        _ if container => TranslateBanner::Other(
+            "off — this image has no `claude` CLI; build the `ai` target \
+             (GEOSOLVER_TARGET=ai, or docker build --target ai) to enable"
+                .into(),
+        ),
+        _ => TranslateBanner::Other(
+            "off — install the `claude` CLI (or set AGSTUDIO_CLAUDE_BIN) to enable".into(),
+        ),
+    }
 }
 
 /// HTTP/1 connections with a header-read timeout; each request carries its
@@ -1659,6 +1711,25 @@ fn ip_text(ip: Option<&axum::Extension<security::ClientIp>>) -> String {
     ip.map_or_else(|| "?".to_string(), |e| e.0 .0.to_string())
 }
 
+/// In-flight `claude` children of one caller and of one address: at most
+/// [`AppState::per_caller_limit`] per caller and [`AppState::guest_ip_limit`]
+/// per address (accounts included), so slow AI calls from one client cannot
+/// hold every heavy slot. 503 `busy` otherwise.
+fn claim_ai_slots(
+    state: &Shared,
+    caller: &Caller,
+    ip: Option<&axum::Extension<security::ClientIp>>,
+    headers: &HeaderMap,
+) -> Result<(security::CallerSlot, security::CallerSlot), Response> {
+    let own = state
+        .claim_caller(format!("ai{}", caller_key(caller, ip)))
+        .ok_or_else(|| busy(headers))?;
+    let address = state
+        .claim_within(format!("ai-i{}", ip_text(ip)), state.guest_ip_limit())
+        .ok_or_else(|| busy(headers))?;
+    Ok((own, address))
+}
+
 /// Per-caller slot, then, for guests, the per-address ceiling. Only the first
 /// is the caller's own doing (`busy_self`, with the limit); a full address is
 /// the plain server-busy answer, since other people behind it hold the slots.
@@ -2153,6 +2224,10 @@ async fn api_translate(
         }
     };
     let photo = matches!(input, Input::Image(_));
+    let ai_slots = match claim_ai_slots(&state, &caller, ip.as_ref(), &headers) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
     if let Some(ip) = ip.as_ref() {
         if !state.ai_call_allowed(ip.0 .0) {
             return err_code(
@@ -2173,6 +2248,7 @@ async fn api_translate(
     }
     let res = tokio::task::spawn_blocking(move || {
         let _permit = permit;
+        let _ai_slots = ai_slots;
         let mut held_image = None;
         let source = match input {
             Input::Text(t) => translate::Source::Text(t),
@@ -2252,7 +2328,7 @@ struct HumanizeReq {
 /// degrades to a 503 so the client can fall back to the machine proof.
 async fn api_humanize(
     State(state): State<Shared>,
-    _caller: Caller,
+    caller: Caller,
     ip: Option<axum::Extension<security::ClientIp>>,
     headers: HeaderMap,
     ApiJson(req): ApiJson<HumanizeReq>,
@@ -2276,6 +2352,10 @@ async fn api_humanize(
     if over_limit {
         return err(StatusCode::PAYLOAD_TOO_LARGE, i18n::t(lang, "err.too_long"));
     }
+    let ai_slots = match claim_ai_slots(&state, &caller, ip.as_ref(), &headers) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
     if let Some(ip) = ip.as_ref() {
         if !state.ai_call_allowed(ip.0 .0) {
             return err_code(
@@ -2305,6 +2385,7 @@ async fn api_humanize(
     } = req;
     let res = tokio::task::spawn_blocking(move || {
         let _permit = permit;
+        let _ai_slots = ai_slots;
         translate::humanize_proof(&problem, &proof, &human, &aux, tlang)
     })
     .await;
@@ -7179,6 +7260,48 @@ mod tests {
         assert!(state.ai_call_allowed(a));
         assert!(!state.ai_call_allowed(a));
         assert!(state.ai_call_allowed(b));
+    }
+
+    #[test]
+    fn one_address_cannot_hold_every_slot_with_ai_calls() {
+        let (state, _dir) = state_with(|c| c.max_concurrent = 4);
+        let ip = axum::Extension(security::ClientIp("203.0.113.9".parse().unwrap()));
+        let other = axum::Extension(security::ClientIp("203.0.113.10".parse().unwrap()));
+        let h = HeaderMap::new();
+        let guest = |id: &str| Caller::Guest(Some(id.to_string()));
+        let per_caller = state.per_caller_limit();
+        let mut held = Vec::new();
+        for _ in 0..per_caller {
+            held.push(
+                claim_ai_slots(&state, &guest("a"), Some(&ip), &h)
+                    .expect("within the caller's share"),
+            );
+        }
+        let refused = claim_ai_slots(&state, &guest("a"), Some(&ip), &h)
+            .err()
+            .expect("caller cap");
+        assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+        while held.len() < state.guest_ip_limit() {
+            let id = format!("g{}", held.len());
+            held.push(
+                claim_ai_slots(&state, &guest(&id), Some(&ip), &h)
+                    .expect("within the address's share"),
+            );
+        }
+        assert!(
+            claim_ai_slots(&state, &guest("fresh-cookie"), Some(&ip), &h).is_err(),
+            "a new guest id from the same address does not get past the address cap"
+        );
+        assert!(
+            held.len() < state.config.max_concurrent,
+            "a slot stays free for others"
+        );
+        assert!(claim_ai_slots(&state, &guest("b"), Some(&other), &h).is_ok());
+        held.clear();
+        assert!(
+            claim_ai_slots(&state, &guest("a"), Some(&ip), &h).is_ok(),
+            "slots come back"
+        );
     }
 
     #[test]

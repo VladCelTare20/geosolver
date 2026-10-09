@@ -1609,3 +1609,42 @@ fn a_goal_that_fails_in_another_valid_figure_is_flagged_as_drawn() {
         assert!(!c.configuration_dependent, "a general theorem is not as-drawn:\n{src}");
     }
 }
+
+#[test]
+fn similar_or_congruent_degenerate_triangles_are_refused_not_proved() {
+    for src in [
+        "a@0_0 = ; b@1_0 = ; c@2_0 = coll a b c ; d@0_1 = ; e@1_1 = ; f@5_1 = coll d e f, cong a b d e ? contri a b c d e f",
+        "a@0_0 = ; b@1_0 = ; c@2_0 = coll a b c ; d@0_1 = ; e@1_1 = ; f@5_1 = coll d e f ? simtri a b c d e f",
+        "a@0_0 = ; b@1_0 = ; c@2_0 = coll a b c ; d@0_1 = ; e@1_3 = ; f@0.5_-2 = ? simtri a b c d e f",
+    ] {
+        let e = ddar::lowlevel::parse_checked(src).expect_err(src);
+        assert!(e.contains("genuine triangles"), "{e}");
+    }
+    let parsed = ddar::corpus::parse_problem(
+        "degenerate",
+        "a b = segment a b; c = on_line c a b; d e = segment d e; f = on_line f d e ? simtri a b c d e f",
+    )
+    .expect("parses");
+    let e = ddar::corpus::translate(&parsed, 1, 200).expect_err("a degenerate goal");
+    assert!(e.contains("genuine triangles"), "{e}");
+    for src in [
+        "a@0_0 = ; b@4_0 = ; c@1_3 = ; d@20_0 = ; e@28_0 = ; f@22_6 = ? simtri a b c d e f",
+        "a@0_0 = ; b@4_0 = ; c@1_3 = ; d@10_0 = ; e@14_0 = ; f@11_3 = ? contri a b c d e f",
+    ] {
+        let p = ddar::lowlevel::parse_checked(src).expect(src);
+        assert_eq!(
+            ddar::lowlevel::goal_holds(&p, p.goal.as_ref().unwrap()),
+            Some(true),
+            "{src}"
+        );
+    }
+    let p = ddar::lowlevel::parse_checked(
+        "a@0_0 = ; b@4_0 = ; c@1_3 = ; d@20_0 = ; e@28_0 = ; f@22_6 = ? contri a b c d e f",
+    )
+    .unwrap();
+    assert_eq!(
+        ddar::lowlevel::goal_holds(&p, p.goal.as_ref().unwrap()),
+        Some(false),
+        "similar is not congruent"
+    );
+}

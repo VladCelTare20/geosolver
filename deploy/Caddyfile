@@ -14,8 +14,8 @@ geo.example.com {
 	}
 	reverse_proxy 127.0.0.1:8787 {
 		transport http {
-			read_timeout 120s
-			write_timeout 120s
+			read_timeout 240s
+			write_timeout 240s
 		}
 	}
 }
