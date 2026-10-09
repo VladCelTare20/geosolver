@@ -316,9 +316,11 @@ proof; `--proofs <dir>` writes every one.
 
 *(Engine at commit 0a6e67b, 4 × 3 threads for imo, 6 × 2 for jgex, under the
 benchmark lock on a shared i7-11700K; `--bench` 26/26 in the same run. Every
-problem of both sets translates and its goal holds on the sampled figure.)*
+problem of both sets translates and its goal holds on the sampled figure. The
+release build, commit e0a3b04, re-ran imo_ag_30 with the same settings: 30/30,
+16 + 14, the same solved set and methods.)*
 Both sets were developed against, so these are development-set numbers. Two
-IMO problems sit close to the budget — 2008 P6 (94 s) and 2021 P3 (68 s) —
+IMO problems sit close to the budget — 2008 P6 (94 s; 79 s at e0a3b04) and 2021 P3 (68 s; 44 s) —
 and timed out in earlier runs at other commits (28/30), so a slower machine
 can lose them. On held-out problems the frozen engine (commit 4ff884c) proved
 318 of HAGeo-409, 8 of the 10 expressible IMO-AG-50 problems beyond these 30,

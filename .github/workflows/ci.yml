@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Portable build (no target-cpu=native on shared runners)
         run: rm -f .cargo/config.toml alphageometry-rs/.cargo/config.toml
@@ -39,8 +39,10 @@ jobs:
         run: |
           out=$(cargo run --release --locked -p alphageometry-rs --bin ddar -- --bench 2>&1 | tee /dev/stderr)
           echo "$out" | grep -q '26/26'
-      - name: Clippy (report only)
-        run: cargo clippy --release --locked --workspace --all-targets || true
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --release --locked --workspace --all-targets -- -D warnings
       - name: Third-party licence list is current
         run: |
           ./deploy/third-party-licenses.sh

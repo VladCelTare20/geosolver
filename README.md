@@ -296,7 +296,7 @@ required), on a shared i7-11700K:
 
 | Set | Budget | Proved | DDAR alone | With aux | Run |
 | --- | ---: | ---: | ---: | ---: | --- |
-| IMO-AG-30 (development set) | 120 s | **30/30** | 16 | 14 | commit 0a6e67b, 4 jobs × 3 threads |
+| IMO-AG-30 (development set) | 120 s | **30/30** | 16 | 14 | commit e0a3b04 (release), 4 jobs × 3 threads |
 | JGEX-AG-231 (development set) | 30 s | **231/231** | 213 | 18 | commit 0a6e67b, 6 jobs × 2 threads |
 | HAGeo-409 (held out) | 120 s | **318/409** (77.8%) | 126 | 192 | commit 4ff884c, frozen engine |
 | IMO-AG-50, the 20 beyond IMO-AG-30 (held out) | 120 s | **8/10** expressible | 1 | 7 | commit 4ff884c |
@@ -306,7 +306,7 @@ The two corpora in the first rows were developed against, so they show what
 the engine can do, not how it generalises; the held-out rows were run once on a
 frozen engine with no tuning, 0 unsound results (report on the `wf/heldout-eval`
 branch, `corpus/heldout/REPORT.md`). Two IMO-AG-30 problems are close to the
-budget: 2008 P6 took 94 s and 2021 P3 68 s in the 0a6e67b run, and earlier
+budget: 2008 P6 took 79 s and 2021 P3 44 s in the e0a3b04 run (94 s and 68 s at 0a6e67b), and earlier
 runs at other commits timed out on them (28/30), so a slower or busier machine
 can drop them. Soundness is checked separately: the fuzzer
 (`ddar --fuzz-false`) turns corpus problems into false statements and fails if
