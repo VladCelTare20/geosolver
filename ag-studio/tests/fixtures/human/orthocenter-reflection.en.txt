@@ -1,6 +1,4 @@
-Angles written ∠ are read from the figure.
-
-1. BH = BK and CH = CK, so BC is the perpendicular bisector of HK; hence BC ⟂ HK. (1)
+1. K is the reflection of H in BC, so BC is the perpendicular bisector of HK; hence BC ⟂ HK. (1)
 
 2. AH ⟂ BC and HK ⟂ BC, so A, H, K are collinear. (2)
 
@@ -9,6 +7,6 @@ Angles written ∠ are read from the figure.
 ∠C = 90° − ∠HBC    [BH ⟂ AC]
    = ∠BHK    [BC ⟂ HK, by (1)]
    = ∠HKB    [BH = BK]
-   = ∠AKB    [A, H, K collinear, by (2)]
+   = ∠AKB    [A, H, K collinear, by (2); H lies on the segment KA]
 
 ∠C = ∠AKB and C, K lie on the same side of AB, so by the converse of the inscribed angle theorem, A, B, C, K lie on one circle, as required. ∎

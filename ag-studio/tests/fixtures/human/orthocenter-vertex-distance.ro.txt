@@ -4,9 +4,7 @@ Ideea: este suficient să arătăm că AH = 2R·cos A și MaO = R·cos A.
 
 1. OB = OC și MaB = MaC ⇒ OMa este mediatoarea segmentului BC ⇒ OMa ⟂ BC. (1)
 
-2. Arătăm că AB = 2R·sin C:
-
-AB = 2R·sin C    [teorema sinusurilor generalizată în △CAB; OA = OC] (2)
+2. Teorema sinusurilor generalizată în △CAB ⇒ AB = 2R·sin C. (2)
 
 3. Arătăm că AH = 2R·cos A:
 
@@ -17,7 +15,7 @@ AH = AB·sin∢HBA / sin∢BHA    [teorema sinusurilor în △BHA]
 
 4. Arătăm că MaO = R·cos A:
 
-MaO = R·sin∢MaBO    [teorema sinusurilor în △BMaO; ∢OMaB = 90° (OMa ⟂ BC, din (1)); OA = OB]
+MaO = R·sin∢MaBO    [teorema sinusurilor în △BMaO; ∢OMaB = 90° (OMa ⟂ BC, din (1))]
     = R·cos A    [∢OBMa = 90° − A; unghiul la centru ∢BOC = 2∢BAC; OB = OC] (4)
 
 5. AH = 2R·cos A, din (3) și MaO = R·cos A, din (4) ⇒ AH : MaO = 2, ceea ce trebuia demonstrat. ∎

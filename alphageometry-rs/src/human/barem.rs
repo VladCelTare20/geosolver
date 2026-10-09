@@ -59,6 +59,10 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     prefix_steps(cx, &mut ch, hp);
     per_block(cx, &mut ch, hp, &super::triangles::triangle_names);
     per_block_with(cx, &mut ch, hp, &super::triangles::common_angle);
+    per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| super::labels::reflections(cx, s));
+    per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| super::labels::line_chain(s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| super::labels::segment_labels(cx, s));
+    per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| super::labels::parallel_labels(cx, s));
     super::cyclic::converse_steps(cx, &mut ch, hp);
     if !check::violations_with(&mut ch, hp).is_empty() {
         if std::env::var_os("HP_DEBUG").is_some() {
@@ -863,9 +867,15 @@ fn congruence_side(cx: &Ctx, b: &Block) -> Option<Block> {
     let t = cx.t;
     let h = *b.engine_facts.first()?;
     let (a, c) = ([t1.0, t1.1, t1.2], [t2.0, t2.1, t2.2]);
+    let mut common: Option<(PointId, PointId)> = None;
     for (i, j) in [(0, 1), (1, 2), (0, 2)] {
         let (s1, s2) = ((a[i], a[j]), (c[i], c[j]));
-        let row = &t.dm(s1.0, s1.1)? - &t.dm(s2.0, s2.1)?;
+        if (s1.0 == s2.0 && s1.1 == s2.1) || (s1.0 == s2.1 && s1.1 == s2.0) {
+            common = common.or(Some(s1));
+            continue;
+        }
+        let (Some(d1), Some(d2)) = (t.dm(s1.0, s1.1), t.dm(s2.0, s2.1)) else { continue };
+        let row = &d1 - &d2;
         let canon = t.canon_ratio(&row);
         if canon.is_zero() {
             continue;
@@ -881,7 +891,12 @@ fn congruence_side(cx: &Ctx, b: &Block) -> Option<Block> {
             return Some(nb);
         }
     }
-    None
+    let side = common?;
+    let mut nb = b.clone();
+    let mut rs = reasons.clone();
+    rs.push(Reason::Atom { key: AtomKey::CommonSide, stmt: Stmt::Cong { s1: side, s2: side }, args: vec![side.0, side.1], from: Vec::new() });
+    nb.body[last] = Sentence::Because { stmt: b.stmt.clone(), reasons: rs, combination: combination.clone() };
+    Some(nb)
 }
 
 fn undirected_stmt(cx: &Ctx, st: &Stmt) -> Option<Stmt> {
@@ -2037,7 +2052,14 @@ fn split_links(cx: &Ctx, blocks: &[Block], terms: &[Expr], links: &[Link], direc
     changed.then_some((out_terms, out_links))
 }
 
-fn merge_links(a: &Link, b: &Link) -> Link {
+pub(crate) fn expr_terms(e: &Expr) -> usize {
+    match e {
+        Expr::Lin { terms } => terms.len(),
+        _ => 1,
+    }
+}
+
+pub(crate) fn merge_links(a: &Link, b: &Link) -> Link {
     let mut reasons = a.reasons.clone();
     let mut combination = a.combination.clone();
     for t in &b.combination {
@@ -2784,9 +2806,6 @@ pub fn finish(cx: &Ctx, hp: &mut HumanProof) {
     let undirected = has_angle_chain(hp, cx, false);
     hp.setup.retain(|s| !matches!(s, SetupLine::DirectedAngles | SetupLine::FigureAngles | SetupLine::DirectedSteps { .. }));
     let mut conv: Vec<SetupLine> = Vec::new();
-    if undirected {
-        conv.push(SetupLine::FigureAngles);
-    }
     if directed {
         conv.push(SetupLine::DirectedAngles);
         if undirected {

@@ -321,6 +321,8 @@ pub fn radius_chord(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence
 struct Converse {
     key: TheoremKey,
     lemma: Stmt,
+    lemma2: Option<Stmt>,
+    labels: Vec<Reason>,
     side: Option<Reason>,
     quad: Vec<PointId>,
 }
@@ -372,7 +374,7 @@ fn converse_form(cx: &Ctx, s: &Sentence, set: &[PointId]) -> Option<Converse> {
         if !check::establishes(cx, &plain, &lemma) {
             return None;
         }
-        return Some(Converse { key: TheoremKey::InscribedConverse, lemma, side: None, quad: quad_of([*p, *q, x1, y1]) });
+        return Some(Converse { key: TheoremKey::InscribedConverse, lemma, lemma2: None, labels: Vec::new(), side: None, quad: quad_of([*p, *q, x1, y1]) });
     }
     let (a1, p, c1, s1) = end_angle(e1)?;
     let (a2, q, c2, s2) = end_angle(e2)?;
@@ -380,10 +382,30 @@ fn converse_form(cx: &Ctx, s: &Sentence, set: &[PointId]) -> Option<Converse> {
     if !check::same_set(&[x, y], &[x2, y2]) || !distinct([p, q, x, y]) {
         return None;
     }
-    let same = sides(cx.t, p, q, x, y)?;
     let (f1, f2) = (usize::from(fx1) + usize::from(fy1), usize::from(fx2) + usize::from(fy2));
     let ninety = terms[1..terms.len() - 1].iter().any(|e| matches!(e, Expr::Const { degrees } if *degrees == Rat::from_int(90)));
     let ang = |v: PointId| Expr::Angle { a: x, b: v, c: y, directed: false };
+    let mut labels: Vec<Reason> = Vec::new();
+    for (v, ends, fl) in [(p, [(a1, x, fx1), (c1, y, fy1)], f1), (q, [(a2, x2, fx2), (c2, y2, fy2)], f2)] {
+        if fl == 0 {
+            for (old, new, _) in ends {
+                if old != new {
+                    if let Some(l) = super::labels::on_segment(cx, v, old, new) {
+                        if !labels.contains(&l) {
+                            labels.push(l);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ninety && !s1 && !s2 && f1 == 0 && f2 == 0 {
+        let right = |v: PointId| Stmt::AngleConst { angle: ang(v), degrees: Rat::from_int(90) };
+        if check::establishes(cx, &plain, &right(p)) && check::establishes(cx, &plain, &right(q)) {
+            return Some(Converse { key: TheoremKey::ThalesConverse, lemma: right(p), lemma2: Some(right(q)), labels, side: None, quad: quad_of([p, q, x, y]) });
+        }
+    }
+    let same = sides(cx.t, p, q, x, y)?;
     let label = |key: AtomKey, u: PointId, w: PointId| {
         let args = vec![u, w, x, y];
         Reason::Atom { key, stmt: Stmt::Formula { text: String::new(), pts: args.clone() }, args, from: Vec::new() }
@@ -414,7 +436,7 @@ fn converse_form(cx: &Ctx, s: &Sentence, set: &[PointId]) -> Option<Converse> {
         }
         return None;
     }
-    Some(Converse { key, lemma, side: Some(side), quad: quad_of([p, q, x, y]) })
+    Some(Converse { key, lemma, lemma2: None, labels, side: Some(side), quad: quad_of([p, q, x, y]) })
 }
 
 fn joins_previous(cx: &Ctx, body: &[Sentence], si: usize) -> bool {
@@ -489,6 +511,8 @@ fn converse_block(cx: &Ctx, hp: &HumanProof, bi: usize) -> Option<HumanProof> {
         out.push(Sentence::Chain { terms: terms.clone(), links: links.clone(), directed: *directed, then: None });
         let chain_at = (out.len() - 1) as u16;
         let mut reasons = vec![Reason::Lemma { stmt: c.lemma.clone(), block: id, sentence: chain_at }];
+        reasons.extend(c.lemma2.iter().map(|l| Reason::Lemma { stmt: l.clone(), block: id, sentence: chain_at }));
+        reasons.extend(c.labels.iter().cloned());
         reasons.extend(c.side.iter().cloned());
         out.push(Sentence::Theorem { key: c.key, stmt: Stmt::Cyclic { pts: c.quad.clone() }, reasons });
         proved.push((c.quad.clone(), (out.len() - 1) as u16));

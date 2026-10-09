@@ -532,7 +532,7 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
             n.pts(&[a[1], a[5], a[3]]),
             n.pts(&[a[2], a[3], a[4]])
         ),
-        AtomKey::Reim => format!("Reim's theorem on {}", n.pts(&[a[0], a[1]])),
+        AtomKey::Reim => format!("Reim's theorem on {}: {} ∥ {}", n.pts(&[a[0], a[1]]), n.pts(&[a[2], a[3]]), n.pts(&[a[4], a[5]])),
         AtomKey::LawOfSines => format!("law of sines in △{}", n.pts(&[a[0], a[1], a[2]])),
         AtomKey::ExtLawOfSines => format!("extended law of sines in △{}", n.pts(&[a[0], a[1], a[2]])),
         AtomKey::SineSupplement | AtomKey::SineComplement => stmt(n, s),
@@ -551,6 +551,11 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::CyclicExterior => format!("exterior angle of the cyclic quadrilateral {}", n.pts(&a[0..4])),
         AtomKey::CommonAngle => format!("common angle at {}", n.get(a[0])),
         AtomKey::RadiusChord => format!("the tangent at {} is ⟂ {} (tangent–chord angle)", n.get(a[1]), n.pts(&a[0..2])),
+        AtomKey::OnSegment => format!("{} lies on the segment {}", n.get(a[1]), n.pts(&[a[0], a[2]])),
+        AtomKey::Reflection => format!("{} is the reflection of {} in {}", n.get(a[3]), n.get(a[2]), n.pts(&[a[0], a[1]])),
+        AtomKey::AlternateAngles => "alternate angles".to_string(),
+        AtomKey::CorrespondingAngles => "corresponding angles".to_string(),
+        AtomKey::CommonSide => format!("common side {}", n.pts(&[a[0], a[1]])),
     }
 }
 
@@ -575,6 +580,15 @@ pub fn atom_sentence(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) 
             p(&[a[4], a[3]]),
             p(&[a[0], a[1]]),
             p(&[a[4], a[2], a[3]]),
+            stmt(n, s)
+        ),
+        AtomKey::Reflection => format!(
+            "{} is the reflection of {} in {}, so {} is the perpendicular bisector of {}; hence {}",
+            n.get(a[3]),
+            n.get(a[2]),
+            p(&[a[0], a[1]]),
+            p(&[a[0], a[1]]),
+            p(&[a[2], a[3]]),
             stmt(n, s)
         ),
         AtomKey::Orthocentre => format!("the altitudes of △{} meet at {}, so {}", p(&[a[1], a[2], a[3]]), n.get(a[0]), stmt(n, s)),
@@ -622,6 +636,7 @@ pub fn theorem_name(k: TheoremKey) -> &'static str {
         TheoremKey::OppositeAnglesConverse => "the converse of the opposite-angle theorem for cyclic quadrilaterals",
         TheoremKey::CircleMerge => "three points determine a circle",
         TheoremKey::ExteriorAngleConverse => "the converse of the exterior-angle theorem for cyclic quadrilaterals",
+        TheoremKey::ThalesConverse => "the converse of Thales' theorem",
     }
 }
 
@@ -718,7 +733,7 @@ fn shape(tok: &dyn Fn(&str) -> String, s: &str) -> String {
     format!("line {}", tok(s))
 }
 
-pub const DIRECTED_EN: &str = "∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn.";
+pub const DIRECTED_EN: &str = "∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). Directed angles do not depend on how the figure is drawn.";
 pub fn directed_steps_en(steps: &[u16]) -> String {
     let s: Vec<String> = steps.iter().map(|k| k.to_string()).collect();
     match s.as_slice() {
@@ -910,8 +925,7 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
 
 fn displayed(s: &Sentence) -> bool {
     match s {
-        Sentence::Chain { links, .. } => links.len() >= 2,
-        Sentence::Computation { .. } => true,
+        Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.len() >= 2,
         _ => false,
     }
 }
@@ -1116,8 +1130,14 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
             format!("{}, so {eq}; as {pts} are collinear and these two angles lie on opposite sides of that line, they are vertical angles, so {}.", cap(&join_and(&rs)), stmt(n, st))
         }
         Sentence::Chain { terms, links, then, .. } => {
-            let rs = links.first().map(|l| reasons_text(n, &l.reasons, claims)).unwrap_or_default();
-            let eq = terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>().join(" = ");
+            let angle_label = |r: &Reason| matches!(r, Reason::Atom { key: AtomKey::AlternateAngles | AtomKey::CorrespondingAngles, .. });
+            let lab: Vec<String> = links.first().map(|l| l.reasons.iter().filter(|r| angle_label(r)).map(|r| reason(n, r, claims)).collect()).unwrap_or_default();
+            let rest: Vec<Reason> = links.first().map(|l| l.reasons.iter().filter(|r| !angle_label(r)).cloned().collect()).unwrap_or_default();
+            let rs = reasons_text(n, &rest, claims);
+            let mut eq = terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>().join(" = ");
+            if let Some(l) = lab.first() {
+                eq = format!("{eq} ({l})");
+            }
             let mut out = if rs.is_empty() { cap(&eq) } else { format!("{}, so {eq}", cap(&join_and(&rs))) };
             match then {
                 Some(st) => out.push_str(&format!(", so {}.", stmt(n, st))),
@@ -1151,7 +1171,19 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
                 (_, false) => format!("{}, so {} ({}).", cap(&join_and(&rs)), stmt(n, st), theorem_name(*key)),
             }
         }
-        Sentence::Computation { terms, links, .. } => rows_text(n, terms, links, claims),
+        Sentence::Computation { terms, links, .. } => {
+            let centre = NOTATION.with(|c| c.get()).and_then(|x| x.1);
+            let links: Vec<Link> = links
+                .iter()
+                .map(|l| Link { reasons: l.reasons.iter().filter(|r| !matches!(r, Reason::Atom { key: AtomKey::Radii, args, .. } if centre.is_some() && args.first() == centre.as_ref())).cloned().collect(), combination: l.combination.clone() })
+                .collect();
+            if let [l] = links.as_slice() {
+                let rs = reasons_text(n, &l.reasons, claims);
+                let eq = terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>().join(" = ");
+                return if rs.is_empty() { format!("{}.", cap(&eq)) } else { format!("{}, so {eq}.", cap(&join_and(&rs))) };
+            }
+            rows_text(n, terms, &links, claims)
+        }
         Sentence::Raw { engine_fact, cites } => {
             let c: Vec<String> = cites.iter().map(|x| format!("{}", x + 1)).collect();
             format!("{} (derivation step {}, from steps {}).", raw_line(*engine_fact), engine_fact + 1, c.join(", "))
@@ -1163,7 +1195,7 @@ pub fn perp_lines(r: &Reason) -> Option<[(PointId, PointId); 2]> {
     let st = match r {
         Reason::Lemma { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Hyp { stmt, .. } => stmt.clone(),
         Reason::Atom { key: AtomKey::Thales, args, .. } => return Some([(args[2], args[0]), (args[2], args[1])]),
-        Reason::Atom { key: AtomKey::PerpBisector, args, .. } | Reason::Atom { key: AtomKey::Orthocentre, args, .. } => {
+        Reason::Atom { key: AtomKey::PerpBisector | AtomKey::Reflection, args, .. } | Reason::Atom { key: AtomKey::Orthocentre, args, .. } => {
             return if let Stmt::Perp { l1, l2 } = super::claims::atom_stmt(AtomKey::PerpBisector, args) { Some([l1, l2]) } else { None };
         }
         _ => return None,
@@ -1211,6 +1243,12 @@ fn because_text(n: &dyn PointNames, st: &Stmt, reasons: &[Reason], claims: &BTre
     };
     if reasons.is_empty() {
         return format!("Hence {}.", with_crit(stmt(n, st)));
+    }
+    let angle_label = |r: &Reason| matches!(r, Reason::Atom { key: AtomKey::AlternateAngles | AtomKey::CorrespondingAngles, .. });
+    if let Some(lab) = reasons.iter().find(|r| angle_label(r)) {
+        let rest: Vec<Reason> = reasons.iter().filter(|r| !angle_label(r)).cloned().collect();
+        let base = because_text(n, st, &rest, claims);
+        return format!("{} ({}).", base.trim_end_matches('.'), reason(n, lab, claims));
     }
     if let [Reason::Atom { key: AtomKey::Parallel, args, stmt: s2, .. }, extras @ ..] = reasons {
         if same_stmt(s2, st) && !extras.is_empty() {

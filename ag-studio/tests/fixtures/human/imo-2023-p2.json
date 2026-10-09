@@ -1317,9 +1317,6 @@
     "as_drawn": true,
     "setup": [
       {
-        "kind": "figure_angles"
-      },
-      {
         "kind": "directed_angles"
       },
       {
@@ -1801,6 +1798,27 @@
               },
               {
                 "kind": "atom",
+                "key": "on_segment",
+                "args": [
+                  "T",
+                  "B",
+                  "S"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "B",
+                    "S",
+                    "T"
+                  ]
+                },
+                "from": []
+              },
+              {
+                "kind": "atom",
                 "key": "same_side",
                 "args": [
                   "T",
@@ -2017,6 +2035,33 @@
                       ]
                     },
                     "step": 17
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "alternate_angles",
+                    "args": [
+                      "L",
+                      "D",
+                      "X",
+                      "C",
+                      "B",
+                      "T"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "B",
+                        "C",
+                        "D",
+                        "L",
+                        "X",
+                        "T"
+                      ]
+                    },
+                    "from": []
                   }
                 ],
                 "combination": [
@@ -2264,6 +2309,27 @@
                 "because": [],
                 "lemma": true,
                 "sentence": 0
+              },
+              {
+                "kind": "atom",
+                "key": "on_segment",
+                "args": [
+                  "T",
+                  "B",
+                  "X"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "B",
+                    "X",
+                    "T"
+                  ]
+                },
+                "from": []
               },
               {
                 "kind": "atom",
@@ -3484,11 +3550,11 @@
       "pure_chains": 3,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 717,
-      "lines_en": 67,
-      "citations": 56,
+      "words_en": 723,
+      "lines_en": 66,
+      "citations": 59,
       "aux_shown": 0,
-      "human_cost": 183,
+      "human_cost": 184,
       "reproved": 4,
       "silent": 24,
       "pruned": 3,
@@ -3497,7 +3563,7 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 1,
-      "theorem_steps": 20,
+      "theorem_steps": 23,
       "steps": 8,
       "multi_fact_links": 0,
       "undirected_chains": 4,

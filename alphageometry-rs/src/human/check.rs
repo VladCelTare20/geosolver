@@ -64,7 +64,7 @@ pub fn check_rows(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Vec<(T
             one(Table::Angle, r)
         }
         AtomKey::TangentChord => one(Table::Angle, &(&d(a[0], a[2])? - &d(a[0], a[1])?) - &ang(a[0], a[3], a[2])?),
-        AtomKey::PerpBisector => {
+        AtomKey::PerpBisector | AtomKey::Reflection => {
             let mut r = &d(a[0], a[1])? - &d(a[2], a[3])?;
             r.add_term(ANGLE_UNIT, -&half);
             one(Table::Angle, r)
@@ -221,6 +221,16 @@ pub fn residual_ok(cx: &Ctx, tb: Table, diff: &LinComb, sum: &LinComb, directed:
 
 pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
     let t = cx.t;
+    if let (Sentence::Chain { terms, directed, then: None, .. }, Stmt::AngleConst { angle, degrees }) = (s, st) {
+        if !terms.iter().any(|e| matches!(e, Expr::Const { degrees: d } if d == degrees)) {
+            return false;
+        }
+        let Some((tb, x)) = eval(t, angle) else { return false };
+        return [&terms[0], &terms[terms.len() - 1]].iter().any(|e| {
+            let dir = *directed && is_directed(e) && is_directed(angle);
+            eval(t, e).is_some_and(|(tb2, y)| tb2 == tb && residual_ok(cx, tb, &(&x - &y), &LinComb::zero(), dir))
+        });
+    }
     match s {
         Sentence::Chain { terms, directed, then: None, .. } => {
             let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else { return false };
@@ -304,6 +314,14 @@ pub fn converse_ok(cx: &Ctx, key: TheoremKey, stmt: &Stmt, reasons: &[Reason]) -
         (TheoremKey::ExteriorAngleConverse, Stmt::EqAngle { lhs, rhs }) => {
             let Some((p, q, x, y)) = exterior_ok(cx, lhs, rhs) else { return Err("the exterior angle does not extend a side of the quadrilateral along a proven line".into()) };
             (p, q, x, y, false)
+        }
+        (TheoremKey::ThalesConverse, Stmt::AngleConst { angle: e1, degrees }) if *degrees == Rat::from_int(90) => {
+            let Some(Reason::Lemma { stmt: Stmt::AngleConst { angle: e2, degrees: d2 }, .. }) = reasons.get(1) else { return Err("the converse of Thales' theorem cites two right angles".into()) };
+            let (Some((x1, p, y1, false)), Some((x2, q, y2, false))) = (plain_angle(e1), plain_angle(e2)) else { return Err("Thales: two figure angles".into()) };
+            if *d2 != Rat::from_int(90) || !same_set(&[x1, y1], &[x2, y2]) {
+                return Err("Thales: two right angles on one segment".into());
+            }
+            (p, q, x1, y1, true)
         }
         (TheoremKey::OppositeAnglesConverse, Stmt::Eq { lhs: Expr::Lin { terms }, rhs: Expr::Const { degrees } }) if *degrees == Rat::from_int(180) => {
             let [(k1, e1), (k2, e2)] = terms.as_slice() else { return Err("opposite angles: two angles".into()) };
@@ -516,6 +534,10 @@ impl<'c, 'a> Checker<'c, 'a> {
             AtomKey::Thales => a.len() == 4 && self.equidistant(h, a[3], &[a[0], a[1], a[2]]) && self.on_line(h, &[a[0], a[3], a[1]]),
             AtomKey::TangentChord => a.len() == 5 && self.equidistant(h, a[4], &[a[0], a[2], a[3]]) && self.perp_proven(h, (a[0], a[1]), (a[0], a[4])),
             AtomKey::PerpBisector => a.len() == 4 && self.equidistant(h, a[0], &[a[2], a[3]]) && self.equidistant(h, a[1], &[a[2], a[3]]),
+            AtomKey::Reflection => a.len() == 4 && super::labels::reflection_args(self.cx, a).as_deref() == Some(a) && self.equidistant(h, a[0], &[a[2], a[3]]) && self.equidistant(h, a[1], &[a[2], a[3]]),
+            AtomKey::OnSegment => super::labels::on_segment_ok(self.cx, a),
+            AtomKey::AlternateAngles | AtomKey::CorrespondingAngles => super::labels::parallel_kind(self.cx, a) == Some(key),
+            AtomKey::CommonSide => a.len() == 2 && a[0] != a[1],
             AtomKey::Parallel => a.len() == 6 && self.perp_proven(h, (a[0], a[1]), (a[4], a[5])) && self.perp_proven(h, (a[2], a[3]), (a[4], a[5])),
             AtomKey::Radii | AtomKey::Isosceles => a.len() >= 3 && self.equidistant(h, a[0], &a[1..]),
             AtomKey::RadiusChord => a.len() == 4 && self.equidistant(h, a[0], &[a[1], a[2], a[3]]),

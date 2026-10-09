@@ -9,6 +9,7 @@ pub mod classify;
 pub mod ctx;
 pub mod cyclic;
 pub mod expr;
+pub mod labels;
 pub mod library;
 pub mod model;
 pub mod route;

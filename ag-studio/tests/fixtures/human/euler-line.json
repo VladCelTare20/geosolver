@@ -593,9 +593,6 @@
     "as_drawn": true,
     "setup": [
       {
-        "kind": "figure_angles"
-      },
-      {
         "kind": "helper",
         "point": "M",
         "meaning": {
@@ -1284,6 +1281,32 @@
                     "because": [],
                     "lemma": true,
                     "sentence": 0
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "alternate_angles",
+                    "args": [
+                      "G",
+                      "A",
+                      "H",
+                      "A",
+                      "M",
+                      "O"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "A",
+                        "O",
+                        "M",
+                        "G",
+                        "H"
+                      ]
+                    },
+                    "from": []
                   }
                 ],
                 "combination": [
@@ -1569,9 +1592,9 @@
       "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 252,
-      "lines_en": 22,
-      "citations": 17,
+      "words_en": 246,
+      "lines_en": 21,
+      "citations": 18,
       "aux_shown": 0,
       "human_cost": 67,
       "reproved": 3,
@@ -1582,7 +1605,7 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 2,
-      "theorem_steps": 4,
+      "theorem_steps": 5,
       "steps": 7,
       "multi_fact_links": 0,
       "undirected_chains": 4,

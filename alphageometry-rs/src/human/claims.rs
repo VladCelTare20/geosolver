@@ -926,6 +926,7 @@ pub struct Presenter<'w, 'c, 'a> {
     pub allowed: BTreeSet<FactId>,
     pub as_drawn: bool,
     pub force_undirected: bool,
+    pub plain_route: bool,
     pub halve_graph: std::cell::OnceCell<super::route::Graph>,
     pub drawn_graph: std::cell::OnceCell<super::route::Graph>,
     pub ratio_graph: std::cell::OnceCell<super::route::Graph>,
@@ -2373,10 +2374,24 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 super::route::Graph::new(cx, &w.atoms, Table::Ratio, false)
             })
         };
+        let plain = self.plain_route;
+        let shown = &self.block_of;
         let weights: Vec<i64> = w
             .atoms
             .iter()
-            .map(|a| if a.table == target.table && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .map(|a| {
+                let barred = plain
+                    && match a.src {
+                        AtomSrc::Human(k) => super::theorems::is_theorem(k),
+                        AtomSrc::Hyp(_) | AtomSrc::Line(_) => false,
+                        AtomSrc::Glue(f) | AtomSrc::Engine(f) => !shown.contains_key(&cx.displayable(f)),
+                    };
+                if a.table == target.table && a.cost > 0 && a.admissible(h) && !barred {
+                    eff(a, focus, &w.claim_cost, cx) as i64 + 2
+                } else {
+                    super::route::OFF
+                }
+            })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
         let budget = if target.table == Table::Ratio { 1200 } else { 3000 };
@@ -2392,10 +2407,24 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     fn route_drawn(&mut self, target: &Target, h: FactId, then: Option<Stmt>, focus: &BTreeSet<PointId>) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let w = self.w;
+        let plain = self.plain_route;
+        let shown = &self.block_of;
         let weights: Vec<i64> = w
             .atoms
             .iter()
-            .map(|a| if a.table == Table::Angle && a.cost > 0 && a.admissible(h) { eff(a, focus, &w.claim_cost, cx) as i64 + 2 } else { super::route::OFF })
+            .map(|a| {
+                let barred = plain
+                    && match a.src {
+                        AtomSrc::Human(k) => super::theorems::is_theorem(k),
+                        AtomSrc::Hyp(_) | AtomSrc::Line(_) => false,
+                        AtomSrc::Glue(f) | AtomSrc::Engine(f) => !shown.contains_key(&cx.displayable(f)),
+                    };
+                if a.table == Table::Angle && a.cost > 0 && a.admissible(h) && !barred {
+                    eff(a, focus, &w.claim_cost, cx) as i64 + 2
+                } else {
+                    super::route::OFF
+                }
+            })
             .collect();
         let spent = std::sync::atomic::AtomicUsize::new(0);
         let degenerate = LinComb::singleton(crate::elimination::ANGLE_UNIT, Rat::new(1, 3));
@@ -2910,7 +2939,7 @@ pub fn atom_stmt(key: AtomKey, a: &[PointId]) -> Stmt {
         AtomKey::Inscribed => Stmt::Cyclic { pts: a.to_vec() },
         AtomKey::Thales => Stmt::AngleConst { angle: Expr::Angle { a: a[0], b: a[2], c: a[1], directed: false }, degrees: Rat::from_int(90) },
         AtomKey::TangentChord => Stmt::Tangent { p: a[0], line: (a[0], a[1]), circle: vec![a[4]] },
-        AtomKey::PerpBisector => Stmt::Perp { l1: (a[0], a[1]), l2: (a[2], a[3]) },
+        AtomKey::PerpBisector | AtomKey::Reflection => Stmt::Perp { l1: (a[0], a[1]), l2: (a[2], a[3]) },
         AtomKey::Parallel => Stmt::Para { l1: (a[0], a[1]), l2: (a[2], a[3]) },
         AtomKey::Radii | AtomKey::Isosceles => Stmt::Cong { s1: (a[0], a[1]), s2: (a[0], a[2]) },
         AtomKey::CentralAngle if a.len() == 5 => Stmt::Eq {
@@ -2943,6 +2972,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             allowed: BTreeSet::new(),
             as_drawn: false,
             force_undirected: false,
+            plain_route: false,
             halve_graph: std::cell::OnceCell::new(),
             drawn_graph: std::cell::OnceCell::new(),
             ratio_graph: std::cell::OnceCell::new(),
@@ -2961,6 +2991,89 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let block = self.block_of.get(&d).copied();
         let because = if block.is_none() { self.human_justification(r, r + 1).into_iter().collect() } else { Vec::new() };
         Reason::Fact { stmt: fact_stmt(cx, r), fact: r, block, because }
+    }
+
+    fn expose_hyps(&mut self, f: FactId, mut sentences: Vec<Sentence>) -> Vec<Sentence> {
+        let cx = self.w.cx;
+        if cx.timed_out() {
+            return sentences;
+        }
+        let h = self.w.nodes[&f].horizon;
+        let mut extra: Vec<Sentence> = Vec::new();
+        let mut cites: Vec<(usize, usize, Stmt, usize)> = Vec::new();
+        for si in 0..sentences.len() {
+            let links = match &sentences[si] {
+                Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.clone(),
+                _ => continue,
+            };
+            for (li, l) in links.iter().enumerate() {
+                for r in &l.reasons {
+                    let Reason::Atom { key: AtomKey::IsoscelesConverse, args, .. } = r else { continue };
+                    let [o, p, q] = args[..] else { continue };
+                    let ang = |a: PointId, b: PointId, c: PointId, directed: bool| Expr::Angle { a, b, c, directed };
+                    let stmt = Stmt::EqAngle { lhs: ang(o, p, q, false), rhs: ang(p, q, o, false) };
+                    if cites.iter().any(|c| c.2 == stmt) {
+                        continue;
+                    }
+                    let Some(target) = super::classify::angle_target(cx, ang(o, p, q, true), ang(p, q, o, true), stmt.clone()) else { continue };
+                    let focus: BTreeSet<PointId> = [o, p, q].into_iter().collect();
+                    self.plain_route = true;
+                    let found = [self.route_drawn(&target, h, None, &focus), self.route_now(&target, h, None, &focus)];
+                    self.plain_route = false;
+                    let usable = |ls: &Vec<Sentence>| -> Option<(usize, Sentence)> {
+                        let [chain @ Sentence::Chain { links: cl, terms, .. }] = ls.as_slice() else { return None };
+                        if cl.len() > 6 || multiple_directed(chain) || !super::check::establishes(cx, chain, &stmt) {
+                            return None;
+                        }
+                        let mut lemma_free = true;
+                        super::barem::visit(chain, &mut |r| lemma_free &= !matches!(r, Reason::Lemma { .. }));
+                        let size: usize = cl.iter().map(|l| l.reasons.len()).sum::<usize>() + terms.iter().map(super::barem::expr_terms).sum::<usize>();
+                        lemma_free.then(|| (size, chain.clone()))
+                    };
+                    let Some((_, mut chain)) = found.iter().flatten().filter_map(usable).min_by_key(|x| x.0) else { continue };
+                    if let (Sentence::Chain { terms, directed, .. }, Stmt::EqAngle { lhs, rhs }) = (&mut chain, &stmt) {
+                        let n = terms.len();
+                        for (i, want) in [(0, lhs), (n - 1, rhs)] {
+                            let mut w2 = want.clone();
+                            if let Expr::Angle { directed: d, .. } = &mut w2 {
+                                *d = *directed;
+                            }
+                            let same = match (super::expr::eval(cx.t, &terms[i]), super::expr::eval(cx.t, &w2)) {
+                                (Some((_, x)), Some((_, y))) => super::check::residual_ok(cx, Table::Angle, &(&x - &y), &LinComb::zero(), false),
+                                _ => false,
+                            };
+                            if same {
+                                terms[i] = w2;
+                            }
+                        }
+                    }
+                    if !super::check::establishes(cx, &chain, &stmt) {
+                        continue;
+                    }
+                    extra.push(chain);
+                    cites.push((si, li, stmt, extra.len() - 1));
+                }
+            }
+        }
+        if extra.is_empty() {
+            return sentences;
+        }
+        shift_pending(&mut sentences, extra.len());
+        for (si, li, stmt, ei) in cites {
+            if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } = &mut sentences[si] {
+                let l = &mut links[li];
+                for r in l.reasons.iter_mut() {
+                    if let Reason::Atom { key: AtomKey::IsoscelesConverse, args, from, .. } = r {
+                        if args.len() == 3 && stmt == (Stmt::EqAngle { lhs: Expr::Angle { a: args[0], b: args[1], c: args[2], directed: false }, rhs: Expr::Angle { a: args[1], b: args[2], c: args[0], directed: false } }) {
+                            from.clear();
+                        }
+                    }
+                }
+                l.reasons.push(Reason::Lemma { stmt, block: PENDING_BLOCK, sentence: ei as u16 });
+            }
+        }
+        extra.extend(sentences);
+        extra
     }
 
     pub fn node_sentences(&mut self, f: FactId) -> (Vec<Sentence>, usize, bool) {
@@ -3178,6 +3291,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let t0 = std::time::Instant::now();
             let started = std::time::Instant::now();
             let (sentences, links, pooled) = self.node_sentences(f);
+            let sentences = self.expose_hyps(f, sentences);
             if std::env::var_os("HP_TIME").is_some() {
                 eprintln!("present node {f}: {:.1} ms", started.elapsed().as_secs_f64() * 1e3);
             }
@@ -3274,7 +3388,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut facts = merge_facts;
         facts.extend(goal.extra.iter().copied());
         let t0 = std::time::Instant::now();
-        let (mut body, _, _) = if goal.parts.is_some() { self.node_sentences(GOAL) } else { (Vec::new(), 0, false) };
+        let (body, _, _) = if goal.parts.is_some() { self.node_sentences(GOAL) } else { (Vec::new(), 0, false) };
+        let mut body = self.expose_hyps(GOAL, body);
         if std::env::var_os("HP_TIME").is_some() {
             eprintln!("present goal: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
         }

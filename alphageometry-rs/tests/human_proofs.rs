@@ -123,7 +123,9 @@ fn golden_examples_have_the_planned_shape() {
     numbered(hp, t);
     assert!(t.contains("BC is the perpendicular bisector of HK"), "{t}");
     assert!(t.contains("so A, H, K are collinear. (2)"), "{t}");
-    assert!(t.contains("Angles written \u{2220} are read from the figure."), "{t}");
+    assert!(!t.contains("read from the figure"), "{t}");
+    assert!(t.contains("K is the reflection of H in BC, so BC is the perpendicular bisector of HK"), "{t}");
+    assert!(t.contains("H lies on the segment KA"), "{t}");
     assert!(!t.contains("counter-clockwise"), "only figure angles are used:\n{t}");
     assert!(t.contains("C, K lie on the same side of AB, so by the converse of the inscribed angle theorem, A, B, C, K lie on one circle, as required. \u{220e}"), "{t}");
 
@@ -145,8 +147,8 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("R = OA = OB = OC for its circumradius."), "{t}");
     assert!(t.contains("Plan: it suffices to show that AH = 2R\u{b7}cos A and M\u{2090}O = R\u{b7}cos A."), "{t}");
     assert!(t.contains("We show that AH = 2R\u{b7}cos A:"), "{t}");
-    assert!(t.contains("We show that AB = 2R\u{b7}sin C:"), "{t}");
-    assert!(t.contains("extended law of sines"), "{t}");
+    assert!(t.contains("so AB = 2R\u{b7}sin C."), "a one-line computation is a sentence:\n{t}");
+    assert!(t.to_lowercase().contains("extended law of sines"), "{t}");
     assert!(t.contains("law of sines in \u{25b3}BHA"), "{t}");
     assert!(!t.contains("sin\u{2220}COA") && !t.contains("sin\u{2220}BOA") && !t.contains("sin\u{2220}COB"), "{t}");
     assert!(t.lines().filter(|l| l.trim_start().starts_with('=')).count() <= 5, "{t}");
@@ -182,7 +184,7 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("Let F be the foot of the perpendicular from B to AR."), "{t}");
     assert!(t.contains("OF is the perpendicular bisector of BN"), "{t}");
     assert!(t.contains("so by the converse of the inscribed angle theorem, R, N, F, O are concyclic."), "{t}");
-    assert!(t.contains("\u{2220}BFA + \u{2220}BNA = 180\u{b0} and F, N lie on opposite sides of BA, so by the converse of the opposite-angle theorem for cyclic quadrilaterals, F, N, B, A are concyclic."), "{t}");
+    assert!(t.contains("\u{2220}BFA = 90\u{b0} and \u{2220}BNA = 90\u{b0}, so by the converse of Thales' theorem, F, N, B, A are concyclic."), "two right angles on BA need no side condition:\n{t}");
     assert!(t.contains("= \u{bd}\u{b7}\u{2220}NOM    [central angle"), "{t}");
     assert!(t.contains("NC \u{27c2} NB, by (1) and OF \u{27c2} NB, by (4), so NC \u{2225} OF. (5)"), "{t}");
     assert!(t.contains("= \u{2221}NOF + \u{2221}PRN    [NC \u{2225} OF, by (5)]"), "{t}");

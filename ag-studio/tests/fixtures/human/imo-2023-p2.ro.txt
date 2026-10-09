@@ -1,4 +1,4 @@
-Unghiurile notate ∢ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
+∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Unghiurile orientate nu depind de figură. Unghiurile orientate sunt necesare doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
 
 Ideea: este suficient să arătăm că punctele A, I, X sunt coliniare.
 
@@ -19,7 +19,7 @@ Deci NB = NC. (1)
      = ∢ESO    [NS este diametru al cercului Ω]
      = ∢OES    [OS = OE]
 
-∢OTS = ∢OES și T, E sunt de aceeași parte a dreptei OS, deci, din reciproca teoremei unghiului înscris, punctele T, E, S, O sunt conciclice. (3)
+∢OTS = ∢OES, B se află pe segmentul TS și T, E sunt de aceeași parte a dreptei OS, deci, din reciproca teoremei unghiului înscris, punctele T, E, S, O sunt conciclice. (3)
 
 4. Arătăm că punctele T, P, X, O sunt conciclice:
 
@@ -27,7 +27,7 @@ Deci NB = NC. (1)
      = 90° − ∢LBD    [unghiuri opuse la vârf în B]
      = ∢BLD − ∢LDX + 90°    [unghi exterior al △DBL]
      = ∢BPD − ∢LDX + 90°    [unghiuri înscrise în ω₁]
-     = ∢BPD − ∢CBT + 90°    [DL ∥ BC]
+     = ∢BPD − ∢CBT + 90°    [DL ∥ BC; unghiuri alterne]
      = ∢BPD − ∢OSB    [ON ⟂ BC, din (2)]
      = ∢BPD − ∢XBO    [OS = OB]
      = ∢BPO − ∢XBO − ∢OPD    [adunarea unghiurilor]
@@ -36,7 +36,7 @@ Deci NB = NC. (1)
      = ∢DPX − ∢OPD    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
      = ∢OPX    [adunarea unghiurilor]
 
-∢OTX = ∢OPX și T, P sunt de aceeași parte a dreptei OX, deci, din reciproca teoremei unghiului înscris, punctele T, P, X, O sunt conciclice. (4)
+∢OTX = ∢OPX, B se află pe segmentul TX și T, P sunt de aceeași parte a dreptei OX, deci, din reciproca teoremei unghiului înscris, punctele T, P, X, O sunt conciclice. (4)
 
 5. Arătăm că punctele T, P, E, D sunt conciclice:
 

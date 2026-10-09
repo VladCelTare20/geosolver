@@ -1,6 +1,4 @@
-Unghiurile notate ∢ sunt citite din figură.
-
-1. BH = BK și CH = CK ⇒ BC este mediatoarea segmentului HK ⇒ BC ⟂ HK. (1)
+1. K este simetricul lui H față de BC ⇒ BC este mediatoarea segmentului HK ⇒ BC ⟂ HK. (1)
 
 2. AH ⟂ BC și HK ⟂ BC ⇒ punctele A, H, K sunt coliniare. (2)
 
@@ -9,6 +7,6 @@ Unghiurile notate ∢ sunt citite din figură.
 ∢C = 90° − ∢HBC    [BH ⟂ AC]
    = ∢BHK    [BC ⟂ HK, din (1)]
    = ∢HKB    [BH = BK]
-   = ∢AKB    [A, H, K coliniare, din (2)]
+   = ∢AKB    [A, H, K coliniare, din (2); H se află pe segmentul KA]
 
 ∢C = ∢AKB și C, K sunt de aceeași parte a dreptei AB, deci, din reciproca teoremei unghiului înscris, punctele A, B, C, K sunt conciclice, ceea ce trebuia demonstrat. ∎

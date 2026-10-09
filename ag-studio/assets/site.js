@@ -335,6 +335,13 @@
     var names = ((view && view.points) || []).map(function (p) { return p.name; });
     var setupCircles = (h.setup || []).filter(function (s) { return s.kind === "circle"; });
     var curBlock = null;
+    var rCentre = null;
+    (h.setup || []).forEach(function (l) { if (l.kind === "notation" && l.circumcentre) rCentre = l.circumcentre; });
+    function compLinks(links) {
+      return (links || []).map(function (l) {
+        return { reasons: (l.reasons || []).filter(function (r) { return !(rCentre && r.kind === "atom" && r.key === "radii" && (r.args || [])[0] === rCentre); }), combination: l.combination };
+      });
+    }
     var blockById = {};
     (h.blocks || []).forEach(function (b) { blockById[b.id] = b; });
 
@@ -480,7 +487,7 @@
       var s = SP(atomTemplate(sh.base, sh.args, ctx));
       return r.key === "isosceles" && !plain ? '<span class="hp-nb">' + s + "</span>" : s;
     }
-    var SAY = { perp_bisector: 1, orthocentre: 1, centroid: 1, midline: 1, parallel: 1, power_of_point: 1, median_hypotenuse: 1 };
+    var SAY = { perp_bisector: 1, reflection: 1, orthocentre: 1, centroid: 1, midline: 1, parallel: 1, power_of_point: 1, median_hypotenuse: 1 };
     function atomSentence(r, st) {
       if (!SAY[r.key] || !HAS("hp.say." + r.key)) return null;
       var a = r.args || [];
@@ -768,7 +775,7 @@
       if (r.kind === "atom") {
         var g = r.args || [];
         if (r.key === "thales" && g.length >= 3) return [[g[2], g[0]], [g[2], g[1]]];
-        if ((r.key === "perp_bisector" || r.key === "orthocentre") && g.length >= 4) return [[g[0], g[1]], [g[2], g[3]]];
+        if ((r.key === "perp_bisector" || r.key === "reflection" || r.key === "orthocentre") && g.length >= 4) return [[g[0], g[1]], [g[2], g[3]]];
         return null;
       }
       if (r.kind === "hyp") return stmtPerp(r.stmt);
@@ -777,6 +784,13 @@
     }
     function sameLine(x, l) { return (x[0] === l[0] && x[1] === l[1]) || (x[0] === l[1] && x[1] === l[0]); }
     function because(own, s, goal) {
+      var isLab = function (r) { return r.kind === "atom" && (r.key === "alternate_angles" || r.key === "corresponding_angles"); };
+      var lab = (s.reasons || []).filter(isLab)[0];
+      if (lab) {
+        var base = because(own, { kind: s.kind, stmt: s.stmt, reasons: (s.reasons || []).filter(function (r) { return !isLab(r); }), combination: s.combination }, goal);
+        if (base == null) return null;
+        return base.replace(/\.$/, "") + " (" + atomHtml(lab, "n") + ").";
+      }
       var st = soStmt(s.stmt, goal);
       var crit = criterion(s.stmt, curBody);
       if (crit) st = st + " (" + esc(T("hp.crit." + crit)) + ")";
@@ -833,10 +847,13 @@
         if (s.then && !restatesChain(s.terms || [], s.then)) parts.push({ text: fillKey("hp.so", { stmt: soStmt(s.then, goal) }) });
       } else if (s.kind === "chain") {
         var l0 = (s.links || [])[0];
-        var rs = l0 ? texts(l0.reasons, "n") : [];
+        var isLab0 = function (r) { return r.kind === "atom" && (r.key === "alternate_angles" || r.key === "corresponding_angles"); };
+        var lab0 = l0 ? (l0.reasons || []).filter(isLab0)[0] : null;
+        var rs = l0 ? texts((l0.reasons || []).filter(function (r) { return !isLab0(r); }), "n") : [];
         var terms = s.terms || [];
         var zero = terms[terms.length - 1] === "0°";
         var eq = terms.map(function (x) { return SP(math(x)); }).join(" = ");
+        if (lab0) eq = eq + " (" + atomHtml(lab0, "n") + ")";
         var text;
         var line = null;
         if (s.then && s.then.kind === "coll" && terms.length === 2 && !zero && l0) (l0.reasons || []).forEach(function (r) {
@@ -879,12 +896,16 @@
           text2 = notes2.length ? fillKey("hp.apply_with", { thm: thm, reasons: notes2.join("; "), stmt: rest }) : fillKey("hp.apply", { thm: thm, stmt: rest });
         } else {
           var st2 = soStmt(s.stmt, goal);
-          var withKey = s.key === "inscribed_converse" || s.key === "opposite_angles_converse" || s.key === "exterior_angle_converse" ? "hp.theorem_with.converse" : s.key === "circle_merge" ? "hp.theorem_with.circle_merge" : "hp.theorem_with";
+          var withKey = s.key === "inscribed_converse" || s.key === "opposite_angles_converse" || s.key === "exterior_angle_converse" || s.key === "thales_converse" ? "hp.theorem_with.converse" : s.key === "circle_merge" ? "hp.theorem_with.circle_merge" : "hp.theorem_with";
           text2 = notes2.length ? fillKey(withKey, { thm: thm, reasons: joinList(notes2), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
         }
         parts.push({ text: cap(text2), light: register(s.reasons) });
+      } else if (s.kind === "computation" && (s.links || []).length === 1) {
+        var cl = compLinks(s.links)[0];
+        var ceq = (s.terms || []).map(function (x) { return SP(math(x)); }).join(" = ");
+        parts.push({ text: cap(fillKey("hp.because", { reasons: joinList(texts(cl.reasons, "n")), stmt: ceq })), light: register(cl.reasons) });
       } else if (s.kind === "computation") {
-        parts.push({ rows: rows(s.terms || [], s.links || []) });
+        parts.push({ rows: rows(s.terms || [], compLinks(s.links)) });
       } else if (s.kind === "raw") {
         var step = null;
         steps.forEach(function (x) { if (x.n === s.step) step = x; });
@@ -896,7 +917,7 @@
     function leadOf(b, goal) {
       var first = (b.body || [])[0];
       if (!first || b.kind === "raw") return null;
-      var isRows = (first.kind === "chain" && (first.links || []).length >= 2) || first.kind === "computation";
+      var isRows = (first.kind === "chain" || first.kind === "computation") && (first.links || []).length >= 2;
       if (!isRows) return null;
       var st;
       if (goal) st = goal.words;

@@ -1,4 +1,4 @@
-Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). Directed angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
 
 Plan: it suffices to show that A, I, X are collinear.
 
@@ -19,7 +19,7 @@ Hence NB = NC. (1)
      = ∠ESO    [NS is a diameter of Ω]
      = ∠OES    [OS = OE]
 
-∠OTS = ∠OES and T, E lie on the same side of OS, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (3)
+∠OTS = ∠OES, B lies on the segment TS and T, E lie on the same side of OS, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (3)
 
 4. We show that T, P, X, O are concyclic:
 
@@ -27,7 +27,7 @@ Hence NB = NC. (1)
      = 90° − ∠LBD    [vertical angles at B]
      = ∠BLD − ∠LDX + 90°    [exterior angle of △DBL]
      = ∠BPD − ∠LDX + 90°    [inscribed angles in ω₁]
-     = ∠BPD − ∠CBT + 90°    [DL ∥ BC]
+     = ∠BPD − ∠CBT + 90°    [DL ∥ BC; alternate angles]
      = ∠BPD − ∠OSB    [ON ⟂ BC, by (2)]
      = ∠BPD − ∠XBO    [OS = OB]
      = ∠BPO − ∠XBO − ∠OPD    [angle addition]
@@ -36,7 +36,7 @@ Hence NB = NC. (1)
      = ∠DPX − ∠OPD    [PX is tangent to ω₁ (tangent–chord angle)]
      = ∠OPX    [angle addition]
 
-∠OTX = ∠OPX and T, P lie on the same side of OX, so by the converse of the inscribed angle theorem, T, P, X, O are concyclic. (4)
+∠OTX = ∠OPX, B lies on the segment TX and T, P lie on the same side of OX, so by the converse of the inscribed angle theorem, T, P, X, O are concyclic. (4)
 
 5. We show that T, P, E, D are concyclic:
 

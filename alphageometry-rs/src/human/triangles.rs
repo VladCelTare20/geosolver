@@ -66,10 +66,24 @@ fn angle_facts(cx: &Ctx, body: &[Sentence]) -> usize {
         .count()
 }
 
+fn ratio_facts(cx: &Ctx, body: &[Sentence]) -> usize {
+    body.iter()
+        .filter(|s| match s {
+            Sentence::Chain { terms, .. } | Sentence::Computation { terms, .. } => terms.first().is_some_and(|e| !super::expr::has_angle(e) && eval(cx.t, e).is_some_and(|(tb, _)| tb == Table::Ratio)),
+            Sentence::Because { stmt: Stmt::EqRatio { .. } | Stmt::RatioConst { .. }, .. } => true,
+            _ => false,
+        })
+        .count()
+}
+
 pub fn common_angle(cx: &Ctx, blocks: &[Block], b: &Block) -> Option<Block> {
     let (Stmt::Sim { t1, t2, .. } | Stmt::Congruent { t1, t2, .. }) = &b.stmt else { return None };
     let last = b.body.len().checked_sub(1)?;
-    if !matches!(&b.body[last], Sentence::Because { stmt: Stmt::Sim { .. } | Stmt::Congruent { .. }, .. }) || angle_facts(cx, &b.body) != 1 {
+    if !matches!(&b.body[last], Sentence::Because { stmt: Stmt::Sim { .. } | Stmt::Congruent { .. }, .. }) {
+        return None;
+    }
+    let shown = angle_facts(cx, &b.body);
+    if shown > 1 || (shown == 0 && (!matches!(b.stmt, Stmt::Sim { .. }) || ratio_facts(cx, &b.body) != 1)) {
         return None;
     }
     let (a, c) = ([t1.0, t1.1, t1.2], [t2.0, t2.1, t2.2]);

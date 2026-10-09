@@ -1080,9 +1080,6 @@
     "as_drawn": true,
     "setup": [
       {
-        "kind": "figure_angles"
-      },
-      {
         "kind": "directed_angles"
       },
       {
@@ -1296,7 +1293,7 @@
           },
           {
             "kind": "theorem",
-            "key": "inscribed_converse",
+            "key": "thales_converse",
             "stmt": {
               "kind": "cyclic",
               "args": [
@@ -1314,15 +1311,14 @@
             },
             "reasons": [
               {
-                "kind": "eqangle",
+                "kind": "aconst",
                 "args": [
                   "∠BFA",
-                  "∠BNA"
+                  "90"
                 ],
                 "points": [
                   "A",
                   "B",
-                  "N",
                   "F"
                 ],
                 "step": null,
@@ -1332,27 +1328,21 @@
                 "sentence": 0
               },
               {
-                "kind": "atom",
-                "key": "same_side",
+                "kind": "aconst",
                 "args": [
-                  "F",
-                  "N",
-                  "B",
-                  "A"
+                  "∠BNA",
+                  "90"
                 ],
-                "stmt": {
-                  "kind": "formula",
-                  "args": [
-                    ""
-                  ],
-                  "points": [
-                    "A",
-                    "B",
-                    "N",
-                    "F"
-                  ]
-                },
-                "from": []
+                "points": [
+                  "A",
+                  "B",
+                  "N"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
               }
             ]
           }
@@ -1825,6 +1815,27 @@
                 "because": [],
                 "lemma": true,
                 "sentence": 0
+              },
+              {
+                "kind": "atom",
+                "key": "on_segment",
+                "args": [
+                  "F",
+                  "R",
+                  "A"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "A",
+                    "R",
+                    "F"
+                  ]
+                },
+                "from": []
               },
               {
                 "kind": "atom",
@@ -2327,9 +2338,9 @@
       "pure_chains": 4,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 440,
-      "lines_en": 30,
-      "citations": 28,
+      "words_en": 430,
+      "lines_en": 29,
+      "citations": 29,
       "aux_shown": 1,
       "human_cost": 115,
       "reproved": 5,

@@ -1,5 +1,4 @@
-Angles written ∠ are read from the figure.
-∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn.
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). Directed angles do not depend on how the figure is drawn.
 Directed angles are needed only in step 8, where the figure-angle form would depend on the configuration.
 Let ω₁ be the circle through B, M, R, P.
 Let ω₂ be the circle through C, N, R, P.
@@ -11,7 +10,7 @@ Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and R, A, F, 
 2. We show that F, N, B, A are concyclic:
     ∠BFA = 90°     [FB ⟂ AR]
          = ∠BNA    [∠BNC = 90°, by (1)]
-∠BFA + ∠BNA = 180° and F, N lie on opposite sides of BA, so by the converse of the opposite-angle theorem for cyclic quadrilaterals, F, N, B, A are concyclic. (2)
+∠BFA = 90° and ∠BNA = 90°, so by the converse of Thales' theorem, F, N, B, A are concyclic. (2)
 3. AR bisects ∠BAC, so ∠FAB = ∠CAF. F, N, B, A concyclic, by (2), so FB = NF (equal or supplementary inscribed angles stand on equal chords). (3)
 4. OB = ON and, by (3), FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
 5. NC ⟂ NB, by (1) and OF ⟂ NB, by (4), so NC ∥ OF. (5)
@@ -19,7 +18,7 @@ Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and R, A, F, 
     ∠NFA = ∠NBM      [F, N, B, A concyclic, by (2)]
          = ½·∠NOM    [central angle ∠MON = 2∠MBN]
          = ∠NOR      [OR bisects ∠MON]
-∠NFR = ∠NOR and F, O lie on the same side of NR, so by the converse of the inscribed angle theorem, R, N, F, O are concyclic. (6)
+∠NFR = ∠NOR, A lies on the segment FR and F, O lie on the same side of NR, so by the converse of the inscribed angle theorem, R, N, F, O are concyclic. (6)
 7. AB·AM = AC·AN (power of the point A with respect to the circle (BMCN)). A has the same power with respect to the circles ω₁ and ω₂, so A lies on their radical axis, the line PR; hence R, A, F, P are collinear. (7)
 8. We show that P lies on the line BC:
     ∡PCB = ∡PCN + ∡NCO    [angle addition]
