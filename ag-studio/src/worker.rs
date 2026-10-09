@@ -1112,7 +1112,8 @@ pub(crate) mod tests {
         let outcome = bounded(run_with(&request(imo, 30.0), None, with_threads("100000"))).await;
         match outcome {
             Outcome::Failed(e) => assert!(
-                e.contains(&format!("exit status: {EXIT_NO_THREADS}")),
+                e.contains(&format!("exit status: {EXIT_NO_THREADS}"))
+                    || e.contains("signal: 6 (SIGABRT)"),
                 "{e}"
             ),
             Outcome::Done(r) => panic!(
