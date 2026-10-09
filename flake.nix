@@ -24,15 +24,16 @@
               path: _:
               let
                 base = baseNameOf path;
+                rel = nixpkgs.lib.removePrefix "${toString self}/" (toString path);
               in
               !(builtins.elem base [
                 "target"
                 "docs"
-                "deploy"
                 "nix"
                 "flake.nix"
                 "flake.lock"
-              ]);
+              ])
+              && (rel == "deploy" || rel == "deploy/.env.example" || !(nixpkgs.lib.hasPrefix "deploy" rel));
           };
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--workspace" ];
