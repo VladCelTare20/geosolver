@@ -1346,8 +1346,12 @@ pub fn reasons_text(n: &dyn PointNames, rs: &[Reason], claims: &BTreeMap<u16, u1
         if others && member(r) {
             continue;
         }
-        if let Reason::Atom { stmt, .. } = r {
+        if let Reason::Atom { stmt, key, .. } = r {
             if fact_stmts.iter().any(|s| same_stmt(s, stmt)) {
+                continue;
+            }
+            let restated = matches!(key, AtomKey::Isosceles | AtomKey::Radii) && rs.iter().any(|x| matches!(x, Reason::Lemma { stmt: s2, .. } if same_stmt(s2, stmt)));
+            if restated {
                 continue;
             }
         }

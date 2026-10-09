@@ -1103,6 +1103,9 @@ impl Cx<'_> {
                 if facts.iter().any(|s| same_stmt(s, stmt)) {
                     continue;
                 }
+                if matches!(key, AtomKey::Isosceles | AtomKey::Radii) && rs.iter().any(|x| matches!(x, Reason::Lemma { stmt: s2, .. } if same_stmt(s2, stmt))) {
+                    continue;
+                }
                 if let Some(centre) = self.equal_lengths_centre(*key, args, from) {
                     let group = format!("={centre}");
                     match groups.iter_mut().find(|g| g.0 == group) {

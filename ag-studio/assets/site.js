@@ -583,6 +583,7 @@
       (rs || []).forEach(function (r) {
         if (r.kind === "atom") {
           if (facts.some(function (f) { return hpSame(f, r.stmt); })) return;
+          if ((r.key === "isosceles" || r.key === "radii") && (rs || []).some(function (x) { return x && x.lemma && hpSame(x, r.stmt); })) return;
           var ctr = equalCentre(r);
           if (ctr != null) {
             var eg = groups["=" + ctr];
