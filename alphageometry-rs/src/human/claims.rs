@@ -3595,12 +3595,22 @@ fn bisector_lemma(cx: &Ctx, segs: &[(PointId, PointId)]) -> Option<(Stmt, Expr, 
     Some((Stmt::EqAngle { lhs: ang(x, v, p, false), rhs: ang(p, v, y, false) }, ang(x, v, p, true), ang(p, v, y, true), x, p, y))
 }
 
-pub fn hyp_lemma(_cx: &Ctx, key: AtomKey, args: &[PointId]) -> Option<(Stmt, Expr, Expr)> {
+pub fn hyp_lemma(cx: &Ctx, key: AtomKey, args: &[PointId]) -> Option<(Stmt, Expr, Expr)> {
     let ang = |a: PointId, b: PointId, c: PointId, directed: bool| Expr::Angle { a, b, c, directed };
     match key {
         AtomKey::IsoscelesConverse => {
             let [o, p, q] = args[..] else { return None };
             Some((Stmt::EqAngle { lhs: ang(o, p, q, false), rhs: ang(p, q, o, false) }, ang(o, p, q, true), ang(p, q, o, true)))
+        }
+        AtomKey::SineSupplement if args.len() == 7 && args[6] == args[0] => {
+            let x = ang(args[1], args[0], args[2], true);
+            let y = ang(args[4], args[3], args[5], true);
+            let neg = |e: Expr| Expr::Lin { terms: vec![(Rat::from_int(-1), e)] };
+            [(x.clone(), y.clone()), (x, neg(y))].into_iter().find_map(|(l, r)| {
+                let (_, a) = super::expr::eval(cx.t, &l)?;
+                let (_, b) = super::expr::eval(cx.t, &r)?;
+                cx.t.holds(Table::Angle, &(&a - &b)).then(|| (atom_stmt(key, args), l, r))
+            })
         }
         _ => None,
     }

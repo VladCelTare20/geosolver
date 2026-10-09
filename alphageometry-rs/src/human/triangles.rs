@@ -168,6 +168,23 @@ pub fn triangle_names(cx: &Ctx, b: &Block) -> Option<Block> {
         if n < 2 {
             continue;
         }
+        for k in [0, n - 1] {
+            let Expr::Angle { b: v, .. } = terms[k] else { continue };
+            for t in [&a, &c] {
+                let Some(i) = t.iter().position(|&p| p == v) else { continue };
+                let want = corner(t, i);
+                let same_points = matches!((&terms[k], &want), (Expr::Angle { a: p, c: q, .. }, Expr::Angle { a: p2, c: q2, .. }) if (p == p2 && q == q2) || (p == q2 && q == p2));
+                if same_points || !same_angle_as(cx, &terms[k], v, t[(i + 1) % 3], t[(i + 2) % 3]) {
+                    continue;
+                }
+                let (Some((_, e0)), Some((_, e1))) = (eval(cx.t, &terms[k]), eval(cx.t, &want)) else { continue };
+                if check::residual_ok(cx, Table::Angle, &e0, &e1, false) {
+                    terms[k] = want;
+                    changed = true;
+                    break;
+                }
+            }
+        }
         let (x, y) = (terms[0].clone(), terms[n - 1].clone());
         let Expr::Angle { b: vx, .. } = x else { continue };
         let Expr::Angle { a: ya, b: vy, c: yc, .. } = y else { continue };

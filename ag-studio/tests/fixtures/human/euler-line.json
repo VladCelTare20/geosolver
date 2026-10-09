@@ -1259,7 +1259,7 @@
             "kind": "chain",
             "terms": [
               "∠GAH",
-              "∠AMO"
+              "∠OMG"
             ],
             "links": [
               {
@@ -1289,9 +1289,9 @@
                       "G",
                       "A",
                       "H",
-                      "A",
+                      "O",
                       "M",
-                      "O"
+                      "G"
                     ],
                     "stmt": {
                       "kind": "formula",
