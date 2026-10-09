@@ -2416,7 +2416,10 @@ mod tests {
         for c in ['\u{2220}', '\u{27c2}', '\u{2221}', '\u{2225}'] {
             assert!(imo.contains(c), "{c} is missing from the report");
         }
-        assert!(!imo.contains('\u{2222}'), "Romanian figure angles print \u{2220}, as on the web");
+        assert!(
+            !imo.contains('\u{2222}'),
+            "Romanian figure angles print \u{2220}, as on the web"
+        );
         let p2 = report("imo-2023-p2");
         assert!(
             p2.contains("OAX</tspan> \u{2261} \u{25b3}<tspan font-style=\"italic\">OPX"),

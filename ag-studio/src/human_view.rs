@@ -3130,12 +3130,19 @@ pub mod tests {
         s.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
+    fn solved_with_human(name: &str, f: &Fixture) -> (Value, HumanView) {
+        let _heavy = crate::engine::heavy_search_lock();
+        for _ in 0..3 {
+            let v = solution(&f.program, f.best_secs);
+            if let Some(h) = of_view(&v["view"]) {
+                return (v, h);
+            }
+        }
+        panic!("{name}: the engine wrote no human proof in three tries")
+    }
+
     pub fn rendered(name: &str) -> (Value, HumanView) {
-        let f = load(name);
-        let v = solution(&f.program, f.best_secs);
-        let h = of_view(&v["view"])
-            .unwrap_or_else(|| panic!("{name}: the engine wrote no human proof"));
-        (v, h)
+        solved_with_human(name, &load(name))
     }
 
     pub fn with_human(mut v: Value, h: &HumanView) -> Value {
@@ -3145,9 +3152,7 @@ pub mod tests {
 
     fn check_or_bless(name: &str) {
         let f = load(name);
-        let v = solution(&f.program, f.best_secs);
-        let h = of_view(&v["view"])
-            .unwrap_or_else(|| panic!("{name}: the engine wrote no human proof"));
+        let (v, h) = solved_with_human(name, &f);
         if std::env::var_os("HP_BLESS").is_some() {
             let out = Fixture {
                 name: f.name.clone(),

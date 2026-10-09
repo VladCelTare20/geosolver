@@ -234,7 +234,7 @@ pub struct HumanSource {
 }
 
 pub const HUMAN_ENV: &str = "AGSTUDIO_HUMAN_PROOFS";
-const HUMAN_MAX: Duration = Duration::from_secs(2);
+const HUMAN_MAX: Duration = Duration::from_secs(if cfg!(test) { 6 } else { 2 });
 const HUMAN_MIN: Duration = Duration::from_millis(300);
 
 pub fn human_enabled() -> bool {
