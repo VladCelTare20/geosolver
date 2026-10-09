@@ -288,6 +288,7 @@ pub fn parse(t: &EngineTrace, me: PointId, desc: &str) -> Option<AuxWording> {
             let (a, b) = (shape(t, parts[0])?, shape(t, parts[1])?);
             let mut cands = on_shape(&a);
             cands.extend(on_shape(&b));
+            cands.extend((0..t.n as PointId).filter(|&p| p < me && !t.name(p).starts_with('_')));
             let common: Vec<PointId> = cands.into_iter().filter(|&p| p != me && on_numerically(t, &a, p) && on_numerically(t, &b, p)).collect();
             if let Some(&c) = common.first() {
                 return w("aux.intersect2", vec![a, b, AuxArg { key: "point", pts: vec![c] }]);
