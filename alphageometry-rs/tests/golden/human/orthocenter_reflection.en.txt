@@ -7,4 +7,4 @@ Angles written ∠ are read from the figure.
        = ∠BHK          [BC ⟂ HK, by (1)]
        = ∠HKB          [BH = BK: triangle BHK is isosceles]
        = ∠AKB          [K on AH, by (2)]
-So A, B, C, K lie on one circle, as required. ∎
+∠C = ∠AKB and C, K lie on the same side of AB, so by the converse of the inscribed angle theorem, A, B, C, K lie on one circle, as required. ∎

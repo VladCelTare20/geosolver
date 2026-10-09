@@ -534,7 +534,13 @@
                 ]
               }
             ],
-            "then": {
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "inscribed_converse",
+            "stmt": {
               "kind": "cyclic",
               "args": [
                 "A",
@@ -549,7 +555,49 @@
                 "K"
               ]
             },
-            "directed": false
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∠C",
+                  "∠AKB"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "C",
+                  "K"
+                ],
+                "step": null,
+                "block": 3,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "atom",
+                "key": "same_side",
+                "args": [
+                  "C",
+                  "K",
+                  "A",
+                  "B"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "A",
+                    "B",
+                    "C",
+                    "K"
+                  ]
+                },
+                "from": []
+              }
+            ]
           }
         ],
         "engine_steps": [
@@ -590,17 +638,17 @@
       "derived": 4,
       "blocks": 3,
       "claims": 0,
-      "sentences": 3,
+      "sentences": 4,
       "chain_links": 5,
       "chains": 2,
       "pure_chains": 2,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 99,
+      "words_en": 120,
       "lines_en": 9,
-      "citations": 6,
+      "citations": 8,
       "aux_shown": 0,
-      "human_cost": 19,
+      "human_cost": 23,
       "reproved": 2,
       "silent": 1,
       "pruned": 1,
@@ -609,7 +657,7 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 0,
-      "theorem_steps": 1,
+      "theorem_steps": 3,
       "steps": 3,
       "multi_fact_links": 0,
       "undirected_chains": 1,

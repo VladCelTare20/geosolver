@@ -9,7 +9,7 @@ Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and A, R, P, 
 ∠BFA = 90°    [BF ⟂ AR]
      = ∠BNA    [∠BNC = 90°, by (1)]
 
-So F, N, B, A are concyclic. (2)
+∠BFA = ∠BNA and F, N lie on the same side of BA, so by the converse of the inscribed angle theorem, F, N, B, A are concyclic. (2)
 
 3. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (2), so FN = BF (equal or supplementary inscribed angles stand on equal chords). (3)
 
@@ -23,7 +23,7 @@ So F, N, B, A are concyclic. (2)
      = ½·∠NOM    [central angle ∠MON = 2∠MBN]
      = ∠NOR    [OR bisects ∠MON]
 
-So R, N, F, O are concyclic. (6)
+∠NFR = ∠NOR and F, O lie on the same side of NR, so by the converse of the inscribed angle theorem, R, N, F, O are concyclic. (6)
 
 7. AB·AM = AC·AN (power of the point A with respect to (BMCN)). A has the same power with respect to the circles (PRMB) and ω₂, so A lies on their radical axis, the line PR; hence A, R, P, F are collinear. (7)
 

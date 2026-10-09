@@ -519,7 +519,7 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::MedianHypotenuse => format!("median to the hypotenuse of right △{}", n.pts(&[a[1], a[3], a[2]])),
         AtomKey::Simson => format!("Simson line of {} in △{}", n.get(a[0]), n.pts(&[a[1], a[2], a[3]])),
         AtomKey::Miquel => format!(
-            "Miquel's theorem in △{} ({} on {}, {} on {}, {} on {}; the circles ({}) and ({}) meet again at {})",
+            "Miquel's theorem in △{} ({} on {}, {} on {}, {} on {}): the second common point {} of the circles ({}) and ({}) lies on the circle ({})",
             n.pts(&[a[0], a[1], a[2]]),
             n.get(a[3]),
             n.pts(&[a[1], a[2]]),
@@ -527,9 +527,10 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
             n.pts(&[a[2], a[0]]),
             n.get(a[5]),
             n.pts(&[a[0], a[1]]),
+            n.get(a[6]),
             n.pts(&[a[0], a[4], a[5]]),
             n.pts(&[a[1], a[5], a[3]]),
-            n.get(a[6])
+            n.pts(&[a[2], a[3], a[4]])
         ),
         AtomKey::Reim => format!("Reim's theorem on {}", n.pts(&[a[0], a[1]])),
         AtomKey::LawOfSines => format!("law of sines in △{}", n.pts(&[a[0], a[1], a[2]])),
@@ -542,6 +543,14 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::AngleAddition => "angle addition".to_string(),
         AtomKey::AngleSum => format!("angle sum in △{}", n.pts(&a[0..3])),
         AtomKey::ExteriorAngle => format!("exterior angle of △{}", n.pts(&a[0..3])),
+        AtomKey::Supplementary => format!("{}, {}, {} collinear: supplementary angles", n.get(a[1]), n.get(a[0]), n.get(a[2])),
+        AtomKey::VerticalAngles => format!("vertical angles at {}", n.get(a[0])),
+        AtomKey::SameSide => format!("{}, {} lie on the same side of {}", n.get(a[0]), n.get(a[1]), n.pts(&a[2..4])),
+        AtomKey::OppositeSides => format!("{}, {} lie on opposite sides of {}", n.get(a[0]), n.get(a[1]), n.pts(&a[2..4])),
+        AtomKey::CyclicOpposite => format!("opposite angles of the cyclic quadrilateral {}", n.pts(&a[0..4])),
+        AtomKey::CyclicExterior => format!("exterior angle of the cyclic quadrilateral {}", n.pts(&a[0..4])),
+        AtomKey::CommonAngle => format!("common angle at {}", n.get(a[0])),
+        AtomKey::RadiusChord => format!("the tangent at {} is ⟂ {} (tangent–chord angle)", n.get(a[1]), n.pts(&a[0..2])),
     }
 }
 
@@ -609,6 +618,10 @@ pub fn theorem_name(k: TheoremKey) -> &'static str {
         TheoremKey::Collinear => "collinearity",
         TheoremKey::Concyclic => "concyclicity",
         TheoremKey::Other => "a classical rule",
+        TheoremKey::InscribedConverse => "the converse of the inscribed angle theorem",
+        TheoremKey::OppositeAnglesConverse => "the converse of the opposite-angle theorem for cyclic quadrilaterals",
+        TheoremKey::CircleMerge => "three points determine a circle",
+        TheoremKey::ExteriorAngleConverse => "the converse of the exterior-angle theorem for cyclic quadrilaterals",
     }
 }
 
@@ -877,6 +890,9 @@ fn render_inner(t: &EngineTrace, hp: &HumanProof, aux_desc: &[(PointId, String)]
                 } else if out.ends_with(&so_cap) {
                     out.truncate(out.len() - so_cap.len());
                     out.push_str(&format!("So {g}, as required."));
+                } else if out.ends_with(&format!(", {}.", stmt(&n, &b.stmt))) {
+                    out.truncate(out.len() - stmt(&n, &b.stmt).len() - 1);
+                    out.push_str(&format!("{g}, as required."));
                 } else {
                     out.push_str(&format!(" Hence {g}, as required."));
                 }
@@ -995,6 +1011,13 @@ pub fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
             (0, r) if r >= 2 => Some("SSS"),
             _ => None,
         }
+    } else if ratios >= 1 && sides >= 1 {
+        match (angles, ratios) {
+            (a, _) if a >= 2 => Some("similar by AA, with equal corresponding sides"),
+            (1, _) => Some("similar by SAS, with equal corresponding sides"),
+            (0, r) if r >= 2 => Some("similar by SSS, with equal corresponding sides"),
+            _ => None,
+        }
     } else {
         match (angles, ratios + sides) {
             (a, s) if a >= 2 && s >= 1 => Some("ASA"),
@@ -1108,6 +1131,14 @@ pub fn sentence(n: &dyn PointNames, s: &Sentence, claims: &BTreeMap<u16, u16>, r
             format!("Combining {}, we get {}.", join_and(&rs), stmt(n, st))
         }
         Sentence::Theorem { key: TheoremKey::RadicalAxis, stmt: st, reasons } if radical_text(n, st, reasons).is_some() => cap(&radical_text(n, st, reasons).unwrap_or_default()),
+        Sentence::Theorem { key, stmt: st, reasons } if key.is_converse() && !reasons.is_empty() => {
+            let rs: Vec<String> = reasons_text(n, reasons, claims);
+            format!("{}, so by {}, {}.", cap(&join_and(&rs)), theorem_name(*key), stmt(n, st))
+        }
+        Sentence::Theorem { key: TheoremKey::CircleMerge, stmt: st, reasons } if !reasons.is_empty() => {
+            let rs: Vec<String> = reasons_text(n, reasons, claims);
+            format!("{}; these circles share three points, so they coincide and {}.", cap(&join_and(&rs)), stmt(n, st))
+        }
         Sentence::Theorem { key, stmt: st, reasons } => {
             let rs: Vec<String> = reasons_text(n, reasons, claims);
             if matches!(key, TheoremKey::PointMerge | TheoremKey::TangentMerge) && !matches!(st, Stmt::Formula { .. }) {

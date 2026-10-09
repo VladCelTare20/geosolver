@@ -16,4 +16,13 @@ D, E, F, G on ω₁, so ∡DEG = ∡DFG. ∡ABX = ∡XCA, by (1), so AB ⟂ CX, 
 
 AB = 2R·sin C    [law of sines in △ABC; sin∠AXB = sin C]
 
-D, E, F, G on ω₁, so ∡EDF = ∡EGF. ∎
+D, E, F, G on ω₁, so ∡EDF = ∡EGF.
+
+∠DEG = 180° − ∠GEK    [D, E, K collinear: supplementary angles]
+     = ∠LEM    [vertical angles at E]
+     = ∠DFG    [exterior angle of the cyclic quadrilateral EDFG]
+     = 180° − ∠DSG    [opposite angles of the cyclic quadrilateral FDSG]
+     = ∠XDY    [the tangent at D is ⟂ OD (tangent–chord angle)]
+     = ∠ZDY    [common angle at D]
+
+∠DEG = ∠DFG and E, F lie on the same side of DG, so by the converse of the inscribed angle theorem, D, E, F, G are concyclic. ∠DFG + ∠DSG = 180° and F, S lie on opposite sides of DG, so by the converse of the opposite-angle theorem for cyclic quadrilaterals, D, F, G, S are concyclic. ∠GEK = ∠DFG and E, F lie on opposite sides of DG, so by the converse of the exterior-angle theorem for cyclic quadrilaterals, D, E, F, G are concyclic. D, E, F, G on ω₁ and D, F, G, S concyclic; these circles share three points, so they coincide and D, E, F, G, S are concyclic. DE : DF = AB : AC, so DE / DF = AB / AC. DE = AB, so △DEF ≅ △ABC (similar by AA, with equal corresponding sides). ∎

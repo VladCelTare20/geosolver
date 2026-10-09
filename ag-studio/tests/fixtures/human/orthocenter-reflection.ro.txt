@@ -11,4 +11,4 @@ Unghiurile notate ∢ sunt citite din figură.
    = ∢HKB    [BH = BK]
    = ∢AKB    [A, H, K coliniare, din (2)]
 
-Deci punctele A, B, C, K sunt conciclice, ceea ce trebuia demonstrat. ∎
+∢C = ∢AKB și C, K sunt de aceeași parte a dreptei AB, deci, din reciproca teoremei unghiului înscris, punctele A, B, C, K sunt conciclice, ceea ce trebuia demonstrat. ∎

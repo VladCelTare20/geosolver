@@ -7,6 +7,7 @@ pub mod check;
 pub mod claims;
 pub mod classify;
 pub mod ctx;
+pub mod cyclic;
 pub mod expr;
 pub mod library;
 pub mod model;
@@ -15,6 +16,7 @@ pub mod search;
 pub mod text;
 pub mod theorems;
 pub mod trace;
+pub mod triangles;
 pub mod view;
 
 pub use ctx::AuxInfo;

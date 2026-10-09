@@ -11,4 +11,4 @@ Angles written ∠ are read from the figure.
    = ∠HKB    [BH = BK]
    = ∠AKB    [A, H, K collinear, by (2)]
 
-So A, B, C, K lie on one circle, as required. ∎
+∠C = ∠AKB and C, K lie on the same side of AB, so by the converse of the inscribed angle theorem, A, B, C, K lie on one circle, as required. ∎

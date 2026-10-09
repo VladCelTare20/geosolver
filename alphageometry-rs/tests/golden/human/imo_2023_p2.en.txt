@@ -17,9 +17,9 @@ Hence NB = NC. (1)
          = 90° − ∠SNE    [inscribed angles in Ω]
          = ∠OSE          [NS is a diameter]
          = ∠SEO          [OS = OE: triangle OSE is isosceles]
-So T, E, S, O are concyclic. (3)
+∠STO = ∠SEO and T, E lie on the same side of SO, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (3)
 4. We show that T, P, X, O are concyclic:
-    ∠OTX = 180° − ∠OTB           [angle addition]
+    ∠OTX = 180° − ∠OTB           [X, T, B collinear: supplementary angles]
          = ∠EBS + 90°            [OT ⟂ BE]
          = ∠EBP + ∠PBS + 90°     [angle addition]
          = ∠EBP + ∠PNO + 90°     [inscribed angles in Ω]
@@ -31,7 +31,7 @@ So T, E, S, O are concyclic. (3)
          = ∠PNO + ∠NPX           [inscribed angles in Ω]
          = ∠OPN + ∠NPX           [ON = OP: triangle ONP is isosceles]
          = ∠OPX                  [angle addition]
-So T, P, X, O are concyclic. (4)
+∠OTX = ∠OPX and T, P lie on the same side of OX, so by the converse of the inscribed angle theorem, T, P, X, O are concyclic. (4)
 5. We show that T, P, E, D are concyclic:
     ∡ETD = ∡EON                        [T, E, S, O concyclic, by (3)]
          = ∡(OE, BC) + 90°             [ON ⟂ BC, by (2)]
@@ -41,15 +41,16 @@ So T, P, X, O are concyclic. (4)
          = ∡OEA + ∡BPD + ∡AEB + 90°    [angle addition]
          = ∡OEA + ∡BPD + ∡APB + 90°    [inscribed angles in Ω]
          = ∡OEA + ∡APD + 90°           [angle addition]
-         = ∡EPD                        [OA = OE: triangle OAE is isosceles; central angle ∠AOE = 2∠APE]
-So T, P, E, D are concyclic. (5)
+         = ∡EPA + ∡APD                 [the tangent at E is ⟂ OE (tangent–chord angle)]
+         = ∡EPD                        [angle addition]
+∡ETD = ∡EPD, so by the converse of the inscribed angle theorem, T, P, E, D are concyclic. (5)
 6. We show that XA = XP:
     ∠AOX = ∠AOP − ∠XOP    [angle addition]
-         = ∠AOP − ∠PTB    [T, P, X, O concyclic, by (4)]
-         = ∠AOP − ∠AEP    [T, P, E, D concyclic, by (5)]
+         = ∠AOP − ∠PTB    [exterior angle of the cyclic quadrilateral TPOX, by (4)]
+         = ∠AOP − ∠AEP    [exterior angle of the cyclic quadrilateral TDEP, by (5)]
          = ∠AEP           [central angle ∠AOP = 2∠AEP]
-         = ∠BTP           [T, P, E, D concyclic, by (5)]
-         = ∠XOP           [T, P, X, O concyclic, by (4)]
+         = ∠BTP           [exterior angle of the cyclic quadrilateral TDEP, by (5)]
+         = ∠XOP           [exterior angle of the cyclic quadrilateral TXOP, by (4)]
 OA = OP, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
 7. We show that A, I, X are collinear:
     ∡IAX = ∡SAX + 90°           [NS is a diameter]
@@ -61,7 +62,7 @@ OA = OP, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
          = ∡BPA + ∡DPB + 90°    [angle addition]
          = ∡BEA + ∡DPB + 90°    [inscribed angles in Ω]
          = ∡BEA + ∡DLB + 90°    [inscribed angles in ω₁]
-         = ∡LDA + 90°           [angle addition]
+         = ∡LDA + 90°           [angle sum in △EDL]
          = ∡(BC, AD) + 90°      [DL ∥ BC]
          = 0°                   [AD ⟂ BC]
 So A, I, X are collinear. (7)

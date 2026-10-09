@@ -397,6 +397,14 @@ closed_keys!(AtomKey, eng::AtomKey, {
     AngleAddition => "angle_addition",
     AngleSum => "angle_sum",
     ExteriorAngle => "exterior_angle",
+    Supplementary => "supplementary",
+    VerticalAngles => "vertical_angles",
+    SameSide => "same_side",
+    OppositeSides => "opposite_sides",
+    CyclicOpposite => "cyclic_opposite",
+    CyclicExterior => "cyclic_exterior",
+    RadiusChord => "radius_chord",
+    CommonAngle => "common_angle",
 });
 
 impl AtomKey {
@@ -436,6 +444,10 @@ closed_keys!(TheoremKey, eng::TheoremKey, {
     Collinear => "collinear",
     Concyclic => "concyclic",
     Other => "other",
+    InscribedConverse => "inscribed_converse",
+    OppositeAnglesConverse => "opposite_angles_converse",
+    CircleMerge => "circle_merge",
+    ExteriorAngleConverse => "exterior_angle_converse",
 });
 
 impl TheoremKey {
@@ -777,6 +789,13 @@ fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
             (a, _) if a >= 2 => Some("aa"),
             (1, r) if r >= 1 => Some("sas"),
             (0, r) if r >= 2 => Some("sss"),
+            _ => None,
+        }
+    } else if ratios >= 1 && sides >= 1 {
+        match (angles, ratios) {
+            (a, _) if a >= 2 => Some("sim_aa"),
+            (1, _) => Some("sim_sas"),
+            (0, r) if r >= 2 => Some("sim_sss"),
             _ => None,
         }
     } else {
@@ -1653,10 +1672,15 @@ impl Cx<'_> {
                     }
                 } else {
                     let st = self.so_stmt(stmt, goal);
+                    let with = match key {
+                        TheoremKey::InscribedConverse | TheoremKey::OppositeAnglesConverse | TheoremKey::ExteriorAngleConverse => "hp.theorem_with.converse",
+                        TheoremKey::CircleMerge => "hp.theorem_with.circle_merge",
+                        _ => "hp.theorem_with",
+                    };
                     if rs.is_empty() {
                         self.tf("hp.theorem", &[("thm", thm), ("stmt", st)])
                     } else {
-                        self.tf("hp.theorem_with", &[("thm", thm), ("reasons", join_list(&rs, self.lang)), ("stmt", st)])
+                        self.tf(with, &[("thm", thm), ("reasons", join_list(&rs, self.lang)), ("stmt", st)])
                     }
                 };
                 vec![Part::Text(capitalize(&text))]
@@ -2629,6 +2653,53 @@ pub mod tests {
                 then: Some(st("eqangle", &["∡EGF", "∡EDF"], &["D", "E", "F", "G"])),
                 directed: true,
             },
+            Sentence::Chain {
+                terms: strs(&["∠DEG", "180° − ∠GEK", "∠LEM", "∠DFG", "180° − ∠DSG", "∠XDY", "∠ZDY"]),
+                links: vec![
+                    Link { reasons: vec![atom(AtomKey::Supplementary, &["E", "D", "K"], st("formula", &[""], &["E", "D", "K"]), None)], combination: vec![] },
+                    Link { reasons: vec![atom(AtomKey::VerticalAngles, &["E"], st("formula", &[""], &["E"]), None)], combination: vec![] },
+                    Link { reasons: vec![atom(AtomKey::CyclicExterior, &["E", "D", "F", "G"], st("cyclic", &["E", "D", "F", "G"], &["D", "E", "F", "G"]), None)], combination: vec![] },
+                    Link { reasons: vec![atom(AtomKey::CyclicOpposite, &["F", "D", "S", "G"], st("cyclic", &["F", "D", "S", "G"], &["D", "F", "G", "S"]), None)], combination: vec![] },
+                    Link { reasons: vec![atom(AtomKey::RadiusChord, &["O", "D", "Y", "S"], st("formula", &[""], &["D", "O", "S", "Y"]), None)], combination: vec![] },
+                    Link { reasons: vec![atom(AtomKey::CommonAngle, &["D"], st("formula", &[""], &["D"]), None)], combination: vec![] },
+                ],
+                then: None,
+                directed: false,
+            },
+            Sentence::Theorem {
+                key: TheoremKey::InscribedConverse,
+                stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]),
+                reasons: vec![Reason::Lemma { stmt: st("eqangle", &["∠DEG", "∠DFG"], &["D", "E", "F", "G"]), block: 2, sentence: 7 }, atom(AtomKey::SameSide, &["E", "F", "D", "G"], st("formula", &[""], &["D", "E", "F", "G"]), None)],
+            },
+            Sentence::Theorem {
+                key: TheoremKey::OppositeAnglesConverse,
+                stmt: st("cyclic", &["D", "F", "G", "S"], &["D", "F", "G", "S"]),
+                reasons: vec![Reason::Lemma { stmt: st("eq", &["∠DFG + ∠DSG", "180°"], &["D", "F", "G", "S"]), block: 2, sentence: 7 }, atom(AtomKey::OppositeSides, &["F", "S", "D", "G"], st("formula", &[""], &["D", "F", "G", "S"]), None)],
+            },
+            Sentence::Theorem {
+                key: TheoremKey::ExteriorAngleConverse,
+                stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]),
+                reasons: vec![Reason::Lemma { stmt: st("eqangle", &["∠GEK", "∠DFG"], &["D", "E", "F", "G", "K"]), block: 2, sentence: 7 }, atom(AtomKey::OppositeSides, &["E", "F", "D", "G"], st("formula", &[""], &["D", "E", "F", "G"]), None)],
+            },
+            Sentence::Theorem {
+                key: TheoremKey::CircleMerge,
+                stmt: st("cyclic", &["D", "E", "F", "G", "S"], &["D", "E", "F", "G", "S"]),
+                reasons: vec![
+                    Reason::Lemma { stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]), block: 2, sentence: 8 },
+                    Reason::Lemma { stmt: st("cyclic", &["D", "F", "G", "S"], &["D", "F", "G", "S"]), block: 2, sentence: 9 },
+                ],
+            },
+            Sentence::Chain {
+                terms: strs(&["DE / DF", "AB / AC"]),
+                links: vec![Link { reasons: vec![Reason::Hyp { stmt: st("eqratio", &["DE", "DF", "AB", "AC"], &["A", "B", "C", "D", "E", "F"]), step: None }], combination: vec![] }],
+                then: None,
+                directed: false,
+            },
+            Sentence::Because {
+                stmt: st("contri", &["DEF", "ABC"], &["A", "B", "C", "D", "E", "F"]),
+                reasons: vec![Reason::Hyp { stmt: st("cong", &["DE", "AB"], &["A", "B", "D", "E"]), step: None }],
+                combination: vec![],
+            },
         ];
         let conclusion = Block { id: 2, kind: BlockKind::Conclusion, n: None, stmt: st("perp", &["AB", "CX"], &["A", "B", "C", "X"]), body, engine_steps: vec![], points: vec![], objects: vec![], step: 2, tag: false };
         (HumanView { version: 1, as_drawn: false, setup, blocks: vec![claim, conclusion], plan: vec![1], goal: Some(Goal::Stmt), metrics: Metrics::default() }, view)
@@ -2683,11 +2754,22 @@ pub mod tests {
             "Apply the law of sines in △DEF (DE ⟂ EF).",
             "[law of sines in △ABC; sin∠AXB = sin C]",
             "D, E, F, G on ω₁, so ∡EDF = ∡EGF.",
+            "[D, E, K collinear: supplementary angles]",
+            "[vertical angles at E]",
+            "[exterior angle of the cyclic quadrilateral EDFG]",
+            "[opposite angles of the cyclic quadrilateral FDSG]",
+            "[the tangent at D is ⟂ OD (tangent–chord angle)]",
+            "[common angle at D]",
+            "∠DEG = ∠DFG and E, F lie on the same side of DG, so by the converse of the inscribed angle theorem, D, E, F, G are concyclic.",
+            "∠DFG + ∠DSG = 180° and F, S lie on opposite sides of DG, so by the converse of the opposite-angle theorem for cyclic quadrilaterals, D, F, G, S are concyclic.",
+            "so by the converse of the exterior-angle theorem for cyclic quadrilaterals, D, E, F, G are concyclic.",
+            "these circles share three points, so they coincide and D, E, F, G, S are concyclic.",
+            "(similar by AA, with equal corresponding sides)",
         ] {
             assert!(en.contains(want), "{want:?} missing from\n{en}");
         }
         let ro = text(&h, &view, Lang::Ro);
-        for want in ["teorema sinusurilor în △ABC", "∡ABX = ∡XCA, din (1)", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
+        for want in ["teorema sinusurilor în △ABC", "∡ABX = ∡XCA, din (1)", "deci, din reciproca teoremei unghiului înscris, punctele D, E, F, G sunt conciclice", "cercurile au trei puncte comune, deci coincid", "unghiuri opuse la vârf în E", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
             assert!(ro.contains(want), "{want:?} missing from\n{ro}");
         }
         let path = dir().join("synthetic-wording.json");
@@ -2752,5 +2834,32 @@ pub mod tests {
     fn a_missing_human_proof_is_none() {
         assert!(of_view(&json!({"human": null})).is_none());
         assert!(of_view(&json!({})).is_none());
+    }
+
+    #[test]
+    #[ignore = "writes the app's proof text for each HP_PACKET entry (name, kind, best seconds, program file) into HP_PACKET_OUT"]
+    fn review_packet_texts() {
+        let (Some(list), Some(out)) = (std::env::var_os("HP_PACKET"), std::env::var_os("HP_PACKET_OUT")) else { return };
+        let out = PathBuf::from(out);
+        for line in std::fs::read_to_string(list).unwrap().lines().filter(|l| !l.trim().is_empty()) {
+            let cols: Vec<&str> = line.split('\t').collect();
+            let (name, kind, best, file) = (cols[0], cols[1], cols[2], cols[3]);
+            let program = std::fs::read_to_string(file).unwrap();
+            let opts = SolveOptions { kind: if kind == "corpus" { crate::engine::InputKind::Corpus } else { crate::engine::InputKind::Geo }, ..SolveOptions::default() };
+            let started = std::time::Instant::now();
+            let sol = match best.parse::<u64>().ok().filter(|s| *s > 0) {
+                Some(s) => solve_best(&program, &opts, Duration::from_secs(s)),
+                None => solve(&program, &opts),
+            }
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(sol.proved, "{name} must be proved");
+            let v = crate::present::solution_json(&sol, None);
+            let h = of_view(&v["view"]).unwrap_or_else(|| panic!("{name}: no human proof"));
+            let view = view_subset(&v["view"]);
+            for lang in [Lang::En, Lang::Ro] {
+                std::fs::write(out.join(format!("{name}.proof.{}.txt", lang.code())), format!("{}\n", text(&h, &view, lang))).unwrap();
+            }
+            eprintln!("packet {name}: {:.1} s", started.elapsed().as_secs_f64());
+        }
     }
 }

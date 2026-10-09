@@ -633,6 +633,12 @@
         if (an === 0 && ra >= 2) return "sss";
         return null;
       }
+      if (ra >= 1 && si >= 1) {
+        if (an >= 2) return "sim_aa";
+        if (an === 1) return "sim_sas";
+        if (an === 0 && ra >= 2) return "sim_sss";
+        return null;
+      }
       if (an >= 2 && ra + si >= 1) return "asa";
       if (an === 1 && ra + si >= 1) return "sas";
       if (an === 0 && ra + si >= 3) return "sss";
@@ -873,7 +879,8 @@
           text2 = notes2.length ? fillKey("hp.apply_with", { thm: thm, reasons: notes2.join("; "), stmt: rest }) : fillKey("hp.apply", { thm: thm, stmt: rest });
         } else {
           var st2 = soStmt(s.stmt, goal);
-          text2 = notes2.length ? fillKey("hp.theorem_with", { thm: thm, reasons: joinList(notes2), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
+          var withKey = s.key === "inscribed_converse" || s.key === "opposite_angles_converse" || s.key === "exterior_angle_converse" ? "hp.theorem_with.converse" : s.key === "circle_merge" ? "hp.theorem_with.circle_merge" : "hp.theorem_with";
+          text2 = notes2.length ? fillKey(withKey, { thm: thm, reasons: joinList(notes2), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
         }
         parts.push({ text: cap(text2), light: register(s.reasons) });
       } else if (s.kind === "computation") {

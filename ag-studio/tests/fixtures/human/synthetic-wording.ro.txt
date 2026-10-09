@@ -16,4 +16,13 @@ D, E, F, G pe ω₁ ⇒ ∡DEG = ∡DFG. ∡ABX = ∡XCA, din (1) ⇒ AB ⟂ CX,
 
 AB = 2R·sin C    [teorema sinusurilor în △ABC; sin∢AXB = sin C]
 
-D, E, F, G pe ω₁ ⇒ ∡EDF = ∡EGF. ∎
+D, E, F, G pe ω₁ ⇒ ∡EDF = ∡EGF.
+
+∢DEG = 180° − ∢GEK    [D, E, K coliniare: unghiuri suplementare]
+     = ∢LEM    [unghiuri opuse la vârf în E]
+     = ∢DFG    [unghi exterior al patrulaterului inscriptibil EDFG]
+     = 180° − ∢DSG    [unghiuri opuse în patrulaterul inscriptibil FDSG]
+     = ∢XDY    [tangenta în D este ⟂ OD (unghiul dintre tangentă și coardă)]
+     = ∢ZDY    [unghi comun în D]
+
+∢DEG = ∢DFG și E, F sunt de aceeași parte a dreptei DG, deci, din reciproca teoremei unghiului înscris, punctele D, E, F, G sunt conciclice. ∢DFG + ∢DSG = 180° și F, S sunt de o parte și de alta a dreptei DG, deci, din reciproca teoremei unghiurilor opuse ale patrulaterului inscriptibil, punctele D, F, G, S sunt conciclice. ∢GEK = ∢DFG și E, F sunt de o parte și de alta a dreptei DG, deci, din reciproca teoremei unghiului exterior al patrulaterului inscriptibil, punctele D, E, F, G sunt conciclice. D, E, F, G pe ω₁ și D, F, G, S conciclice; cercurile au trei puncte comune, deci coincid și punctele D, E, F, G, S sunt conciclice. DE : DF = AB : AC ⇒ DE / DF = AB / AC. DE = AB ⇒ △DEF ≡ △ABC (asemenea (UU), cu laturi omoloage egale). ∎
