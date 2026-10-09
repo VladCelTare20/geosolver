@@ -1,5 +1,5 @@
-∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). Directed angles do not depend on how the figure is drawn.
-Directed angles are needed only in steps 5 and 7, where the figure-angle form would depend on the configuration.
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ); such directed angles do not depend on how the figure is drawn.
+They are used only in steps 5 and 7, where the figure-angle form would depend on the configuration.
 Let Ω be the circumcircle of triangle ABC, with centre O; N, S, E, P lie on Ω.
 Let ω₁ be the circle centred at O₁ through B, D, L, P.
 

@@ -733,12 +733,12 @@ fn shape(tok: &dyn Fn(&str) -> String, s: &str) -> String {
     format!("line {}", tok(s))
 }
 
-pub const DIRECTED_EN: &str = "∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). Directed angles do not depend on how the figure is drawn.";
+pub const DIRECTED_EN: &str = "∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ); such directed angles do not depend on how the figure is drawn.";
 pub fn directed_steps_en(steps: &[u16]) -> String {
     let s: Vec<String> = steps.iter().map(|k| k.to_string()).collect();
     match s.as_slice() {
-        [one] => format!("Directed angles are needed only in step {one}, where the figure-angle form would depend on the configuration."),
-        [rest @ .., last] => format!("Directed angles are needed only in steps {} and {last}, where the figure-angle form would depend on the configuration.", rest.join(", ")),
+        [one] => format!("They are used only in step {one}, where the figure-angle form would depend on the configuration."),
+        [rest @ .., last] => format!("They are used only in steps {} and {last}, where the figure-angle form would depend on the configuration.", rest.join(", ")),
         [] => String::new(),
     }
 }

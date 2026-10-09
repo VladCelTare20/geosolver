@@ -57,6 +57,7 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     cut_long(cx, &mut ch, hp);
     lemma_steps(cx, &mut ch, hp);
     prefix_steps(cx, &mut ch, hp);
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| super::labels::fold_hyp_lemmas(cx, blocks[bi].id, s));
     per_block(cx, &mut ch, hp, &super::triangles::triangle_names);
     per_block_with(cx, &mut ch, hp, &super::triangles::common_angle);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| super::labels::reflections(cx, s));

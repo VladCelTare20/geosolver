@@ -3008,17 +3008,15 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             };
             for (li, l) in links.iter().enumerate() {
                 for r in &l.reasons {
-                    let Reason::Atom { key: AtomKey::IsoscelesConverse, args, .. } = r else { continue };
-                    let [o, p, q] = args[..] else { continue };
-                    let ang = |a: PointId, b: PointId, c: PointId, directed: bool| Expr::Angle { a, b, c, directed };
-                    let stmt = Stmt::EqAngle { lhs: ang(o, p, q, false), rhs: ang(p, q, o, false) };
+                    let Reason::Atom { key, args, .. } = r else { continue };
+                    let Some((stmt, ld, rd)) = hyp_lemma(cx, *key, args) else { continue };
                     if cites.iter().any(|c| c.2 == stmt) {
                         continue;
                     }
-                    let Some(target) = super::classify::angle_target(cx, ang(o, p, q, true), ang(p, q, o, true), stmt.clone()) else { continue };
-                    let focus: BTreeSet<PointId> = [o, p, q].into_iter().collect();
+                    let Some(target) = super::classify::angle_target(cx, ld, rd, stmt.clone()) else { continue };
+                    let focus: BTreeSet<PointId> = args.iter().copied().collect();
                     self.plain_route = true;
-                    let found = [self.route_drawn(&target, h, None, &focus), self.route_now(&target, h, None, &focus)];
+                    let found = [self.route_drawn(&target, h, None, &focus)];
                     self.plain_route = false;
                     let usable = |ls: &Vec<Sentence>| -> Option<(usize, Sentence)> {
                         let [chain @ Sentence::Chain { links: cl, terms, .. }] = ls.as_slice() else { return None };
@@ -3031,9 +3029,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         lemma_free.then(|| (size, chain.clone()))
                     };
                     let Some((_, mut chain)) = found.iter().flatten().filter_map(usable).min_by_key(|x| x.0) else { continue };
-                    if let (Sentence::Chain { terms, directed, .. }, Stmt::EqAngle { lhs, rhs }) = (&mut chain, &stmt) {
+                    if let (Sentence::Chain { terms, directed, .. }, Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = (&mut chain, &stmt) {
                         let n = terms.len();
                         for (i, want) in [(0, lhs), (n - 1, rhs)] {
+                            if *directed && !matches!(want, Expr::Angle { .. }) {
+                                continue;
+                            }
                             let mut w2 = want.clone();
                             if let Expr::Angle { directed: d, .. } = &mut w2 {
                                 *d = *directed;
@@ -3063,8 +3064,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } = &mut sentences[si] {
                 let l = &mut links[li];
                 for r in l.reasons.iter_mut() {
-                    if let Reason::Atom { key: AtomKey::IsoscelesConverse, args, from, .. } = r {
-                        if args.len() == 3 && stmt == (Stmt::EqAngle { lhs: Expr::Angle { a: args[0], b: args[1], c: args[2], directed: false }, rhs: Expr::Angle { a: args[1], b: args[2], c: args[0], directed: false } }) {
+                    if let Reason::Atom { key, args, from, .. } = r {
+                        if hyp_lemma(cx, *key, args).is_some_and(|x| x.0 == stmt) {
                             from.clear();
                         }
                     }
@@ -3513,6 +3514,17 @@ fn even_expr(e: &Expr) -> bool {
     match e {
         Expr::Lin { terms } => !terms.is_empty() && terms.iter().all(|(k, x)| matches!(x, Expr::Const { degrees } if degrees.is_zero()) || (k.is_integer() && (k * &Rat::new(1, 2)).is_integer())),
         _ => false,
+    }
+}
+
+pub fn hyp_lemma(_cx: &Ctx, key: AtomKey, args: &[PointId]) -> Option<(Stmt, Expr, Expr)> {
+    let ang = |a: PointId, b: PointId, c: PointId, directed: bool| Expr::Angle { a, b, c, directed };
+    match key {
+        AtomKey::IsoscelesConverse => {
+            let [o, p, q] = args[..] else { return None };
+            Some((Stmt::EqAngle { lhs: ang(o, p, q, false), rhs: ang(p, q, o, false) }, ang(o, p, q, true), ang(p, q, o, true)))
+        }
+        _ => None,
     }
 }
 

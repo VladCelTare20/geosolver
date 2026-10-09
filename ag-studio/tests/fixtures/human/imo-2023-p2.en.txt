@@ -1,4 +1,4 @@
-∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). Directed angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ); such directed angles do not depend on how the figure is drawn. They are used only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
 
 Plan: it suffices to show that A, I, X are collinear.
 

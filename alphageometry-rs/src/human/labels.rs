@@ -226,3 +226,43 @@ pub fn line_chain(s: &Sentence) -> Option<Sentence> {
     }
     Some(Sentence::Chain { terms: vec![terms[0].clone(), terms[terms.len() - 1].clone()], links: vec![link], then: then.clone(), directed: *directed })
 }
+
+fn fold_link(cx: &Ctx, own: u16, l: &Link) -> Option<Link> {
+    let used: Vec<u16> = l.combination.iter().map(|t| t.reason).collect();
+    let (ai, lemma_block) = l.reasons.iter().enumerate().find_map(|(i, r)| {
+        let Reason::Atom { key, args, .. } = r else { return None };
+        let (st, _, _) = super::claims::hyp_lemma(cx, *key, args)?;
+        let b = l.reasons.iter().find_map(|x| match x {
+            Reason::Lemma { stmt, block, .. } if *stmt == st && *block != own => Some(*block),
+            _ => None,
+        })?;
+        Some((i, b))
+    })?;
+    let keep: Vec<usize> = (0..l.reasons.len()).filter(|i| *i == ai || used.contains(&(*i as u16))).collect();
+    let mut reasons: Vec<Reason> = keep.iter().map(|&i| l.reasons[i].clone()).collect();
+    let at = keep.iter().position(|&i| i == ai)?;
+    if let Reason::Atom { from, .. } = &mut reasons[at] {
+        *from = vec![lemma_block];
+    }
+    let combination: Vec<Term> = l.combination.iter().map(|t| Term { reason: keep.iter().position(|&i| i as u16 == t.reason).unwrap_or(0) as u16, row: t.row, coef: t.coef.clone() }).collect();
+    Some(Link { reasons, combination })
+}
+
+pub fn fold_hyp_lemmas(cx: &Ctx, own: u16, s: &Sentence) -> Option<Sentence> {
+    let fix = |links: &[Link]| -> Option<Vec<Link>> {
+        let mut out = links.to_vec();
+        let mut changed = false;
+        for l in out.iter_mut() {
+            if let Some(n) = fold_link(cx, own, l) {
+                *l = n;
+                changed = true;
+            }
+        }
+        changed.then_some(out)
+    };
+    match s {
+        Sentence::Chain { terms, links, then, directed } => Some(Sentence::Chain { terms: terms.clone(), links: fix(links)?, then: then.clone(), directed: *directed }),
+        Sentence::Computation { comp, terms, links } => Some(Sentence::Computation { comp: *comp, terms: terms.clone(), links: fix(links)? }),
+        _ => None,
+    }
+}

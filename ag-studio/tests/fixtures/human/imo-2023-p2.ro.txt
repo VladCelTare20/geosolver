@@ -1,4 +1,4 @@
-∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Unghiurile orientate nu depind de figură. Unghiurile orientate sunt necesare doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
+∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Unghiurile orientate nu depind de figură. Le folosim doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
 
 Ideea: este suficient să arătăm că punctele A, I, X sunt coliniare.
 
