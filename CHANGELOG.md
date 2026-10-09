@@ -89,6 +89,10 @@ reports its git commit (`agstudio --version`, `/api/status`).
 - PDF/PNG exports survive emoji, control characters and noncharacters.
 
 ### Fixed
+- Release convergence: the Docker build context admits the licence files the
+  image installs; the Nix package source keeps `deploy/.env.example` (read by
+  a test), so `nix flake check` passes; the workspace is `cargo fmt` clean and
+  CI now fails on formatting or any clippy warning.
 - The debug `cargo test` no longer overflows the stack in the soundness suite
   and skips the searches that only fit their time budget in release.
 - Documentation: deployment guide rewritten (backup/restore, upgrades and
