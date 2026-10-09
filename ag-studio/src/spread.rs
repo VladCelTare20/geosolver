@@ -541,7 +541,10 @@ pub fn respread(fig: &Problem, aux_from: Option<usize>, src: &str, goal: Goal) -
 
 fn same_angle_readings(fig: &Problem, cand: &Problem) -> bool {
     fig.preds.iter().chain(fig.goal.as_ref()).all(|p| {
-        ddar::svg::undirected_reading_holds(fig, p) == ddar::svg::undirected_reading_holds(cand, p)
+        match ddar::svg::undirected_reading_holds(fig, p) {
+            Some(shown) => ddar::svg::undirected_reading_holds(cand, p) == Some(shown),
+            None => true,
+        }
     })
 }
 
