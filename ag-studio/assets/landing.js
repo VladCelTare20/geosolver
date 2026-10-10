@@ -1,0 +1,104 @@
+/* Landing page: the real IMO 2023 P2 result (assets/showcase.json) with an
+ * interactive figure and its verified steps. */
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var t = function (k, v) { return window.i18n.t(k, v); };
+  var FIRST_DEDUCTIONS = 6;
+  var data = null, expanded = false, viewer = null;
+
+  document.querySelectorAll("[data-icon]").forEach(function (el) { el.innerHTML = GS.icons[el.getAttribute("data-icon")] || ""; });
+  $("z-in").innerHTML = GS.icons.plus;
+  $("z-out").innerHTML = GS.icons.minusSm;
+  $("z-fit").innerHTML = GS.icons.fit;
+
+  function paintSteps() {
+    if (!data) return;
+    var proof = data.view.proof;
+    var cut = previewEnd(proof.steps);
+    var steps = expanded ? proof.steps : proof.steps.slice(0, cut);
+    GS.renderSteps($("steps"), { steps: steps, conclusion: expanded ? proof.conclusion : null }, {
+      focus: function (pts, facts) { viewer.highlight(pts, facts); },
+      describedBy: "steps-kbd",
+    });
+    var more = $("more");
+    more.hidden = proof.steps.length <= cut;
+    more.setAttribute("aria-expanded", expanded ? "true" : "false");
+    more.textContent = expanded ? t("show.fewer") : t("show.steps", { lines: window.i18n.tp("show.lines", proof.steps.length) });
+    return cut;
+  }
+
+  function previewEnd(steps) {
+    var seen = 0;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].kind === "step") seen++;
+      if (seen >= FIRST_DEDUCTIONS) return i + 1;
+    }
+    return steps.length;
+  }
+  function derived() {
+    return data.view.proof.steps.filter(function (s) { return s.kind === "step"; }).length;
+  }
+  function paintStats() {
+    if (!data) return;
+    var n = window.i18n.fmtNum;
+    $("st-first").textContent = GS.fmtSecs(data.first_secs || 0);
+    $("st-steps").textContent = n(derived());
+    $("show-sub").textContent = t("show.sub", {
+      first: GS.fmtSecs(data.first_secs || 0),
+      budget: n(data.budget_secs || 20) + "\u00a0s",
+      hint: t(matchMedia("(pointer: coarse)").matches ? "show.hint.coarse" : "show.hint.fine"),
+    });
+    $("st-aux").textContent = n((data.aux_constructions || []).length);
+    $("st-examined").textContent = n(data.examined || 0);
+  }
+
+  $("more").addEventListener("click", function () {
+    var more = $("more");
+    var before = more.getBoundingClientRect().top;
+    expanded = !expanded;
+    var cut = paintSteps();
+    if (expanded) {
+      var li = null, all = data.view.proof.steps;
+      for (var i = cut; i < all.length && !li; i++) {
+        var el = document.getElementById("step-" + all[i].n);
+        if (el && !el.hidden) li = el;
+      }
+      if (li) { li.focus({ preventScroll: true }); li.scrollIntoView({ block: "nearest" }); return; }
+    }
+    window.scrollBy(0, more.getBoundingClientRect().top - before);
+    more.scrollIntoView({ block: "nearest" });
+  });
+
+  fetch("/assets/showcase.json").then(function (r) { return r.status === 401 ? GS.toGate() : r.json(); }).then(function (d) {
+    data = d;
+    $("hero-fig").innerHTML = d.svg;
+    var hs = $("hero-fig").querySelector("svg");
+    hs.removeAttribute("width");
+    hs.removeAttribute("height");
+    hs.setAttribute("aria-hidden", "true");
+    var b = (hs.getAttribute("viewBox") || "0 0 100 100").split(/\s+/).map(Number);
+    var heroVb = { x: b[0], y: b[1], w: b[2], h: b[3] };
+    var fit = function () { GS.fitLabels(hs, heroVb, $("hero-fig").getBoundingClientRect()); };
+    fit();
+    if (window.ResizeObserver) new ResizeObserver(fit).observe($("hero-fig"));
+    var fitCase = function () {
+      var vp = $("case-fig");
+      vp.style.height = "";
+      var w = vp.getBoundingClientRect().width, hNow = vp.getBoundingClientRect().height;
+      var want = Math.max(260, w * heroVb.h / heroVb.w + 24);
+      if (w && hNow - want > 8) vp.style.height = Math.round(want) + "px";
+    };
+    fitCase();
+    window.addEventListener("resize", fitCase);
+    viewer = new GS.Viewer({ frame: $("case-fig").parentNode, viewport: $("case-fig"), zoomIn: $("z-in"), zoomOut: $("z-out"), fit: $("z-fit") });
+    viewer.setSvg(d.svg, t("case.title"));
+    paintStats();
+    paintSteps();
+  }).catch(function () {});
+
+  document.addEventListener("langchange", function () { paintStats(); paintSteps(); });
+  window.i18n.apply();
+  GS.initTheme();
+  GS.booted = true;
+})();

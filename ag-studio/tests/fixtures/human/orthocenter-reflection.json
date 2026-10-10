@@ -1,0 +1,619 @@
+{
+  "name": "orthocenter-reflection",
+  "program": "A B C = triangle\nH = orthocenter(A, B, C)\nK = reflect(H, line(B, C))\nprove cyclic(A, B, C, K)",
+  "view": {
+    "aux": [],
+    "helpers": [],
+    "points": [
+      {
+        "aux": false,
+        "name": "A"
+      },
+      {
+        "aux": false,
+        "name": "B"
+      },
+      {
+        "aux": false,
+        "name": "C"
+      },
+      {
+        "aux": false,
+        "name": "H"
+      },
+      {
+        "aux": false,
+        "name": "K"
+      }
+    ],
+    "proof": {
+      "steps": [
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "AH",
+              "BC"
+            ],
+            "kind": "perp",
+            "points": [
+              "A",
+              "H",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "given",
+          "n": 1,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "BH",
+              "AC"
+            ],
+            "kind": "perp",
+            "points": [
+              "B",
+              "H",
+              "A",
+              "C"
+            ]
+          },
+          "kind": "given",
+          "n": 2,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "BH",
+              "BK"
+            ],
+            "kind": "cong",
+            "points": [
+              "B",
+              "H",
+              "K"
+            ]
+          },
+          "kind": "given",
+          "n": 3,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "CH",
+              "CK"
+            ],
+            "kind": "cong",
+            "points": [
+              "C",
+              "H",
+              "K"
+            ]
+          },
+          "kind": "given",
+          "n": 4,
+          "rule": "given"
+        },
+        {
+          "deps": [
+            3,
+            4
+          ],
+          "fact": {
+            "args": [
+              "BCH",
+              "BCK"
+            ],
+            "kind": "simtri",
+            "points": [
+              "B",
+              "C",
+              "H",
+              "K"
+            ]
+          },
+          "kind": "step",
+          "n": 5,
+          "rule": "similar"
+        },
+        {
+          "deps": [
+            3,
+            5
+          ],
+          "fact": {
+            "args": [
+              "BHK",
+              "BKH"
+            ],
+            "kind": "simtri",
+            "points": [
+              "B",
+              "H",
+              "K"
+            ]
+          },
+          "kind": "step",
+          "n": 6,
+          "rule": "similar"
+        },
+        {
+          "deps": [
+            1,
+            5,
+            6
+          ],
+          "fact": {
+            "args": [
+              "H",
+              "A",
+              "K"
+            ],
+            "kind": "coll",
+            "points": [
+              "H",
+              "A",
+              "K"
+            ]
+          },
+          "kind": "step",
+          "n": 7,
+          "rule": "collinear"
+        },
+        {
+          "deps": [
+            2,
+            5,
+            6,
+            7
+          ],
+          "fact": {
+            "args": [
+              "K",
+              "C",
+              "B",
+              "A"
+            ],
+            "kind": "cyclic",
+            "points": [
+              "K",
+              "C",
+              "B",
+              "A"
+            ]
+          },
+          "kind": "step",
+          "n": 8,
+          "rule": "concyclic"
+        }
+      ],
+      "style": "ddar"
+    }
+  },
+  "human": {
+    "version": 1,
+    "as_drawn": true,
+    "setup": [
+      {
+        "kind": "figure_angles"
+      }
+    ],
+    "blocks": [
+      {
+        "id": 1,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "perp",
+          "args": [
+            "BC",
+            "HK"
+          ],
+          "points": [
+            "B",
+            "C",
+            "H",
+            "K"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "perp",
+              "args": [
+                "BC",
+                "HK"
+              ],
+              "points": [
+                "B",
+                "C",
+                "H",
+                "K"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "perp_bisector",
+                "args": [
+                  "B",
+                  "C",
+                  "H",
+                  "K"
+                ],
+                "stmt": {
+                  "kind": "perp",
+                  "args": [
+                    "BC",
+                    "HK"
+                  ],
+                  "points": [
+                    "B",
+                    "C",
+                    "H",
+                    "K"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          8
+        ],
+        "points": [
+          "B",
+          "C",
+          "H",
+          "K"
+        ],
+        "objects": [],
+        "step": 1,
+        "tag": true
+      },
+      {
+        "id": 2,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "coll",
+          "args": [
+            "H",
+            "A",
+            "K"
+          ],
+          "points": [
+            "A",
+            "H",
+            "K"
+          ]
+        },
+        "body": [
+          {
+            "kind": "chain",
+            "terms": [
+              "∡AHK",
+              "0°"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "parallel",
+                    "args": [
+                      "A",
+                      "H",
+                      "H",
+                      "K",
+                      "B",
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "para",
+                      "args": [
+                        "AH",
+                        "HK"
+                      ],
+                      "points": [
+                        "A",
+                        "H",
+                        "K"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              }
+            ],
+            "then": {
+              "kind": "coll",
+              "args": [
+                "H",
+                "A",
+                "K"
+              ],
+              "points": [
+                "A",
+                "H",
+                "K"
+              ]
+            },
+            "directed": true
+          }
+        ],
+        "engine_steps": [
+          7
+        ],
+        "points": [
+          "A",
+          "H",
+          "K"
+        ],
+        "objects": [
+          {
+            "line": [
+              "H",
+              "A",
+              "K"
+            ]
+          }
+        ],
+        "step": 2,
+        "tag": true
+      },
+      {
+        "id": 3,
+        "kind": "conclusion",
+        "n": null,
+        "stmt": {
+          "kind": "cyclic",
+          "args": [
+            "A",
+            "B",
+            "C",
+            "K"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "K"
+          ]
+        },
+        "body": [
+          {
+            "kind": "chain",
+            "terms": [
+              "∠C",
+              "∠HBC − 90°",
+              "∠BHK",
+              "∠HKB",
+              "∠AKB"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "perp",
+                      "args": [
+                        "BH",
+                        "AC"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "H"
+                      ]
+                    },
+                    "step": 2
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "perp",
+                    "args": [
+                      "BC",
+                      "HK"
+                    ],
+                    "points": [
+                      "B",
+                      "C",
+                      "H",
+                      "K"
+                    ],
+                    "step": null,
+                    "block": 1,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "isosceles",
+                    "args": [
+                      "B",
+                      "H",
+                      "K"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "BH",
+                        "BK"
+                      ],
+                      "points": [
+                        "B",
+                        "H",
+                        "K"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "coll",
+                    "args": [
+                      "H",
+                      "A",
+                      "K"
+                    ],
+                    "points": [
+                      "A",
+                      "H",
+                      "K"
+                    ],
+                    "step": 7,
+                    "block": 2,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 2,
+                    "coef": "-1"
+                  }
+                ]
+              }
+            ],
+            "then": {
+              "kind": "cyclic",
+              "args": [
+                "A",
+                "B",
+                "C",
+                "K"
+              ],
+              "points": [
+                "A",
+                "B",
+                "C",
+                "K"
+              ]
+            },
+            "directed": false
+          }
+        ],
+        "engine_steps": [
+          8
+        ],
+        "points": [
+          "A",
+          "B",
+          "C",
+          "K"
+        ],
+        "objects": [
+          {
+            "circle": [
+              "A",
+              "B",
+              "C",
+              "K"
+            ]
+          }
+        ],
+        "step": 3,
+        "tag": false
+      }
+    ],
+    "plan": [],
+    "goal": {
+      "kind": "concyclic",
+      "pts": [
+        "A",
+        "B",
+        "C",
+        "K"
+      ]
+    },
+    "metrics": {
+      "raw_steps": 8,
+      "derived": 4,
+      "blocks": 3,
+      "claims": 0,
+      "sentences": 3,
+      "chain_links": 5,
+      "chains": 2,
+      "pure_chains": 2,
+      "pooled": 0,
+      "fallback_blocks": 0,
+      "words_en": 98,
+      "lines_en": 9,
+      "citations": 6,
+      "aux_shown": 0,
+      "human_cost": 19,
+      "reproved": 2,
+      "silent": 1,
+      "pruned": 1,
+      "represented": 0,
+      "theorem": 0,
+      "fallback_facts": 0,
+      "check_violations": 0,
+      "similar_steps": 0,
+      "theorem_steps": 1,
+      "steps": 3,
+      "multi_fact_links": 0,
+      "undirected_chains": 1,
+      "directed_chains": 0
+    }
+  }
+}

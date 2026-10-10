@@ -1,0 +1,39 @@
+Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Let F be the foot of the perpendicular from B to AR.
+
+Plan: it suffices to show that F, N, B, A are concyclic and R, N, F, O are concyclic.
+
+1. We show that F, N, B, A are concyclic:
+
+∠BFA = 90°    [BF ⟂ AR]
+     = ∠BNA    [BC is a diameter]
+
+So F, N, B, A are concyclic. (1)
+
+2. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (1), so FN = BF (equal arcs and chords). (2)
+
+3. By (2), OB = ON and FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (3)
+
+4. We show that R, N, F, O are concyclic:
+
+∠NFA = ∠NFB − 90°    [BF ⟂ AR]
+     = 90° − 2∠NBF    [FB = FN: triangle FBN is isosceles, by (2)]
+     = 90° − 2∠NAF    [inscribed angles in (ABNF), by (1)]
+     = 90° − ∠A    [AR bisects ∠BAC]
+     = ∠NCM    [BC is a diameter]
+
+∠MCN = ½·∠MON    [central angle ∠MON = 2∠MCN]
+     = ∠RON    [OR bisects ∠MON]
+
+So R, N, F, O are concyclic. (4)
+
+5. We show that P lies on the line BC:
+
+∡BPC = ∡BMR + ∡RPC    [P, R, M, B concyclic]
+     = ∡BAC + ∡NRM    [P, R, N, C concyclic]
+     = 2∡BAR + ∡NRM    [AR bisects ∠BAC]
+     = 2∡BNF + ∡NRM    [F, N, B, A concyclic, by (1)]
+     = 2∡OFN + ∡NRM    [OF ⟂ BN, by (3)]
+     = ∡ORM + ∡ORN    [R, N, F, O concyclic, by (4)]
+     = 0°    [△OMR ≅ △ONR (ASA); △ROM ≅ △RON (SAS); OM = ON]
+
+So P lies on the line BC, as required. ∎

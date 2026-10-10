@@ -1,0 +1,1414 @@
+{
+  "name": "synthetic-wording",
+  "program": "",
+  "view": {
+    "aux": [],
+    "helpers": [],
+    "points": [
+      {
+        "aux": false,
+        "name": "A"
+      },
+      {
+        "aux": false,
+        "name": "B"
+      },
+      {
+        "aux": false,
+        "name": "C"
+      },
+      {
+        "aux": false,
+        "name": "D"
+      },
+      {
+        "aux": false,
+        "name": "E"
+      },
+      {
+        "aux": false,
+        "name": "F"
+      },
+      {
+        "aux": false,
+        "name": "G"
+      },
+      {
+        "aux": false,
+        "name": "H"
+      },
+      {
+        "aux": false,
+        "name": "O"
+      },
+      {
+        "aux": false,
+        "name": "Q"
+      },
+      {
+        "aux": false,
+        "name": "P"
+      },
+      {
+        "aux": false,
+        "name": "X"
+      },
+      {
+        "aux": false,
+        "name": "Y"
+      },
+      {
+        "aux": false,
+        "name": "Z"
+      },
+      {
+        "aux": false,
+        "name": "U"
+      },
+      {
+        "aux": false,
+        "name": "V"
+      },
+      {
+        "aux": false,
+        "name": "W"
+      },
+      {
+        "aux": false,
+        "name": "K"
+      },
+      {
+        "aux": false,
+        "name": "L"
+      },
+      {
+        "aux": false,
+        "name": "M"
+      },
+      {
+        "aux": false,
+        "name": "N"
+      },
+      {
+        "aux": false,
+        "name": "S"
+      },
+      {
+        "aux": false,
+        "name": "T"
+      }
+    ],
+    "proof": {
+      "steps": [],
+      "style": "ddar"
+    }
+  },
+  "human": {
+    "version": 1,
+    "as_drawn": false,
+    "setup": [
+      {
+        "kind": "directed_angles"
+      },
+      {
+        "kind": "notation",
+        "triangle": [
+          "A",
+          "B",
+          "C"
+        ],
+        "circumcentre": "O"
+      },
+      {
+        "kind": "notation",
+        "triangle": [
+          "D",
+          "E",
+          "F"
+        ],
+        "circumcentre": null
+      },
+      {
+        "kind": "circle",
+        "name": "Ω",
+        "through": [
+          "A",
+          "B",
+          "C",
+          "S"
+        ],
+        "centre": "O",
+        "diameter": null
+      },
+      {
+        "kind": "circle",
+        "name": "ω₁",
+        "through": [
+          "D",
+          "E",
+          "F",
+          "G"
+        ],
+        "centre": null,
+        "diameter": null
+      },
+      {
+        "kind": "helper",
+        "point": "U",
+        "meaning": {
+          "kind": "perp",
+          "through": "A",
+          "to": [
+            "B",
+            "C"
+          ]
+        }
+      },
+      {
+        "kind": "helper",
+        "point": "V",
+        "meaning": {
+          "kind": "para",
+          "through": "D",
+          "to": [
+            "E",
+            "F"
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "X",
+        "aux_index": 0,
+        "wording": {
+          "key": "aux.midpoint",
+          "args": [
+            {
+              "key": "segment",
+              "pts": [
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Y",
+        "aux_index": 1,
+        "wording": {
+          "key": "aux.foot",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            },
+            {
+              "key": "line",
+              "pts": [
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Z",
+        "aux_index": 2,
+        "wording": {
+          "key": "aux.reflect",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "H"
+              ]
+            },
+            {
+              "key": "line",
+              "pts": [
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "W",
+        "aux_index": 3,
+        "wording": {
+          "key": "aux.reflect",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            },
+            {
+              "key": "point",
+              "pts": [
+                "O"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "L",
+        "aux_index": 4,
+        "wording": {
+          "key": "aux.circumcenter",
+          "args": [
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "H"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "M",
+        "aux_index": 5,
+        "wording": {
+          "key": "aux.orthocenter",
+          "args": [
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "N",
+        "aux_index": 6,
+        "wording": {
+          "key": "aux.incenter",
+          "args": [
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "T",
+        "aux_index": 7,
+        "wording": {
+          "key": "aux.excenter",
+          "args": [
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            },
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "X",
+        "aux_index": 8,
+        "wording": {
+          "key": "aux.excenter_any",
+          "args": [
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Y",
+        "aux_index": 9,
+        "wording": {
+          "key": "aux.centroid",
+          "args": [
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Z",
+        "aux_index": 10,
+        "wording": {
+          "key": "aux.bisector_foot",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            },
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "W",
+        "aux_index": 11,
+        "wording": {
+          "key": "aux.antipode_on",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            },
+            {
+              "key": "aux.circumcircle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "L",
+        "aux_index": 12,
+        "wording": {
+          "key": "aux.antipode_on",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "D"
+              ]
+            },
+            {
+              "key": "aux.circumcircle",
+              "pts": [
+                "D",
+                "E",
+                "F"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "M",
+        "aux_index": 13,
+        "wording": {
+          "key": "aux.parallelogram",
+          "args": [
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "N",
+        "aux_index": 14,
+        "wording": {
+          "key": "aux.incircle_touch",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            },
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "T",
+        "aux_index": 15,
+        "wording": {
+          "key": "aux.excircle_touch",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            },
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "X",
+        "aux_index": 16,
+        "wording": {
+          "key": "aux.spiral_center",
+          "args": [
+            {
+              "key": "segment",
+              "pts": [
+                "A",
+                "B"
+              ]
+            },
+            {
+              "key": "segment",
+              "pts": [
+                "C",
+                "D"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Y",
+        "aux_index": 17,
+        "wording": {
+          "key": "aux.isogonal",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "P"
+              ]
+            },
+            {
+              "key": "triangle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Z",
+        "aux_index": 18,
+        "wording": {
+          "key": "aux.inverse",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "P"
+              ]
+            },
+            {
+              "key": "aux.circle",
+              "pts": [
+                "O",
+                "A"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "W",
+        "aux_index": 19,
+        "wording": {
+          "key": "aux.pole",
+          "args": [
+            {
+              "key": "line",
+              "pts": [
+                "B",
+                "C"
+              ]
+            },
+            {
+              "key": "aux.circumcircle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "L",
+        "aux_index": 20,
+        "wording": {
+          "key": "aux.tangent",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "P"
+              ]
+            },
+            {
+              "key": "aux.circle",
+              "pts": [
+                "Q",
+                "D"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "M",
+        "aux_index": 21,
+        "wording": {
+          "key": "aux.arc_midpoint",
+          "args": [
+            {
+              "key": "segment",
+              "pts": [
+                "B",
+                "C"
+              ]
+            },
+            {
+              "key": "aux.circumcircle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "N",
+        "aux_index": 22,
+        "wording": {
+          "key": "aux.harmonic",
+          "args": [
+            {
+              "key": "point",
+              "pts": [
+                "D"
+              ]
+            },
+            {
+              "key": "point",
+              "pts": [
+                "B"
+              ]
+            },
+            {
+              "key": "point",
+              "pts": [
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "T",
+        "aux_index": 23,
+        "wording": {
+          "key": "aux.intersect",
+          "args": [
+            {
+              "key": "aux.line.para",
+              "pts": [
+                "D",
+                "B",
+                "C"
+              ]
+            },
+            {
+              "key": "line",
+              "pts": [
+                "A",
+                "B"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "X",
+        "aux_index": 24,
+        "wording": {
+          "key": "aux.intersect",
+          "args": [
+            {
+              "key": "aux.line.perp",
+              "pts": [
+                "H",
+                "A",
+                "C"
+              ]
+            },
+            {
+              "key": "aux.line.tangent_at",
+              "pts": [
+                "A",
+                "O"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Y",
+        "aux_index": 25,
+        "wording": {
+          "key": "aux.intersect",
+          "args": [
+            {
+              "key": "aux.line.isogonal",
+              "pts": [
+                "A",
+                "P",
+                "B",
+                "A",
+                "C"
+              ]
+            },
+            {
+              "key": "line",
+              "pts": [
+                "B",
+                "C"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "Z",
+        "aux_index": 26,
+        "wording": {
+          "key": "aux.intersect2",
+          "args": [
+            {
+              "key": "line",
+              "pts": [
+                "A",
+                "D"
+              ]
+            },
+            {
+              "key": "aux.circumcircle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            },
+            {
+              "key": "point",
+              "pts": [
+                "A"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aux",
+        "point": "W",
+        "aux_index": 27,
+        "wording": {
+          "key": "aux.intersect2",
+          "args": [
+            {
+              "key": "aux.circumcircle",
+              "pts": [
+                "A",
+                "B",
+                "C"
+              ]
+            },
+            {
+              "key": "aux.circle",
+              "pts": [
+                "Q",
+                "D"
+              ]
+            },
+            {
+              "key": "point",
+              "pts": [
+                "D"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "blocks": [
+      {
+        "id": 1,
+        "kind": "claim",
+        "n": 1,
+        "stmt": {
+          "kind": "eqangle",
+          "args": [
+            "∡ABX",
+            "∡XCA"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "X"
+          ]
+        },
+        "body": [
+          {
+            "kind": "chain",
+            "terms": [
+              "∡ABX",
+              "∡ACX",
+              "∡XCA"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "inscribed",
+                    "args": [
+                      "A",
+                      "B",
+                      "C",
+                      "X"
+                    ],
+                    "stmt": {
+                      "kind": "eqangle",
+                      "args": [
+                        "∡ABX",
+                        "∡ACX"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "X"
+                      ]
+                    },
+                    "from": [],
+                    "circle": "Ω"
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "A",
+                        "B",
+                        "C",
+                        "X"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "X"
+                      ]
+                    },
+                    "step": null
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": {
+              "kind": "eqangle",
+              "args": [
+                "∡ABX",
+                "∡XCA"
+              ],
+              "points": [
+                "A",
+                "B",
+                "C",
+                "X"
+              ]
+            },
+            "directed": true
+          }
+        ],
+        "engine_steps": [],
+        "points": [
+          "A",
+          "B",
+          "C",
+          "X"
+        ],
+        "objects": [],
+        "step": 1,
+        "tag": true
+      },
+      {
+        "id": 2,
+        "kind": "conclusion",
+        "n": null,
+        "stmt": {
+          "kind": "perp",
+          "args": [
+            "AB",
+            "CX"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "X"
+          ]
+        },
+        "body": [
+          {
+            "kind": "chain",
+            "terms": [
+              "∡DEG",
+              "∡DFG",
+              "∡QDE + 90°"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "eqangle",
+                    "args": [
+                      "∡DEG",
+                      "∡DFG"
+                    ],
+                    "points": [
+                      "D",
+                      "E",
+                      "F",
+                      "G"
+                    ],
+                    "step": null,
+                    "block": 2,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 1
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "radii",
+                    "args": [
+                      "Q",
+                      "D",
+                      "E",
+                      "F",
+                      "G"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "QD",
+                        "QE"
+                      ],
+                      "points": [
+                        "D",
+                        "E",
+                        "Q"
+                      ]
+                    },
+                    "from": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "radii",
+                    "args": [
+                      "O",
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "OA",
+                        "OB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "O"
+                      ]
+                    },
+                    "from": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "isosceles",
+                    "args": [
+                      "H",
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "HA",
+                        "HB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "H"
+                      ]
+                    },
+                    "from": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "isosceles",
+                    "args": [
+                      "K",
+                      "A",
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "KA",
+                        "KB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "K"
+                      ]
+                    },
+                    "from": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "radii",
+                    "args": [
+                      "K",
+                      "A",
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "KA",
+                        "KC"
+                      ],
+                      "points": [
+                        "A",
+                        "C",
+                        "K"
+                      ]
+                    },
+                    "from": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "tangent_chord",
+                    "args": [
+                      "A",
+                      "Y",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "stmt": {
+                      "kind": "eqangle",
+                      "args": [
+                        "∡YAB",
+                        "∡ACB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "Y"
+                      ]
+                    },
+                    "from": [],
+                    "circle": "Ω"
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": {
+              "kind": "eqangle",
+              "args": [
+                "∡DEG",
+                "∡QDE + 90°"
+              ],
+              "points": [
+                "D",
+                "E",
+                "G",
+                "Q"
+              ]
+            },
+            "directed": true
+          },
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "eqangle",
+              "args": [
+                "∡DEG",
+                "∡DFG"
+              ],
+              "points": [
+                "D",
+                "E",
+                "F",
+                "G"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "hyp",
+                "stmt": {
+                  "kind": "cyclic",
+                  "args": [
+                    "D",
+                    "E",
+                    "F",
+                    "G"
+                  ],
+                  "points": [
+                    "D",
+                    "E",
+                    "F",
+                    "G"
+                  ]
+                },
+                "step": null
+              }
+            ],
+            "combination": []
+          },
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "perp",
+              "args": [
+                "AB",
+                "CX"
+              ],
+              "points": [
+                "A",
+                "B",
+                "C",
+                "X"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∡ABX",
+                  "∡XCA"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "C",
+                  "X"
+                ],
+                "step": null,
+                "block": 1,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "claim",
+                "n": 1,
+                "block": 1,
+                "step": null
+              }
+            ],
+            "combination": []
+          },
+          {
+            "kind": "theorem",
+            "key": "law_of_sines",
+            "stmt": {
+              "kind": "formula",
+              "args": [
+                "law of sines in △ABC"
+              ],
+              "points": [
+                "A",
+                "B",
+                "C"
+              ]
+            },
+            "reasons": []
+          },
+          {
+            "kind": "theorem",
+            "key": "law_of_sines",
+            "stmt": {
+              "kind": "formula",
+              "args": [
+                "law of sines in △DEF"
+              ],
+              "points": [
+                "D",
+                "E",
+                "F"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "hyp",
+                "stmt": {
+                  "kind": "perp",
+                  "args": [
+                    "DE",
+                    "EF"
+                  ],
+                  "points": [
+                    "D",
+                    "E",
+                    "F"
+                  ]
+                },
+                "step": null
+              }
+            ]
+          },
+          {
+            "kind": "computation",
+            "comp": "trig",
+            "terms": [
+              "AB",
+              "2R·sin C"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABC"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "step": null,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠AXB",
+                      "sin C"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "X"
+                    ],
+                    "step": null,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": []
+              }
+            ]
+          },
+          {
+            "kind": "chain",
+            "terms": [
+              "∡EDF",
+              "∡EGF"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "D",
+                        "E",
+                        "F",
+                        "G"
+                      ],
+                      "points": [
+                        "D",
+                        "E",
+                        "F",
+                        "G"
+                      ]
+                    },
+                    "step": null
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": {
+              "kind": "eqangle",
+              "args": [
+                "∡EGF",
+                "∡EDF"
+              ],
+              "points": [
+                "D",
+                "E",
+                "F",
+                "G"
+              ]
+            },
+            "directed": true
+          }
+        ],
+        "engine_steps": [],
+        "points": [],
+        "objects": [],
+        "step": 2,
+        "tag": false
+      }
+    ],
+    "plan": [
+      1
+    ],
+    "goal": {
+      "kind": "stmt"
+    },
+    "metrics": {
+      "raw_steps": 0,
+      "derived": 0,
+      "blocks": 0,
+      "claims": 0,
+      "sentences": 0,
+      "chain_links": 0,
+      "chains": 0,
+      "pure_chains": 0,
+      "pooled": 0,
+      "fallback_blocks": 0,
+      "words_en": 0,
+      "lines_en": 0,
+      "citations": 0,
+      "aux_shown": 0,
+      "human_cost": 0,
+      "reproved": 0,
+      "silent": 0,
+      "pruned": 0,
+      "represented": 0,
+      "theorem": 0,
+      "fallback_facts": 0,
+      "check_violations": 0,
+      "similar_steps": 0,
+      "theorem_steps": 0,
+      "steps": 0,
+      "multi_fact_links": 0,
+      "undirected_chains": 0,
+      "directed_chains": 0
+    }
+  }
+}

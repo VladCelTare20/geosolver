@@ -1,0 +1,9 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(A,D)*dist(A,C) = dist(A,E)*dist(A,B)
+
+  1. DE ∥ BC (derived below), so ∠ADE = ∠ABC and ∠AED = ∠ACB (corresponding angles) — so triangles △ADE and △ABC are similar (AA), giving AD:AB = DE:BC = EA:CA.
+       ↳ 001. assumption: para D _5 B C
+       ↳ 002. assumption: coll D _5 E
+       ↳ 003. collinear: D E _5 [002]
+
+  Combining the proportions above gives dist(A,D)*dist(A,C) = dist(A,E)*dist(A,B)  (= 0.0644). ∎

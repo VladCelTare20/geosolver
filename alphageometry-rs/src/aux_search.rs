@@ -20,6 +20,7 @@ use crate::rational::Rat;
 use crate::runner::solve_problem;
 use crate::Problem;
 use rustc_hash::FxHashSet;
+use std::time::Instant;
 
 /// The construction template a candidate came from (used for ranking).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -73,12 +74,22 @@ pub enum Kind {
     /// The pole of a chord of a named circle: where the tangents at its
     /// endpoints meet.
     PoleOfChord,
+    /// A line through a point parallel to a figure line, met with a line or circle.
+    ParaMeet,
+    /// A line through a point perpendicular to a figure line, met with a line or circle.
+    PerpMeet,
+    /// The tangent at a circle point (perpendicular to the radius), met with a line or circle.
+    TangentMeet,
+    /// The isogonal of a cevian at a vertex (an angle copy), met with a line or circle.
+    IsogonalMeet,
+    /// The harmonic conjugate of a point with respect to two others on its line.
+    Harmonic,
 }
 
 /// Lowercased names already used by the figure's points. Natural aux names
 /// must avoid these case-insensitively: the renderer's `disp` uppercases every
 /// name, so `m` and an existing `M` would be indistinguishable on the drawing.
-fn taken_names(problem: &Problem) -> FxHashSet<String> {
+pub(crate) fn taken_names(problem: &Problem) -> FxHashSet<String> {
     problem
         .points
         .iter()
@@ -95,7 +106,7 @@ fn taken_names(problem: &Problem) -> FxHashSet<String> {
 /// against the figure (case-insensitively), so applied constructions can never
 /// collide: deeper search levels regenerate candidates from the augmented
 /// problem, whose point list then contains the earlier aux names.
-fn natural_name(
+pub(crate) fn natural_name(
     kind: Kind,
     args: &[PointId],
     problem: &Problem,
@@ -179,7 +190,7 @@ fn natural_name(
 /// which kinds succeed) plus the distribution reported in the AlphaGeometry
 /// paper, where midpoints/feet/reflections dominate LM proposals. This is a
 /// statistical prior, not a neural model — see the README section on ML.
-fn kind_prior(kind: Kind) -> f64 {
+pub(crate) fn kind_prior(kind: Kind) -> f64 {
     match kind {
         Kind::Midpoint => 1.0,
         Kind::Circumcenter => 0.9,
@@ -203,6 +214,8 @@ fn kind_prior(kind: Kind) -> f64 {
         Kind::IsogonalConjugate => 0.35,
         Kind::InversePoint => 0.3,
         Kind::IntersectLL => 0.3,
+        Kind::ParaMeet | Kind::PerpMeet | Kind::TangentMeet => 0.4,
+        Kind::IsogonalMeet | Kind::Harmonic => 0.35,
     }
 }
 
@@ -217,6 +230,59 @@ pub struct Construction {
     pub kind: Kind,
     /// The existing points this construction is built from.
     pub args: Vec<PointId>,
+    /// `desc` with point ids in place of names (see [`tok`]), so the text can
+    /// be re-rendered after the points are renumbered or renamed.
+    pub(crate) tpl: String,
+}
+
+/// A point id as it appears in a description template.
+pub(crate) fn tok(i: PointId) -> String {
+    format!("\u{1}{i}\u{2}")
+}
+
+fn map_tpl(tpl: &str, mut f: impl FnMut(PointId) -> String) -> String {
+    let mut out = String::with_capacity(tpl.len());
+    let mut rest = tpl;
+    while let Some(s) = rest.find('\u{1}') {
+        out.push_str(&rest[..s]);
+        let after = &rest[s + 1..];
+        let e = after.find('\u{2}').unwrap_or(after.len());
+        match after[..e].parse::<PointId>() {
+            Ok(id) => out.push_str(&f(id)),
+            Err(_) => out.push_str(&after[..e]),
+        }
+        rest = &after[(e + 1).min(after.len())..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Render a description template with the given point names.
+pub(crate) fn render_tpl(tpl: &str, name: impl Fn(PointId) -> String) -> String {
+    map_tpl(tpl, name)
+}
+
+impl Construction {
+    /// The same construction with every point id passed through `f`.
+    pub(crate) fn remap(&self, f: impl Fn(PointId) -> PointId) -> Construction {
+        Construction {
+            name: self.name.clone(),
+            coord: self.coord,
+            preds: self
+                .preds
+                .iter()
+                .map(|p| Predicate {
+                    name: p.name.clone(),
+                    points: p.points.iter().map(|&x| f(x)).collect(),
+                    constants: p.constants.clone(),
+                })
+                .collect(),
+            desc: self.desc.clone(),
+            kind: self.kind,
+            args: self.args.iter().map(|&x| f(x)).collect(),
+            tpl: map_tpl(&self.tpl, |i| tok(f(i))),
+        }
+    }
 }
 
 /// The outcome of a successful search.
@@ -232,7 +298,25 @@ pub struct SearchStats {
     pub runs: usize,
 }
 
-fn pred(name: &str, points: Vec<PointId>) -> Predicate {
+/// The circle through three points, unless they are (numerically) so close
+/// to collinear that the circle is an artefact — e.g. a triple that is
+/// collinear because the goal says so.
+pub(crate) fn circle3(a: Vec2, b: Vec2, c: Vec2) -> Option<NumCircle> {
+    if flat(a, b, c) {
+        None
+    } else {
+        NumCircle::through(a, b, c)
+    }
+}
+
+/// Whether three points are collinear up to a relative tolerance of 1e-6.
+pub(crate) fn flat(a: Vec2, b: Vec2, c: Vec2) -> bool {
+    let s = distance(a, b).max(distance(b, c)).max(distance(a, c));
+    let cr = (b - a).x * (c - a).y - (b - a).y * (c - a).x;
+    s.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || cr.abs() < 1e-6 * s * s
+}
+
+pub(crate) fn pred(name: &str, points: Vec<PointId>) -> Predicate {
     Predicate {
         name: name.to_string(),
         points,
@@ -256,7 +340,7 @@ fn safe_solve(problem: &Problem) -> bool {
         .unwrap_or(false)
 }
 
-fn augment(problem: &Problem, cand: &Construction) -> Problem {
+pub(crate) fn augment(problem: &Problem, cand: &Construction) -> Problem {
     let mut p = problem.clone();
     p.points.push(Point {
         name: cand.name.clone(),
@@ -288,14 +372,21 @@ pub struct WarmBase {
     base: crate::Ddar,
     aux_id: PointId,
     goal: Predicate,
+    first_aux: PointId,
 }
 
 impl WarmBase {
     /// Close `problem` once, reserving a slot for the candidate point. Returns
     /// `None` for a goal-less problem (nothing to prove).
     pub fn new(problem: &Problem) -> Option<WarmBase> {
+        WarmBase::with_slots(problem, 1)
+    }
+
+    /// Like [`WarmBase::new`] with room for `slots` candidate points, filled in
+    /// order by [`WarmBase::check_all`].
+    pub fn with_slots(problem: &Problem, slots: usize) -> Option<WarmBase> {
         let goal = problem.goal.clone()?;
-        let mut base = crate::Ddar::new_with_slack(&problem.points, 1);
+        let mut base = crate::Ddar::new_with_slack(&problem.points, slots.max(1));
         for p in &problem.preds {
             base.force_pred(p);
         }
@@ -304,7 +395,71 @@ impl WarmBase {
             base,
             aux_id: problem.points.len() as PointId,
             goal,
+            first_aux: problem.points.len() as PointId,
         })
+    }
+
+    /// Whether the closed base figure already proves the goal — the verdict
+    /// [`safe_solve`] gives on the same problem, without a second closure.
+    pub fn proves_goal(&self) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.base.clone().check_pred(&self.goal)
+        }))
+        .unwrap_or(false)
+    }
+
+    pub(crate) fn ddar(&self) -> &crate::Ddar {
+        &self.base
+    }
+
+    /// This base with `cand` added in its first free slot and closed: a base
+    /// for the remaining slots. `None` past `deadline` or on a panic.
+    pub(crate) fn extend(
+        &self,
+        cand: &Construction,
+        deadline: Option<Instant>,
+    ) -> Option<WarmBase> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut d = self.base.clone();
+            d.activate(self.aux_id, cand.coord);
+            for p in &cand.preds {
+                d.force_pred(p);
+            }
+            d.deduction_closure_until(deadline).then(|| WarmBase {
+                base: d,
+                aux_id: self.aux_id + 1,
+                goal: self.goal.clone(),
+                first_aux: self.first_aux,
+            })
+        }))
+        .ok()
+        .flatten()
+    }
+
+    /// Whether adding all of `cands` makes the goal provable. The i-th
+    /// construction is the point with id `n + i` (`n` = base point count) and
+    /// may refer to the earlier ones.
+    pub(crate) fn check_all(&self, cands: &[Construction], deadline: Option<Instant>) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut d = self.base.clone();
+            for (i, c) in cands.iter().enumerate() {
+                d.activate(self.aux_id + i as PointId, c.coord);
+            }
+            for c in cands {
+                for p in &c.preds {
+                    d.force_pred(p);
+                }
+            }
+            d.deduction_closure_until(deadline)
+                && d.check_pred(&self.goal)
+                && !d.has_unmerged_double(self.first_aux, self.aux_id + cands.len() as PointId)
+        }))
+        .unwrap_or(false)
+    }
+
+    /// [`WarmBase::check`] that gives up (`false`) once `deadline` has passed.
+    pub fn check_until(&self, cand: &Construction, deadline: Option<Instant>) -> bool {
+        self.check_all(std::slice::from_ref(cand), deadline)
     }
 
     /// Whether adding `cand` (one new point) makes the goal provable. Panics
@@ -328,7 +483,7 @@ impl WarmBase {
 /// give a circle centred on it (both argument orders are accepted — problems
 /// write `cong o a o b` and `cong a o b o` interchangeably). Returns
 /// deduplicated `(center, through)` pairs.
-fn known_circles(problem: &Problem) -> Vec<(PointId, PointId)> {
+pub(crate) fn known_circles(problem: &Problem) -> Vec<(PointId, PointId)> {
     let mut out: Vec<(PointId, PointId)> = Vec::new();
     let mut seen: FxHashSet<(PointId, i64)> = FxHashSet::default();
     let coord = |i: PointId| problem.points[i as usize].value;
@@ -345,12 +500,46 @@ fn known_circles(problem: &Problem) -> Vec<(PointId, PointId)> {
     out
 }
 
+/// The points other than `o` that lie on circle(o, a) *by the hypotheses*:
+/// linked to `a` by a chain of `cong` facts centred on `o`. Numeric membership
+/// is not enough — a point can sit on the circle only because the goal holds,
+/// and asserting it would let the search prove the goal from itself.
+fn hypothesis_circle_members(problem: &Problem, o: PointId, a: PointId) -> Vec<PointId> {
+    let n = problem.points.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+    let spoke = |s: &[PointId]| match *s {
+        [p, q] if p == o && q != o => Some(q as usize),
+        [p, q] if q == o && p != o => Some(p as usize),
+        _ => None,
+    };
+    for pr in &problem.preds {
+        if pr.name == "cong" && pr.points.len() == 4 {
+            if let (Some(x), Some(y)) = (spoke(&pr.points[..2]), spoke(&pr.points[2..])) {
+                let (rx, ry) = (find(&mut parent, x), find(&mut parent, y));
+                parent[rx] = ry;
+            }
+        }
+    }
+    let root = find(&mut parent, a as usize);
+    (0..n)
+        .filter(|&p| p != o as usize && find(&mut parent, p) == root)
+        .map(|p| p as PointId)
+        .collect()
+}
+
 /// The point pairs that form the *lines and chords of the figure*: every pair
 /// named adjacently by a predicate, every pair inside a `coll` set, and every
 /// pair of goal points. Auxiliary constructions overwhelmingly build on these,
 /// so restricting intersections/feet/reflections to them turns an O(n^4) blow-up
 /// into a handful of relevant candidates — the key to finding aux points fast.
-fn salient_lines(problem: &Problem) -> Vec<(PointId, PointId)> {
+pub(crate) fn salient_lines(problem: &Problem) -> Vec<(PointId, PointId)> {
     let mut set: FxHashSet<(PointId, PointId)> = FxHashSet::default();
     let mut add = |a: PointId, b: PointId| {
         if a != b {
@@ -407,11 +596,72 @@ fn goal_neighborhood(problem: &Problem) -> FxHashSet<PointId> {
 ///
 /// `full` enables the line/line and line/circle intersections; for very large
 /// figures these are skipped to keep the branching factor manageable.
+/// Where a candidate sits relative to the existing points.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Landing {
+    Clear,
+    /// On an existing point up to rounding (`1e-10·max(scale, 1)`): a
+    /// *double point*, a second construction of that point.
+    On(PointId),
+    /// Within `near` of one but not on it: dropped.
+    Near,
+}
+
+pub(crate) fn landing(problem: &Problem, coord: Vec2, scale: f64, near: f64) -> Landing {
+    let on = 1e-10 * scale.max(1.0);
+    let mut out = Landing::Clear;
+    for (i, p) in problem.points.iter().enumerate() {
+        let d = distance(coord, p.value);
+        if d < on {
+            return Landing::On(i as PointId);
+        }
+        if d < near {
+            out = Landing::Near;
+        }
+    }
+    out
+}
+
+/// Whether two of `args` coincide numerically (within `1e-6·max(scale, 1)`).
+/// A construction over such a pair is degenerate — the arc midpoint of a
+/// zero chord, say, satisfies its defining predicates anywhere on the circle —
+/// so it would assert a relation the figure does not determine.
+pub(crate) fn coincident_args(problem: &Problem, args: &[PointId], scale: f64) -> bool {
+    let tol = 1e-6 * scale.max(1.0);
+    let v = |i: PointId| problem.points[i as usize].value;
+    (0..args.len()).any(|i| {
+        ((i + 1)..args.len()).any(|j| args[i] != args[j] && distance(v(args[i]), v(args[j])) < tol)
+    })
+}
+
+/// Dedup key of a double-point candidate: the point it lands on and its
+/// definition (two doubles of one point usually share coordinates and kind).
+pub(crate) fn double_key(kind: Kind, p: PointId, args: &[PointId]) -> (Kind, i64, i64) {
+    use std::hash::{Hash, Hasher};
+    let mut h = rustc_hash::FxHasher::default();
+    args.hash(&mut h);
+    (kind, -1 - p as i64, h.finish() as i64)
+}
+
 pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
+    candidates_ranked(problem, full, None, false)
+        .into_iter()
+        .map(|(_, c)| c)
+        .collect()
+}
+
+/// [`candidates`] with each one's heuristic score, best first.
+pub(crate) fn candidates_ranked(
+    problem: &Problem,
+    full: bool,
+    must: Option<PointId>,
+    doubles: bool,
+) -> Vec<(f64, Construction)> {
     let n = problem.points.len();
     let new_id = n as PointId;
     let c = |i: PointId| problem.points[i as usize].value;
-    let nm = |i: PointId| problem.points[i as usize].name.clone();
+    let nm = |i: PointId| tok(i);
+    let real_name = |i: PointId| problem.points[i as usize].name.clone();
 
     let mut out: Vec<Construction> = Vec::new();
     // Dedup key includes the construction kind: two kinds can produce the SAME
@@ -420,6 +670,16 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
     // one would lose the predicates a proof might need.
     let mut seen: FxHashSet<(Kind, i64, i64)> = FxHashSet::default();
     let taken = taken_names(problem);
+    let centre = problem
+        .points
+        .iter()
+        .fold(Vec2::new(0.0, 0.0), |a, p| a + p.value)
+        * (1.0 / n.max(1) as f64);
+    let span = problem
+        .points
+        .iter()
+        .map(|p| distance(p.value, centre))
+        .fold(1e-9, f64::max);
 
     let try_push = |out: &mut Vec<Construction>,
                     seen: &mut FxHashSet<(Kind, i64, i64)>,
@@ -428,19 +688,26 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
                     desc: String,
                     kind: Kind,
                     args: Vec<PointId>| {
-        if !coord.x.is_finite() || !coord.y.is_finite() {
+        if must.is_some_and(|m| !args.contains(&m)) || coincident_args(problem, &args, span) {
             return;
         }
-        for i in 0..n {
-            if distance(coord, problem.points[i].value) < 1e-6 {
-                return; // coincides with an existing point
-            }
+        if !coord.x.is_finite() || !coord.y.is_finite() || distance(coord, centre) > 100.0 * span {
+            return;
         }
-        let key = (
-            kind,
-            (coord.x * 1e6).round() as i64,
-            (coord.y * 1e6).round() as i64,
-        );
+        let (coord, key) = match landing(problem, coord, span, 1e-6) {
+            Landing::Clear => (
+                coord,
+                (
+                    kind,
+                    (coord.x * 1e6).round() as i64,
+                    (coord.y * 1e6).round() as i64,
+                ),
+            ),
+            Landing::On(p) if doubles => {
+                (problem.points[p as usize].value, double_key(kind, p, &args))
+            }
+            _ => return, // coincides with an existing point
+        };
         if !seen.insert(key) {
             return;
         }
@@ -449,9 +716,10 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
             name,
             coord,
             preds,
-            desc,
+            desc: render_tpl(&desc, real_name),
             kind,
             args,
+            tpl: desc,
         });
     };
 
@@ -479,7 +747,7 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
     for i in 0..n as PointId {
         for j in (i + 1)..n as PointId {
             for k in (j + 1)..n as PointId {
-                if let Some(circ) = NumCircle::through(c(i), c(j), c(k)) {
+                if let Some(circ) = circle3(c(i), c(j), c(k)) {
                     let preds = vec![
                         pred("cong", vec![new_id, i, new_id, j]),
                         pred("cong", vec![new_id, j, new_id, k]),
@@ -503,6 +771,9 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
         for j in (i + 1)..n as PointId {
             for k in (j + 1)..n as PointId {
                 let (va, vb, vc) = (c(i), c(j), c(k));
+                if flat(va, vb, vc) {
+                    continue;
+                }
                 let alt_i = NumLine::through1((vc - vb).normalize(), va);
                 let alt_j = NumLine::through1((vc - va).normalize(), vb);
                 if let Some(h) = intersect_ll(&alt_i, &alt_j) {
@@ -532,6 +803,9 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
         for j in (i + 1)..n as PointId {
             for k in (j + 1)..n as PointId {
                 let (va, vb, vc) = (c(i), c(j), c(k));
+                if flat(va, vb, vc) {
+                    continue;
+                }
                 let (sa, sb, sc) = (distance(vb, vc), distance(vc, va), distance(va, vb));
                 let bis = || {
                     vec![
@@ -688,7 +962,7 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
     // triangle plus right angles at the other two vertices (angle in a
     // semicircle) — hands the angle chase a diameter.
     for &(x, y, z) in &salient_tris {
-        if let Some(circ) = NumCircle::through(c(x), c(y), c(z)) {
+        if let Some(circ) = circle3(c(x), c(y), c(z)) {
             for (v, p, q) in [(x, y, z), (y, x, z), (z, x, y)] {
                 let coord = circ.center * 2.0 - c(v);
                 let preds = vec![
@@ -710,25 +984,22 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
     }
     // ... and on circles named by the hypotheses, for every point on them.
     for &(o, a) in &known_circles(problem) {
-        let r = distance(c(o), c(a));
-        for p in 0..n as PointId {
-            if p != o && (distance(c(p), c(o)) - r).abs() < 1e-6 {
-                let coord = c(o) * 2.0 - c(p);
-                let preds = vec![
-                    pred("cong", vec![o, new_id, o, a]),
-                    pred("coll", vec![p, o, new_id]),
-                    pred("cong", vec![p, o, o, new_id]),
-                ];
-                try_push(
-                    &mut out,
-                    &mut seen,
-                    coord,
-                    preds,
-                    format!("antipode({} on circle({},{}))", nm(p), nm(o), nm(a)),
-                    Kind::Antipode,
-                    vec![p, o, a],
-                );
-            }
+        for p in hypothesis_circle_members(problem, o, a) {
+            let coord = c(o) * 2.0 - c(p);
+            let preds = vec![
+                pred("cong", vec![o, new_id, o, a]),
+                pred("coll", vec![p, o, new_id]),
+                pred("cong", vec![p, o, o, new_id]),
+            ];
+            try_push(
+                &mut out,
+                &mut seen,
+                coord,
+                preds,
+                format!("antipode({} on circle({},{}))", nm(p), nm(o), nm(a)),
+                Kind::Antipode,
+                vec![p, o, a],
+            );
         }
     }
 
@@ -833,10 +1104,22 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
                     }
                     let coord = cdiv(vc - cmul(w, va), one_minus_w);
                     let preds = vec![
-                        pred("eqangle", vec![new_id, a, new_id, cc, new_id, b, new_id, dd]),
-                        pred("eqangle", vec![new_id, a, new_id, b, new_id, cc, new_id, dd]),
-                        pred("eqratio", vec![new_id, a, new_id, cc, new_id, b, new_id, dd]),
-                        pred("eqratio", vec![new_id, a, new_id, b, new_id, cc, new_id, dd]),
+                        pred(
+                            "eqangle",
+                            vec![new_id, a, new_id, cc, new_id, b, new_id, dd],
+                        ),
+                        pred(
+                            "eqangle",
+                            vec![new_id, a, new_id, b, new_id, cc, new_id, dd],
+                        ),
+                        pred(
+                            "eqratio",
+                            vec![new_id, a, new_id, cc, new_id, b, new_id, dd],
+                        ),
+                        pred(
+                            "eqratio",
+                            vec![new_id, a, new_id, b, new_id, cc, new_id, dd],
+                        ),
                     ];
                     try_push(
                         &mut out,
@@ -939,9 +1222,7 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
         // meet there (perpendicular to the radii, equidistant from both).
         for &(o, a) in &known_circles(problem) {
             let (vo, r) = (c(o), distance(c(o), c(a)));
-            let on_circle: Vec<PointId> = (0..n as PointId)
-                .filter(|&p| p != o && (distance(c(p), vo) - r).abs() < 1e-6)
-                .collect();
+            let on_circle = hypothesis_circle_members(problem, o, a);
             for pi in 0..on_circle.len() {
                 for qi in (pi + 1)..on_circle.len() {
                     let (p, q) = (on_circle[pi], on_circle[qi]);
@@ -1019,7 +1300,7 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
                     if !(sp(x, y) && sp(x, z) && sp(y, z)) {
                         continue;
                     }
-                    let Some(circ) = NumCircle::through(c(x), c(y), c(z)) else {
+                    let Some(circ) = circle3(c(x), c(y), c(z)) else {
                         continue;
                     };
                     let (o, r) = (circ.center, circ.r);
@@ -1116,7 +1397,7 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
             for y in (x + 1)..n as PointId {
                 for z in (y + 1)..n as PointId {
                     if sp2(x, y) && sp2(x, z) && sp2(y, z) {
-                        if let Some(cc) = NumCircle::through(c(x), c(y), c(z)) {
+                        if let Some(cc) = circle3(c(x), c(y), c(z)) {
                             circles.push((cc.center, cc.r, Cir::Circum(x, y, z)));
                         }
                     }
@@ -1299,7 +1580,7 @@ pub fn candidates(problem: &Problem, full: bool) -> Vec<Construction> {
         .map(|cand| (heuristic_score(problem, &cand, &ctx), cand))
         .collect();
     scored.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap());
-    scored.into_iter().map(|(_, cand)| cand).collect()
+    scored
 }
 
 /// Precomputed, per-problem context shared by the ranking heuristic (built once
@@ -1397,7 +1678,7 @@ fn salient_bonus(cand: &Construction, ctx: &RankContext) -> f64 {
 /// The hand-tuned ranking score: kind prior + goal-relevance + salience, plus
 /// the cevian∩circumcircle signal that makes the hard second-intersection
 /// auxiliaries (IMO 2019 P2) rank at the top.
-fn heuristic_score(problem: &Problem, cand: &Construction, ctx: &RankContext) -> f64 {
+pub(crate) fn heuristic_score(problem: &Problem, cand: &Construction, ctx: &RankContext) -> f64 {
     if cand.kind == Kind::IntersectLCircum && cand.args.len() >= 5 {
         let a = &cand.args; // [i, j, x, y, z]
         let line_rel = (ctx.rel_of(a[0]) + ctx.rel_of(a[1])) / 2.0;
@@ -1424,6 +1705,10 @@ fn heuristic_score(problem: &Problem, cand: &Construction, ctx: &RankContext) ->
     kind_prior(cand.kind) + 2.0 * rel + salient_bonus(cand, ctx)
 }
 
+pub(crate) fn past(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|d| Instant::now() >= d)
+}
+
 fn try_solve(
     problem: &Problem,
     depth: usize,
@@ -1431,12 +1716,27 @@ fn try_solve(
     max_runs: usize,
     full: bool,
     verbose: bool,
+    deadline: Option<Instant>,
 ) -> Option<Vec<Construction>> {
+    if past(deadline) {
+        return None;
+    }
     *runs += 1;
-    if safe_solve(problem) {
+    let warm = if depth == 1 && warm_enabled() {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| WarmBase::new(problem)))
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+    let solved = match &warm {
+        Some(w) => w.proves_goal(),
+        None => safe_solve(problem),
+    };
+    if solved {
         return Some(Vec::new());
     }
-    if depth == 0 || *runs >= max_runs {
+    if depth == 0 || *runs >= max_runs || past(deadline) {
         return None;
     }
     let cands = candidates(problem, full);
@@ -1465,15 +1765,10 @@ fn try_solve(
         use std::sync::atomic::{AtomicUsize, Ordering};
         let take = (max_runs - *runs).min(cands.len());
         let attempted = AtomicUsize::new(0);
-        // Close the base once; each candidate is then a cheap warm-start clone
-        // instead of a full from-scratch solve. Falls back to full solves if
-        // warm-start is disabled or the problem is goal-less.
-        let warm = if warm_enabled() {
-            WarmBase::new(problem)
-        } else {
-            None
-        };
         let found = cands[..take].par_iter().find_first(|cand| {
+            if past(deadline) {
+                return false;
+            }
             attempted.fetch_add(1, Ordering::Relaxed);
             match &warm {
                 Some(w) => w.check(cand),
@@ -1497,12 +1792,12 @@ fn try_solve(
     let branches = cands.len().min(64);
     let per_branch = ((max_runs - *runs) / branches.max(1)).max(1_500);
     for cand in cands.into_iter().take(branches) {
-        if *runs >= max_runs {
+        if *runs >= max_runs || past(deadline) {
             break;
         }
         let aug = augment(problem, &cand);
         let sub_max = (*runs + per_branch).min(max_runs);
-        if let Some(mut rest) = try_solve(&aug, depth - 1, runs, sub_max, full, verbose) {
+        if let Some(mut rest) = try_solve(&aug, depth - 1, runs, sub_max, full, verbose, deadline) {
             let mut v = vec![cand];
             v.append(&mut rest);
             return Some(v);
@@ -1535,6 +1830,21 @@ pub fn solve_with_aux_opts(
     verbose: bool,
     full: bool,
 ) -> (Option<AuxProof>, SearchStats) {
+    solve_with_aux_until(problem, max_depth, max_runs, verbose, full, None)
+}
+
+/// [`solve_with_aux_opts`] with a wall-clock `deadline`: once it passes, no new
+/// candidate DDAR run starts and the search returns `None` unless a proof was
+/// already found. A run already in progress finishes, so a caller needing a
+/// hard stop must also bound the process externally.
+pub fn solve_with_aux_until(
+    problem: &Problem,
+    max_depth: usize,
+    max_runs: usize,
+    verbose: bool,
+    full: bool,
+    deadline: Option<Instant>,
+) -> (Option<AuxProof>, SearchStats) {
     // A goal-less problem can never be proved; without this guard the search
     // would burn its entire run budget on unprovable attempts (e.g. after
     // `strip_point` removed a point the goal mentioned).
@@ -1542,19 +1852,17 @@ pub fn solve_with_aux_opts(
         return (None, SearchStats { runs: 0 });
     }
 
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
     let mut runs = 0usize;
     // Candidate runs are individually panic-caught inside `try_solve`; this
     // outer catch guards the search *machinery* itself (candidate generation,
     // warm-start bookkeeping, parallel harness). A machinery panic must not
     // kill a long-running search process — degrade to "no proof found".
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        try_solve(problem, max_depth, &mut runs, max_runs, full, verbose)
+        crate::quiet_panic::quiet(|| {
+            try_solve(
+                problem, max_depth, &mut runs, max_runs, full, verbose, deadline,
+            )
+        })
     }))
     .unwrap_or_else(|_| {
         eprintln!(
@@ -1563,7 +1871,6 @@ pub fn solve_with_aux_opts(
         );
         None
     });
-    std::panic::set_hook(prev_hook);
 
     (
         result.map(|constructions| AuxProof { constructions }),
@@ -1619,7 +1926,106 @@ pub fn solve_max(problem: &Problem, verbose: bool) -> (Option<AuxProof>, SearchS
     (None, SearchStats { runs })
 }
 
-fn env_usize(key: &str, default: usize) -> usize {
+/// [`solve_max`] bounded by a wall-clock `deadline` and complete at depth 1: it
+/// first sweeps every single-construction candidate, then deepens to
+/// 2..=`AUX_MAX_DEPTH` with [`solve_max`]'s budgets.
+pub fn solve_max_until(
+    problem: &Problem,
+    verbose: bool,
+    deadline: Option<Instant>,
+) -> (Option<AuxProof>, SearchStats) {
+    solve_max_until_opts(problem, verbose, deadline, true)
+}
+
+/// [`solve_max_until`] for a caller that already ran the depth-1 sweep
+/// ([`depth1_solvers`], complete and empty): straight to the rollouts.
+pub fn rollouts_until(
+    problem: &Problem,
+    verbose: bool,
+    deadline: Option<Instant>,
+) -> (Option<AuxProof>, SearchStats) {
+    solve_max_until_opts(problem, verbose, deadline, false)
+}
+
+/// Every single construction of [`solve_max_until`]'s depth-1 pool that lets
+/// DDAR prove the goal (ranked order, final names), and whether the sweep
+/// covered the whole pool before `deadline`. `None` when the base figure
+/// cannot be closed.
+pub fn depth1_solvers(
+    problem: &Problem,
+    deadline: Option<Instant>,
+) -> Option<(Vec<Construction>, bool, SearchStats)> {
+    problem.goal.as_ref()?;
+    crate::quiet_panic::quiet(|| crate::aux_rollout::depth1_solvers(problem, deadline))
+}
+
+fn solve_max_until_opts(
+    problem: &Problem,
+    verbose: bool,
+    deadline: Option<Instant>,
+    sweep: bool,
+) -> (Option<AuxProof>, SearchStats) {
+    if problem.goal.is_none() {
+        return (None, SearchStats { runs: 0 });
+    }
+    let verbose = verbose || std::env::var("AUX_VERBOSE").is_ok_and(|v| v != "0");
+    if !std::env::var("AUX_LEGACY").is_ok_and(|v| v != "0") {
+        let res = crate::quiet_panic::quiet(|| {
+            crate::aux_rollout::search(problem, verbose, deadline, sweep)
+        });
+        if let Some(r) = res {
+            return r;
+        }
+    }
+    let max_depth = env_usize("AUX_MAX_DEPTH", 3).max(1);
+    let deep_budget = env_usize("AUX_MAX_RUNS", 2_000_000).max(10_000);
+    let mut runs = 0usize;
+    for depth in 1..=max_depth {
+        if past(deadline) {
+            break;
+        }
+        let budget = if depth == 1 || depth == max_depth {
+            deep_budget
+        } else {
+            (deep_budget / 8).max(200_000).min(deep_budget)
+        };
+        let (res, stats) = solve_with_aux_until(problem, depth, budget, verbose, true, deadline);
+        runs += stats.runs;
+        if res.is_some() {
+            return (res, SearchStats { runs });
+        }
+    }
+    (None, SearchStats { runs })
+}
+
+/// The search pool [`solve_max_until`] draws from: the classical library plus
+/// the virtual-line, harmonic and proved-circle kinds that land on at least
+/// one extra figure line or circle, each with its coincidence score, best
+/// first.
+pub fn ranked_pool(problem: &Problem) -> Vec<(f64, Construction)> {
+    candidate_pool(problem, 1.0)
+}
+
+/// [`ranked_pool`] keeping the new kinds from `min_new` extra incidences up
+/// (0 keeps every one, for auditing the constructions themselves).
+pub fn candidate_pool(problem: &Problem, min_new: f64) -> Vec<(f64, Construction)> {
+    let warm = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| WarmBase::new(problem)))
+        .ok()
+        .flatten();
+    crate::aux_rollout::build_pool(
+        problem,
+        warm.as_ref().map(|w| w.ddar()),
+        None,
+        min_new,
+        true,
+    )
+    .items
+    .into_iter()
+    .map(|it| (it.inc, it.c))
+    .collect()
+}
+
+pub(crate) fn env_usize(key: &str, default: usize) -> usize {
     std::env::var(key)
         .ok()
         .and_then(|v| v.parse().ok())
@@ -1664,10 +2070,32 @@ pub fn strip_point(problem: &Problem, name: &str) -> Problem {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn templates_follow_renumbering() {
+        let c = Construction {
+            name: "x".into(),
+            coord: Vec2::new(0.0, 0.0),
+            preds: vec![pred("coll", vec![0, 7, 9])],
+            desc: String::new(),
+            kind: Kind::IntersectLL,
+            args: vec![0, 7],
+            tpl: format!("intersect({}{}, {})", tok(0), tok(7), tok(12)),
+        };
+        let r = c.remap(|i| if i == 7 { 3 } else { i });
+        assert_eq!(r.preds[0].points, vec![0, 3, 9]);
+        assert_eq!(r.args, vec![0, 3]);
+        let names = ["a", "b", "c", "d"];
+        let text = render_tpl(&r.tpl, |i| {
+            names
+                .get(i as usize)
+                .map_or(format!("p{i}"), |s| s.to_string())
+        });
+        assert_eq!(text, "intersect(ad, p12)");
+    }
 
     /// Every predicate a candidate construction emits must hold numerically in
     /// the augmented figure — this is the soundness contract of the library
@@ -1696,7 +2124,20 @@ mod tests {
                 "no candidates generated for {kind:?}"
             );
         }
-        for cand in &cands {
+        let pool = candidate_pool(&problem, 0.0);
+        for kind in [
+            Kind::ParaMeet,
+            Kind::PerpMeet,
+            Kind::TangentMeet,
+            Kind::IsogonalMeet,
+            Kind::Harmonic,
+        ] {
+            assert!(
+                pool.iter().any(|(_, cd)| cd.kind == kind),
+                "no pool candidates generated for {kind:?}"
+            );
+        }
+        for cand in cands.iter().chain(pool.iter().map(|(_, c)| c)) {
             let aug = augment(&problem, cand);
             for p in &cand.preds {
                 assert_ne!(

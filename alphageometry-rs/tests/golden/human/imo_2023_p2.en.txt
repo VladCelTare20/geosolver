@@ -1,0 +1,62 @@
+Angles written ∠ are read from the figure.
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn.
+Let Ω be the circumcircle of triangle ABC, with centre O; N, S, E, P lie on Ω.
+Let ω₁ be the circle centred at O₁ through B, D, L, P.
+
+Plan: it suffices to show that XA = XP and 2∡IAP = 2∡APX.
+
+1. OB = OC and NB = NC, so ON is the perpendicular bisector of BC; hence ON ⟂ BC. (1)
+2. We show that T, E, S, O are concyclic:
+    ∠OTS = 90° − ∠EBS    [OT ⟂ BE]
+         = 90° − ∠ENS    [inscribed angles in Ω]
+         = ∠ESO          [NS is a diameter]
+         = ∠OES          [central angle ∠NOE = 2∠NSE]
+So T, E, S, O are concyclic. (2)
+3. We show that T, P, X, O are concyclic:
+    ∡TXP = ∡XBP + ∡BDP        [PX is tangent to ω₁ (tangent–chord angle)]
+         = 2∡SAP + ∡BPD       [inscribed angles in Ω]
+         = ∡BPD + 2∡ONP       [inscribed angles in Ω]
+         = ∡BPD + ∡NOP        [ON = OP: triangle ONP is isosceles]
+         = ∡BLD + ∡NOP        [inscribed angles in ω₁]
+         = ∡LBC + ∡NOP        [DL ∥ BC]
+         = ∡(BE, OP) + 90°    [ON ⟂ BC, by (1); NB = NC (inscribed angles in Ω, AI bisects ∠BAC)]
+         = ∡TOP               [OT ⟂ BE]
+So T, P, X, O are concyclic. (3)
+4. We show that T, P, E, D are concyclic:
+    ∡ETD = ∡EON                   [T, E, S, O concyclic, by (2)]
+         = ∡(OE, BC) + 90°        [ON ⟂ BC, by (1); NB = NC (inscribed angles in Ω, AI bisects ∠BAC)]
+         = ∡(OE, DL) + 90°        [DL ∥ BC]
+         = ∡OEB + ∡BPD + 90°      [inscribed angles in ω₁]
+         = ∡OEA + ∡APD + 90°      [inscribed angles in Ω]
+         = ½·∡EOA + ∡APD + 90°    [OA = OE: triangle OAE is isosceles]
+         = ∡EPD                   [central angle ∠AOE = 2∠APE]
+So T, P, E, D are concyclic. (4)
+5. We show that 2∡PSO = 2∡XPD:
+    2∡PSO = 2∡PNS    [NS is a diameter]
+          = 2∡PAS    [inscribed angles in Ω]
+          = 2∡PBX    [inscribed angles in Ω]
+          = 2∡XPD    [PX is tangent to ω₁ (tangent–chord angle)] (5)
+6. We show that 2∡APX = 2∡OTP:
+    2∡APX = 2∡AES + 2∡SPX    [inscribed angles in Ω]
+          = 2∡ADP + 2∡OSE    [by (5)]
+          = 2∡EDP + 2∡OTE    [T, E, S, O concyclic, by (2)]
+          = 2∡OTP            [T, P, E, D concyclic, by (4)] (6)
+7. We show that XA = XP:
+    180° − ∠XOA = 2∠OPA + ∠XOP    [OA = OP: triangle OAP is isosceles]
+                = 180° − ∠POX     [T, P, X, O concyclic, by (3); 2∡APX = 2∡OTP, by (6)]
+OA = OP, so △OAX ≅ △OPX. Hence XA = XP. (7)
+8. We show that 2∡BCA = 2∡BPD:
+    2∡BCA = 2∡EAC    [AD ⟂ BC]
+          = 2∡LBC    [inscribed angles in Ω]
+          = 2∡BLD    [DL ∥ BC]
+          = 2∡BPD    [inscribed angles in ω₁] (8)
+9. We show that 2∡IAP = 2∡APX:
+    2∡IAP = 2∡SAP                    [NS is a diameter]
+          = 2∡CAP + 2∡DBC            [inscribed angles in Ω]
+          = 2∡PAC + 2∡CBP + 2∡DBP    [inscribed angles in Ω]
+          = 2∡APB + 2∡BDP            [by (8)]
+          = 2∡APX                    [PX is tangent to ω₁ (tangent–chord angle)] (9)
+10. We show that AX bisects ∠BAC:
+    ∠BAX = ∠IAC + ∠IAX    [AI bisects ∠BAC]
+         = ∠XAC           [XA = XP: triangle XAP is isosceles, by (7); 2∡IAP = 2∡APX, by (9)]
+So AX bisects ∠BAC, as required. ∎

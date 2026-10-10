@@ -41,6 +41,10 @@ pub struct ElimCore {
     pub values: Vec<f64>,
     /// Whether each variable is an eliminable (LHS) unknown.
     pub is_lhs: Vec<bool>,
+    /// Pivot preference: lower ranks are eliminated first. Every variable
+    /// created by [`Self::new_var`] has rank 1, so with no ranked variables the
+    /// pivot choice is exactly the fewest-usages rule.
+    rank: Vec<u8>,
     /// pivot var -> its zeroed equation (with pivot coefficient `-1`).
     instantiated: FxHashMap<VarId, LinComb>,
     /// free var -> set of pivots whose equation mentions it.
@@ -50,6 +54,10 @@ pub struct ElimCore {
     row_deps: FxHashMap<VarId, Vec<FactId>>,
     /// Whether to maintain `row_deps` (small cost; off for bulk solving).
     pub track: bool,
+    /// Rows refused because the figure contradicts them (a rule applied
+    /// outside its hypotheses); never added.
+    pub rejected: usize,
+    pub fact_rows: Vec<(FactId, LinComb)>,
 }
 
 impl ElimCore {
@@ -59,9 +67,15 @@ impl ElimCore {
 
     /// Allocate a fresh variable, returning its id.
     pub fn new_var(&mut self, value: f64, is_lhs: bool) -> VarId {
+        self.new_var_ranked(value, is_lhs, 1)
+    }
+
+    /// [`Self::new_var`] with an explicit pivot rank (0 = eliminate first).
+    pub fn new_var_ranked(&mut self, value: f64, is_lhs: bool, rank: u8) -> VarId {
         let id = self.values.len() as VarId;
         self.values.push(value);
         self.is_lhs.push(is_lhs);
+        self.rank.push(rank);
         id
     }
 
@@ -120,6 +134,11 @@ impl ElimCore {
     /// Returns `true` if this added new information (a fresh pivot), `false` if
     /// the constraint was already implied or trivial.
     pub fn add_constraint(&mut self, mut added_eq: LinComb, fact: Option<FactId>) -> bool {
+        if self.track {
+            if let Some(f) = fact {
+                self.fact_rows.push((f, added_eq.clone()));
+            }
+        }
         let mut new_deps: Vec<FactId> = match fact {
             Some(f) if self.track => vec![f],
             _ => Vec::new(),
@@ -147,7 +166,7 @@ impl ElimCore {
         // break by variable id (see module docs: this does not affect results).
         let pivot = *lhs_all
             .iter()
-            .min_by_key(|v| self.free_to_usage.get(v).map_or(0, |s| s.len()))
+            .min_by_key(|v| (self.rank[**v as usize], self.free_to_usage.get(v).map_or(0, |s| s.len())))
             .unwrap();
         let lhs: Vec<VarId> = lhs_all.into_iter().filter(|v| *v != pivot).collect();
 
@@ -191,6 +210,11 @@ impl ElimCore {
             self.free_to_usage.entry(y).or_default().insert(pivot);
         }
         true
+    }
+
+    /// Number of independent equations stored; grows with every new fact.
+    pub fn rows(&self) -> usize {
+        self.instantiated.len()
     }
 
     /// Whether a single variable already participates in the system (used to

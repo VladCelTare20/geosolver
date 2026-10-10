@@ -1,0 +1,44 @@
+Angles written ∠ are read from the figure.
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn.
+Let ω₂ be the circle centred at O₂ through C, N, R, P.
+Let F be the foot of the perpendicular from B to AR.
+
+Plan: it suffices to show that R, A, F, P are collinear.
+
+1. BC is a diameter, so ∠BMC = 90°. (1)
+2. We show that F, N, B, A are concyclic:
+    ∠BFA = 90°     [FB ⟂ AR]
+         = ∠BNA    [BC is a diameter]
+So F, N, B, A are concyclic. (2)
+3. AR bisects ∠BAC, so ∠FAB = ∠CAF. F, N, B, A concyclic, by (2), so FB = NF (equal arcs and chords). (3)
+4. By (3), OB = ON and FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
+5. We show that R, N, F, O are concyclic:
+    ∡RFN = ∡BFN + 90°     [FB ⟂ AR]
+         = 2∡FBN + 90°    [FB = FN: triangle FBN is isosceles, by (3)]
+         = 2∡RAN + 90°    [ABNF cyclic, by (2)]
+         = ∡BAC + 90°     [AR bisects ∠BAC]
+         = ∡MCN           [∠BMC = 90°, by (1)]
+    ∠MCN = ½·∠MON    [central angle ∠MON = 2∠MCN]
+         = ∠RON      [OR bisects ∠MON]
+So R, N, F, O are concyclic. (5)
+6. AB·AM = AC·AN (power of the point A with respect to the circle (BMCN)). P, R, M, B concyclic, B, A, M collinear and C, A, N collinear, so R, A, F, P are collinear (the radical axis theorem). (6)
+7. We show that ∡CAB = ∡NFA + 90°:
+    ∡CAB = ∡NCM + 90°    [∠BMC = 90°, by (1)]
+         = ∡NBA + 90°    [BCMN cyclic]
+         = ∡NFA + 90°    [F, N, B, A concyclic, by (2)] (7)
+8. We show that ∡PCB = ∡PCN + ∡NRA:
+    ∡PCB = ∡NBO + ∡(CP, OF) + 90°               [OF ⟂ BN, by (4)]
+         = ½·∡NOB + ∡(CP, OF) + 90°             [OB = ON: triangle OBN is isosceles]
+         = ½·∡PCO + ½·∡(CP, OM) + ∡ROF + 90°    [OR bisects ∠MON]
+         = ∡(CP, AB) + ∡ROF + 90°               [OB = OM: triangle OBM is isosceles]
+         = ∡PCA + ∡ORA + ∡NFO                   [by (7)]
+         = ∡PCN + ∡NRA                          [R, N, F, O concyclic, by (5)] (8)
+9. We show that P lies on the line BC:
+    ∡PCB = ∡PCN + ∡NRA                     [by (8)]
+         = ∡PNC + ∡CRA                     [inscribed angles in ω₂]
+         = ½·∡NO₂C + ∡CRA + ∡PNO₂ + 90°    [O₂C = O₂N: triangle O₂CN is isosceles]
+         = ∡CRA + ∡PCO₂ + 90°              [central angle ∠CO₂N = 2∠CPN]
+         = ½·∡RO₂C + ∡CRA + ∡PRO₂ + 90°    [central angle ∠CO₂R = 2∠CPR]
+         = ∡PRA                            [O₂C = O₂R: triangle O₂CR is isosceles]
+         = 0°                              [R, A, F, P collinear, by (6)]
+So P lies on the line BC, as required. ∎

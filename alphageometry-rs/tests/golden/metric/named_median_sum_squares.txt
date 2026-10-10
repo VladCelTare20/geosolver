@@ -1,0 +1,11 @@
+EUCLIDEAN PROOF
+  Goal:  4 * dist(A, Ma) ^ 2 + 4 * dist(B, Mb) ^ 2 + 4 * dist(C, Mc) ^ 2 = 3 * dist(A, B) ^ 2 + 3 * dist(B, C) ^ 2 + 3 * dist(C, A) ^ 2
+
+  1. Ma is the midpoint of BC, so BMa² = ¼·BC².
+  2. Mb is the midpoint of CA, so CMb² = ¼·CA².
+  3. Mc is the midpoint of AB, so AMc² = ¼·AB².
+  4. By Apollonius's median theorem in triangle ABC with median AMa: AB² + AC² = 2·AMa² + 2·BMa².
+  5. By Apollonius's median theorem in triangle BCA with median BMb: BC² + BA² = 2·BMb² + 2·CMb².
+  6. By Apollonius's median theorem in triangle CAB with median CMc: CA² + CB² = 2·CMc² + 2·AMc².
+
+  Combining the equations above gives 4 * dist(A, Ma) ^ 2 + 4 * dist(B, Mb) ^ 2 + 4 * dist(C, Mc) ^ 2 = 3 * dist(A, B) ^ 2 + 3 * dist(B, C) ^ 2 + 3 * dist(C, A) ^ 2  (= 23.0724). ∎

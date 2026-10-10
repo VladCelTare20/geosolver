@@ -1,0 +1,31 @@
+EUCLIDEAN PROOF (sum of products)
+  Goal:  dist(A, B) * dist(C, D) = dist(A, C) * dist(B, D)
+
+  1. Let K be the reflection of A in B.
+  2. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. assumption: cong O A O B
+       ↳ 002. assumption: cong O B O C
+       ↳ 003. assumption: perp B _5 O B
+       ↳ 004. assumption: perp C _6 O C
+       ↳ 005. assumption: coll B _5 T
+       ↳ 006. collinear: B _5 T [005]
+       ↳ 007. assumption: coll C _6 T
+       ↳ 008. collinear: _6 C T [007]
+       ↳ 009. assumption: coll A T D
+       ↳ 010. collinear: A D T [009]
+       ↳ 011. assumption: cyclic A B C D
+       ↳ 012. concyclic (inscribed angles): D C B A [011]
+       ↳ 013. construction: coll A B K
+       ↳ 014. collinear: A B K [013]
+       ↳ 015. construction: cong B A B K
+       ↳ 016. similar triangles: △ABO ∼ △BAO [001 & 003 & 012 & 015]
+       ↳ 017. similar triangles: △ACO ∼ △CAO [001 & 002 & 003 & 004 & 012 & 016]
+       ↳ 018. similar triangles: △BCO ∼ △CBO [002 & 003 & 004]
+       ↳ 019. similar triangles: △BTO ∼ △CTO [002 & 003 & 004 & 006 & 008]
+       ↳ 020. similar triangles: △ATB ∼ △BTD [002 & 003 & 004 & 006 & 010 & 012 & 015 & 016 & 017 & 018 & 019]
+       ↳ 021. similar triangles: △ATC ∼ △CTD [002 & 003 & 004 & 008 & 010 & 012 & 015 & 016 & 017 & 018 & 019 & 020]
+       ↳ 022. similar triangles: △BKD ∼ △CAD [002 & 003 & 004 & 012 & 014 & 015 & 016 & 017 & 018 & 019 & 020 & 021]
+  3. ∠DAC = ∠DKB and ∠ACD = ∠KBD (derived from the hypotheses), so △ACD ~ △KBD (AA): AC·BD = KB·CD, CD·DK = BD·DA, AC·DK = KB·DA.  [from 2]
+  4. |AB| = |BK|, so |AB|·CD = |BK|·CD.
+
+  Adding the relations above gives dist(A, B) * dist(C, D) = dist(A, C) * dist(B, D)  (= 0.8384). ∎

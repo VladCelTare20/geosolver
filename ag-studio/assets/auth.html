@@ -1,185 +1,130 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#16181b" media="(prefers-color-scheme: dark)" />
-<script>(function(){try{var l=localStorage.getItem('lang')||'en';document.documentElement.lang=l;
-document.documentElement.setAttribute('data-lang',l);if(l!=='en'){document.documentElement.style.visibility='hidden';
-setTimeout(function(){document.documentElement.style.visibility='';},1000);}}catch(e){}})();</script>
-<title data-i18n="auth.doctitle">Sign in · GeoSolver</title>
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="%232456a6" stroke-width="2"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="%232456a6" stroke-width="2" stroke-linejoin="round"/></svg>' />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f7f5">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121417">
+<meta name="color-scheme" content="light dark">
+<meta name="i18n-title" content="auth.doctitle">
+<script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);var l=localStorage.getItem('lang');if(!l){var m=document.cookie.match(/(?:^|;\s*)lang=(en|ro)\b/);if(m)l=m[1];}if(!l){var a=navigator.languages||[navigator.language||''];for(var i=0;i<a.length&&!l;i++){var p=String(a[i]).slice(0,2).toLowerCase();if(p==='ro'||p==='en')l=p;}}if(l==='ro'){d.lang='ro';d.setAttribute('data-lang','ro');d.classList.add('i18n-pending');setTimeout(function(){d.classList.remove('i18n-pending');},800);}}catch(e){}})();</script>
+<script>(function(){var w=window,r=document.documentElement,ok=false;try{var C=w.CSS;ok=!!(w.fetch&&w.Promise&&w.Map&&w.Set&&w.WeakMap&&w.AbortController&&w.ResizeObserver&&w.IntersectionObserver&&w.PointerEvent&&w.Intl&&Intl.PluralRules&&Intl.RelativeTimeFormat&&w.matchMedia&&Element.prototype.closest&&C&&C.supports&&C.supports("--gs","0")&&C.supports("display","grid")&&C.supports("aspect-ratio","1 / 1"));}catch(e){}if(!ok){r.className=r.className.replace("i18n-pending","")+" gs-old";return;}w.addEventListener("load",function(){if(!(w.GS&&w.GS.booted))r.className+=" gs-fail";});})();</script>
 <style>
-  :root {
-    --paper: #f7f7f5; --card: #ffffff; --well: #f2f2ef;
-    --ink: #1b1f24; --muted: #61686f; --line: #e3e4e1; --line-strong: #cfd1cd;
-    --accent: #2456a6; --accent-hover: #1c4589; --accent-ink: #ffffff;
-    --ok: #1e7b34; --err: #b3261e;
-    --err-bg: #faeeed; --err-line: #e8c4c0;
-    --ok-bg: #edf6ef; --ok-line: #bfe0c6;
-    --serif: 'Charter','Bitstream Charter','Iowan Old Style',Georgia,'Times New Roman',serif;
-    --sans: system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-    --radius: 8px;
-  }
+  .gs-note { display: none; box-sizing: border-box; max-width: 560px; margin: 24px auto; padding: 20px 24px; border: 1px solid #c9ced3; border-left: 4px solid #8a5a00; border-radius: 10px; background: #fff; color: #16191d; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; text-align: left; }
+  .gs-note h2 { margin: 0 0 6px; font-size: 18px; line-height: 1.3; font-weight: 600; }
+  .gs-note p { margin: 0; }
+  .gs-note a { display: inline-block; margin-top: 12px; padding: 10px 16px; border-radius: 6px; background: #1f4fa0; color: #fff; text-decoration: none; font-weight: 600; }
+  .gs-old #gs-old, .gs-fail #gs-fail, .gs-show { display: block; }
+  .gs-old body { background: #f7f7f5; }
+  .gs-old body > :not(#gs-old) { display: none !important; }
+  html[lang="ro"] .gs-note:not(.gs-both) [lang="en"], html:not([lang="ro"]) .gs-note:not(.gs-both) [lang="ro"] { display: none; }
+  .gs-both [lang="ro"] { margin-top: 12px; padding-top: 12px; border-top: 1px solid #dadcd8; }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #16181b; --card: #1d2024; --well: #191c1f;
-      --ink: #e6e8ea; --muted: #9aa2aa; --line: #2b2f34; --line-strong: #3b4046;
-      --accent: #86abdd; --accent-hover: #9dbce6; --accent-ink: #10131a;
-      --ok: #63b077; --err: #e0796f;
-      --err-bg: #2a1d1c; --err-line: #4f302d;
-      --ok-bg: #1a251c; --ok-line: #2f4d35;
-    }
+    .gs-note { background: #1a1d21; color: #e8eaed; border-color: #3d444b; border-left-color: #f2c063; }
+    .gs-note a { background: #8db2e8; color: #0e1218; }
+    .gs-old body { background: #121417; }
+    .gs-both [lang="ro"] { border-top-color: #3d444b; }
   }
-  * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; background:var(--paper); color:var(--ink); font-family:var(--sans);
-    -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent; }
-  body { min-height:100vh; font-size:15px; line-height:1.5; display:grid; place-items:center; padding:28px 18px; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  .shell { width:100%; max-width:400px; }
-  .wordmark { display:flex; align-items:center; justify-content:center; gap:11px; margin-bottom:22px; }
-  .wordmark svg { width:28px; height:28px; color:var(--accent); }
-  .wordmark .name { font-family:var(--serif); font-size:22px; font-weight:600; letter-spacing:.01em; }
-
-  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-    padding:26px 24px 24px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
-  h1 { font-family:var(--serif); font-size:20px; font-weight:600; margin:0 0 4px; }
-  .sub { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
-
-  .seg { display:flex; gap:2px; background:var(--well); border:1px solid var(--line); border-radius:999px;
-    padding:3px; margin-bottom:20px; }
-  .seg button { flex:1; border:none; background:transparent; color:var(--muted); font:inherit; font-size:14px;
-    font-weight:500; padding:7px 0; border-radius:999px; cursor:pointer; }
-  .seg button[aria-selected="true"] { background:var(--card); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.06); }
-
-  label { display:block; font-size:13px; font-weight:500; color:var(--muted); margin:0 0 5px; }
-  .field { margin-bottom:15px; }
-  input { width:100%; font:inherit; font-size:15px; color:var(--ink); background:var(--well);
-    border:1px solid var(--line-strong); border-radius:var(--radius); padding:10px 12px; }
-  input:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
-  .hint { font-size:12px; color:var(--muted); margin-top:5px; }
-
-  button.primary { width:100%; border:none; background:var(--accent); color:var(--accent-ink); font:inherit;
-    font-size:15px; font-weight:600; padding:11px 0; border-radius:var(--radius); cursor:pointer; margin-top:4px; }
-  button.primary:hover { background:var(--accent-hover); }
-  button.primary:disabled { opacity:.6; cursor:progress; }
-
-  .banner { display:none; font-size:13.5px; padding:9px 12px; border-radius:var(--radius); margin-bottom:16px; }
-  .banner.err { display:block; background:var(--err-bg); border:1px solid var(--err-line); color:var(--err); }
-  .banner.ok { display:block; background:var(--ok-bg); border:1px solid var(--ok-line); color:var(--ok); }
-
-  .foot { text-align:center; color:var(--muted); font-size:13px; margin-top:18px; }
-  .lang-seg { position:fixed; top:calc(16px + env(safe-area-inset-top)); right:calc(16px + env(safe-area-inset-right));
-    display:inline-flex; height:34px; background:var(--card); border:1px solid var(--line-strong); border-radius:6px; overflow:hidden; }
-  .lang-seg button { border:none; background:transparent; color:var(--muted); font:inherit; font-size:12.5px;
-    font-weight:700; letter-spacing:.03em; padding:0 11px; cursor:pointer; }
-  .lang-seg button + button { border-left:1px solid var(--line-strong); }
-  .lang-seg button:hover { color:var(--accent); }
-  .lang-seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
+  @media (max-width: 600px) { .gs-note { margin: 16px; } }
 </style>
+<noscript><style>body > :not(noscript) { display: none !important; }</style></noscript>
+<title>Sign in · GeoSolver</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="GeoSolver">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<!--pwa-splash-->
+<link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  .auth-page { min-height: var(--vh-dyn); display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto; }
+  .auth-main { display: grid; justify-items: center; align-content: start; padding: clamp(24px, 9vh, 96px) max(var(--s4), var(--sai-r)) max(var(--s6), var(--sai-b)) max(var(--s4), var(--sai-l)); gap: var(--s5); }
+  .auth-card { width: min(100%, 420px); padding: var(--s5); display: grid; gap: var(--s4); }
+  .auth-card .tabs { width: 100%; }
+  .auth-card .tabs > button { flex: 1; min-height: 36px; font-size: var(--fs-14); }
+  .auth-card h1 { font-family: var(--font-math); font-size: var(--fs-25); font-weight: 600; letter-spacing: -0.005em; }
+  .auth-card .sub { color: var(--text-2); margin-top: 4px; text-wrap: balance; }
+  .auth-form { display: grid; gap: var(--s4); }
+  .pw-wrap { position: relative; }
+  .pw-wrap .input { padding-right: 46px; }
+  .pw-toggle { position: absolute; right: 2px; top: 2px; width: 40px; height: calc(100% - 4px); }
+  .field-msg { min-height: 1.25rem; font-size: var(--fs-13); color: var(--text-2); display: flex; gap: 6px; align-items: center; }
+  .field-msg:empty { display: none; }
+  .auth-form .field { gap: 6px; }
+  .field-msg.is-err { color: var(--false); }
+  .field-msg.is-ok { color: var(--proved); }
+  .field-msg svg { width: 14px; height: 14px; flex: none; }
+  .form-msg:empty { display: none; }
+  .form-msg .banner { animation: rise 160ms ease-out; }
+  .form-msg .banner { margin: 0; }
+  .auth-submit { width: 100%; min-height: 44px; font-size: var(--fs-16); }
+  .auth-submit .spinner { width: 16px; height: 16px; }
+  .back { font-size: var(--fs-14); display: inline-flex; gap: 6px; align-items: center; text-decoration: none; min-height: 32px; }
+  @media (hover: hover) { .back:hover { text-decoration: underline; } }
+  .back:active { text-decoration: underline; }
+  @media (max-width: 480px) { .auth-card { padding: var(--s4); } }
+  @media (max-width: 299px) { .auth-main { padding-left: max(var(--s2), var(--sai-l)); padding-right: max(var(--s2), var(--sai-r)); } .auth-card { padding: var(--s3); } .auth-submit { white-space: normal; } }
+  @media (pointer: coarse) { .auth-card .tabs > button { min-height: 42px; } .back { min-height: 48px; } .pw-toggle { width: 48px; } .pw-toggle::after { content: ""; position: absolute; inset: -2px 0; } .pw-wrap .input { padding-right: 54px; } .auth-submit { min-height: 48px; } }
+</style>
+<script src="/assets/i18n.js"></script>
 </head>
 <body>
-  <div class="lang-seg" role="group" aria-label="Language / Limbă">
-    <button type="button" data-lang-set="en" aria-pressed="true">EN</button>
-    <button type="button" data-lang-set="ro" aria-pressed="false">RO</button>
-  </div>
-  <main class="shell">
-    <div class="wordmark">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 4.6 L26.2 22 L5.8 22 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-      <span class="name">GeoSolver</span>
-    </div>
-    <div class="card">
-      <div class="seg" role="tablist" aria-label="Sign in or create account">
-        <button id="tab-login" role="tab" aria-selected="true" data-i18n="nav.signin">Sign in</button>
-        <button id="tab-register" role="tab" aria-selected="false" data-i18n="nav.create">Create account</button>
+<div class="gs-note" id="gs-old" role="alert"><div lang="en"><h2>This browser is too old for GeoSolver</h2><p>Update it to Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 or newer, or open this page in another browser.</p></div><div lang="ro"><h2>Acest browser este prea vechi pentru GeoSolver</h2><p>Actualizează-⁠l la Safari 15.4, Chrome 100, Firefox 100, Samsung Internet 17 sau mai nou, ori deschide pagina în alt browser.</p></div></div>
+<div class="gs-note" id="gs-fail" role="alert"><div lang="en"><h2>GeoSolver did not finish loading</h2><p>Reload the page. If this keeps happening, update your browser.</p><a href="">Reload</a></div><div lang="ro"><h2>GeoSolver nu s-⁠a încărcat complet</h2><p>Reîncarcă pagina. Dacă se repetă, actualizează browserul.</p><a href="">Reîncarcă</a></div></div>
+<noscript><div class="gs-note gs-show gs-both" role="alert"><div lang="en"><h2>GeoSolver needs JavaScript</h2><p>Turn JavaScript on in your browser settings, then reload this page.</p></div><div lang="ro"><h2>GeoSolver are nevoie de JavaScript</h2><p>Activează JavaScript în setările browserului, apoi reîncarcă pagina.</p></div></div></noscript>
+<div class="auth-page">
+  <header class="site-header roomy">
+    <div class="inner">
+      <a class="wordmark" href="/" data-i18n-attr="aria-label:nav.home" aria-label="GeoSolver home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 4.6 26.2 22H5.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <span>GeoSolver</span>
+      </a>
+      <div class="spacer"></div>
+      <div class="header-tools">
+        <div class="seg lang-seg" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+          <button type="button" data-lang-set="en" aria-pressed="true" lang="en">EN</button>
+          <button type="button" data-lang-set="ro" aria-pressed="false" lang="ro">RO</button>
+        </div>
+        <button type="button" class="icon-btn" data-theme-toggle aria-label="Color theme"></button>
       </div>
-      <h1 id="heading">Welcome back</h1>
-      <p class="sub" id="subhead">Sign in to solve, save, and revisit your proofs.</p>
-      <div class="banner" id="banner" role="alert"></div>
-      <form id="form" autocomplete="on" novalidate>
+    </div>
+  </header>
+  <main class="auth-main" id="main">
+    <section class="auth-card card" aria-labelledby="heading">
+      <div class="seg tabs" role="tablist" data-i18n-attr="aria-label:auth.tabs" aria-label="Sign in or create an account">
+        <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="form" tabindex="0" data-i18n="nav.signin">Sign in</button>
+        <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="form" tabindex="-1" data-i18n="nav.create">Create account</button>
+      </div>
+      <div>
+        <h1 id="heading">Welcome back</h1>
+        <p class="sub" id="subhead">Sign in to solve, save and revisit your proofs.</p>
+      </div>
+      <form class="auth-form" id="form" role="tabpanel" aria-labelledby="heading" novalidate>
         <div class="field">
           <label for="username" data-i18n="auth.username">Username</label>
-          <input id="username" name="username" autocomplete="username" autocapitalize="none"
-                 spellcheck="false" minlength="3" maxlength="32" required />
-          <div class="hint" id="user-hint" data-i18n="auth.user_hint" hidden>3–32 characters: letters, digits, - or _</div>
+          <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next" maxlength="32" required aria-describedby="user-msg">
+          <p class="field-msg" id="user-msg"></p>
         </div>
         <div class="field">
           <label for="password" data-i18n="auth.password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password"
-                 minlength="8" maxlength="128" required />
-          <div class="hint" id="pass-hint" data-i18n="auth.pass_hint" hidden>At least 8 characters</div>
+          <div class="pw-wrap">
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" maxlength="128" required aria-describedby="pass-msg">
+            <button type="button" class="icon-btn pw-toggle" id="pw-toggle" aria-pressed="false" data-i18n-attr="aria-label:auth.show;title:auth.show" aria-label="Show password" aria-controls="password"></button>
+          </div>
+          <p class="field-msg" id="pass-msg"></p>
         </div>
-        <button class="primary" id="submit" type="submit">Sign in</button>
+        <div class="form-msg" id="form-msg"></div>
+        <button type="submit" class="btn btn-primary auth-submit" id="submit">Sign in</button>
       </form>
-    </div>
-    <p class="foot"><a href="/" data-i18n="nav.back">← Back to GeoSolver</a></p>
+    </section>
+    <a class="back" href="/"><span aria-hidden="true">←</span><span data-i18n="nav.back">Back to GeoSolver</span></a>
   </main>
-<script src="/assets/i18n.js"></script>
-<script>
-  const $ = (id) => document.getElementById(id);
-  const banner = $('banner'), form = $('form'), submit = $('submit');
-  let mode = 'login';
-
-  const t = (k, v) => (window.i18n ? window.i18n.t(k, v) : k);
-  function setMode(next, keepFocus) {
-    mode = next;
-    const login = mode === 'login';
-    $('tab-login').setAttribute('aria-selected', login);
-    $('tab-register').setAttribute('aria-selected', !login);
-    $('heading').textContent = login ? t('auth.welcome') : t('auth.create_head');
-    $('subhead').textContent = login ? t('auth.sub_login') : t('auth.sub_register');
-    $('submit').textContent = login ? t('nav.signin') : t('nav.create');
-    $('password').autocomplete = login ? 'current-password' : 'new-password';
-    $('user-hint').hidden = login;
-    $('pass-hint').hidden = login;
-    banner.className = 'banner';
-    if (!keepFocus) $('username').focus();
-  }
-  $('tab-login').onclick = () => setMode('login');
-  $('tab-register').onclick = () => setMode('register');
-  // Re-translate the JS-set heading/subhead/button when the language changes.
-  document.addEventListener('langchange', () => setMode(mode, true));
-
-  // Open on the tab the caller asked for — the landing page's "Create account"
-  // links deep-link here with ?mode=register so they land on sign-up, not sign-in.
-  // Always call setMode so the JS-set heading/subhead/button render in the active
-  // language (not the static English in the markup).
-  const wanted = new URLSearchParams(location.search).get('mode');
-  setMode(wanted === 'register' || location.hash === '#register' ? 'register' : 'login');
-
-  function show(kind, msg) { banner.className = 'banner ' + kind; banner.textContent = msg; }
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = $('username').value.trim(), password = $('password').value;
-    if (username.length < 3) return show('err', t('auth.err_user'));
-    if (password.length < 8) return show('err', t('auth.err_pass'));
-    submit.disabled = true;
-    banner.className = 'banner';
-    try {
-      const res = await fetch('/api/auth/' + (mode === 'login' ? 'login' : 'register'), {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        show('ok', t('auth.signed_in', { name: data.username || username }));
-        location.href = '/app';
-      } else {
-        show('err', data.error || t('auth.generic_err'));
-      }
-    } catch {
-      show('err', t('auth.net_err'));
-    } finally {
-      submit.disabled = false;
-    }
-  });
-
-  $('username').focus();
-</script>
+  <div></div>
+</div>
+<script src="/assets/site.js"></script>
+<script src="/assets/auth.js"></script>
 </body>
 </html>

@@ -39,6 +39,7 @@ use ddar::aux_search::{
     apply_constructions, candidates, solve_max, solve_with_aux, strip_point, AuxProof, WarmBase,
 };
 use ddar::geo::{self, CONSTRUCTIONS, RELATIONS};
+use ddar::{bench, corpus};
 use ddar::metric;
 use ddar::runner::{parse_dataset, solve_problem, solve_problem_with_proof};
 use ddar::svg::{self, FigureOptions, Theme};
@@ -46,11 +47,123 @@ use ddar::Problem;
 
 const DATASET: &str = include_str!("../../problems.tsv");
 
+const USAGE: &str = "\
+usage: ddar [mode] [options] [<problem|program|file>]
+
+Modes:
+  --bench                 solve the bundled IMO set with timings (default)
+  --max <prog|file>       universal solver: DDAR, else the aux search at max effort
+  --geo <prog|file>       compile a high-level .geo program and solve it
+  --metric <prog|file>    prove a metric (length) goal with a Euclidean proof
+  --geo-show <prog|file>  compile and print the low-level form
+  --constructions         list the high-level language vocabulary
+  --theorems              list the classical-theorem proof library
+  --aux \"<problem>\"       solve a low-level problem with the aux search
+  --explore               report which bundled aux points are load-bearing
+  --batch [dir]           run the universal solver on every problem in dir
+  --bench-aux             leave-one-out aux rediscovery benchmark
+  --verify-warm           check warm-start == full solve over the corpus
+  --corpus <file>         solve-rate benchmark over an AG1-format corpus
+                          (corpus/imo_ag_30.txt, corpus/jgex_ag_231.txt):
+                          DDAR then the aux search per problem, each in its
+                          own process with a hard wall-clock deadline
+  --corpus-check <file>   translate every corpus problem (no solving); report
+                          translation errors and numerically false goals
+  --corpus-show <file> <name>  print one translated problem in low-level form
+  --corpus-one <file> <name>   solve one corpus problem in-process (--proof)
+  --fuzz-false <file|dir> soundness fuzzer: false variants of every corpus
+                          problem (mutated goal, dropped hypothesis, degenerate
+                          figure) through DDAR + aux search, one process each;
+                          a directory fuzzes the metric goals of its .geo
+                          programs through the classical provers instead;
+                          exits 2 if any is proved
+  --fuzz-one <cases> <name>    run one fuzz case in-process (child of --fuzz-false)
+  \"<problem>\"             solve a single low-level problem string
+
+Options:
+  --proof                 print a numbered proof after solving
+  --human                 print the human-style proof (EN) after solving
+  --human-json            print the human-style proof as JSON after solving
+  --human-stats <file>    (--corpus) write the human-proof writer's metrics per proof
+  --svg <file>            write an SVG figure
+  --theme dark|light      figure color scheme (default dark)
+  --title <text>          title atop the figure's construction panel
+  --trig <mode>           law of sines in the DDAR closure: off, fallback
+                          (default: only when a length goal is left unproved
+                          by the base closure), lazy (every closure, after its
+                          trig-free fixpoint), always; also env GEO_TRIG
+  -h, --help              print this help
+
+Corpus options:
+  --budget <secs>         wall-clock budget per problem (default 60)
+  --jobs <n>              problems solved concurrently (default 4)
+  --threads <n>           solver threads per problem (default 3); keep
+                          jobs x threads within the machine's thread budget
+  --out <file.tsv>        write per-problem results (default: stdout only)
+  --only <a,b,...>        run only these problem names
+  --proofs <dir>          write each proof found to <dir>/<name>.txt
+  --mem-mb <n>            kill a problem whose memory exceeds n MiB (default 4096)
+
+Fuzz options (--fuzz-false; also --budget [default 15], --jobs, --threads,
+--only, --mem-mb, --out <file.tsv> [cases and proofs are written beside it]):
+  --per <n>               goal mutations per problem (default 8); hypothesis
+                          drops get n/2, degenerate figures n/4
+  --seed <k>              generation seed (default 1)
+  --samples <n>           figures a variant must be false on (default 5)
+";
+
+const MODES: &[&str] = &[
+    "--bench", "--geo", "--geo-show", "--aux", "--explore", "--constructions", "--bench-aux",
+    "--verify-warm", "--metric", "--batch", "--max", "--theorems", "--corpus", "--corpus-one",
+    "--corpus-check", "--corpus-show", "--fuzz-false", "--fuzz-one",
+];
+
+enum ArgKind {
+    Help,
+    Mode,
+    Unknown,
+    Positional,
+}
+
+/// Classify an argument that is not an option's value.
+fn classify_arg(arg: &str) -> ArgKind {
+    match arg {
+        "-h" | "--help" => ArgKind::Help,
+        a if MODES.contains(&a) => ArgKind::Mode,
+        a if a.starts_with("--") || (a.starts_with('-') && a.len() == 2) => ArgKind::Unknown,
+        _ => ArgKind::Positional,
+    }
+}
+
 struct Opts {
     proof: bool,
+    human: bool,
+    human_json: bool,
+    human_stats: Option<String>,
     svg_path: Option<String>,
     theme: Theme,
     title: Option<String>,
+    corpus: CorpusOpts,
+}
+
+struct CorpusOpts {
+    budget: f64,
+    jobs: usize,
+    threads: usize,
+    out: Option<String>,
+    only: Option<Vec<String>>,
+    proofs: Option<String>,
+    mem_mb: u64,
+    budget_given: bool,
+    per: usize,
+    seed: u64,
+    samples: usize,
+}
+
+fn num_arg<T: std::str::FromStr>(v: Option<String>, flag: &str) -> T {
+    v.as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| fail(&format!("{flag} needs a number")))
 }
 
 fn main() {
@@ -59,9 +172,25 @@ fn main() {
     // Split flags/options from positional arguments.
     let mut opts = Opts {
         proof: false,
+        human: false,
+        human_json: false,
+        human_stats: None,
         svg_path: None,
         theme: Theme::Dark,
         title: None,
+        corpus: CorpusOpts {
+            budget: 60.0,
+            jobs: 4,
+            threads: 3,
+            out: None,
+            only: None,
+            proofs: None,
+            mem_mb: 4096,
+            budget_given: false,
+            per: 8,
+            seed: 1,
+            samples: 5,
+        },
     };
     let mut mode: Option<String> = None;
     let mut positional: Vec<String> = Vec::new();
@@ -69,6 +198,18 @@ fn main() {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--proof" => opts.proof = true,
+            "--human" => opts.human = true,
+            "--human-json" => opts.human_json = true,
+            "--human-stats" => {
+                opts.human_stats = Some(it.next().unwrap_or_else(|| fail("--human-stats needs a file (or - in a child)")))
+            }
+            "--trig" => {
+                let m = it.next().unwrap_or_else(|| fail("--trig needs off|fallback|lazy|always"));
+                if !matches!(m.as_str(), "off" | "fallback" | "lazy" | "always") {
+                    fail("--trig needs off|fallback|lazy|always");
+                }
+                std::env::set_var("GEO_TRIG", m);
+            }
             "--svg" => {
                 opts.svg_path = Some(it.next().unwrap_or_else(|| fail("--svg needs a file path")))
             }
@@ -80,11 +221,39 @@ fn main() {
                 }
             }
             "--title" => opts.title = Some(it.next().unwrap_or_else(|| fail("--title needs text"))),
-            "--bench" | "--geo" | "--geo-show" | "--aux" | "--explore" | "--constructions"
-            | "--bench-aux" | "--verify-warm" | "--metric" | "--batch" | "--max" | "--theorems" => {
-                mode = Some(arg)
+            "--budget" => {
+                opts.corpus.budget = num_arg(it.next(), "--budget");
+                opts.corpus.budget_given = true;
             }
-            other => positional.push(other.to_string()),
+            "--per" => opts.corpus.per = num_arg::<usize>(it.next(), "--per").max(1),
+            "--seed" => opts.corpus.seed = num_arg(it.next(), "--seed"),
+            "--samples" => opts.corpus.samples = num_arg::<usize>(it.next(), "--samples").max(2),
+            "--jobs" => opts.corpus.jobs = num_arg::<usize>(it.next(), "--jobs").max(1),
+            "--threads" => opts.corpus.threads = num_arg::<usize>(it.next(), "--threads").max(1),
+            "--mem-mb" => opts.corpus.mem_mb = num_arg(it.next(), "--mem-mb"),
+            "--out" => opts.corpus.out = Some(it.next().unwrap_or_else(|| fail("--out needs a file"))),
+            "--proofs" => {
+                opts.corpus.proofs = Some(it.next().unwrap_or_else(|| fail("--proofs needs a directory")))
+            }
+            "--only" => {
+                opts.corpus.only = Some(
+                    it.next()
+                        .unwrap_or_else(|| fail("--only needs a comma-separated list"))
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                )
+            }
+            other => match classify_arg(other) {
+                ArgKind::Help => {
+                    print!("{USAGE}");
+                    return;
+                }
+                ArgKind::Mode => mode = Some(arg),
+                ArgKind::Unknown => fail(&format!("unknown option {other} (see ddar --help)")),
+                ArgKind::Positional => positional.push(arg),
+            },
         }
     }
 
@@ -107,6 +276,12 @@ fn main() {
         Some("--explore") => explore(&opts),
         Some("--bench-aux") => bench_aux(),
         Some("--verify-warm") => verify_warm(),
+        Some("--corpus") => corpus_bench(positional.first(), &opts),
+        Some("--corpus-check") => corpus_check(positional.first(), &opts),
+        Some("--corpus-show") => corpus_show(positional.first(), positional.get(1)),
+        Some("--corpus-one") => corpus_one(positional.first(), positional.get(1), &opts),
+        Some("--fuzz-false") => fuzz_false(positional.first(), &opts),
+        Some("--fuzz-one") => fuzz_one(positional.first(), positional.get(1), &opts),
         Some("--batch") => batch(
             positional
                 .first()
@@ -255,7 +430,7 @@ fn list_theorems() {
     );
 }
 
-/// Verify a *metric* goal (specific lengths/angles/areas, sums of squares, any
+/// Prove a *metric* goal (specific lengths/angles/areas, sums of squares, any
 /// algebraic relation) that DDAR cannot express — see [`metric`]. The program is
 /// a coordinate-free construction plus a `prove <expr> = <expr>` line, e.g.
 ///   O = free; A = point: dist(O,A)=6; ... ; prove dist(A,C)^2 + dist(B,D)^2 = 144
@@ -283,14 +458,25 @@ fn metric_solve(src: &str) {
         fail("--metric needs a `prove <equation>` line, e.g. `prove dist(A,C)^2 + dist(B,D)^2 = 144`")
     });
     let start = Instant::now();
-    match metric::solve(&cons.join("\n"), &goal, 48) {
+    match metric::solve(&cons.join("\n"), &goal, metric::DEFAULT_SAMPLES) {
         Ok(report) => println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64()),
-        Err(e) => fail(&e),
+        Err(e @ (metric::MetricError::Refuted(_) | metric::MetricError::NoProof { .. })) => {
+            println!("{}\n  ({:.3}s)", e.report(), start.elapsed().as_secs_f64());
+            std::process::exit(1);
+        }
+        Err(e) => fail(e.message()),
     }
 }
 
 fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
-    let compiled = geo::compile(src).unwrap_or_else(|e| fail(&e));
+    let compiled = match geo::compile(src) {
+        Ok(c) => c,
+        Err(e) if e.is_metric_goal() && !show_only => {
+            println!("Metric goal (not a DDAR predicate) — using the metric prover.");
+            return metric_solve(src);
+        }
+        Err(e) => fail(e.message()),
+    };
 
     if show_only {
         println!("{}", compiled.problem.to_ag_string());
@@ -308,11 +494,17 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
     write_svg_if_requested(&compiled.problem, opts);
 
     let start = Instant::now();
-    if opts.proof {
+    let want_human = opts.human || opts.human_json;
+    if opts.proof || want_human {
         match solve_problem_with_proof(&compiled.problem) {
             Ok(Some(report)) => {
                 println!("Proven :-)  ({:.3}s)\n", start.elapsed().as_secs_f64());
-                println!("{report}");
+                if opts.proof {
+                    println!("{report}");
+                }
+                if want_human {
+                    human_report("geo", 0, &compiled.problem, &[], compiled.problem.points.len(), opts);
+                }
                 return;
             }
             Ok(None) => {}
@@ -341,6 +533,11 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
             if opts.proof {
                 print_aux_proof(&compiled.problem, &proof);
             }
+            if want_human {
+                let aug = apply_constructions(&compiled.problem, &proof.constructions);
+                let aux: Vec<String> = proof.constructions.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+                human_report("geo", 0, &aug, &aux, compiled.problem.points.len(), opts);
+            }
         }
         None => {
             println!(
@@ -368,6 +565,12 @@ struct BatchResult {
 /// gets the same maximum effort — nothing is assumed easy or hard. Reports
 /// per-problem timing and the wall-clock vs. summed-CPU speedup.
 fn batch(dir: &str) {
+    // Mute panic noise from degenerate candidate constructions across all
+    // worker threads for the duration of the batch.
+    ddar::quiet_panic::quiet(|| batch_quiet(dir))
+}
+
+fn batch_quiet(dir: &str) {
     use rayon::prelude::*;
     let mut paths: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
         Ok(rd) => rd
@@ -382,14 +585,6 @@ fn batch(dir: &str) {
         fail(&format!("no .geo problems found in {dir}"));
     }
 
-    // Suppress panic noise from degenerate candidate constructions across all
-    // worker threads for the duration of the batch.
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
 
     println!(
         "Universal MAX solve: {} problem(s), across {} cores.\n",
@@ -400,7 +595,6 @@ fn batch(dir: &str) {
     let wall = Instant::now();
     let mut results: Vec<BatchResult> = paths.par_iter().map(|p| solve_file(p)).collect();
     let wall = wall.elapsed().as_secs_f64();
-    std::panic::set_hook(prev);
 
     results.sort_by(|a, b| a.name.cmp(&b.name));
     let (mut solved, mut cpu) = (0usize, 0.0f64);
@@ -641,12 +835,10 @@ fn bench_aux() {
 /// candidate of the bundled + example problems. Warm-start is only sound to
 /// enable if this reports zero mismatches.
 fn verify_warm() {
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
+    ddar::quiet_panic::quiet(verify_warm_quiet)
+}
+
+fn verify_warm_quiet() {
     let mut examples: Vec<Problem> = Vec::new();
     for e in parse_dataset(DATASET) {
         if let Ok(p) = Problem::parse(e.problem) {
@@ -707,7 +899,6 @@ fn verify_warm() {
         }
         eprint!("\r{checked} checks, {mism} mismatches, {warm_solves} warm-solves   ");
     }
-    std::panic::set_hook(prev);
     println!(
         "\nverify-warm: {checked} candidate checks, {mism} mismatches ({} agreement)",
         if mism == 0 {
@@ -760,5 +951,402 @@ fn explore(opts: &Opts) {
         if !load_bearing.is_empty() {
             println!("{:<10} load-bearing: {}", e.name, load_bearing.join(", "));
         }
+    }
+}
+
+fn load_corpus(file: Option<&String>, only: Option<&Vec<String>>) -> Vec<(String, String)> {
+    let file = file.unwrap_or_else(|| fail("usage: ddar --corpus <file>"));
+    let text =
+        std::fs::read_to_string(file).unwrap_or_else(|e| fail(&format!("reading {file}: {e}")));
+    let all = corpus::read_corpus(&text).unwrap_or_else(|e| fail(&e));
+    match only {
+        None => all,
+        Some(names) => {
+            for n in names {
+                if !all.iter().any(|(m, _)| m == n) {
+                    fail(&format!("--only: no problem named `{n}` in {file}"));
+                }
+            }
+            all.into_iter().filter(|(n, _)| names.contains(n)).collect()
+        }
+    }
+}
+
+fn corpus_bench(file: Option<&String>, opts: &Opts) {
+    let c = &opts.corpus;
+    let problems = load_corpus(file, c.only.as_ref());
+    let file = file.expect("checked by load_corpus");
+    let cfg = bench::RunConfig {
+        exe: std::env::current_exe().unwrap_or_else(|e| fail(&format!("current_exe: {e}"))),
+        corpus: file.into(),
+        budget: std::time::Duration::from_secs_f64(c.budget),
+        jobs: c.jobs,
+        threads: c.threads,
+        mem_mb: c.mem_mb,
+        grace: std::time::Duration::from_secs_f64((c.budget * 0.1).max(5.0)),
+        proofs_dir: c.proofs.as_ref().map(Into::into),
+        child_flag: "--corpus-one",
+        human_stats: opts.human_stats.is_some(),
+    };
+    eprintln!(
+        "corpus {file}: {} problems, budget {}s, {} jobs x {} threads",
+        problems.len(),
+        c.budget,
+        c.jobs,
+        c.threads
+    );
+    let start = Instant::now();
+    let progress = |k: usize, n: usize, o: &bench::Outcome| {
+        eprintln!(
+            "[{k:>3}/{n}] {:<44} {:<15} {:>7.2}s {}{}",
+            o.name,
+            o.status,
+            o.secs,
+            if o.proved { format!("{} ", o.method) } else { String::new() },
+            if o.aux.is_empty() { String::new() } else { format!("[{}]", o.aux.join("; ")) }
+        )
+    };
+    let results = bench::run_corpus(&cfg, &problems, &progress);
+    let mut tsv = String::from(bench::TSV_HEADER);
+    tsv.push('\n');
+    for o in &results {
+        tsv.push_str(&o.to_tsv());
+        tsv.push('\n');
+    }
+    if let Some(out) = &c.out {
+        std::fs::write(out, &tsv).unwrap_or_else(|e| fail(&format!("writing {out}: {e}")));
+    } else {
+        print!("{tsv}");
+    }
+    if let Some(hs) = &opts.human_stats {
+        let mut body = String::from(HUMAN_HEADER);
+        body.push('\n');
+        for o in &results {
+            for l in &o.human {
+                body.push_str(l.strip_prefix("HUMAN\t").unwrap_or(l));
+                body.push('\n');
+            }
+        }
+        std::fs::write(hs, body).unwrap_or_else(|e| fail(&format!("writing {hs}: {e}")));
+    }
+    let count = |f: &dyn Fn(&bench::Outcome) -> bool| results.iter().filter(|o| f(o)).count();
+    let n = results.len();
+    eprintln!("\n== {file}: {n} problems, {:.0}s wall ==", start.elapsed().as_secs_f64());
+    eprintln!("  parsed (figure built):   {}/{n}", count(&|o| o.parsed));
+    eprintln!("  goal holds numerically:  {}/{n}", count(&|o| o.goal_numeric == Some(true)));
+    eprintln!("  PROVED:                  {}/{n}", count(&|o| o.proved));
+    eprintln!("    by DDAR alone:         {}", count(&|o| o.proved && o.method == "ddar"));
+    eprintln!("    with aux points:       {}", count(&|o| o.proved && o.method == "aux"));
+    let mut statuses: Vec<(String, usize)> = Vec::new();
+    for o in &results {
+        match statuses.iter_mut().find(|(s, _)| *s == o.status) {
+            Some((_, k)) => *k += 1,
+            None => statuses.push((o.status.clone(), 1)),
+        }
+    }
+    statuses.sort_by_key(|s| std::cmp::Reverse(s.1));
+    let st: Vec<String> = statuses.iter().map(|(s, k)| format!("{s} {k}")).collect();
+    eprintln!("  status:                  {}", st.join(", "));
+    if results.iter().any(|o| o.status == "UNSOUND") {
+        eprintln!("  !! UNSOUND results present: a numerically false goal was proved");
+        std::process::exit(2);
+    }
+}
+
+fn corpus_check(file: Option<&String>, opts: &Opts) {
+    let problems = load_corpus(file, opts.corpus.only.as_ref());
+    let (mut ok, mut false_goal, mut errors) = (0, 0, 0);
+    for (name, text) in &problems {
+        match corpus::parse_problem(name, text).and_then(|p| corpus::translate(&p, 1, 200)) {
+            Ok(t) if t.goal_holds => {
+                ok += 1;
+                println!("ok          {name}  (seed {}, {} points)", t.seed, t.problem.points.len());
+            }
+            Ok(t) => {
+                false_goal += 1;
+                println!("GOAL-FALSE  {name}  ({} points)", t.problem.points.len());
+            }
+            Err(e) => {
+                errors += 1;
+                println!("ERROR       {name}  {e}");
+            }
+        }
+    }
+    eprintln!(
+        "{} problems: {ok} ok, {false_goal} goal numerically false, {errors} not translatable",
+        problems.len()
+    );
+}
+
+fn corpus_show(file: Option<&String>, name: Option<&String>) {
+    let name = name.unwrap_or_else(|| fail("usage: ddar --corpus-show <file> <name>"));
+    let problems = load_corpus(file, Some(&vec![name.clone()]));
+    let (n, text) = &problems[0];
+    println!("{text}\n");
+    let t = corpus::parse_problem(n, text)
+        .and_then(|p| corpus::translate(&p, 1, 200))
+        .unwrap_or_else(|e| fail(&e));
+    println!("{}", t.problem.to_ag_string());
+    for g in &t.goals {
+        let names: Vec<&str> = g.points.iter().map(|&i| t.problem.point_name(i)).collect();
+        println!("goal: {} {}", g.name, names.join(" "));
+    }
+    println!("holds numerically: {}  (seed {})", t.goal_holds, t.seed);
+}
+
+fn corpus_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
+    let file = file.unwrap_or_else(|| fail("usage: ddar --corpus-one <file> <name>"));
+    let name = name.unwrap_or_else(|| fail("usage: ddar --corpus-one <file> <name>"));
+    let o = bench::child_main(
+        std::path::Path::new(file),
+        name,
+        std::time::Duration::from_secs_f64(opts.corpus.budget),
+        opts.corpus.proofs.as_deref().map(std::path::Path::new),
+    );
+    println!("RESULT\t{}", o.to_tsv());
+    if opts.human || opts.human_json || opts.human_stats.is_some() {
+        for (k, (p, aux, first)) in o.proved_problems.iter().enumerate() {
+            human_report(&o.name, k, p, aux, *first, opts);
+        }
+    }
+    if opts.proof {
+        for a in &o.aux {
+            println!("aux: {a}");
+        }
+        if let Some(p) = &o.proof {
+            println!("\n{p}");
+        }
+    }
+}
+
+const HUMAN_HEADER: &str = "name\tconj\tavailable\traw_steps\tderived\tblocks\tclaims\tsentences\tchain_links\tchains\tpure_chains\tpooled\tfallback_blocks\tfallback_facts\treproved\tsilent\tpruned\ttheorem\twords_en\tlines_en\tcitations\thuman_cost\tcheck_violations\ttimed_out\tmicros\tpanicked";
+
+fn human_report(name: &str, k: usize, p: &Problem, aux: &[String], first: usize, opts: &Opts) {
+    let infos = ddar::human::aux_infos(p, first, aux);
+    let hopts = ddar::human::Opts::default();
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ddar::quiet_panic::quiet(|| ddar::human::for_problem(p, &infos, &hopts))
+    }));
+    let (hp, trace, deps) = match res {
+        Ok(Some((hp, trace, deps, _))) => (Some(hp), Some(trace), deps),
+        Ok(None) => (None, None, Vec::new()),
+        Err(_) => {
+            if opts.human_stats.is_some() {
+                println!("HUMAN\t{name}\t{k}\tno\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\tno\t0\tyes");
+            }
+            return;
+        }
+    };
+    let (Some(hp), Some(trace)) = (hp, trace) else { return };
+    if opts.human_stats.is_some() {
+        let m = &hp.metrics;
+        println!(
+            "HUMAN\t{name}\t{k}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tno",
+            if hp.available { "yes" } else { "no" },
+            m.raw_steps,
+            m.derived,
+            m.blocks,
+            m.claims,
+            m.sentences,
+            m.chain_links,
+            m.chains,
+            m.pure_chains,
+            m.pooled,
+            m.fallback_blocks,
+            m.fallback_facts,
+            m.reproved,
+            m.silent,
+            m.pruned,
+            m.theorem,
+            m.words_en,
+            m.lines_en,
+            m.citations,
+            m.human_cost,
+            m.check_violations,
+            if m.timed_out { "yes" } else { "no" },
+            m.micros
+        );
+    }
+    if opts.human {
+        println!("\n== human proof ({name}, conjunct {k}) ==");
+        print!("{}", ddar::human::render_en(&trace, &hp, &infos));
+    }
+    if opts.human_json {
+        let closure = trace.closure(&deps);
+        println!("{}", ddar::human::view::engine_json(&trace, &hp, &closure));
+    }
+}
+
+fn fuzz_false(file: Option<&String>, opts: &Opts) {
+    use ddar::fuzz;
+    let c = &opts.corpus;
+    let geo_dir = file.filter(|f| std::path::Path::new(f).is_dir());
+    let problems = match geo_dir {
+        Some(dir) => geo_programs(std::path::Path::new(dir)),
+        None => load_corpus(file, c.only.as_ref()),
+    };
+    let file = file.expect("checked by load_corpus");
+    let budget = if c.budget_given { c.budget } else { 15.0 };
+    let out = c
+        .out
+        .clone()
+        .unwrap_or_else(|| format!("{}/ddar-fuzz-{}.tsv", std::env::temp_dir().display(), std::process::id()));
+    let cases_path = format!("{out}.cases.txt");
+    let proofs_dir = std::path::PathBuf::from(format!("{out}.proofs"));
+    let start = Instant::now();
+    let cfg = fuzz::Config {
+        per: c.per,
+        seed: c.seed,
+        samples: c.samples,
+    };
+    let gen = if geo_dir.is_some() {
+        fuzz::generate_geo(&problems, &cfg)
+    } else {
+        fuzz::generate(&problems, &cfg)
+    };
+    let by_kind: Vec<String> = fuzz::Kind::ALL
+        .iter()
+        .map(|k| format!("{} {}", k.tag(), gen.cases.iter().filter(|x| x.kind == *k).count()))
+        .collect();
+    eprintln!(
+        "fuzz {file}: {} problems -> {} cases ({}) in {:.1}s; {} variants held on some figure and were dropped; {} problems skipped",
+        problems.len(),
+        gen.cases.len(),
+        by_kind.join(", "),
+        start.elapsed().as_secs_f64(),
+        gen.not_false,
+        gen.skipped.len()
+    );
+    for (n, why) in &gen.skipped {
+        eprintln!("  skipped {n}: {why}");
+    }
+    std::fs::write(&cases_path, fuzz::corpus_text(&gen.cases))
+        .unwrap_or_else(|e| fail(&format!("writing {cases_path}: {e}")));
+    let _ = std::fs::remove_dir_all(&proofs_dir);
+    let run = bench::RunConfig {
+        exe: std::env::current_exe().unwrap_or_else(|e| fail(&format!("current_exe: {e}"))),
+        corpus: cases_path.clone().into(),
+        budget: std::time::Duration::from_secs_f64(budget),
+        jobs: c.jobs,
+        threads: c.threads,
+        mem_mb: c.mem_mb,
+        grace: std::time::Duration::from_secs_f64((budget * 0.1).max(5.0)),
+        proofs_dir: Some(proofs_dir.clone()),
+        child_flag: "--fuzz-one",
+        human_stats: false,
+    };
+    eprintln!(
+        "running {} cases, budget {budget}s, {} jobs x {} threads; cases in {cases_path}",
+        gen.cases.len(),
+        c.jobs,
+        c.threads
+    );
+    let kinds: std::collections::HashMap<&str, &fuzz::Case> =
+        gen.cases.iter().map(|k| (k.name.as_str(), k)).collect();
+    let progress = |k: usize, n: usize, o: &bench::Outcome| {
+        if let Some(case) = kinds.get(o.name.as_str()) {
+            let v = fuzz::verdict(case, o);
+            if v != "ok" || k.is_multiple_of(50) || k == n {
+                eprintln!("[{k:>4}/{n}] {:<52} {:<11} {:<15} {v}", o.name, case.kind.tag(), o.status);
+            }
+        }
+    };
+    let pairs: Vec<(String, String)> = gen.cases.iter().map(|k| (k.name.clone(), k.text.clone())).collect();
+    let results = bench::run_corpus(&run, &pairs, &progress);
+    let mut tsv = String::from(fuzz::TSV_HEADER);
+    tsv.push('\n');
+    let mut unsound = Vec::new();
+    let mut crashes = 0;
+    let mut statuses: std::collections::BTreeMap<String, usize> = Default::default();
+    for o in &results {
+        let Some(case) = kinds.get(o.name.as_str()) else { continue };
+        tsv.push_str(&fuzz::tsv_row(case, o));
+        tsv.push('\n');
+        *statuses.entry(format!("{}:{}", case.kind.tag(), o.status)).or_default() += 1;
+        match fuzz::verdict(case, o) {
+            "UNSOUND" => unsound.push((*case, o)),
+            "CRASH" => crashes += 1,
+            _ => {}
+        }
+    }
+    std::fs::write(&out, &tsv).unwrap_or_else(|e| fail(&format!("writing {out}: {e}")));
+    eprintln!("\n== fuzz {file}: {} cases, {:.0}s wall, results in {out} ==", results.len(), start.elapsed().as_secs_f64());
+    for (s, n) in &statuses {
+        eprintln!("  {s:<32} {n}");
+    }
+    eprintln!("  crashes: {crashes}   UNSOUND: {}", unsound.len());
+    for (case, o) in &unsound {
+        eprintln!("\n!! UNSOUND {} [{}] {}\n   {}\n   status {} {}", case.name, case.kind.tag(), case.mutation, case.text, o.status, o.detail);
+        if let Ok(p) = std::fs::read_to_string(bench::proof_path(&proofs_dir, &case.name)) {
+            eprintln!("{p}");
+        }
+    }
+    if !unsound.is_empty() {
+        std::process::exit(2);
+    }
+    if crashes > 0 {
+        std::process::exit(1);
+    }
+}
+
+fn geo_programs(dir: &std::path::Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().and_then(|x| x.to_str()) == Some("geo") {
+                if let Ok(src) = std::fs::read_to_string(&p) {
+                    out.push((p.display().to_string(), src));
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+fn fuzz_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
+    let file = file.unwrap_or_else(|| fail("usage: ddar --fuzz-one <cases> <name>"));
+    let name = name.unwrap_or_else(|| fail("usage: ddar --fuzz-one <cases> <name>"));
+    let o = ddar::fuzz::child_main(
+        std::path::Path::new(file),
+        name,
+        std::time::Duration::from_secs_f64(opts.corpus.budget),
+        opts.corpus.proofs.as_deref().map(std::path::Path::new),
+    );
+    println!("RESULT\t{}", o.to_tsv());
+    if opts.human || opts.human_json || opts.human_stats.is_some() {
+        for (k, (p, aux, first)) in o.proved_problems.iter().enumerate() {
+            human_report(&o.name, k, p, aux, *first, opts);
+        }
+    }
+    if opts.proof {
+        if let Some(p) = &o.proof {
+            println!("\n{p}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_flags_are_recognised() {
+        for h in ["--help", "-h"] {
+            assert!(matches!(classify_arg(h), ArgKind::Help), "{h}");
+        }
+        assert!(USAGE.contains("--geo <prog|file>") && USAGE.contains("-h, --help"));
+    }
+
+    #[test]
+    fn unknown_options_are_rejected_not_parsed_as_problems() {
+        assert!(matches!(classify_arg("--bogus"), ArgKind::Unknown));
+        assert!(matches!(classify_arg("a b c = triangle a b c ? perp a b a c"), ArgKind::Positional));
+        assert!(matches!(classify_arg("--geo"), ArgKind::Mode));
     }
 }

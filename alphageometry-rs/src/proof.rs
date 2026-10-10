@@ -31,6 +31,8 @@ type Triple = (PointId, PointId, PointId);
 pub enum Reason {
     /// A hypothesis of the problem, pre-rendered (they are few).
     Assumption(String),
+    /// The defining fact of an auxiliary point a prover introduced.
+    Construction(String),
     /// Two triangles matched as similar by the closure search.
     SimilarTriangles(Triple, Triple),
     /// Points found concyclic (inscribed-angle criterion / equal radii).
@@ -41,12 +43,18 @@ pub enum Reason {
     EqualRadius(PointId, Vec<PointId>),
     /// Two numerically-equal points proved equal and merged.
     PointMerge(PointId, PointId),
+    /// Two numerically-equal points on two objects proved tangent at them
+    /// (a point of the line of centres, or a tangent line ⟂ the radius).
+    TangentMerge(PointId, PointId),
     /// Additive/multiplicative distance transfer on matching segments.
     TransferAddMul(Pair, Pair),
     /// Equal arcs ⇔ equal chords on a circle.
     TransferArcChord(Pair, Pair),
     /// A named classical theorem applied to the listed points.
     Theorem(&'static str, Vec<PointId>),
+    /// A named rule with its statement spelled out: `{i}` in the text is the
+    /// name of the `i`-th listed point.
+    Formula(&'static str, String, Vec<PointId>),
 }
 
 /// One recorded fact: its justification and the facts it relied upon.
@@ -97,37 +105,49 @@ impl ProofLog {
     /// Render a numbered proof in the spirit of the original AlphaGeometry
     /// (`001. premise & premise ⇒ conclusion`).
     pub fn report(&self, used: &[FactId], goal_text: &str, names: &[String]) -> String {
-        let steps = self.closure(used);
-        let number: std::collections::HashMap<FactId, usize> =
-            steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
-
+        let lines = self.step_lines(used, names);
         let mut out = String::new();
         out.push_str(&format!(
             "Proof of {goal_text} ({} steps, {} facts recorded in total):\n",
-            steps.len(),
+            lines.len(),
             self.facts.len()
         ));
-        for &f in &steps {
-            let fact = &self.facts[f as usize];
-            let cites: Vec<String> = fact
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|n| format!("{n:03}")))
-                .collect();
-            let arrow = if cites.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", cites.join(" & "))
-            };
-            out.push_str(&format!(
-                "{:03}. {}{}\n",
-                number[&f],
-                render_reason(&fact.reason, names),
-                arrow
-            ));
+        for line in &lines {
+            out.push_str(line);
+            out.push('\n');
         }
         out.push_str(&format!("∎ {goal_text}\n"));
         out
+    }
+
+    /// The numbered derivation lines (`001. reason [premises]`) of the backward
+    /// closure from `used`, without a header or conclusion line.
+    pub fn step_lines(&self, used: &[FactId], names: &[String]) -> Vec<String> {
+        let steps = self.closure(used);
+        let number: std::collections::HashMap<FactId, usize> =
+            steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
+        steps
+            .iter()
+            .map(|&f| {
+                let fact = &self.facts[f as usize];
+                let cites: Vec<String> = fact
+                    .premises
+                    .iter()
+                    .filter_map(|p| number.get(p).map(|n| format!("{n:03}")))
+                    .collect();
+                let arrow = if cites.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", cites.join(" & "))
+                };
+                format!(
+                    "{:03}. {}{}",
+                    number[&f],
+                    render_reason(&fact.reason, names),
+                    arrow
+                )
+            })
+            .collect()
     }
 }
 
@@ -148,6 +168,7 @@ fn nms(names: &[String], ps: &[PointId]) -> String {
 fn render_reason(r: &Reason, names: &[String]) -> String {
     match r {
         Reason::Assumption(s) => format!("assumption: {s}"),
+        Reason::Construction(s) => format!("construction: {s}"),
         Reason::SimilarTriangles((a, b, c), (x, y, z)) => format!(
             "similar triangles: △{}{}{} ∼ △{}{}{}",
             nm(names, *a),
@@ -169,6 +190,11 @@ fn render_reason(r: &Reason, names: &[String]) -> String {
             nm(names, *a),
             nm(names, *b)
         ),
+        Reason::TangentMerge(a, b) => format!(
+            "points {} and {} coincide (two objects proved tangent there share both)",
+            nm(names, *a),
+            nm(names, *b)
+        ),
         Reason::TransferAddMul((a, b), (c, d)) => format!(
             "segment arithmetic: |{}{}| ↔ |{}{}| (add/mul transfer)",
             nm(names, *a),
@@ -184,6 +210,13 @@ fn render_reason(r: &Reason, names: &[String]) -> String {
             nm(names, *d)
         ),
         Reason::Theorem(name, ps) => format!("{name}: {}", nms(names, ps)),
+        Reason::Formula(name, text, ps) => {
+            let mut out = text.clone();
+            for (i, &p) in ps.iter().enumerate().rev() {
+                out = out.replace(&format!("{{{i}}}"), &nm(names, p));
+            }
+            format!("{name}: {out}")
+        }
     }
 }
 
@@ -229,6 +262,13 @@ mod tests {
         let mut a = vec![1, 3, 5];
         merge_deps(&mut a, &[2, 3, 6]);
         assert_eq!(a, vec![1, 2, 3, 5, 6]);
+    }
+
+    #[test]
+    fn formula_names_its_points() {
+        let names: Vec<String> = (0..12).map(|i| format!("p{i}")).collect();
+        let r = Reason::Formula("rule", "∠({1}{0},{1}{11}) = 30°".into(), (0..12).collect());
+        assert_eq!(render_reason(&r, &names), "rule: ∠(p1p0,p1p11) = 30°");
     }
 
     #[test]

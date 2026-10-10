@@ -1,0 +1,9 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(B,D)*dist(C,E)*dist(A,F) = dist(D,C)*dist(E,A)*dist(F,B)
+
+  1. Drop perpendiculars from A, B, C onto the transversal DEF, with feet A₁, B₁, C₁.
+  2. ∠BDB₁ = ∠CDC₁ (the same angle at D) and the right angles at B₁, C₁ — so triangles △BDB₁ and △CDC₁ are similar (AA), giving BD:CD = DB₁:DC₁ = B₁B:C₁C.  [from 1]
+  3. ∠CEC₁ = ∠AEA₁ (the same angle at E) and the right angles at C₁, A₁ — so triangles △CEC₁ and △AEA₁ are similar (AA), giving CE:AE = EC₁:EA₁ = C₁C:A₁A.  [from 1]
+  4. ∠AFA₁ = ∠BFB₁ (vertical angles at F) and the right angles at A₁, B₁ — so triangles △AFA₁ and △BFB₁ are similar (AA), giving AF:BF = FA₁:FB₁ = A₁A:B₁B.  [from 1]
+
+  Combining the proportions above gives dist(B,D)*dist(C,E)*dist(A,F) = dist(D,C)*dist(E,A)*dist(F,B)  (= 0.0137). ∎

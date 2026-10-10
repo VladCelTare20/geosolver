@@ -1,0 +1,1447 @@
+diff -ruN '--exclude=CODEMAP.md' a/alphageometry-rs/src/bin/hproof_human.inc b/alphageometry-rs/src/bin/hproof_human.inc
+--- a/alphageometry-rs/src/bin/hproof_human.inc	1970-01-01 02:00:00.000000000 +0200
++++ b/alphageometry-rs/src/bin/hproof_human.inc	2026-10-05 20:52:17.309027931 +0300
+@@ -0,0 +1,682 @@
++static mut QUIET: bool = false;
++macro_rules! say { ($($t:tt)*) => { #[allow(static_mut_refs)] if unsafe { !QUIET } { println!($($t)*); } } }
++static mut ST: [usize; 12] = [0; 12];
++fn st(i: usize, v: usize) { unsafe { ST[i] += v; } }
++#[derive(Clone)]
++struct Atom {
++    table: Table,
++    comb: LinComb,
++    cost: u32,
++    label: String,
++    order: u32,
++    pts: BTreeSet<PointId>,
++}
++
++fn comb_pts(cx: &Ctx, c: &LinComb) -> BTreeSet<PointId> {
++    let mut out = BTreeSet::new();
++    for (v, _) in c.terms.iter() {
++        if let Some(&(a, b)) = cx.dir_var.get(v).or_else(|| cx.dm_var.get(v)) {
++            out.insert(a);
++            out.insert(b);
++        }
++    }
++    out
++}
++
++fn fix_pts(cx: &Ctx, atoms: &mut [Atom]) {
++    for a in atoms.iter_mut() {
++        a.pts = comb_pts(cx, &a.comb);
++    }
++}
++
++static mut FOCUS: Option<BTreeSet<PointId>> = None;
++
++fn eff(a: &Atom) -> u32 {
++    if a.cost == 0 {
++        return 0;
++    }
++    #[allow(static_mut_refs)]
++    let foreign = unsafe { FOCUS.as_ref().map(|f| a.pts.iter().filter(|p| !f.contains(p)).count()).unwrap_or(0) };
++    a.cost * 4 + foreign as u32
++}
++
++
++fn exact(cx: &Ctx, table: Table, c: &LinComb) -> LinComb {
++    if table != Table::Ang {
++        return c.clone();
++    }
++    let mut out = c.clone();
++    let v = cx.d.p_angle_value(&out);
++    let k = v.round() as i64;
++    out.add_term(ANGLE_UNIT, Rat::from_int(-k));
++    out
++}
++
++fn solve_list(table: Table, combs: &[&LinComb], target: &LinComb) -> Option<Vec<(usize, Rat)>> {
++    let mut b = Basis::new(table);
++    for (i, c) in combs.iter().enumerate() {
++        b.insert(i, c);
++    }
++    let mut v = target.clone();
++    let mut combo = LinComb::zero();
++    b.reduce(&mut v, &mut combo);
++    if !lhs_zero(table, &v) {
++        return None;
++    }
++    if table == Table::Ang && !v.get(ANGLE_UNIT).is_integer() {
++        return None;
++    }
++    Some(combo.terms.iter().filter(|(_, c)| !c.is_zero()).map(|(i, c)| (*i as usize, -c)).collect())
++}
++
++fn in_span(table: Table, combs: &[&LinComb], target: &LinComb) -> bool {
++    solve_list(table, combs, target).is_some()
++}
++
++fn human_certify(table: Table, atoms: &[Atom], target_in: &LinComb) -> Option<Vec<(usize, Rat)>> {
++    let target = &target_in.clone();
++    let mut idx: Vec<usize> = (0..atoms.len()).filter(|&i| atoms[i].table == table).collect();
++    idx.sort_by_key(|&i| (eff(&atoms[i]), atoms[i].order));
++    let mut b = Basis::new(table);
++    let mut upto = None;
++    for (k, &i) in idx.iter().enumerate() {
++        b.insert(i, &atoms[i].comb);
++        let last = k + 1 == idx.len() || eff(&atoms[idx[k + 1]]) != eff(&atoms[i]) || k % 16 == 15;
++        if last {
++            let mut v = target.clone();
++            let mut combo = LinComb::zero();
++            b.reduce(&mut v, &mut combo);
++            if lhs_zero(table, &v) && (table != Table::Ang || v.get(ANGLE_UNIT).is_integer()) {
++                upto = Some(k);
++                break;
++            }
++        }
++    }
++    let upto = upto?;
++    let mut set: Vec<usize> = idx[..=upto].to_vec();
++    let mut rem: Vec<usize> = set.clone();
++    rem.sort_by_key(|&i| (std::cmp::Reverse(eff(&atoms[i])), std::cmp::Reverse(atoms[i].order)));
++    for i in rem {
++        if atoms[i].cost == 0 {
++            continue;
++        }
++        let trial: Vec<usize> = set.iter().copied().filter(|&j| j != i).collect();
++        let combs: Vec<&LinComb> = trial.iter().map(|&j| &atoms[j].comb).collect();
++        if in_span(table, &combs, target) {
++            set = trial;
++        }
++    }
++    let combs: Vec<&LinComb> = set.iter().map(|&j| &atoms[j].comb).collect();
++    let lam = solve_list(table, &combs, target)?;
++    Some(lam.into_iter().map(|(k, l)| (set[k], l)).collect())
++}
++
++fn cost_of(kind: &str) -> u32 {
++    match kind {
++        "collinear" => 0,
++        "assumption" | "construction" | "equal-radius" => 1,
++        "concyclic" | "arc-chord" | "theorem" | "formula" => 3,
++        "isosceles(self-similar)" => 6,
++        "similar" => 5,
++        _ => 4,
++    }
++}
++
++fn pts_text(cx: &Ctx, p: &[PointId]) -> String {
++    p.iter().map(|&q| cx.nm(q)).collect()
++}
++
++fn build_atoms(cx: &Ctx, steps: &[FactId], upto: FactId, ang_rows: &[(FactId, LinComb)], dm_rows: &[(FactId, LinComb)]) -> Vec<Atom> {
++    let log = cx.d.p_log();
++    let before: Vec<FactId> = steps.iter().copied().filter(|&g| g < upto).collect();
++    let bset: BTreeSet<FactId> = before.iter().copied().collect();
++    let mut atoms = Vec::new();
++    let mut ord = 0u32;
++    for (tb, rows) in [(Table::Ang, ang_rows), (Table::Dm, dm_rows)] {
++        for (g, c) in rows {
++            if !bset.contains(g) {
++                continue;
++            }
++            let k = kind(&log.facts[*g as usize].reason);
++            ord += 1;
++            atoms.push(Atom { table: tb, comb: c.clone(), cost: cost_of(k), label: format!("[{}] {}", k, cx.reason(*g)), order: ord, pts: BTreeSet::new() });
++        }
++    }
++    let engine_ang: Vec<LinComb> = atoms.iter().filter(|a| a.table == Table::Ang).map(|a| a.comb.clone()).collect();
++    let engine_dm: Vec<LinComb> = atoms.iter().filter(|a| a.table == Table::Dm).map(|a| a.comb.clone()).collect();
++    let ang_refs: Vec<&LinComb> = engine_ang.iter().collect();
++    let dm_refs: Vec<&LinComb> = engine_dm.iter().collect();
++    let mut lines: Vec<Vec<PointId>> = Vec::new();
++    let mut circles: Vec<Vec<PointId>> = Vec::new();
++    for &g in &before {
++        match &log.facts[g as usize].reason {
++            Reason::Collinear(p) => lines.push(p.clone()),
++            Reason::Concyclic(p) => circles.push(p.clone()),
++            _ => {}
++        }
++    }
++    let on_line = |a: PointId, b: PointId, c: PointId| lines.iter().any(|l| l.contains(&a) && l.contains(&b) && l.contains(&c));
++    let mut seen = BTreeSet::new();
++    for s in &circles {
++        let n = s.len();
++        for i in 0..n {
++            for j in i + 1..n {
++                for k in j + 1..n {
++                    for l in k + 1..n {
++                        let mut q = [s[i], s[j], s[k], s[l]];
++                        q.sort();
++                        if !seen.insert(q) {
++                            continue;
++                        }
++                        let [a, b, c, d] = q;
++                        let comb = &cx.ang(c, a, c, b) - &cx.ang(d, a, d, b);
++                        if in_span(Table::Ang, &ang_refs, &comb) {
++                            ord += 1;
++                            atoms.push(Atom { table: Table::Ang, comb: exact(cx, Table::Ang, &comb), cost: 1, label: format!("cyclic {}", pts_text(cx, &[a, b, c, d])), order: ord, pts: BTreeSet::new() });
++                        }
++                    }
++                }
++            }
++        }
++    }
++    let n = cx.d.p_n() as PointId;
++    let dist = |a: PointId, b: PointId| {
++        let (p, q) = (cx.d.p_coord(a), cx.d.p_coord(b));
++        ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt()
++    };
++    for o in 0..n {
++        if cx.d.p_subst(o) != o {
++            continue;
++        }
++        let others: Vec<PointId> = (0..n).filter(|&p| p != o && cx.d.p_subst(p) == p && cx.d.p_dm(o, p).is_some()).collect();
++        let mut groups: Vec<Vec<PointId>> = Vec::new();
++        for &p in &others {
++            let r = dist(o, p);
++            if let Some(g) = groups.iter_mut().find(|g| (dist(o, g[0]) - r).abs() < 1e-9 * (1.0 + r)) {
++                g.push(p);
++            } else {
++                groups.push(vec![p]);
++            }
++        }
++        for g in groups.into_iter().filter(|g| g.len() >= 2) {
++            let cert: Vec<PointId> = g.iter().copied().filter(|&p| p == g[0] || in_span(Table::Dm, &dm_refs, &(&cx.dm(o, g[0]) - &cx.dm(o, p)))).collect();
++            if cert.len() < 2 {
++                continue;
++            }
++            ord += 1;
++            for (i, &a) in cert.iter().enumerate() {
++                for &b in &cert[i + 1..] {
++                    atoms.push(Atom { table: Table::Dm, comb: &cx.dm(o, a) - &cx.dm(o, b), cost: 1, label: format!("{}{} = {}{} (radii, centre {})", cx.nm(o), cx.nm(a), cx.nm(o), cx.nm(b), cx.nm(o)), order: ord, pts: BTreeSet::new() });
++                    let comb = &(&(&cx.dir(a, b) + &cx.dir(a, b)) - &cx.dir(o, a)) - &cx.dir(o, b);
++                    if in_span(Table::Ang, &ang_refs, &comb) {
++                        atoms.push(Atom { table: Table::Ang, comb: exact(cx, Table::Ang, &comb), cost: 2, label: format!("isosceles {}{}={}{}", cx.nm(o), cx.nm(a), cx.nm(o), cx.nm(b)), order: ord, pts: BTreeSet::new() });
++                    }
++                    for &z in &cert {
++                        if z == a || z == b {
++                            continue;
++                        }
++                        let mut comb = &cx.ang(o, a, o, b) - &cx.ang(z, a, z, b);
++                        comb.add_term(ANGLE_UNIT, Rat::zero());
++                        let mut comb2 = cx.ang(z, a, z, b);
++                        comb2.mul_assign_scalar(&Rat::from_int(2));
++                        let comb = &cx.ang(o, a, o, b) - &comb2;
++                        if !on_line(a, o, b) && in_span(Table::Ang, &ang_refs, &comb) {
++                            atoms.push(Atom { table: Table::Ang, comb: exact(cx, Table::Ang, &comb), cost: 2, label: format!("central angle: ∠{}{}{} = 2∠{}{}{}", cx.nm(a), cx.nm(o), cx.nm(b), cx.nm(a), cx.nm(z), cx.nm(b)), order: ord, pts: BTreeSet::new() });
++                        }
++                    }
++                    if on_line(a, o, b) {
++                        for &z in &cert {
++                            if z == a || z == b {
++                                continue;
++                            }
++                            let mut comb = &cx.dir(z, a) - &cx.dir(z, b);
++                            comb.add_term(ANGLE_UNIT, Rat::new(-1, 2));
++                            if in_span(Table::Ang, &ang_refs, &comb) {
++                                atoms.push(Atom { table: Table::Ang, comb: exact(cx, Table::Ang, &comb), cost: 1, label: format!("Thales: {}{} diameter (centre {}) ⇒ ∠{}{}{} = 90°", cx.nm(a), cx.nm(b), cx.nm(o), cx.nm(a), cx.nm(z), cx.nm(b)), order: ord, pts: BTreeSet::new() });
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
++    // tangent-chord: circle centred o through `cert`, line PX ⟂ OP
++    for o in 0..n {
++        if cx.d.p_subst(o) != o {
++            continue;
++        }
++        let others: Vec<PointId> = (0..n).filter(|&p| p != o && cx.d.p_subst(p) == p && cx.d.p_dm(o, p).is_some()).collect();
++        let mut groups: Vec<Vec<PointId>> = Vec::new();
++        for &p in &others {
++            let r = dist(o, p);
++            if let Some(g) = groups.iter_mut().find(|g| (dist(o, g[0]) - r).abs() < 1e-9 * (1.0 + r)) {
++                g.push(p);
++            } else {
++                groups.push(vec![p]);
++            }
++        }
++        for g in groups.into_iter().filter(|g| g.len() >= 3) {
++            let cert: Vec<PointId> = g.iter().copied().filter(|&p| p == g[0] || in_span(Table::Dm, &dm_refs, &(&cx.dm(o, g[0]) - &cx.dm(o, p)))).collect();
++            if cert.len() < 3 {
++                continue;
++            }
++            for &pp in &cert {
++                for x in 0..n {
++                    if x == o || cert.contains(&x) || cx.d.p_subst(x) != x || cx.d.p_dir(pp, x).is_none() {
++                        continue;
++                    }
++                    let mut perp = &cx.dir(pp, x) - &cx.dir(pp, o);
++                    perp.add_term(ANGLE_UNIT, Rat::new(-1, 2));
++                    if !in_span(Table::Ang, &ang_refs, &exact(cx, Table::Ang, &perp)) {
++                        continue;
++                    }
++                    for &y in &cert {
++                        for &z in &cert {
++                            if y == pp || z == pp || y == z {
++                                continue;
++                            }
++                            let comb = &cx.ang(pp, x, pp, y) - &cx.ang(z, pp, z, y);
++                            let comb = exact(cx, Table::Ang, &comb);
++                            if in_span(Table::Ang, &ang_refs, &comb) {
++                                ord += 1;
++                                atoms.push(Atom { table: Table::Ang, comb, cost: 1, label: format!("tangent-chord: {}{} tangent to circle ({}) at {} ⇒ ∠({}{},{}{}) = ∠{}{}{}", cx.nm(pp), cx.nm(x), cx.nm(o), cx.nm(pp), cx.nm(pp), cx.nm(x), cx.nm(pp), cx.nm(y), cx.nm(pp), cx.nm(z), cx.nm(y)), order: ord, pts: BTreeSet::new() });
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
++    for s in &circles {
++        for x in 0..n {
++            if s.contains(&x) || cx.d.p_subst(x) != x {
++                continue;
++            }
++            let mut chords = Vec::new();
++            for (i, &a) in s.iter().enumerate() {
++                for &b in &s[i + 1..] {
++                    if a != x && b != x && on_line(x, a, b) {
++                        chords.push((a, b));
++                    }
++                }
++            }
++            for i in 0..chords.len() {
++                for j in i + 1..chords.len() {
++                    let ((a, b), (c, d)) = (chords[i], chords[j]);
++                    let comb = &(&(&cx.dm(x, a) + &cx.dm(x, b)) - &cx.dm(x, c)) - &cx.dm(x, d);
++                    if in_span(Table::Dm, &dm_refs, &comb) {
++                        ord += 1;
++                        atoms.push(Atom { table: Table::Dm, comb, cost: 1, label: format!("power of {} w.r.t. ({})", cx.nm(x), pts_text(cx, s)), order: ord, pts: BTreeSet::new() });
++                    }
++                }
++            }
++        }
++    }
++    fix_pts(cx, &mut atoms);
++    atoms
++}
++
++fn set_focus(p: BTreeSet<PointId>) {
++    unsafe {
++        FOCUS = Some(p);
++    }
++}
++
++fn cert_cost(atoms: &[Atom], c: &[(usize, Rat)]) -> u32 {
++    c.iter().map(|(i, l)| eff(&atoms[*i]) + if l.abs().is_one() { 0 } else { 2 }).sum()
++}
++
++fn chain_atoms(cx: &Ctx, table: Table, atoms: &[Atom], cert: &[(usize, Rat)], l: &LinComb, r: &LinComb) -> (Vec<String>, usize) {
++    let q = |c: &LinComb| if table == Table::Ang { cx.quot(c) } else { c.clone() };
++    let txt = |c: &LinComb| if table == Table::Ang { cx.angle_text(c) } else { cx.ratio_text(c) };
++    let mut items: Vec<(usize, LinComb, Rat)> = cert
++        .iter()
++        .map(|(i, lam)| {
++            let mut c = atoms[*i].comb.clone();
++            c.mul_assign_scalar(lam);
++            (*i, q(&c), lam.clone())
++        })
++        .filter(|(_, c, _)| !lhs_zero(table, c))
++        .collect();
++    let mut cur = q(l);
++    let mut out = vec![format!("    {}", txt(&cur))];
++    let mut ugly = 0;
++    let single = |c: &LinComb| c.terms.iter().filter(|(v, _)| *v != ANGLE_UNIT).count() <= 2 && c.terms.iter().all(|(v, k)| *v == ANGLE_UNIT || k.abs().is_one());
++    if table == Table::Ang && single(&cur) && items.len() <= 18 {
++        let target = q(r);
++        let mut budget = 200_000usize;
++        fn dfs(cur: &LinComb, items: &[(usize, LinComb, Rat)], used: &mut Vec<bool>, order: &mut Vec<usize>, target: &LinComb, single: &dyn Fn(&LinComb) -> bool, q: &dyn Fn(&LinComb) -> LinComb, budget: &mut usize) -> bool {
++            if order.len() == items.len() {
++                return lhs_zero(Table::Ang, &q(&(cur - target)));
++            }
++            if *budget == 0 {
++                return false;
++            }
++            *budget -= 1;
++            for k in 0..items.len() {
++                if used[k] {
++                    continue;
++                }
++                let nx = q(&(cur - &items[k].1));
++                if !single(&nx) {
++                    continue;
++                }
++                used[k] = true;
++                order.push(k);
++                if dfs(&nx, items, used, order, target, single, q, budget) {
++                    return true;
++                }
++                order.pop();
++                used[k] = false;
++            }
++            false
++        }
++        let mut used = vec![false; items.len()];
++        let mut order = Vec::new();
++        let qf = |c: &LinComb| cx.quot(c);
++        if dfs(&cur, &items, &mut used, &mut order, &target, &single, &qf, &mut budget) {
++            for &k in &order {
++                let (i, c, lam) = &items[k];
++                cur = q(&(&cur - c));
++                let coef = if lam.abs().is_one() { String::new() } else { format!(" ×{lam}") };
++                out.push(format!("  = {:<34} [{}{}]", txt(&cur), atoms[*i].label, coef));
++            }
++            out.push(format!("  (PURE chain; reaches rhs {}: true)", txt(&target)));
++            return (out, 0);
++        }
++    }
++    while !items.is_empty() {
++        let (k, nt) = items
++            .iter()
++            .enumerate()
++            .map(|(k, (_, c, _))| {
++                let nx = q(&(&cur - c));
++                (k, nx.terms.iter().filter(|(v, _)| *v != ANGLE_UNIT).count())
++            })
++            .min_by_key(|x| x.1)
++            .unwrap();
++        ugly += nt.saturating_sub(2);
++        let (i, c, lam) = items.remove(k);
++        cur = q(&(&cur - &c));
++        let coef = if lam.abs().is_one() { String::new() } else { format!(" ×{lam}") };
++        out.push(format!("  = {:<34} [{}{}]", txt(&cur), atoms[i].label, coef));
++    }
++    let ok = lhs_zero(table, &q(&(&cur - &q(r))));
++    if !ok {
++        ugly += 1000;
++    }
++    out.push(format!("  (reaches rhs {}: {})", txt(&q(r)), ok));
++    (out, ugly)
++}
++
++fn splits(cx: &Ctx, name: &str, p: &[PointId]) -> Vec<(LinComb, LinComb)> {
++    let n = cx.d.p_n() as PointId;
++    match name {
++        "cyclic" if p.len() >= 4 => {
++            let mut v = Vec::new();
++            let q = [p[0], p[1], p[2], p[3]];
++            for i in 0..4 {
++                for j in i + 1..4 {
++                    let rest: Vec<PointId> = (0..4).filter(|&k| k != i && k != j).map(|k| q[k]).collect();
++                    let (a, b) = (q[i], q[j]);
++                    v.push((cx.ang(rest[0], a, rest[0], b), cx.ang(rest[1], a, rest[1], b)));
++                }
++            }
++            v
++        }
++        "coll" if p.len() >= 3 => (0..n)
++            .filter(|&x| !p.contains(&x) && cx.d.p_subst(x) == x)
++            .filter_map(|x| {
++                let (a, b, c) = (p[0], p[1], p[2]);
++                cx.d.p_dir(b, x)?;
++                Some((cx.ang(b, x, b, a), cx.ang(b, x, b, c)))
++            })
++            .collect(),
++        _ => vec![],
++    }
++}
++
++fn show(cx: &Ctx, table: Table, atoms: &[Atom], target: &LinComb, name: &str, pts: &[PointId], lr: Option<(LinComb, LinComb)>) -> bool {
++    let Some(cert) = human_certify(table, atoms, target) else {
++        say!("   (no human certificate)");
++        return false;
++    };
++    let nonunit = cert.iter().filter(|(i, l)| !l.abs().is_one() && atoms[*i].cost > 0).count();
++    let cites: Vec<String> = cert.iter().filter(|(i, _)| atoms[*i].cost > 0).map(|(i, _)| atoms[*i].label.clone()).collect();
++    say!("   uses {} atoms (nonunit {}): {}", cites.len(), nonunit, cites.join(" | "));
++    let mut cands: Vec<(LinComb, LinComb)> = match lr {
++        Some(x) => vec![x],
++        None if table == Table::Ang => splits(cx, name, pts),
++        None => vec![],
++    };
++    if cands.is_empty() {
++        cands.push((target.clone(), LinComb::zero()));
++    }
++    let best = cands
++        .iter()
++        .map(|(l, r)| {
++            let t = l - r;
++            let same = lhs_zero(table, &cx.quot_or(table, &(&t - target)));
++            let cert2 = if same { cert.clone() } else { cert.iter().map(|(i, x)| (*i, -x)).collect::<Vec<_>>() };
++            chain_atoms(cx, table, atoms, &cert2, l, r)
++        })
++        .min_by_key(|(_, u)| *u)
++        .unwrap();
++    st(0, 1);
++    if best.1 == 0 && best.0.last().map(|x| x.contains("PURE")).unwrap_or(false) { st(8, 1); }
++    if best.1 == 0 { st(9, 1); }
++    st(1, cites.len());
++    st(2, nonunit);
++    let links = best.0.len().saturating_sub(2);
++    st(3, links);
++    unsafe { if links > ST[4] { ST[4] = links; } }
++    if !best.0.last().map(|x| x.ends_with("true)")).unwrap_or(false) { st(5, 1); }
++    for l in best.0 {
++        say!("{l}");
++    }
++    true
++}
++
++impl<'a> Ctx<'a> {
++    fn quot_or(&self, table: Table, c: &LinComb) -> LinComb {
++        if table == Table::Ang {
++            self.quot(c)
++        } else {
++            c.clone()
++        }
++    }
++}
++
++fn human_obligations(cx: &Ctx, f: FactId, steps: &[FactId], dm_rows: &[(FactId, LinComb)]) -> Vec<(&'static str, Vec<(Table, LinComb)>)> {
++    human_obligations_raw(cx, f, steps, dm_rows).into_iter().map(|(l, v)| (l, v.into_iter().map(|(t, c)| { let e = exact(cx, t, &c); (t, e) }).collect())).collect()
++}
++
++fn human_obligations_raw(cx: &Ctx, f: FactId, steps: &[FactId], dm_rows: &[(FactId, LinComb)]) -> Vec<(&'static str, Vec<(Table, LinComb)>)> {
++    let log = cx.d.p_log();
++    let r = &log.facts[f as usize].reason;
++    if matches!(r, Reason::Collinear(_) | Reason::Concyclic(_)) {
++        let direct = log.facts[f as usize].premises.iter().any(|&g| g + 1 == f && matches!(log.facts[g as usize].reason, Reason::Assumption(_) | Reason::Construction(_) | Reason::Theorem(..)));
++        if direct {
++            return vec![("registration", vec![])];
++        }
++    }
++    match r {
++        Reason::TransferArcChord((a, b), (c, d)) => {
++            let (a, b, c, d) = (*a, *b, *c, *d);
++            let wrote_dm = dm_rows.iter().any(|(g, _)| *g == f);
++            if !wrote_dm {
++                return vec![("chords", vec![(Table::Dm, &cx.dm(a, b) - &cx.dm(c, d))])];
++            }
++            let mut out = Vec::new();
++            for &g in steps.iter().filter(|&&g| g < f) {
++                if let Reason::Concyclic(s) = &log.facts[g as usize].reason {
++                    if [a, b, c, d].iter().all(|p| s.contains(p)) {
++                        for &z in s.iter().filter(|&&z| z != a && z != b) {
++                            for &w in s.iter().filter(|&&w| w != c && w != d) {
++                                out.push(("arcs", vec![(Table::Ang, &cx.ang(z, a, z, b) - &cx.ang(w, c, w, d))]));
++                                out.push(("arcs-", vec![(Table::Ang, &cx.ang(z, a, z, b) + &cx.ang(w, c, w, d))]));
++                            }
++                        }
++                    }
++                }
++            }
++            out
++        }
++        Reason::Theorem("radical axis", p) => {
++            let x = p[0];
++            let mut out = Vec::new();
++            let mut lines: Vec<Vec<PointId>> = Vec::new();
++            let mut circles: Vec<Vec<PointId>> = Vec::new();
++            for &g in steps.iter().filter(|&&g| g < f) {
++                match &log.facts[g as usize].reason {
++                    Reason::Collinear(q) => lines.push(q.clone()),
++                    Reason::Concyclic(q) => circles.push(q.clone()),
++                    _ => {}
++                }
++            }
++            for s in &circles {
++                for t in &circles {
++                    for (i, &d1) in s.iter().enumerate() {
++                        for &d2 in &s[i + 1..] {
++                            if x == d1 || x == d2 || !lines.iter().any(|l| l.contains(&x) && l.contains(&d1) && l.contains(&d2)) {
++                                continue;
++                            }
++                            for (j, &e1) in t.iter().enumerate() {
++                                for &e2 in &t[j + 1..] {
++                                    if x == e1 || x == e2 || (e1, e2) == (d1, d2) || !lines.iter().any(|l| l.contains(&x) && l.contains(&e1) && l.contains(&e2)) {
++                                        continue;
++                                    }
++                                    let comb = &(&(&cx.dm(x, d1) + &cx.dm(x, d2)) - &cx.dm(x, e1)) - &cx.dm(x, e2);
++                                    out.push(("equal powers", vec![(Table::Dm, comb)]));
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++            out
++        }
++        Reason::Concyclic(p) => {
++            let mut out = Vec::new();
++            let n = cx.d.p_n() as PointId;
++            let dist = |a: PointId, b: PointId| {
++                let (x, y) = (cx.d.p_coord(a), cx.d.p_coord(b));
++                ((x.0 - y.0).powi(2) + (x.1 - y.1).powi(2)).sqrt()
++            };
++            for o in 0..n {
++                if p.contains(&o) || cx.d.p_subst(o) != o || cx.d.p_dm(o, p[0]).is_none() {
++                    continue;
++                }
++                let r0 = dist(o, p[0]);
++                if p.iter().all(|&q| (dist(o, q) - r0).abs() < 1e-9 * (1.0 + r0)) {
++                    out.push(("common centre", p[1..].iter().map(|&q| (Table::Dm, &cx.dm(o, p[0]) - &cx.dm(o, q))).collect()));
++                }
++            }
++            out.extend(obligations(cx, r));
++            out
++        }
++        _ => obligations(cx, r),
++    }
++}
++
++fn human_run(cx: &Ctx, steps: &[FactId], ang_rows: &[(FactId, LinComb)], dm_rows: &[(FactId, LinComb)], _deps: &[FactId], goal: &Predicate, gobl: Vec<(Table, LinComb, Option<(LinComb, LinComb)>)>, aux: &[String]) {
++    let log = cx.d.p_log();
++    say!("aux: {:?}", aux);
++    let only: Option<BTreeSet<usize>> = std::env::var("HP_ONLY").ok().map(|s| s.split(',').map(|x| x.parse().unwrap()).collect());
++    for (si, &f) in steps.iter().enumerate() {
++        let fact = &log.facts[f as usize];
++        let k = kind(&fact.reason);
++        if matches!(k, "assumption" | "construction") {
++            continue;
++        }
++        if let Some(o) = &only {
++            if !o.contains(&(si + 1)) {
++                continue;
++            }
++        }
++        say!("{:03} {} {}  (engine cites {})", si + 1, k, cx.reason(f), fact.premises.len());
++        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++        let atoms = build_atoms(cx, steps, f, ang_rows, dm_rows);
++        let obls = human_obligations(cx, f, steps, dm_rows);
++        if std::env::var("HP_DEBUG").is_ok() {
++            for (label, obl) in &obls {
++                for (tb, t) in obl {
++                    let rows = if *tb == Table::Ang { ang_rows } else { dm_rows };
++                    let prem: Vec<&LinComb> = rows.iter().filter(|(g, _)| fact.premises.contains(g)).map(|(_, c)| c).collect();
++                    let allr: Vec<&LinComb> = rows.iter().filter(|(g, _)| *g < f && steps.contains(g)).map(|(_, c)| c).collect();
++                    let at: Vec<&LinComb> = atoms.iter().filter(|a| a.table == *tb).map(|a| &a.comb).collect();
++                    eprintln!("DBG {label} {:?} prem={} all_before={} atoms={} | n_prem_rows={} n_all={} n_atoms={}", tb, in_span(*tb, &prem, t), in_span(*tb, &allr, t), in_span(*tb, &at, t), prem.len(), allr.len(), at.len());
++                }
++            }
++        }
++        let mut done = false;
++        let fpts: BTreeSet<PointId> = match &fact.reason {
++            Reason::SimilarTriangles(a, b) => [a.0, a.1, a.2, b.0, b.1, b.2].into_iter().collect(),
++            Reason::Concyclic(p) | Reason::Collinear(p) => p.iter().copied().collect(),
++            Reason::EqualRadius(o, p) => p.iter().copied().chain([*o]).collect(),
++            Reason::Theorem(_, p) => p.iter().copied().collect(),
++            Reason::TransferArcChord(a, b) => [a.0, a.1, b.0, b.1].into_iter().collect(),
++            _ => BTreeSet::new(),
++        };
++        set_focus(fpts);
++        let mut scored: Vec<(u32, usize)> = Vec::new();
++        for (ai, (_, obl)) in obls.iter().enumerate() {
++            let mut tot = 0;
++            let mut ok = true;
++            for (tb, t) in obl {
++                match human_certify(*tb, &atoms, t) {
++                    Some(c) => tot += cert_cost(&atoms, &c),
++                    None => {
++                        ok = false;
++                        break;
++                    }
++                }
++            }
++            if ok {
++                scored.push((tot, ai));
++            }
++        }
++        scored.sort();
++        for &(tot, ai) in scored.iter().take(1) {
++            let (label, obl) = &obls[ai];
++            say!("  via {label} (human cost {tot})");
++            for (tb, t) in obl {
++                let (name, pts): (&str, Vec<PointId>) = match &fact.reason {
++                    Reason::Concyclic(p) => ("cyclic", p.clone()),
++                    Reason::Collinear(p) => ("coll", p.clone()),
++                    _ => ("", vec![]),
++                };
++                show(cx, *tb, &atoms, t, name, &pts, None);
++            }
++            done = true;
++            break;
++        }
++        st(6, 1);
++        if done { st(7, 1); }
++        if !done {
++            say!("  (not re-certified: {} obligation alternatives)", obls.len());
++            eprintln!("UNREC\t{}\t{}", k, if obls.is_empty() { "no-model" } else { "uncertified" });
++        } else {
++            eprintln!("REC\t{}", k);
++        }
++        }));
++        if res.is_err() {
++            st(6, 1);
++            eprintln!("UNREC\t{}\tpanic", k);
++        }
++    }
++    say!("GOAL {}", cx.d.render_pred(goal));
++    let last = steps.iter().copied().max().unwrap_or(0) + 1;
++    let Ok(atoms) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_atoms(cx, steps, last, ang_rows, dm_rows))) else { eprintln!("GOALUNREC\tpanic"); return; };
++    set_focus(goal.points.iter().map(|&p| cx.d.p_subst(p)).collect());
++    for (tb, t, lr) in gobl {
++        let pts: Vec<PointId> = goal.points.iter().map(|&p| cx.d.p_subst(p)).collect();
++        let t = exact(cx, tb, &t);
++        let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| show(cx, tb, &atoms, &t, goal.name.as_str(), &pts, lr.clone())));
++        match ok {
++            Ok(true) => eprintln!("GOALREC"),
++            Ok(false) => eprintln!("GOALUNREC\tuncertified"),
++            Err(_) => eprintln!("GOALUNREC\tpanic"),
++        }
++    }
++}
+diff -ruN '--exclude=CODEMAP.md' a/alphageometry-rs/src/bin/hproof.rs b/alphageometry-rs/src/bin/hproof.rs
+--- a/alphageometry-rs/src/bin/hproof.rs	1970-01-01 02:00:00.000000000 +0200
++++ b/alphageometry-rs/src/bin/hproof.rs	2026-10-05 20:56:05.412384970 +0300
+@@ -0,0 +1,665 @@
++use ddar::elimination::ANGLE_UNIT;
++use ddar::lincomb::{LinComb, VarId};
++use ddar::predicate::{PointId, Predicate};
++use ddar::proof::{FactId, Reason};
++use ddar::rational::Rat;
++use ddar::{Ddar, Problem};
++use std::collections::{BTreeSet, HashMap};
++use std::time::{Duration, Instant};
++
++#[derive(Clone, Copy, PartialEq, Debug)]
++enum Table {
++    Ang,
++    Dm,
++}
++
++struct Basis {
++    table: Table,
++    order: Vec<VarId>,
++    piv: HashMap<VarId, (LinComb, LinComb)>,
++}
++
++impl Basis {
++    fn new(table: Table) -> Basis {
++        Basis { table, order: Vec::new(), piv: HashMap::new() }
++    }
++    fn skip(&self, v: VarId) -> bool {
++        self.table == Table::Ang && v == ANGLE_UNIT
++    }
++    fn reduce(&self, v: &mut LinComb, combo: &mut LinComb) {
++        loop {
++            let mut best: Option<(usize, VarId, Rat)> = None;
++            for (var, c) in v.terms.iter() {
++                if self.skip(*var) {
++                    continue;
++                }
++                if self.piv.contains_key(var) {
++                    let k = self.order.iter().position(|x| x == var).unwrap();
++                    if best.as_ref().is_none_or(|b| k < b.0) {
++                        best = Some((k, *var, c.clone()));
++                    }
++                }
++            }
++            let Some((_, var, c)) = best else { break };
++            let (pv, pc) = &self.piv[&var];
++            let neg = -&c;
++            v.iadd_mul(pv, &neg);
++            combo.iadd_mul(pc, &neg);
++        }
++    }
++    fn insert(&mut self, idx: usize, row: &LinComb) {
++        let mut v = row.clone();
++        let mut combo = LinComb::singleton(idx as VarId, Rat::one());
++        self.reduce(&mut v, &mut combo);
++        let pivot = v.terms.iter().find(|(var, c)| !self.skip(*var) && !c.is_zero()).map(|(var, c)| (*var, c.clone()));
++        let Some((p, c)) = pivot else { return };
++        let s = c.recip();
++        v.mul_assign_scalar(&s);
++        combo.mul_assign_scalar(&s);
++        self.order.push(p);
++        self.piv.insert(p, (v, combo));
++    }
++}
++
++fn lhs_zero(table: Table, v: &LinComb) -> bool {
++    v.terms.iter().all(|(var, c)| c.is_zero() || (table == Table::Ang && *var == ANGLE_UNIT))
++}
++
++/// target = sum lambda_i rows[i] (+ k pi for angles, k integer). Returns lambda.
++fn solve(table: Table, rows: &[(FactId, LinComb)], use_facts: &BTreeSet<FactId>, target: &LinComb) -> Option<Vec<(usize, Rat)>> {
++    let mut b = Basis::new(table);
++    for (i, (f, r)) in rows.iter().enumerate() {
++        if use_facts.contains(f) {
++            b.insert(i, r);
++        }
++    }
++    let mut v = target.clone();
++    let mut combo = LinComb::zero();
++    b.reduce(&mut v, &mut combo);
++    if !lhs_zero(table, &v) {
++        return None;
++    }
++    if table == Table::Ang && !v.get(ANGLE_UNIT).is_integer() {
++        return None;
++    }
++    Some(combo.terms.iter().filter(|(_, c)| !c.is_zero()).map(|(i, c)| (*i as usize, -c)).collect())
++}
++
++struct Cert {
++    facts: Vec<FactId>,
++    lambda: Vec<(usize, Rat)>,
++}
++
++fn certify(table: Table, rows: &[(FactId, LinComb)], prem: &[FactId], target: &LinComb, removal_desc: bool) -> Option<Cert> {
++    let mut set: BTreeSet<FactId> = prem.iter().copied().collect();
++    solve(table, rows, &set, target)?;
++    let mut order: Vec<FactId> = set.iter().copied().collect();
++    if removal_desc {
++        order.reverse();
++    }
++    for f in order {
++        set.remove(&f);
++        if solve(table, rows, &set, target).is_none() {
++            set.insert(f);
++        }
++    }
++    let lambda = solve(table, rows, &set, target)?;
++    let mut facts: Vec<FactId> = lambda.iter().map(|(i, _)| rows[*i].0).collect();
++    facts.sort_unstable();
++    facts.dedup();
++    Some(Cert { facts, lambda })
++}
++
++struct Ctx<'a> {
++    d: &'a Ddar,
++    names: Vec<String>,
++    dir_var: HashMap<VarId, (PointId, PointId)>,
++    dm_var: HashMap<VarId, (PointId, PointId)>,
++    line_of_pair: HashMap<(PointId, PointId), usize>,
++    lines: Vec<Vec<PointId>>,
++}
++
++impl<'a> Ctx<'a> {
++    fn new(d: &'a Ddar) -> Ctx<'a> {
++        let n = d.p_n();
++        let mut dir_var = HashMap::new();
++        let mut dm_var = HashMap::new();
++        for a in 0..n as PointId {
++            for b in (a + 1)..n as PointId {
++                if let Some(c) = d.p_dir(a, b) {
++                    if c.terms.len() == 1 {
++                        dir_var.insert(c.terms[0].0, (a, b));
++                    }
++                }
++                if let Some(c) = d.p_dm(a, b) {
++                    if c.terms.len() == 1 {
++                        dm_var.insert(c.terms[0].0, (a, b));
++                    }
++                }
++            }
++        }
++        let mut line_of_pair = HashMap::new();
++        let mut lines = Vec::new();
++        for (pts, _) in d.p_lines() {
++            let id = lines.len();
++            for &a in &pts {
++                for &b in &pts {
++                    if a != b {
++                        line_of_pair.insert((a, b), id);
++                    }
++                }
++            }
++            lines.push(pts);
++        }
++        Ctx { d, names: d.p_names().to_vec(), dir_var, dm_var, line_of_pair, lines }
++    }
++    fn nm(&self, p: PointId) -> String {
++        self.names[p as usize].to_uppercase()
++    }
++    fn dir(&self, a: PointId, b: PointId) -> LinComb {
++        self.d.p_dir(self.d.p_subst(a), self.d.p_subst(b)).expect("dir")
++    }
++    fn dm(&self, a: PointId, b: PointId) -> LinComb {
++        self.d.p_dm(self.d.p_subst(a), self.d.p_subst(b)).expect("dm")
++    }
++    fn ang(&self, a: PointId, b: PointId, c: PointId, d: PointId) -> LinComb {
++        &self.dir(c, d) - &self.dir(a, b)
++    }
++    fn rat(&self, a: PointId, b: PointId, c: PointId, d: PointId) -> LinComb {
++        &self.dm(c, d) - &self.dm(a, b)
++    }
++    /// map a raw angle comb to line-class space: var id = 1_000_000 + line id
++    fn quot(&self, c: &LinComb) -> LinComb {
++        let mut out = LinComb::zero();
++        for (v, k) in c.terms.iter() {
++            if *v == ANGLE_UNIT {
++                out.add_term(ANGLE_UNIT, k.clone());
++            } else if let Some(&(a, b)) = self.dir_var.get(v) {
++                let l = self.line_of_pair.get(&(a, b)).copied().unwrap_or(usize::MAX - 1);
++                out.add_term(1_000_000 + l as VarId, k.clone());
++            } else {
++                out.add_term(*v, k.clone());
++            }
++        }
++        let u = out.get(ANGLE_UNIT);
++        if !u.is_zero() {
++            let r = u.mod_one();
++            out.add_term(ANGLE_UNIT, &r - &u);
++        }
++        out
++    }
++    fn line_name(&self, l: usize) -> String {
++        let pts = &self.lines[l];
++        pts.iter().take(2).map(|&p| self.nm(p)).collect()
++    }
++    fn angle_text(&self, c: &LinComb) -> String {
++        let mut pos = Vec::new();
++        let mut neg = Vec::new();
++        let mut konst = Rat::zero();
++        let mut other = Vec::new();
++        for (v, k) in c.terms.iter() {
++            if *v == ANGLE_UNIT {
++                konst = k.clone();
++            } else if *v >= 1_000_000 {
++                let l = (*v - 1_000_000) as usize;
++                if k.is_one() {
++                    pos.push(l);
++                } else if k.is_minus_one() {
++                    neg.push(l);
++                } else {
++                    other.push(format!("{}·d({})", k, self.line_name(l)));
++                }
++            } else {
++                other.push(format!("{}·v{}", k, v));
++            }
++        }
++        let mut parts = Vec::new();
++        let mut used = vec![false; neg.len()];
++        for &l1 in &pos {
++            let mut done = false;
++            for (j, &l2) in neg.iter().enumerate() {
++                if used[j] {
++                    continue;
++                }
++                let common = self.lines.get(l1).and_then(|p1| p1.iter().find(|p| self.lines.get(l2).is_some_and(|p2| p2.contains(p))).copied());
++                if let Some(p) = common {
++                    let x = self.lines[l2].iter().find(|&&q| q != p).copied().unwrap();
++                    let y = self.lines[l1].iter().find(|&&q| q != p).copied().unwrap();
++                    parts.push(format!("∡{}{}{}", self.nm(x), self.nm(p), self.nm(y)));
++                } else {
++                    parts.push(format!("∡({},{})", self.line_name(l2), self.line_name(l1)));
++                }
++                used[j] = true;
++                done = true;
++                break;
++            }
++            if !done {
++                parts.push(format!("d({})", self.line_name(l1)));
++            }
++        }
++        for (j, &l2) in neg.iter().enumerate() {
++            if !used[j] {
++                parts.push(format!("−d({})", self.line_name(l2)));
++            }
++        }
++        parts.extend(other);
++        if !konst.is_zero() {
++            let deg = konst.to_f64() * 180.0;
++            parts.push(format!("{deg}°"));
++        }
++        if parts.is_empty() {
++            "0".into()
++        } else {
++            parts.join(" + ")
++        }
++    }
++    fn ratio_text(&self, c: &LinComb) -> String {
++        let mut num = Vec::new();
++        let mut den = Vec::new();
++        for (v, k) in c.terms.iter() {
++            let s = match self.dm_var.get(v) {
++                Some(&(a, b)) => format!("{}{}", self.nm(a), self.nm(b)),
++                None => format!("p{v}"),
++            };
++            let s = if k.abs().is_one() { s } else { format!("{}^{}", s, k.abs()) };
++            if k.is_negative() {
++                den.push(s)
++            } else {
++                num.push(s)
++            }
++        }
++        format!("{} / {}", if num.is_empty() { "1".into() } else { num.join("·") }, if den.is_empty() { "1".into() } else { den.join("·") })
++    }
++    fn reason(&self, f: FactId) -> String {
++        let fact = &self.d.p_log().facts[f as usize];
++        let n = |p: &PointId| self.nm(*p);
++        match &fact.reason {
++            Reason::Assumption(s) => format!("hyp {s}"),
++            Reason::Construction(s) => format!("constr {s}"),
++            Reason::SimilarTriangles((a, b, c), (x, y, z)) => format!("△{}{}{}∼△{}{}{}", n(a), n(b), n(c), n(x), n(y), n(z)),
++            Reason::Concyclic(p) => format!("cyclic {}", p.iter().map(n).collect::<String>()),
++            Reason::Collinear(p) => format!("coll {}", p.iter().map(n).collect::<String>()),
++            Reason::EqualRadius(o, p) => format!("{}={} radius", n(o), p.iter().map(n).collect::<String>()),
++            Reason::Theorem(t, p) => format!("{t} {}", p.iter().map(n).collect::<String>()),
++            Reason::Formula(t, _, _) => format!("{t}"),
++            other => format!("{:?}", other),
++        }
++    }
++}
++
++fn kind(r: &Reason) -> &'static str {
++    match r {
++        Reason::Assumption(_) => "assumption",
++        Reason::Construction(_) => "construction",
++        Reason::SimilarTriangles(a, b) => {
++            let mut s1 = [a.0, a.1, a.2];
++            let mut s2 = [b.0, b.1, b.2];
++            s1.sort();
++            s2.sort();
++            if s1 == s2 {
++                "isosceles(self-similar)"
++            } else {
++                "similar"
++            }
++        }
++        Reason::Concyclic(_) => "concyclic",
++        Reason::Collinear(_) => "collinear",
++        Reason::EqualRadius(..) => "equal-radius",
++        Reason::PointMerge(..) => "merge",
++        Reason::TangentMerge(..) => "tangent-merge",
++        Reason::TransferAddMul(..) => "transfer-addmul",
++        Reason::TransferArcChord(..) => "arc-chord",
++        Reason::Theorem(..) => "theorem",
++        Reason::Formula(..) => "formula",
++    }
++}
++
++fn orient(d: &Ddar, a: PointId, b: PointId, c: PointId) -> f64 {
++    let (pa, pb, pc) = (d.p_coord(a), d.p_coord(b), d.p_coord(c));
++    ((pb.0 - pa.0) * (pc.1 - pa.1) - (pb.1 - pa.1) * (pc.0 - pa.0)).signum()
++}
++
++/// Obligation sets: each alternative is a list of (table, target) that must all be certified.
++fn obligations(cx: &Ctx, r: &Reason) -> Vec<(&'static str, Vec<(Table, LinComb)>)> {
++    obligations_raw(cx, r).into_iter().map(|(l, v)| (l, v.into_iter().map(|(t, c)| { let e = exact(cx, t, &c); (t, e) }).collect())).collect()
++}
++
++fn obligations_raw(cx: &Ctx, r: &Reason) -> Vec<(&'static str, Vec<(Table, LinComb)>)> {
++    match r {
++        Reason::SimilarTriangles((a, b, c), (x, y, z)) => {
++            let (a, b, c, x, y, z) = (*a, *b, *c, *x, *y, *z);
++            let same = orient(cx.d, a, b, c) == orient(cx.d, x, y, z);
++            let sg = |l: LinComb| if same { l } else { l.negated() };
++            let a1 = &cx.ang(a, b, a, c) - &sg(cx.ang(x, y, x, z));
++            let a2 = &cx.ang(a, b, b, c) - &sg(cx.ang(x, y, y, z));
++            let r1 = &cx.rat(a, b, a, c) - &cx.rat(x, y, x, z);
++            let r2 = &cx.rat(a, b, b, c) - &cx.rat(x, y, y, z);
++            vec![
++                ("AA", vec![(Table::Ang, a1.clone()), (Table::Ang, a2.clone())]),
++                ("SAS@1", vec![(Table::Ang, a1.clone()), (Table::Dm, r1.clone())]),
++                ("SAS@2", vec![(Table::Ang, a2.clone()), (Table::Dm, r2.clone())]),
++                ("SAS@3", vec![(Table::Ang, &a2 - &a1), (Table::Dm, &r2 - &r1)]),
++                ("SSS", vec![(Table::Dm, r1), (Table::Dm, r2)]),
++            ]
++        }
++        Reason::Concyclic(p) if p.len() >= 4 => {
++            let mut v = Vec::new();
++            for j in 3..p.len() {
++                let (a, b, c, d) = (p[0], p[1], p[2], p[j]);
++                v.push((Table::Ang, &cx.ang(c, a, c, b) - &cx.ang(d, a, d, b)));
++            }
++            vec![("inscribed", v)]
++        }
++        Reason::Collinear(p) if p.len() >= 3 => {
++            let mut alts = Vec::new();
++            for pivot in 0..3 {
++                let mut v = Vec::new();
++                for j in 2..p.len() {
++                    let t = [p[0], p[1], p[j]];
++                    let (a, b, c) = match pivot { 0 => (t[0], t[1], t[2]), 1 => (t[1], t[0], t[2]), _ => (t[2], t[0], t[1]) };
++                    v.push((Table::Ang, &cx.dir(a, b) - &cx.dir(a, c)));
++                }
++                alts.push(("dir", v));
++            }
++            alts
++        }
++        Reason::EqualRadius(o, p) => {
++            let mut v = Vec::new();
++            for j in 1..p.len() {
++                v.push((Table::Dm, &cx.dm(*o, p[0]) - &cx.dm(*o, p[j])));
++            }
++            vec![("radius", v)]
++        }
++        _ => vec![],
++    }
++}
++
++fn goal_obligation(cx: &Ctx, d: &mut Ddar, g: &Predicate) -> Vec<(Table, LinComb, Option<(LinComb, LinComb)>)> {
++    let p = &g.points;
++    match g.name.as_str() {
++        "coll" => (2..p.len()).map(|j| (Table::Ang, &cx.dir(p[0], p[1]) - &cx.dir(p[0], p[j]), None)).collect(),
++        "cyclic" => (3..p.len()).map(|j| (Table::Ang, &cx.ang(p[2], p[0], p[2], p[1]) - &cx.ang(p[j], p[0], p[j], p[1]), None)).collect(),
++        "eqangle" => {
++            let l = &cx.dir(p[0], p[1]) - &cx.dir(p[2], p[3]);
++            let r = &cx.dir(p[4], p[5]) - &cx.dir(p[6], p[7]);
++            vec![(Table::Ang, &l - &r, Some((l, r)))]
++        }
++        "para" | "perp" | "aconst" | "angeq" | "s_angle" => vec![(Table::Ang, d.p_pred_angle(g), None)],
++        _ => vec![(Table::Dm, d.p_pred_dm(g), None)],
++    }
++}
++
++fn chain(cx: &Ctx, table: Table, rows: &[(FactId, LinComb)], cert: &Cert, l: &LinComb, r: &LinComb) -> Vec<String> {
++    let q = |c: &LinComb| if table == Table::Ang { cx.quot(c) } else { c.clone() };
++    let txt = |c: &LinComb| if table == Table::Ang { cx.angle_text(c) } else { cx.ratio_text(c) };
++    let mut items: Vec<(usize, LinComb)> = cert
++        .lambda
++        .iter()
++        .map(|(i, lam)| {
++            let mut c = rows[*i].1.clone();
++            c.mul_assign_scalar(lam);
++            (*i, q(&c))
++        })
++        .filter(|(_, c)| !lhs_zero(table, c))
++        .collect();
++    let mut cur = q(l);
++    let mut out = vec![format!("    {}", txt(&cur))];
++    while !items.is_empty() {
++        let (k, _) = items
++            .iter()
++            .enumerate()
++            .map(|(k, (_, c))| {
++                let nx = q(&(&cur - c));
++                let nterms = nx.terms.iter().filter(|(v, _)| *v != ANGLE_UNIT).count();
++                (k, nterms)
++            })
++            .min_by_key(|x| x.1)
++            .unwrap();
++        let (i, c) = items.remove(k);
++        cur = q(&(&cur - &c));
++        let silent = cx.reason(rows[i].0);
++        out.push(format!("  = {}    [{}: {}]", txt(&cur), silent, txt(&c)));
++    }
++    let end = q(r);
++    let ok = lhs_zero(table, &q(&(&cur - &end)));
++    out.push(format!("  (target rhs {}; chain reaches it: {})", txt(&end), ok));
++    out
++}
++
++fn main() {
++    std::panic::set_hook(Box::new(|_| {}));
++    let args: Vec<String> = std::env::args().collect();
++    let (problem, goal, aux_names) = load(&args);
++    let t0 = Instant::now();
++    let mut d = Ddar::new_tracked(&problem.points);
++    for p in &problem.preds {
++        d.force_pred(p);
++    }
++    d.deduction_closure();
++    let mut deps = d.check_pred_deps(&goal);
++    if deps.is_none() {
++        d.enable_trig();
++        d.deduction_closure();
++        deps = d.check_pred_deps(&goal);
++    }
++    let solve_t = t0.elapsed();
++    let Some(deps) = deps else {
++        println!("NOT PROVED");
++        return;
++    };
++    let t1 = Instant::now();
++    let steps = d.p_log().closure(&deps);
++    let ang_rows: Vec<(FactId, LinComb)> = d.p_angle_rows().to_vec();
++    let dm_rows: Vec<(FactId, LinComb)> = d.p_dmul_rows().to_vec();
++    let verbose = std::env::var("HP_VERBOSE").is_ok();
++    let chains = std::env::var("HP_CHAINS").is_ok();
++    let dd = d.clone();
++    let cx = Ctx::new(&dd);
++    if std::env::var("HP_HUMAN").is_ok() {
++        let gobl = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| goal_obligation(&cx, &mut d.clone(), &goal))).unwrap_or_default();
++        let quiet = std::env::var("HP_SUMMARY").is_ok();
++        unsafe { QUIET = quiet; }
++        human_run(&cx, &steps, &ang_rows, &dm_rows, &deps, &goal, gobl, &aux_names);
++        #[allow(static_mut_refs)]
++        let st = unsafe { ST };
++        if quiet {
++            let name = args.get(3).or(args.get(2)).cloned().unwrap_or_default();
++            let derived = steps.iter().filter(|&&f| !matches!(kind(&d.p_log().facts[f as usize].reason), "assumption" | "construction")).count();
++            println!("SUMMARY\t{name}\tsteps={}\tderived={derived}\tmodel_tried={}\trecertified={}\tchains={}\tatoms={}\tnonunit={}\tlinks={}\tmaxlinks={}\tchain_fail={}\tms={}\taux={}\tpure={}\tclean={}", steps.len(), st[6], st[7], st[0], st[1], st[2], st[3], st[4], st[5], t1.elapsed().as_millis(), aux_names.len(), st[8], st[9]);
++        } else {
++            println!("human recover time = {:?}", t1.elapsed());
++        }
++        return;
++    }
++    println!("aux: {:?}", aux_names);
++    println!("steps={} facts_total={} ang_rows={} dm_rows={} solve={:?}", steps.len(), d.p_log().facts.len(), ang_rows.len(), dm_rows.len(), solve_t);
++    let mut stat: HashMap<String, (usize, usize, usize, usize)> = HashMap::new();
++    let mut nums: Vec<usize> = Vec::new();
++    for (si, &f) in steps.iter().enumerate() {
++        let fact = d.p_log().facts[f as usize].clone();
++        let k = kind(&fact.reason);
++        if matches!(k, "assumption" | "construction") {
++            continue;
++        }
++        let obls = obligations(&cx, &fact.reason);
++        let e = stat.entry(k.to_string()).or_default();
++        e.0 += 1;
++        if obls.is_empty() {
++            if verbose {
++                println!("{:03} {:<24} {}  prem={} (no obligation model)", si + 1, k, cx.reason(f), fact.premises.len());
++            }
++            continue;
++        }
++        let mut found: Option<(&str, Vec<Cert>)> = None;
++        for (label, obl) in &obls {
++            let mut certs = Vec::new();
++            let mut ok = true;
++            for (tb, t) in obl {
++                let rows = if *tb == Table::Ang { &ang_rows } else { &dm_rows };
++                match certify(*tb, rows, &fact.premises, t, true) {
++                    Some(c) => certs.push(c),
++                    None => {
++                        ok = false;
++                        break;
++                    }
++                }
++            }
++            if ok {
++                found = Some((label, certs));
++                break;
++            }
++        }
++        match found {
++            Some((label, certs)) => {
++                e.1 += 1;
++                let mut mf: BTreeSet<FactId> = BTreeSet::new();
++                let mut nonunit = false;
++                for c in &certs {
++                    mf.extend(c.facts.iter().copied());
++                    nonunit |= c.lambda.iter().any(|(_, l)| !l.abs().is_one());
++                }
++                if nonunit {
++                    e.3 += 1;
++                }
++                e.2 += mf.len();
++                nums.push(fact.premises.len());
++                if verbose {
++                    let pos: HashMap<FactId, usize> = steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
++                    let cites: Vec<String> = mf.iter().map(|x| format!("{:03}", pos.get(x).copied().unwrap_or(0))).collect();
++                    println!(
++                        "{:03} {:<24} {:<28} via {:<6} engine-cites={:>2} minimal={:>2} [{}]{}",
++                        si + 1,
++                        k,
++                        cx.reason(f),
++                        label,
++                        fact.premises.len(),
++                        mf.len(),
++                        cites.join(" "),
++                        if nonunit { " NONUNIT" } else { "" }
++                    );
++                }
++            }
++            None => {
++                if verbose {
++                    println!("{:03} {:<24} {}  UNRECOVERED prem={}", si + 1, k, cx.reason(f), fact.premises.len());
++                }
++            }
++        }
++    }
++    // goal
++    let gobl = goal_obligation(&cx, &mut d, &goal);
++    let mut goal_ok = true;
++    let mut goal_min = BTreeSet::new();
++    for (tb, t, lr) in &gobl {
++        let rows = if *tb == Table::Ang { &ang_rows } else { &dm_rows };
++        match certify(*tb, rows, &deps, t, true) {
++            Some(c) => {
++                goal_min.extend(c.facts.iter().copied());
++                if chains {
++                    if let Some((l, r)) = lr {
++                        for line in chain(&cx, *tb, rows, &c, l, r) {
++                            println!("{line}");
++                        }
++                    } else {
++                        for line in chain(&cx, *tb, rows, &c, t, &LinComb::zero()) {
++                            println!("{line}");
++                        }
++                    }
++                }
++            }
++            None => goal_ok = false,
++        }
++    }
++    let pos: HashMap<FactId, usize> = steps.iter().enumerate().map(|(i, &f)| (f, i + 1)).collect();
++    println!(
++        "GOAL {} engine-deps={} certified={} minimal={} [{}]",
++        d.render_pred(&goal),
++        deps.len(),
++        goal_ok,
++        goal_min.len(),
++        goal_min.iter().map(|x| format!("{:03}", pos.get(x).copied().unwrap_or(0))).collect::<Vec<_>>().join(" ")
++    );
++    if std::env::var("HP_TRIGMAP").is_ok() {
++        let names = d.p_names().to_vec();
++        for (si, &f) in steps.iter().enumerate() {
++            if let Reason::Formula(t, text, pts) = &d.p_log().facts[f as usize].reason {
++                let mut out = text.clone();
++                for (i, &p) in pts.iter().enumerate().rev() {
++                    out = out.replace(&format!("{{{i}}}"), &names[p as usize]);
++                }
++                let rows: Vec<String> = dm_rows.iter().filter(|(g, _)| *g == f).map(|(_, c)| cx.ratio_text(c)).collect();
++                println!("TRIG {:03} {}: {}  ROWS {}", si + 1, t, out, rows.join(" ; "));
++            }
++        }
++    }
++    if let Ok(list) = std::env::var("HP_CHAIN_STEPS") {
++        for s in list.split(',') {
++            let si: usize = s.parse().unwrap();
++            let f = steps[si - 1];
++            let fact = d.p_log().facts[f as usize].clone();
++            println!("--- chain for step {:03} {}", si, cx.reason(f));
++            for (label, obl) in obligations(&cx, &fact.reason) {
++                let mut all = true;
++                let mut outs = Vec::new();
++                for (tb, t) in &obl {
++                    let rows = if *tb == Table::Ang { &ang_rows } else { &dm_rows };
++                    match certify(*tb, rows, &fact.premises, t, true) {
++                        Some(c) => outs.extend(chain(&cx, *tb, rows, &c, t, &LinComb::zero())),
++                        None => {
++                            all = false;
++                            break;
++                        }
++                    }
++                }
++                if all {
++                    println!(" via {label}");
++                    for o in outs {
++                        println!("{o}");
++                    }
++                    break;
++                }
++            }
++        }
++    }
++    let mut keys: Vec<_> = stat.keys().cloned().collect();
++    keys.sort();
++    for k in keys {
++        let (n, ok, mf, nu) = stat[&k];
++        println!("STAT {k}: n={n} certified={ok} avg_minimal={:.2} nonunit={nu}", if ok > 0 { mf as f64 / ok as f64 } else { 0.0 });
++    }
++    let avg_engine = if nums.is_empty() { 0.0 } else { nums.iter().sum::<usize>() as f64 / nums.len() as f64 };
++    println!("avg engine cites (certified facts) = {avg_engine:.2}; recover time = {:?}", t1.elapsed());
++}
++
++fn load(args: &[String]) -> (Problem, Predicate, Vec<String>) {
++    let mode = args.get(1).map(String::as_str).unwrap_or("");
++    let budget = Duration::from_secs(std::env::var("HP_BUDGET").ok().and_then(|s| s.parse().ok()).unwrap_or(60));
++    let (problem, goal) = match mode {
++        "--corpus" => {
++            let text = std::fs::read_to_string(&args[2]).unwrap();
++            let lines: Vec<&str> = text.lines().collect();
++            let i = lines.iter().position(|l| l.trim() == args[3]).expect("name");
++            let prob = ddar::corpus::parse_problem(&args[3], lines[i + 1]).unwrap();
++            let tr = ddar::corpus::translate(&prob, 1, 200).unwrap();
++            let mut p = tr.problem.clone();
++            p.goal = Some(tr.goals[0].clone());
++            (p, tr.goals[0].clone())
++        }
++        "--geo" => {
++            let src = std::fs::read_to_string(&args[2]).unwrap();
++            let c = ddar::geo::compile(&src).map_err(|e| format!("{e:?}")).unwrap();
++            let g = c.problem.goal.clone().unwrap();
++            (c.problem, g)
++        }
++        _ => panic!("usage: hproof --corpus FILE NAME | --geo FILE [aux-preds...]"),
++    };
++    if ddar::runner::solve_problem(&problem).unwrap_or(false) {
++        return (problem, goal, vec![]);
++    }
++    let (found, _) = ddar::aux_search::solve_max_until(&problem, false, Some(Instant::now() + budget));
++    let found = found.expect("aux search found nothing");
++    let aux: Vec<String> = found.constructions.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
++    let aug = ddar::aux_search::apply_constructions(&problem, &found.constructions);
++    (aug, goal, aux)
++}
++include!("hproof_human.inc");
+diff -ruN '--exclude=CODEMAP.md' a/alphageometry-rs/src/elim_core.rs b/alphageometry-rs/src/elim_core.rs
+--- a/alphageometry-rs/src/elim_core.rs	2026-10-05 20:26:47.386820821 +0300
++++ b/alphageometry-rs/src/elim_core.rs	2026-10-05 20:33:10.234138595 +0300
+@@ -57,6 +57,7 @@
+     /// Rows refused because the figure contradicts them (a rule applied
+     /// outside its hypotheses); never added.
+     pub rejected: usize,
++    pub fact_rows: Vec<(FactId, LinComb)>,
+ }
+ 
+ impl ElimCore {
+@@ -133,6 +134,11 @@
+     /// Returns `true` if this added new information (a fresh pivot), `false` if
+     /// the constraint was already implied or trivial.
+     pub fn add_constraint(&mut self, mut added_eq: LinComb, fact: Option<FactId>) -> bool {
++        if self.track {
++            if let Some(f) = fact {
++                self.fact_rows.push((f, added_eq.clone()));
++            }
++        }
+         let mut new_deps: Vec<FactId> = match fact {
+             Some(f) if self.track => vec![f],
+             _ => Vec::new(),
+diff -ruN '--exclude=CODEMAP.md' a/alphageometry-rs/src/engine/proto.rs b/alphageometry-rs/src/engine/proto.rs
+--- a/alphageometry-rs/src/engine/proto.rs	1970-01-01 02:00:00.000000000 +0200
++++ b/alphageometry-rs/src/engine/proto.rs	2026-10-05 20:34:13.595625555 +0300
+@@ -0,0 +1,54 @@
++use super::*;
++use crate::lincomb::LinComb;
++use crate::proof::{FactId, ProofLog};
++
++impl Ddar {
++    pub fn p_log(&self) -> &ProofLog {
++        &self.log
++    }
++    pub fn p_angle_rows(&self) -> &[(FactId, LinComb)] {
++        &self.angle.core.fact_rows
++    }
++    pub fn p_dmul_rows(&self) -> &[(FactId, LinComb)] {
++        &self.dmul.core.fact_rows
++    }
++    pub fn p_names(&self) -> &[String] {
++        &self.names
++    }
++    pub fn p_n(&self) -> usize {
++        self.n
++    }
++    pub fn p_dir(&self, a: PointId, b: PointId) -> Option<LinComb> {
++        self.pair_dir[self.pk(a, b)].as_ref().map(|x| x.0.clone())
++    }
++    pub fn p_dm(&self, a: PointId, b: PointId) -> Option<LinComb> {
++        self.pair_dist_mul[self.pk(a, b)].as_ref().map(|x| x.0.clone())
++    }
++    pub fn p_lines(&self) -> Vec<(Vec<PointId>, Option<FactId>)> {
++        self.live_lines.iter().map(|&l| (self.lines[l].points.clone(), self.lines[l].fact)).collect()
++    }
++    pub fn p_circles(&self) -> Vec<(Vec<PointId>, Vec<PointId>, Option<FactId>)> {
++        self.live_circles
++            .iter()
++            .map(|&c| (self.circles[c].points.clone(), self.circles[c].centers.clone(), self.circles[c].fact))
++            .collect()
++    }
++    pub fn p_coord(&self, p: PointId) -> (f64, f64) {
++        let c = self.coords[p as usize];
++        (c.x, c.y)
++    }
++    pub fn p_subst(&self, p: PointId) -> PointId {
++        self.subst[p as usize]
++    }
++    pub fn p_pred_angle(&self, pred: &crate::predicate::Predicate) -> LinComb {
++        let pts = self.subst_points(pred);
++        self.pred_to_angle(&pred.name, &pts, &pred.constants).0
++    }
++    pub fn p_pred_dm(&mut self, pred: &crate::predicate::Predicate) -> LinComb {
++        let pts = self.subst_points(pred);
++        self.pred_to_dist_mul_raw(&pred.name, &pts, &pred.constants).0
++    }
++    pub fn p_angle_value(&self, c: &LinComb) -> f64 {
++        self.angle.core.value_of(c)
++    }
++}
+diff -ruN '--exclude=CODEMAP.md' a/alphageometry-rs/src/engine.rs b/alphageometry-rs/src/engine.rs
+--- a/alphageometry-rs/src/engine.rs	2026-10-05 20:26:47.387466439 +0300
++++ b/alphageometry-rs/src/engine.rs	2026-10-05 20:33:18.900502082 +0300
+@@ -28,6 +28,7 @@
+ 
+ mod classics;
+ mod sqlen;
++pub mod proto;
+ 
+ /// A maximal set of collinear points (immutable snapshot).
+ #[derive(Clone, Debug)]

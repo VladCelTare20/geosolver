@@ -12,6 +12,10 @@
 //!     numbered proof citing named theorems (Pythagoras, Thales, …);
 //!   * **low-level** problems → DDAR directly.
 //!
+//! Only a Euclidean proof sets `proved`. A metric goal no prover reaches is
+//! checked numerically in many sampled figures and reported as
+//! [`Status::HoldsNumerically`] — evidence, never a proof.
+//!
 //! This is the single entry point shared by the `render` CLI, the web server,
 //! and the MCP server.
 
@@ -19,32 +23,68 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
 use ddar::aux_search::{
-    apply_constructions, candidates, solve_max, solve_with_aux, Construction, WarmBase,
+    apply_constructions, candidates, depth1_solvers, rollouts_until, solve_max_until,
+    Construction, WarmBase,
 };
 use ddar::geo;
-use ddar::runner::{solve_problem, solve_problem_with_proof};
+use ddar::human::EngineTrace;
+use ddar::proof::FactId;
+use ddar::runner::{solve_problem, solve_problem_with_proof, solve_problem_with_trace};
 use ddar::svg::{render_with, FigureOptions, Theme};
 use ddar::Problem;
 
 /// How to interpret the input program text.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum InputKind {
     /// High-level `.geo` construction language (compiled to a `Problem`).
     Geo,
     /// Low-level AlphaGeometry problem string (`a@x_y b@... = preds ? goal`).
     LowLevel,
+    /// A problem in the AlphaGeometry corpus language (`corpus/*.txt`:
+    /// `a b c = triangle a b c; … ? goal`), optionally after its name line.
+    Corpus,
 }
 
 impl InputKind {
-    /// Guess the input kind: low-level problems pin every point with an `@`
-    /// coordinate; `.geo` programs never do.
+    /// Guess the input kind: a valid low-level string pins every point with an
+    /// `@` coordinate; a corpus problem uses `defs.txt` constructions and a
+    /// `?` goal; anything else is a `.geo` program.
     pub fn detect(input: &str) -> InputKind {
-        if input.contains('@') {
-            InputKind::LowLevel
-        } else {
-            InputKind::Geo
+        let pinned = input.contains('@');
+        if pinned && Problem::parse(input).is_ok() {
+            return InputKind::LowLevel;
+        }
+        match corpus_parts(input) {
+            Some((name, stmt)) if ddar::corpus::parse_problem(&name, &stmt).is_ok() => InputKind::Corpus,
+            Some((_, stmt)) if !pinned && corpus_shaped(&stmt) => InputKind::Corpus,
+            _ if pinned => InputKind::LowLevel,
+            _ => InputKind::Geo,
         }
     }
+}
+
+fn corpus_parts(input: &str) -> Option<(String, String)> {
+    let lines: Vec<&str> = input.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    match lines.as_slice() {
+        [stmt] => Some((String::new(), stmt.to_string())),
+        [name, stmt] if !name.contains(['=', '?', '(']) => Some((name.to_string(), stmt.to_string())),
+        _ => None,
+    }
+}
+
+fn corpus_shaped(stmt: &str) -> bool {
+    !stmt.contains('(')
+        && stmt
+            .split_once('?')
+            .is_some_and(|(body, goal)| body.contains('=') && !goal.trim().is_empty())
+}
+
+fn corpus_translation(input: &str) -> Result<(ddar::corpus::AgProblem, ddar::corpus::Translation), String> {
+    let (name, stmt) = corpus_parts(input).ok_or("corpus problem: expected one statement line")?;
+    let ag = ddar::corpus::parse_problem(&name, &stmt).map_err(|e| format!("corpus problem: {e}"))?;
+    let tr = ddar::corpus::translate(&ag, 1, 200).map_err(|e| format!("corpus problem: {e}"))?;
+    Ok((ag, tr))
 }
 
 /// Options controlling a solve.
@@ -75,7 +115,7 @@ impl Default for SolveOptions {
 }
 
 /// Which prover produced the result.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Method {
     /// DDAR deductive closure (no auxiliary point).
@@ -86,19 +126,59 @@ pub enum Method {
     Euclidean,
 }
 
+/// What a solve established. Serialized as `"proved"`, `"holds-numerically"`,
+/// `"refuted"` or `"not-proved"`; only `Proved` comes with `proved: true`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Status {
+    /// A classical Euclidean proof: a DDAR deduction or a theorem-citing
+    /// metric proof.
+    Proved,
+    /// No Euclidean proof was found, but the goal held in every one of
+    /// `numeric_samples` independently sampled figures. Evidence, not a proof.
+    HoldsNumerically,
+    /// The goal fails in a sampled figure: the statement appears to be false.
+    Refuted,
+    /// Neither proved nor refuted (search budget or time limit reached, or the
+    /// metric prover could not process the goal).
+    NotProved,
+}
+
+impl Status {
+    /// A short human label for the verdict.
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Proved => "Proven",
+            Status::HoldsNumerically => "Not proven — holds numerically",
+            Status::Refuted => "Refuted",
+            Status::NotProved => "Not proven",
+        }
+    }
+}
+
 /// The full outcome of a solve: proof, figure, and metadata.
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Solution {
     /// The original input program.
     pub input: String,
     /// The compiled low-level AlphaGeometry form (coordinates + predicates).
     pub low_level: String,
-    /// Whether the goal was proved.
+    /// Whether the goal was proved — by a Euclidean proof, nothing else.
     pub proved: bool,
+    /// The verdict; `proved` is `status == Status::Proved`.
+    pub status: Status,
     /// Which prover path was taken.
     pub method: Method,
-    /// The numbered, citation-annotated proof (when `want_proof` and proved).
+    /// The numbered, citation-annotated proof. `Some` only when proved (and
+    /// `want_proof`).
     pub proof: Option<String>,
+    /// The numeric check of a metric goal, when one ran: a counterexample
+    /// (`Refuted`) or the agreement report (`HoldsNumerically`). Never a proof.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numeric_evidence: Option<String>,
+    /// How many independently sampled figures the numeric check used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numeric_samples: Option<usize>,
     /// The figure as a standalone SVG document.
     pub svg: String,
     /// Human-readable auxiliary constructions the search introduced, if any.
@@ -107,9 +187,9 @@ pub struct Solution {
     pub constructions: Vec<String>,
     /// The goal in natural notation.
     pub goal: Option<String>,
-    /// `Some(false)` if the goal does not hold in the sampled figure (the
-    /// statement appears to be false); `Some(true)` if it holds; `None` if not
-    /// numerically checkable.
+    /// `Some(false)` if the goal does not hold in a sampled figure (the
+    /// statement appears to be false); `Some(true)` if it holds there; `None`
+    /// if not numerically checkable. Never a proof either way.
     pub goal_holds_numerically: Option<bool>,
     /// Wall-clock solve time in seconds.
     pub elapsed_secs: f64,
@@ -122,50 +202,352 @@ pub struct Solution {
     /// (`solve_best` only; `None` for a plain solve).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub examined: Option<usize>,
+    /// The problem the figure was drawn from — search-augmented when the proof
+    /// needed auxiliary points — for the web app's presentation layer, which
+    /// draws its own interactive figure. Never serialized.
+    #[serde(skip)]
+    pub figure: Option<FigureSource>,
+    /// The engine's human-style proof of `proof` (`ddar::human`), for the
+    /// presentation layer. Never serialized.
+    #[serde(skip)]
+    pub human: Option<HumanSource>,
+}
+
+/// The human proof writer's output with what is needed to name it: the raw
+/// point names by engine id and the goal's fact closure (raw step `k` is
+/// `closure[k - 1]`).
+#[derive(Clone)]
+pub struct HumanSource {
+    pub proof: ddar::human::HumanProof,
+    pub names: Vec<String>,
+    pub closure: Vec<FactId>,
+}
+
+pub const HUMAN_ENV: &str = "AGSTUDIO_HUMAN_PROOFS";
+const HUMAN_MAX: Duration = Duration::from_secs(2);
+const HUMAN_MIN: Duration = Duration::from_millis(300);
+
+pub fn human_enabled() -> bool {
+    std::env::var_os(HUMAN_ENV).is_none_or(|v| v != "0")
+}
+
+type Traced = (String, EngineTrace, Vec<FactId>);
+
+fn traced_proof(problem: &Problem) -> Option<Traced> {
+    catch_unwind(AssertUnwindSafe(|| solve_problem_with_trace(problem))).ok()?.ok()?
+}
+
+fn write_human(problem: &Problem, first_aux: usize, aux: &[String], traced: &Traced, deadline: Option<Instant>) -> Option<HumanSource> {
+    if !human_enabled() {
+        return None;
+    }
+    let (_, trace, deps) = traced;
+    let goal = problem.goal.as_ref()?;
+    let now = Instant::now();
+    let left = deadline.map_or(HUMAN_MAX, |d| d.saturating_duration_since(now)).clamp(HUMAN_MIN, HUMAN_MAX);
+    let opts = ddar::human::Opts { deadline: Some(now + left), strict: false };
+    let infos = ddar::human::aux_infos(problem, first_aux, aux);
+    let hp = catch_unwind(AssertUnwindSafe(|| ddar::quiet_panic::quiet(|| ddar::human::write(trace, goal, deps, &infos, &opts)))).ok()?;
+    hp.available.then(|| HumanSource { proof: hp, names: trace.names.clone(), closure: trace.closure(deps) })
+}
+
+/// What a figure is drawn from: the (possibly augmented) problem, and the index
+/// of its first auxiliary point when the search added some.
+#[derive(Clone)]
+pub struct FigureSource {
+    pub problem: Problem,
+    pub aux_from: Option<usize>,
 }
 
 /// Solve one problem end to end. Never panics: the engine's degenerate-figure
 /// panics (which the aux search normally catches internally) are contained
 /// here too, so a bad input yields an `Err`, not a crash.
+///
+/// No wall-clock bound beyond the aux search's run caps (`AUX_MAX_RUNS`); use
+/// [`solve_within`] where a caller needs a hard deadline.
+#[cfg(test)]
 pub fn solve(input: &str, opts: &SolveOptions) -> Result<Solution, String> {
+    solve_within(input, opts, None)
+}
+
+/// Default wall-clock limit for the CLI and MCP solve paths.
+pub const DEFAULT_SOLVE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// [`solve`] with an optional wall-clock `timeout`. When it expires the result
+/// is `proved: false` with a "time limit" note. The deadline is also handed to
+/// the auxiliary search, so the abandoned worker starts no new DDAR run after
+/// it and exits once the runs in flight finish; [`with_keepalive`] lets a
+/// caller see when that has happened.
+pub fn solve_within(
+    input: &str,
+    opts: &SolveOptions,
+    timeout: Option<Duration>,
+) -> Result<Solution, String> {
+    let deadline = timeout.map(|t| Instant::now() + t);
     match opts.kind {
         InputKind::LowLevel => {
             let problem = Problem::parse(input).map_err(|e| format!("parse error: {e}"))?;
-            deductive_flow(problem, input, None, opts)
+            deductive_flow(problem, input, None, opts, deadline)
         }
+        InputKind::Corpus => corpus_flow(input, opts, deadline),
         InputKind::Geo => {
-            // Absolute-length / sum-of-squares goals get the classical Euclidean
-            // prover; everything else goes through the DDAR closure (which also
-            // handles product/ratio-of-length goals like power of a point).
+            // Metric equations DDAR cannot express (absolute lengths, squares,
+            // sums of products, …) get the classical Euclidean prover; plain
+            // relations go through the DDAR closure.
             if extract_goal(input).map(|g| is_metric_goal(&g)).unwrap_or(false) {
-                euclidean_flow(input, opts)
-            } else {
-                let compiled =
-                    geo::compile(input).map_err(|e| format!("compile error: {e}"))?;
-                deductive_flow(
-                    compiled.problem,
-                    input,
-                    compiled.goal_numerically_holds,
-                    opts,
-                )
+                return euclidean_flow(input, opts);
             }
+            let compiled = match geo::compile(input) {
+                Ok(c) => c,
+                Err(e) if e.is_metric_goal() => return euclidean_flow(input, opts),
+                Err(e) => return Err(format!("compile error: {e}")),
+            };
+            // Safety net: a goal the compiler lowered to a trivially-true
+            // placeholder would be "proved" vacuously by DDAR.
+            if compiled.problem.goal.as_ref().is_some_and(is_placeholder_goal) {
+                return euclidean_flow(input, opts);
+            }
+            deductive_flow(
+                compiled.problem,
+                input,
+                compiled.goal_numerically_holds,
+                opts,
+                deadline,
+            )
         }
     }
 }
+
+/// The compiler's stand-in for goals with no DDAR predicate: `cong a b a b`.
+fn is_placeholder_goal(goal: &ddar::Predicate) -> bool {
+    goal.name == "cong" && goal.points.len() == 4 && goal.points[..2] == goal.points[2..]
+}
+
+type Keepalive = std::sync::Arc<dyn std::any::Any + Send + Sync>;
+
+thread_local! {
+    static KEEPALIVE: std::cell::RefCell<Option<Keepalive>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` (a solve) so that every worker thread it starts holds a clone of
+/// `guard` until that thread really exits: how the tests observe that a search
+/// abandoned at its deadline really winds down. (Servers no longer need it:
+/// every server solve runs in a worker process that is killed at its limit.)
+#[cfg(test)]
+pub fn with_keepalive<R>(guard: Keepalive, f: impl FnOnce() -> R) -> R {
+    let prev = KEEPALIVE.with(|k| k.replace(Some(guard)));
+    let out = f();
+    KEEPALIVE.with(|k| *k.borrow_mut() = prev);
+    out
+}
+
+/// Run `f` to completion, or until `deadline` passes. `None` means the deadline
+/// expired first (the worker thread is abandoned, not killed — callers hand the
+/// deadline to the work itself so it winds down); `Some(Err(_))` means `f`
+/// panicked.
+fn run_until<T: Send + 'static>(
+    deadline: Option<Instant>,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Option<std::thread::Result<T>> {
+    let Some(deadline) = deadline else {
+        return Some(catch_unwind(AssertUnwindSafe(f)));
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let keep = KEEPALIVE.with(|k| k.borrow().clone());
+    let spawned = std::thread::Builder::new()
+        .name("solve-deadline".into())
+        .spawn(move || {
+            let _keep = keep;
+            let _ = tx.send(catch_unwind(AssertUnwindSafe(f)));
+        });
+    if spawned.is_err() {
+        return Some(Err(Box::new("could not start the solver thread")));
+    }
+    rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .ok()
+}
+
+/// Final consistency checks applied to every solve result: a numerically
+/// refuted goal is never reported proved, only a proved result carries proof
+/// text (and always some, when one was requested), and `status` agrees with
+/// both.
+fn reconcile(sol: &mut Solution, want_proof: bool) {
+    if sol.proved && sol.goal_holds_numerically == Some(false) {
+        sol.proved = false;
+        sol.proof = None;
+        sol.proof_steps = None;
+        sol.note = format!(
+            "not proved — the prover derived the goal, but it does not hold in the sampled \
+             figure, so the derivation is rejected as unsound (likely a degenerate figure); {}",
+            sol.note
+        );
+    }
+    if sol.proved && sol.proof.is_none() && want_proof {
+        let aux = if sol.aux_constructions.is_empty() {
+            String::new()
+        } else {
+            format!(" using {}", sol.aux_constructions.join("; "))
+        };
+        sol.proof = Some(format!(
+            "The goal was proved{aux} ({}), but the step-by-step proof could not be extracted.",
+            sol.note
+        ));
+    }
+    if !sol.proved {
+        sol.proof = None;
+        sol.proof_steps = None;
+    }
+    if sol.proof.is_none() {
+        sol.human = None;
+    }
+    sol.status = if sol.proved {
+        Status::Proved
+    } else if sol.goal_holds_numerically == Some(false) {
+        Status::Refuted
+    } else if sol.goal_holds_numerically == Some(true) && sol.numeric_samples.is_some() {
+        Status::HoldsNumerically
+    } else {
+        Status::NotProved
+    };
+}
+
+/// Sentinel from [`to_problem`]: the goal has no DDAR form (route it to the
+/// Euclidean prover).
+const METRIC_GOAL: &str = "metric goal";
 
 /// Compile a high-level `.geo` program, or parse a low-level problem, into a
 /// `Problem` plus any numeric goal check from the compiler.
 fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), String> {
     match kind {
         InputKind::Geo => {
-            let compiled = geo::compile(input).map_err(|e| format!("compile error: {e}"))?;
+            let compiled = geo::compile(input).map_err(|e| {
+                if e.is_metric_goal() {
+                    METRIC_GOAL.to_string()
+                } else {
+                    format!("compile error: {e}")
+                }
+            })?;
             Ok((compiled.problem, compiled.goal_numerically_holds))
         }
         InputKind::LowLevel => {
             let p = Problem::parse(input).map_err(|e| format!("parse error: {e}"))?;
             Ok((p, None))
         }
+        InputKind::Corpus => {
+            let (_, tr) = corpus_translation(input)?;
+            let [goal] = tr.goals.as_slice() else {
+                return Err(CONJUNCTION.to_string());
+            };
+            let mut p = tr.problem;
+            p.goal = Some(goal.clone());
+            Ok((p, Some(tr.goal_holds)))
+        }
     }
+}
+
+const CONJUNCTION: &str = "conjunctive goal";
+
+fn corpus_flow(input: &str, opts: &SolveOptions, deadline: Option<Instant>) -> Result<Solution, String> {
+    let (ag, tr) = corpus_translation(input)?;
+    if let [goal] = tr.goals.as_slice() {
+        let mut problem = tr.problem.clone();
+        problem.goal = Some(goal.clone());
+        return deductive_flow(problem, input, Some(tr.goal_holds), opts, deadline);
+    }
+    let start = Instant::now();
+    let deadline = deadline.or(Some(start + DEFAULT_SOLVE_TIMEOUT));
+    let base_len = tr.problem.points.len();
+    let mut display = tr.problem.clone();
+    display.goal = whole_goal(&display, &ag.goal);
+    let goal_text = ag.goal.to_string();
+    let n = tr.goals.len();
+    let part_opts = SolveOptions { want_proof: false, ..opts.clone() };
+    let mut current = tr.problem.clone();
+    let mut aux: Vec<String> = Vec::new();
+    for (k, g) in tr.goals.iter().enumerate() {
+        let mut p = current.clone();
+        p.goal = Some(g.clone());
+        let holds = ddar::corpus::pred_holds(&tr.problem, g);
+        let part = deductive_flow(p, input, holds, &part_opts, deadline)?;
+        if !part.proved {
+            let names: Vec<&str> = g.points.iter().map(|&i| tr.problem.point_name(i)).collect();
+            let note = format!("conjunct {} of {n} of `{goal_text}` ({} {}): {}", k + 1, g.name, names.join(" "), part.note);
+            return conjunction_solution(input, opts, &display, &current, base_len, Some(tr.goal_holds), aux, None, part.method, note, start);
+        }
+        aux.extend(part.aux_constructions.iter().cloned());
+        if let Some(f) = part.figure.filter(|f| f.aux_from.is_some()) {
+            current = f.problem;
+        }
+    }
+    current.goal = None;
+    let joint = catch_unwind(AssertUnwindSafe(|| {
+        ddar::quiet_panic::quiet(|| ddar::runner::solve_conjunction_with_proof(&current, &tr.goals, &goal_text))
+    }));
+    let method = if aux.is_empty() { Method::Ddar } else { Method::AuxSearch };
+    let (proof, note) = match joint {
+        Ok(Ok(Some(proof))) if aux.is_empty() => (Some(proof), format!("proved by DDAR (no auxiliary point): all {n} conjuncts of `{goal_text}`")),
+        Ok(Ok(Some(proof))) => (
+            Some(proof),
+            format!("proved with {} auxiliary construction(s): all {n} conjuncts of `{goal_text}`", aux.len()),
+        ),
+        _ => (None, format!("not proved — the {n} conjuncts of `{goal_text}` were proved one at a time but not in one closure")),
+    };
+    conjunction_solution(input, opts, &display, &current, base_len, Some(tr.goal_holds), aux, proof, method, note, start)
+}
+
+fn whole_goal(problem: &Problem, goal: &ddar::corpus::Term) -> Option<ddar::Predicate> {
+    let points = goal
+        .args
+        .iter()
+        .map(|a| problem.points.iter().position(|p| &p.name == a).map(|i| i as ddar::predicate::PointId))
+        .collect::<Option<Vec<_>>>()?;
+    Some(ddar::Predicate { name: goal.name.clone(), points, constants: Vec::new() })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn conjunction_solution(
+    input: &str,
+    opts: &SolveOptions,
+    display: &Problem,
+    augmented: &Problem,
+    base_len: usize,
+    goal_holds: Option<bool>,
+    aux_constructions: Vec<String>,
+    proof: Option<String>,
+    method: Method,
+    note: String,
+    start: Instant,
+) -> Result<Solution, String> {
+    let mut figure_problem = augmented.clone();
+    figure_problem.goal = display.goal.clone();
+    let aux_from = (figure_problem.points.len() > base_len).then_some(base_len);
+    let svg = render_figure(&figure_problem, opts, aux_from)?;
+    let (constructions, goal) = ddar::svg::legend_lines(display);
+    let proved = proof.is_some();
+    let proof_steps = proof.as_deref().map(proof_size).map(|(s, _)| s);
+    let mut sol = Solution {
+        input: input.to_string(),
+        low_level: display.to_ag_string(),
+        proved,
+        status: Status::NotProved,
+        method,
+        proof: if opts.want_proof { proof } else { None },
+        numeric_evidence: None,
+        numeric_samples: None,
+        svg,
+        aux_constructions,
+        constructions,
+        goal,
+        goal_holds_numerically: goal_holds,
+        elapsed_secs: start.elapsed().as_secs_f64(),
+        note,
+        proof_steps,
+        examined: None,
+        figure: Some(FigureSource { problem: figure_problem, aux_from }),
+        human: None,
+    };
+    reconcile(&mut sol, opts.want_proof);
+    Ok(sol)
 }
 
 /// Search, within a wall-clock `budget`, for the **shortest** proof — the one
@@ -179,24 +561,51 @@ fn to_problem(input: &str, kind: InputKind) -> Result<(Problem, Option<bool>), S
 ///     by length;
 ///   * with budget left, it deepens from the shortest working bases (adding a
 ///     second construction) to hunt for an even shorter proof;
-///   * if nothing at depth ≤ 1 even *solves*, the deepening MAX search finds a
-///     feasible proof (rank-first — from-scratch depth-≥2 minimisation is
-///     intractable), clearly labelled.
+///   * if nothing at depth ≤ 1 even *solves*, the default solver's randomised
+///     multi-point rollouts find a feasible proof (rank-first — from-scratch
+///     depth-≥2 minimisation is intractable), clearly labelled.
+///
+/// Depth 1 is the default solver's own pool (`depth1_solvers`: the classical
+/// library plus the coincidence-ranked new kinds), swept once and in parallel.
 pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<Solution, String> {
+    let euclid = |opts: &SolveOptions| -> Result<Solution, String> {
+        let mut sol = euclidean_flow(input, opts)?;
+        if sol.proved {
+            sol.note = format!(
+                "classical Euclidean proof — already minimal (cites named theorems); {}",
+                sol.note
+            );
+        }
+        sol.examined = Some(1);
+        Ok(sol)
+    };
     // Length goals already get the minimal, theorem-citing Euclidean proof.
     if opts.kind == InputKind::Geo
         && extract_goal(input).map(|g| is_metric_goal(&g)).unwrap_or(false)
     {
-        let mut sol = euclidean_flow(input, opts)?;
-        sol.note = format!(
-            "classical Euclidean proof — already minimal (cites named theorems); {}",
-            sol.note
-        );
-        sol.examined = Some(1);
-        return Ok(sol);
+        return euclid(opts);
     }
 
-    let (problem, goal_holds) = to_problem(input, opts.kind)?;
+    let (problem, goal_holds) = match to_problem(input, opts.kind) {
+        Err(e) if e == METRIC_GOAL => return euclid(opts),
+        Err(e) if e == CONJUNCTION => return solve_within(input, opts, Some(budget)),
+        other => other?,
+    };
+    if opts.kind == InputKind::Geo && problem.goal.as_ref().is_some_and(is_placeholder_goal) {
+        return euclid(opts);
+    }
+    let mut sol = ddar::quiet_panic::quiet(|| best_deductive(input, opts, budget, problem, goal_holds))?;
+    reconcile(&mut sol, true);
+    Ok(sol)
+}
+
+fn best_deductive(
+    input: &str,
+    opts: &SolveOptions,
+    budget: Duration,
+    problem: Problem,
+    goal_holds: Option<bool>,
+) -> Result<Solution, String> {
     let svg = render_figure(&problem, opts, None)?;
     let (legend_cons, legend_goal) = ddar::svg::legend_lines(&problem);
     let start = Instant::now();
@@ -213,8 +622,11 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
             input: input.to_string(),
             low_level: problem.to_ag_string(),
             proved,
+            status: Status::NotProved,
             method,
             proof,
+            numeric_evidence: None,
+            numeric_samples: None,
             svg: svg.clone(),
             aux_constructions: aux,
             constructions: legend_cons.clone(),
@@ -224,15 +636,14 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
             note,
             proof_steps,
             examined: Some(examined),
+            figure: Some(FigureSource { problem: problem.clone(), aux_from: None }),
+            human: None,
         }
     };
 
-    // The globally shortest proof so far: (aux constructions, proof, steps, facts).
-    let mut best: Option<(Vec<Construction>, String, usize, usize)> = None;
+    let mut best: Vec<Candidate> = Vec::new();
     let mut examined = 0usize;
 
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
 
     // Depth 0: the direct proof (0 aux) is a candidate — NOT returned early, since
     // an auxiliary construction may yield a shorter proof.
@@ -243,8 +654,7 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
     }
     // If the figure shows the goal is false and DDAR cannot prove it directly, no
     // auxiliary construction can either — fail fast.
-    if best.is_none() && goal_holds == Some(false) {
-        std::panic::set_hook(prev_hook);
+    if best.is_empty() && goal_holds == Some(false) {
         return Ok(build(
             false,
             Method::Ddar,
@@ -258,16 +668,18 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
 
     // Depth 1: every single auxiliary construction that solves, compared by
     // length. Collect the working ones as bases for the depth-2 hunt.
-    let full = problem.points.len() <= 14;
-    let cands = catch_unwind(AssertUnwindSafe(|| candidates(&problem, full))).unwrap_or_default();
-    let warm = WarmBase::new(&problem);
+    let deadline = start + budget;
+    let swept = catch_unwind(AssertUnwindSafe(|| depth1_solvers(&problem, Some(deadline))))
+        .ok()
+        .flatten();
+    let (solvers, swept_all) = match swept {
+        Some((solvers, complete, _)) => (solvers, complete),
+        None => (Vec::new(), false),
+    };
     let mut bases: Vec<(Construction, usize)> = Vec::new();
-    for cand in &cands {
-        if start.elapsed() >= budget {
+    for cand in &solvers {
+        if Instant::now() >= deadline {
             break;
-        }
-        if !solves_with(&warm, &problem, cand) {
-            continue;
         }
         let Some(aug) = safe_apply(&problem, std::slice::from_ref(cand)) else {
             continue;
@@ -285,7 +697,7 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
     if !bases.is_empty() {
         bases.sort_by_key(|(_, steps)| *steps);
         'outer: for (base, _) in &bases {
-            if start.elapsed() >= budget {
+            if Instant::now() >= deadline {
                 break;
             }
             let Some(base_problem) = safe_apply(&problem, std::slice::from_ref(base)) else {
@@ -298,10 +710,10 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
                 .ok()
                 .flatten();
             for c2 in &cands2 {
-                if start.elapsed() >= budget {
+                if Instant::now() >= deadline {
                     break 'outer;
                 }
-                if !solves_with(&warm2, &base_problem, c2) {
+                if !solves_with(&warm2, &base_problem, c2, deadline) {
                     continue;
                 }
                 let Some(aug2) = safe_apply(&base_problem, std::slice::from_ref(c2)) else {
@@ -315,9 +727,21 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
             }
         }
     }
-    std::panic::set_hook(prev_hook);
 
-    if let Some((aux, proof, steps, _)) = best {
+    let shortest_steps = best.first().map(|c| c.2);
+    let pick = most_readable(&problem, &best, budget);
+    if !best.is_empty() {
+        let (pick, human) = match pick {
+            Some((i, h)) => (Some(i), Some(h)),
+            None => (None, None),
+        };
+        let (aux, proof, steps, _) = best.swap_remove(pick.unwrap_or(0));
+        let readable = pick.is_some();
+        let descs: Vec<String> = aux.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+        let human = human.or_else(|| {
+            let aug = safe_apply(&problem, &aux)?;
+            write_human(&aug, problem.points.len(), &descs, &traced_proof(&aug)?, None)
+        });
         let method = if aux.is_empty() {
             Method::Ddar
         } else {
@@ -338,10 +762,18 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
             Some(proof),
             aux_strs,
             examined,
-            format!(
-                "shortest proof found: {steps} steps ({aux_desc}); examined {examined} distinct proof(s)"
-            ),
+            if readable {
+                format!(
+                    "most readable of {examined} proofs examined: {steps} steps ({aux_desc}); the shortest has {} steps",
+                    shortest_steps.unwrap_or(steps)
+                )
+            } else {
+                format!(
+                    "shortest proof found: {steps} steps ({aux_desc}); examined {examined} distinct proof(s)"
+                )
+            },
         );
+        sol.human = human;
         // Redraw from the augmented problem so the winning proof's auxiliary
         // constructions appear on the drawing (dashed, in the aux color).
         if !aux.is_empty() {
@@ -349,17 +781,16 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
                 if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                     sol.svg = aux_svg;
                 }
+                sol.figure = Some(FigureSource { problem: aug, aux_from: Some(problem.points.len()) });
             }
         }
         return Ok(sol);
     }
 
-    // Nothing at depth ≤ 1 even solves — find a feasible proof with the deepening
-    // MAX search (rank-first). Convert remaining time to a run budget from the
-    // observed rate.
-    let elapsed = start.elapsed();
-    let remaining = budget.saturating_sub(elapsed);
-    if remaining.is_zero() {
+    // Nothing at depth ≤ 1 even solves — find a feasible proof with the default
+    // solver's rollouts (its depth-1 sweep is skipped when ours covered the
+    // same pool), bounded by the rest of the budget.
+    if Instant::now() >= deadline {
         return Ok(build(
             false,
             Method::AuxSearch,
@@ -370,24 +801,52 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
                 .to_string(),
         ));
     }
-    let rate = (cands.len().max(1) as f64 / elapsed.as_secs_f64().max(1e-3)).max(1_000.0);
-    let run_budget = ((rate * remaining.as_secs_f64()) as usize).clamp(20_000, 5_000_000);
-    let (res, stats) =
-        catch_unwind(AssertUnwindSafe(|| solve_with_aux(&problem, 3, run_budget, false)))
-            .map_err(|_| "auxiliary search panicked".to_string())?;
+    let search_problem = problem.clone();
+    let searched = run_until(Some(deadline), move || {
+        if swept_all {
+            rollouts_until(&search_problem, false, Some(deadline))
+        } else {
+            solve_max_until(&search_problem, false, Some(deadline))
+        }
+    });
+    let Some(searched) = searched else {
+        return Ok(build(
+            false,
+            Method::AuxSearch,
+            None,
+            vec![],
+            examined,
+            format!(
+                "no proof found within the {:.0}s budget (deeper search hit the time limit)",
+                budget.as_secs_f64()
+            ),
+        ));
+    };
+    let (res, stats) = searched.map_err(|_| "auxiliary search panicked".to_string())?;
     match res {
         Some(auxproof) => {
-            let aug = apply_constructions(&problem, &auxproof.constructions);
-            let proof = catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&aug)))
-                .ok()
-                .and_then(|r| r.ok().flatten());
+            let Some(aug) = safe_apply(&problem, &auxproof.constructions) else {
+                return Ok(build(
+                    false,
+                    Method::AuxSearch,
+                    None,
+                    vec![],
+                    examined,
+                    "the auxiliary search reported a proof, but its constructions could not be \
+                     replayed (degenerate figure)"
+                        .to_string(),
+                ));
+            };
+            let traced = traced_proof(&aug);
             let n = auxproof.constructions.len();
-            let steps = proof.as_deref().map(proof_size).map(|(s, _)| s).unwrap_or(0);
-            let aux = auxproof
+            let aux: Vec<String> = auxproof
                 .constructions
                 .iter()
                 .map(|c| format!("{} = {}", c.name, c.desc))
                 .collect();
+            let human = traced.as_ref().and_then(|t| write_human(&aug, problem.points.len(), &aux, t, None));
+            let proof = traced.map(|t| t.0);
+            let steps = proof.as_deref().map(proof_size).map(|(s, _)| s).unwrap_or(0);
             let mut sol = build(
                 true,
                 Method::AuxSearch,
@@ -399,10 +858,12 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
                     stats.runs
                 ),
             );
+            sol.human = human;
             // Same redraw: put the auxiliary constructions on the figure.
             if let Ok(aux_svg) = render_figure(&aug, opts, Some(problem.points.len())) {
                 sol.svg = aux_svg;
             }
+            sol.figure = Some(FigureSource { problem: aug, aux_from: Some(problem.points.len()) });
             Ok(sol)
         }
         None => Ok(build(
@@ -416,22 +877,52 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
     }
 }
 
-/// Record a proof if it is strictly shorter than the best so far (fewer steps,
-/// then fewer facts). Auxiliary count is intentionally not a factor.
-fn consider(
-    best: &mut Option<(Vec<Construction>, String, usize, usize)>,
-    examined: &mut usize,
-    aux: Vec<Construction>,
-    proof: String,
-) {
+type Candidate = (Vec<Construction>, String, usize, usize);
+
+const TOP_K: usize = 16;
+
+fn consider(best: &mut Vec<Candidate>, examined: &mut usize, aux: Vec<Construction>, proof: String) {
     let (steps, facts) = proof_size(&proof);
     *examined += 1;
-    if best
-        .as_ref()
-        .map_or(true, |(_, _, bs, bf)| (steps, facts) < (*bs, *bf))
-    {
-        *best = Some((aux, proof, steps, facts));
+    if best.iter().any(|c| c.1 == proof) {
+        return;
     }
+    let at = best.partition_point(|c| (c.2, c.3) <= (steps, facts));
+    if at < TOP_K {
+        best.insert(at, (aux, proof, steps, facts));
+        best.truncate(TOP_K);
+    }
+}
+
+fn most_readable(problem: &Problem, cands: &[Candidate], budget: Duration) -> Option<(usize, HumanSource)> {
+    if cands.len() < 2 {
+        return None;
+    }
+    let slice = (budget / 4).min(Duration::from_secs(5));
+    let stop = Instant::now() + slice;
+    let mut best: Option<((usize, usize, usize), HumanSource)> = None;
+    for (i, (aux, _, steps, _)) in cands.iter().enumerate() {
+        let now = Instant::now();
+        if now >= stop {
+            break;
+        }
+        let Some(aug) = safe_apply(problem, aux) else { continue };
+        let descs: Vec<String> = aux.iter().map(|c| format!("{} = {}", c.name, c.desc)).collect();
+        let infos = ddar::human::aux_infos(&aug, problem.points.len(), &descs);
+        let opts = ddar::human::Opts { deadline: Some(stop.min(now + Duration::from_secs(2))), strict: false };
+        let Ok(Some((hp, trace, deps, _))) = catch_unwind(AssertUnwindSafe(|| ddar::human::for_problem(&aug, &infos, &opts))) else {
+            continue;
+        };
+        if !hp.available || hp.metrics.timed_out {
+            continue;
+        }
+        let key = (hp.metrics.human_cost, *steps, i);
+        if best.as_ref().is_none_or(|b| key < b.0) {
+            let closure = trace.closure(&deps);
+            best = Some((key, HumanSource { proof: hp, names: trace.names, closure }));
+        }
+    }
+    best.map(|(k, h)| (k.2, h))
 }
 
 /// Apply constructions, containing any panic from a degenerate configuration
@@ -440,11 +931,17 @@ fn safe_apply(problem: &Problem, cons: &[Construction]) -> Option<Problem> {
     catch_unwind(AssertUnwindSafe(|| apply_constructions(problem, cons))).ok()
 }
 
-/// Does adding `cand` to `problem` let DDAR prove the goal? Uses the warm-start
-/// fast path when available, else a full solve; degenerate candidates are caught.
-fn solves_with(warm: &Option<WarmBase>, problem: &Problem, cand: &Construction) -> bool {
+/// Does adding `cand` to `problem` let DDAR prove the goal before `deadline`?
+/// Uses the warm-start fast path when available, else a full solve; degenerate
+/// candidates are caught.
+fn solves_with(
+    warm: &Option<WarmBase>,
+    problem: &Problem,
+    cand: &Construction,
+    deadline: Instant,
+) -> bool {
     match warm {
-        Some(w) => catch_unwind(AssertUnwindSafe(|| w.check(cand))).unwrap_or(false),
+        Some(w) => catch_unwind(AssertUnwindSafe(|| w.check_until(cand, Some(deadline)))).unwrap_or(false),
         None => catch_unwind(AssertUnwindSafe(|| {
             solve_problem(&apply_constructions(problem, std::slice::from_ref(cand))).unwrap_or(false)
         }))
@@ -485,14 +982,35 @@ fn deductive_flow(
     input: &str,
     goal_holds: Option<bool>,
     opts: &SolveOptions,
+    deadline: Option<Instant>,
 ) -> Result<Solution, String> {
     let start = Instant::now();
     let mut svg = render_figure(&problem, opts, None)?;
+    let mut figure = FigureSource { problem: problem.clone(), aux_from: None };
     let (legend_cons, legend_goal) = ddar::svg::legend_lines(&problem);
+    let limit_note = || {
+        let secs = deadline.map_or(0.0, |d| d.duration_since(start).as_secs_f64());
+        format!("not proved — stopped at the {secs:.0}s time limit")
+    };
 
-    let direct = catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&problem)))
-        .map_err(|_| "solver panicked".to_string())?;
+    let direct_problem = problem.clone();
+    let direct = run_until(deadline, move || solve_problem_with_trace(&direct_problem));
+    let direct = match direct {
+        Some(r) => r.map_err(|_| "solver panicked".to_string())?,
+        None => Ok(None),
+    };
+    let mut human = None;
+    let direct = direct.map(|d| {
+        d.map(|traced| {
+            if opts.want_proof {
+                human = write_human(&problem, problem.points.len(), &[], &traced, deadline);
+            }
+            traced.0
+        })
+    });
+    let timed_out = || deadline.is_some_and(|d| Instant::now() >= d);
     let (proved, method, proof, aux_constructions, note) = match direct {
+        Ok(None) if timed_out() => (false, Method::Ddar, None, Vec::new(), limit_note()),
         Ok(Some(p)) => (
             true,
             Method::Ddar,
@@ -511,16 +1029,41 @@ fn deductive_flow(
                 .to_string(),
         ),
         Ok(None) => {
-            let (res, stats) = catch_unwind(AssertUnwindSafe(|| solve_max(&problem, false)))
-                .map_err(|_| "auxiliary search panicked".to_string())?;
-            match res {
-                Some(auxproof) => {
+            // The corpus benchmark's pipeline (`ddar::bench::prove_goal`): full
+            // depth-1 sweep, then rollouts until the deadline. Without one the
+            // rollouts would never stop, so a deadline-less solve gets the
+            // default limit.
+            let search_deadline = deadline.or_else(|| Some(start + DEFAULT_SOLVE_TIMEOUT));
+            let search_problem = problem.clone();
+            let searched = run_until(search_deadline, move || {
+                solve_max_until(&search_problem, false, search_deadline)
+            });
+            let (res, stats) = match searched {
+                Some(r) => r.map_err(|_| "auxiliary search panicked".to_string())?,
+                None => (None, ddar::aux_search::SearchStats { runs: 0 }),
+            };
+            let augmented = res
+                .as_ref()
+                .and_then(|a| safe_apply(&problem, &a.constructions));
+            match (res, augmented) {
+                (None, _) if timed_out() => {
+                    (false, Method::AuxSearch, None, Vec::new(), limit_note())
+                }
+                (Some(_), None) => (
+                    false,
+                    Method::AuxSearch,
+                    None,
+                    Vec::new(),
+                    "the auxiliary search reported a proof, but its constructions could not be \
+                     replayed (degenerate figure)"
+                        .to_string(),
+                ),
+                (Some(auxproof), Some(augmented)) => {
                     let aux: Vec<String> = auxproof
                         .constructions
                         .iter()
                         .map(|c| format!("{} = {}", c.name, c.desc))
                         .collect();
-                    let augmented = apply_constructions(&problem, &auxproof.constructions);
                     // Redraw the figure from the augmented problem so the
                     // auxiliary constructions appear on the drawing (dashed,
                     // in the aux color) rather than only as text.
@@ -529,10 +1072,15 @@ fn deductive_flow(
                     {
                         svg = aux_svg;
                     }
+                    figure = FigureSource {
+                        problem: augmented.clone(),
+                        aux_from: Some(problem.points.len()),
+                    };
                     let proof = if opts.want_proof {
-                        catch_unwind(AssertUnwindSafe(|| solve_problem_with_proof(&augmented)))
-                            .ok()
-                            .and_then(|r| r.ok().flatten())
+                        traced_proof(&augmented).map(|traced| {
+                            human = write_human(&augmented, problem.points.len(), &aux, &traced, deadline);
+                            traced.0
+                        })
                     } else {
                         None
                     };
@@ -543,7 +1091,7 @@ fn deductive_flow(
                     );
                     (true, Method::AuxSearch, proof, aux, note)
                 }
-                None => (
+                (None, _) => (
                     false,
                     Method::AuxSearch,
                     None,
@@ -556,12 +1104,15 @@ fn deductive_flow(
     };
 
     let proof_steps = proof.as_deref().map(proof_size).map(|(s, _)| s);
-    Ok(Solution {
+    let mut sol = Solution {
         input: input.to_string(),
         low_level: problem.to_ag_string(),
         proved,
+        status: Status::NotProved,
         method,
         proof,
+        numeric_evidence: None,
+        numeric_samples: None,
         svg,
         aux_constructions,
         constructions: legend_cons,
@@ -571,7 +1122,11 @@ fn deductive_flow(
         note,
         proof_steps,
         examined: None,
-    })
+        figure: Some(figure),
+        human,
+    };
+    reconcile(&mut sol, opts.want_proof);
+    Ok(sol)
 }
 
 /// The classical-Euclidean path for absolute-length goals: draw the figure from
@@ -582,33 +1137,67 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
 
     // Figure + low-level form: compile the construction lines alone (the metric
     // goal is not a DDAR predicate, so it is dropped from the drawing).
-    let (svg, low_level, goal_holds, legend_cons) = match geo::compile(&cons) {
+    let (svg, low_level, goal_holds, legend_cons, figure) = match geo::compile(&cons) {
         Ok(c) => {
             let svg = render_figure(&c.problem, opts, None).unwrap_or_default();
             let (lc, _) = ddar::svg::legend_lines(&c.problem);
-            (svg, c.problem.to_ag_string(), c.goal_numerically_holds, lc)
+            let ll = c.problem.to_ag_string();
+            let fig = FigureSource { problem: c.problem, aux_from: None };
+            (svg, ll, c.goal_numerically_holds, lc, Some(fig))
         }
-        Err(_) => (String::new(), String::new(), None, Vec::new()),
+        Err(_) => (String::new(), String::new(), None, Vec::new(), None),
     };
 
-    let result = catch_unwind(AssertUnwindSafe(|| ddar::metric::solve(&cons, &goal, 48)))
-        .map_err(|_| "metric prover panicked".to_string())?;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        ddar::metric::solve(&cons, &goal, ddar::metric::DEFAULT_SAMPLES)
+    }))
+    .map_err(|_| "metric prover panicked".to_string())?;
+    let mut goal_holds = goal_holds;
+    let (mut numeric_evidence, mut numeric_samples) = (None, None);
     let (proved, proof, note) = match result {
-        Ok(report) => (
+        Ok(proof) => (
             true,
-            Some(report),
+            Some(proof),
             "proved by the classical Euclidean prover".to_string(),
         ),
-        Err(e) => (false, None, format!("metric prover: {e}")),
+        Err(ddar::metric::MetricError::NoProof { reason, evidence }) => {
+            goal_holds = Some(true);
+            numeric_samples = Some(evidence.samples);
+            numeric_evidence = Some(evidence.report);
+            (
+                false,
+                None,
+                format!(
+                    "not proved — no classical Euclidean proof was found ({reason}); the goal \
+                     holds numerically in {} sampled figures, which is evidence, not a proof",
+                    evidence.samples
+                ),
+            )
+        }
+        Err(ddar::metric::MetricError::Refuted(report)) => {
+            goal_holds = Some(false);
+            numeric_evidence = Some(report);
+            (
+                false,
+                None,
+                "not provable — the equation fails in a sampled figure (the statement \
+                 appears to be false)"
+                    .to_string(),
+            )
+        }
+        Err(e) => (false, None, format!("metric prover: {}", e.message())),
     };
 
     let proof_steps = proof.as_deref().map(proof_size).map(|(s, _)| s);
-    Ok(Solution {
+    let mut sol = Solution {
         input: program.to_string(),
         low_level,
         proved,
+        status: Status::NotProved,
         method: Method::Euclidean,
         proof,
+        numeric_evidence,
+        numeric_samples,
         svg,
         aux_constructions: Vec::new(),
         constructions: legend_cons,
@@ -618,7 +1207,11 @@ fn euclidean_flow(program: &str, opts: &SolveOptions) -> Result<Solution, String
         note,
         proof_steps,
         examined: None,
-    })
+        figure,
+        human: None,
+    };
+    reconcile(&mut sol, opts.want_proof);
+    Ok(sol)
 }
 
 /// Render the figure; `aux_from` marks the index of the first auxiliary point
@@ -683,31 +1276,280 @@ fn split_metric_program(src: &str) -> Result<(String, String), String> {
     Ok((cons.join("\n"), goal))
 }
 
-/// Decide whether a goal is an *absolute-length* equation (→ Euclidean prover)
-/// rather than a relation or a scale-invariant product/ratio (→ DDAR).
+/// Decide whether a goal must go to the Euclidean (metric) prover rather than
+/// DDAR.
 ///
-/// The distinguishing feature is an absolute numeric constant: `= 144`,
-/// `AC² = 27`, `3·√3`. A purely product/ratio identity (Ptolemy:
-/// `AC·BD = AB·CD + AD·BC`) has no bare constant and stays on the DDAR path.
+/// Mirrors `ddar::geo`'s goal classification: a metric equation stays on DDAR
+/// only when it lowers to a real DDAR predicate — `dist = dist` (cong),
+/// `angle = <deg>` / `angle = angle`, an equality of products of bare distances
+/// (power of a point), a zero-constant linear sum of distances, or a linear sum
+/// of angles. Everything else (absolute lengths, squares, roots, areas, sums of
+/// products such as Ptolemy, ratios with a constant) has no DDAR predicate and
+/// would otherwise compile to a vacuous placeholder.
 fn is_metric_goal(goal: &str) -> bool {
-    if goal.contains("sqrt") || goal.contains('√') {
-        return true;
+    let g = goal.trim();
+    let head = g.split('(').next().unwrap_or("").trim();
+    if matches!(
+        head,
+        "coll" | "cyclic" | "cong" | "perp" | "para" | "eqangle" | "eqratio" | "on"
+    ) {
+        return false;
     }
-    // A term with only digits/`.`/`*`/spaces (and at least one digit) — i.e. no
-    // point names — is an absolute constant like `144`.
-    for side in goal.split('=') {
-        for term in side.split(['+', '-']) {
-            let t = term.trim();
-            if !t.is_empty()
-                && t.chars().any(|c| c.is_ascii_digit())
-                && t.chars()
-                    .all(|c| c.is_ascii_digit() || c == '.' || c == '*' || c.is_whitespace())
-            {
-                return true;
+    let Some((lhs, rhs)) = g.split_once('=') else {
+        return false;
+    };
+    match (MExpr::parse(lhs), MExpr::parse(rhs)) {
+        (Some(l), Some(r)) => !ddar_expressible(&l, &r),
+        // Unparseable here (e.g. nested past MAX_GOAL_DEPTH): anything metric
+        // goes to the Euclidean prover, which reports its own error; the rest is
+        // left to `geo::compile`.
+        _ => ["dist(", "area(", "sqrt", "√", "^"].iter().any(|k| g.contains(k)),
+    }
+}
+
+/// A metric expression, as far as goal routing needs to see it.
+#[derive(Clone, Debug, PartialEq)]
+enum MExpr {
+    Num(f64),
+    Dist(String, String),
+    Angle(String, String, String),
+    /// sqrt/sin/cos/tan/area — never DDAR-expressible.
+    Opaque,
+    Neg(Box<MExpr>),
+    Add(Box<MExpr>, Box<MExpr>),
+    Sub(Box<MExpr>, Box<MExpr>),
+    Mul(Box<MExpr>, Box<MExpr>),
+    Div(Box<MExpr>, Box<MExpr>),
+    Pow(Box<MExpr>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum MTok {
+    Num(f64),
+    Ident(String),
+    Op(char),
+}
+
+impl MExpr {
+    fn parse(src: &str) -> Option<MExpr> {
+        let toks = mtokens(src)?;
+        let mut pos = 0;
+        let e = parse_sum(&toks, &mut pos, 0)?;
+        (pos == toks.len()).then_some(e)
+    }
+}
+
+const MAX_GOAL_DEPTH: usize = 64;
+
+fn mtokens(src: &str) -> Option<Vec<MTok>> {
+    let mut out = Vec::new();
+    let chars: Vec<char> = src.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+        } else if c.is_ascii_digit() || c == '.' {
+            let s = i;
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
             }
+            out.push(MTok::Num(chars[s..i].iter().collect::<String>().parse().ok()?));
+        } else if c.is_alphabetic() || c == '_' {
+            let s = i;
+            while i < chars.len() && (chars[i].is_alphanumeric() || matches!(chars[i], '_' | '\'')) {
+                i += 1;
+            }
+            out.push(MTok::Ident(chars[s..i].iter().collect()));
+        } else if "+-*/^(),".contains(c) {
+            out.push(MTok::Op(c));
+            i += 1;
+        } else {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+fn parse_sum(t: &[MTok], p: &mut usize, d: usize) -> Option<MExpr> {
+    let mut e = parse_product(t, p, d)?;
+    while let Some(MTok::Op(op @ ('+' | '-'))) = t.get(*p) {
+        *p += 1;
+        let r = Box::new(parse_product(t, p, d)?);
+        e = if *op == '+' { MExpr::Add(Box::new(e), r) } else { MExpr::Sub(Box::new(e), r) };
+    }
+    Some(e)
+}
+
+fn parse_product(t: &[MTok], p: &mut usize, d: usize) -> Option<MExpr> {
+    let mut e = parse_power(t, p, d)?;
+    while let Some(MTok::Op(op @ ('*' | '/'))) = t.get(*p) {
+        *p += 1;
+        let r = Box::new(parse_power(t, p, d)?);
+        e = if *op == '*' { MExpr::Mul(Box::new(e), r) } else { MExpr::Div(Box::new(e), r) };
+    }
+    Some(e)
+}
+
+fn parse_power(t: &[MTok], p: &mut usize, d: usize) -> Option<MExpr> {
+    let base = parse_unary(t, p, d)?;
+    if t.get(*p) == Some(&MTok::Op('^')) {
+        *p += 1;
+        match t.get(*p) {
+            Some(MTok::Num(_)) => *p += 1,
+            _ => return None,
+        }
+        return Some(MExpr::Pow(Box::new(base)));
+    }
+    Some(base)
+}
+
+fn parse_unary(t: &[MTok], p: &mut usize, d: usize) -> Option<MExpr> {
+    if d > MAX_GOAL_DEPTH {
+        return None;
+    }
+    if t.get(*p) == Some(&MTok::Op('-')) {
+        *p += 1;
+        return Some(MExpr::Neg(Box::new(parse_unary(t, p, d + 1)?)));
+    }
+    match t.get(*p)?.clone() {
+        MTok::Num(v) => {
+            *p += 1;
+            Some(MExpr::Num(v))
+        }
+        MTok::Op('(') => {
+            *p += 1;
+            let e = parse_sum(t, p, d + 1)?;
+            (t.get(*p) == Some(&MTok::Op(')'))).then_some(())?;
+            *p += 1;
+            Some(e)
+        }
+        MTok::Ident(name) => {
+            *p += 1;
+            let low = name.to_ascii_lowercase();
+            if low == "pi" {
+                return Some(MExpr::Num(std::f64::consts::PI));
+            }
+            (t.get(*p) == Some(&MTok::Op('('))).then_some(())?;
+            *p += 1;
+            if matches!(low.as_str(), "sqrt" | "sin" | "cos" | "tan") {
+                parse_sum(t, p, d + 1)?;
+                (t.get(*p) == Some(&MTok::Op(')'))).then_some(())?;
+                *p += 1;
+                return Some(MExpr::Opaque);
+            }
+            let mut args = Vec::new();
+            loop {
+                match t.get(*p)? {
+                    MTok::Ident(a) => args.push(a.clone()),
+                    _ => return None,
+                }
+                *p += 1;
+                match t.get(*p)? {
+                    MTok::Op(',') => *p += 1,
+                    MTok::Op(')') => {
+                        *p += 1;
+                        break;
+                    }
+                    _ => return None,
+                }
+            }
+            match (low.as_str(), args.as_slice()) {
+                ("dist", [a, b]) => Some(MExpr::Dist(a.clone(), b.clone())),
+                ("angle", [a, b, c]) => Some(MExpr::Angle(a.clone(), b.clone(), c.clone())),
+                ("area", [_, _, _]) => Some(MExpr::Opaque),
+                _ => None,
+            }
+        }
+        MTok::Op(_) => None,
+    }
+}
+
+/// Would `ddar::geo` lower `lhs = rhs` to a real DDAR predicate?
+fn ddar_expressible(lhs: &MExpr, rhs: &MExpr) -> bool {
+    use MExpr::*;
+    match (lhs, rhs) {
+        (Dist(..), Dist(..)) | (Angle(..), Num(_)) | (Angle(..), Angle(..)) => return true,
+        (Dist(..), Num(_)) | (Num(_), Dist(..)) => return false,
+        _ => {}
+    }
+    if let (Some(l), Some(r)) = (dist_product(lhs), dist_product(rhs)) {
+        if l >= 2 || r >= 2 {
+            return true;
+        }
+    }
+    if let (Some((lt, lk)), Some((rt, rk))) = (lincomb(lhs, false), lincomb(rhs, false)) {
+        if (lk - rk).abs() <= 1e-12 && net_terms(lt, rt) >= 2 {
+            return true;
+        }
+    }
+    if let (Some((lt, _)), Some((rt, _))) = (lincomb(lhs, true), lincomb(rhs, true)) {
+        if net_terms(lt, rt) >= 1 {
+            return true;
         }
     }
     false
+}
+
+/// Number of factors if `e` is a product of bare distances.
+fn dist_product(e: &MExpr) -> Option<usize> {
+    match e {
+        MExpr::Dist(..) => Some(1),
+        MExpr::Mul(x, y) => Some(dist_product(x)? + dist_product(y)?),
+        _ => None,
+    }
+}
+
+/// `Σ cᵢ·termᵢ + k` over distances (or, with `angles`, over angles): the
+/// signed terms (keyed by their unordered endpoints) and the constant.
+type LinTerms = Vec<(f64, Vec<String>)>;
+
+fn lincomb(e: &MExpr, angles: bool) -> Option<(LinTerms, f64)> {
+    use MExpr::*;
+    let scale = |(t, k): (LinTerms, f64), c: f64| {
+        (t.into_iter().map(|(x, n)| (x * c, n)).collect::<LinTerms>(), k * c)
+    };
+    match e {
+        Num(v) => Some((Vec::new(), *v)),
+        Dist(a, b) if !angles => {
+            let mut key = vec![a.clone(), b.clone()];
+            key.sort();
+            Some((vec![(1.0, key)], 0.0))
+        }
+        Angle(a, b, c) if angles => {
+            let (x, z) = if a <= c { (a, c) } else { (c, a) };
+            Some((vec![(1.0, vec![x.clone(), b.clone(), z.clone()])], 0.0))
+        }
+        Neg(x) => Some(scale(lincomb(x, angles)?, -1.0)),
+        Add(x, y) | Sub(x, y) => {
+            let (mut t, k1) = lincomb(x, angles)?;
+            let sign = if matches!(e, Sub(..)) { -1.0 } else { 1.0 };
+            let (t2, k2) = scale(lincomb(y, angles)?, sign);
+            t.extend(t2);
+            Some((t, k1 + k2))
+        }
+        Mul(x, y) => match (&**x, &**y) {
+            (Num(c), o) | (o, Num(c)) => Some(scale(lincomb(o, angles)?, *c)),
+            _ => None,
+        },
+        Div(x, y) => match &**y {
+            Num(c) if *c != 0.0 => Some(scale(lincomb(x, angles)?, 1.0 / c)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Count the terms of `lhs - rhs` that survive merging and cancellation.
+fn net_terms(lhs: LinTerms, rhs: LinTerms) -> usize {
+    let mut merged: LinTerms = Vec::new();
+    for (c, key) in lhs.into_iter().chain(rhs.into_iter().map(|(c, k)| (-c, k))) {
+        match merged.iter_mut().find(|m| m.1 == key) {
+            Some(m) => m.0 += c,
+            None => merged.push((c, key)),
+        }
+    }
+    merged.iter().filter(|m| m.0.abs() > 1e-12).count()
 }
 
 /// Parse a theme name; defaults to dark (AlphaGeometry's original look).
@@ -715,5 +1557,491 @@ pub fn parse_theme(s: &str) -> Theme {
     match s.to_ascii_lowercase().as_str() {
         "light" => Theme::Light,
         _ => Theme::Dark,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn heavy_search_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIST_CONST_FREE: &str = "A = free\nB = free\nprove dist(A,B) = 3";
+    /// A median halves the area: true, but no theorem in the library speaks of
+    /// areas, so it has no Euclidean proof here.
+    const NUMERIC_ONLY: &str = "A B C = triangle\nM = midpoint(B, C)\nprove area(A,B,M) = area(A,M,C)";
+    const PYTHAGORAS_GENERIC: &str =
+        "A B C = triangle\nprove dist(A,B)^2 = dist(B,C)^2 + dist(A,C)^2";
+    const THALES_ANGLE: &str = "A = free\nO = free\nB = reflect(A, O)\n\
+                                C = point: on(C, circle(O, A))\nprove angle(A,C,B) = 90";
+    const GENERIC_RIGHT_ANGLE: &str = "A B C = triangle\nprove angle(A,C,B) = 90";
+    // Needs a two-point auxiliary search (seconds, not milliseconds).
+    const BUTTERFLY: &str = "O = free\nP = free\nQ = on_circle(O, P)\nM = midpoint(P, Q)\n\
+        A = on_circle(O, P)\nB = meet(line(A, M), circle(O, P))\nC = on_circle(O, P)\n\
+        D = meet(line(C, M), circle(O, P))\nX = meet(line(A, D), line(P, Q))\n\
+        Y = meet(line(B, C), line(P, Q))\nprove cong(M, X, M, Y)";
+
+    #[test]
+    fn refuted_metric_goal_is_not_proved() {
+        let sol = solve(DIST_CONST_FREE, &SolveOptions::default()).unwrap();
+        assert_eq!(sol.method, Method::Euclidean);
+        assert!(!sol.proved, "a refuted goal must not count as proved: {}", sol.note);
+        assert_eq!(sol.goal_holds_numerically, Some(false));
+    }
+
+    #[test]
+    fn pythagoras_on_a_generic_triangle_is_not_proved() {
+        let sol = solve(PYTHAGORAS_GENERIC, &SolveOptions::default()).unwrap();
+        assert_eq!(sol.method, Method::Euclidean);
+        assert!(!sol.proved, "{}", sol.note);
+    }
+
+    #[test]
+    fn pythagoras_on_a_generic_triangle_is_not_proved_by_solve_best() {
+        let sol = solve_best(PYTHAGORAS_GENERIC, &SolveOptions::default(), Duration::from_secs(2))
+            .unwrap();
+        assert!(!sol.proved, "{}", sol.note);
+    }
+
+    #[test]
+    fn a_true_metric_theorem_is_still_proved() {
+        let src = include_str!("../../alphageometry-rs/examples/metric/stewart.geo");
+        let sol = solve(src, &SolveOptions::default()).unwrap();
+        assert_eq!(sol.method, Method::Euclidean);
+        assert!(sol.proved, "{}", sol.note);
+        assert_ne!(sol.goal_holds_numerically, Some(false));
+    }
+
+    #[test]
+    fn numeric_angle_goal_goes_to_ddar() {
+        let sol = solve(THALES_ANGLE, &SolveOptions::default()).unwrap();
+        assert_ne!(sol.method, Method::Euclidean, "{}", sol.note);
+        assert!(sol.proved, "{}", sol.note);
+    }
+
+    #[test]
+    fn false_numeric_angle_goal_is_not_proved() {
+        let sol = solve(GENERIC_RIGHT_ANGLE, &SolveOptions::default()).unwrap();
+        assert!(!sol.proved, "{}", sol.note);
+    }
+
+    #[test]
+    fn goal_routing() {
+        for g in [
+            "dist(A,B) = 3",
+            "dist(A,B)^2 = dist(B,C)^2 + dist(A,C)^2",
+            "dist(A,C)^2 + dist(B,D)^2 = 144",
+            "dist(A,C)*dist(B,D) = dist(A,B)*dist(C,D) + dist(A,D)*dist(B,C)",
+            "dist(A,B)/dist(C,D) = 2",
+            "dist(A,B) = 3*sqrt(3)",
+            "area(A,B,C) = area(A,B,D)",
+            "dist(A,B) + dist(B,C) = 10",
+        ] {
+            assert!(is_metric_goal(g), "{g} should go to the Euclidean prover");
+        }
+        for g in [
+            "cong(A,B,C,D)",
+            "perp(A,B,C,D)",
+            "coll(A, B, C)",
+            "cyclic(A,B,C,D)",
+            "eqangle(A,B,A,X,A,X,A,C)",
+            "dist(A,B) = dist(C,D)",
+            "angle(A,B,C) = 90",
+            "angle(A,B,C) = angle(D,E,F)",
+            "angle(A,B,C) + angle(B,C,A) + angle(C,A,B) = 180",
+            "dist(P,A)*dist(P,B) = dist(P,C)*dist(P,D)",
+            "dist(A,M) + dist(M,B) = dist(A,B)",
+        ] {
+            assert!(!is_metric_goal(g), "{g} should stay on DDAR");
+        }
+    }
+
+    #[test]
+    fn reconcile_rejects_a_proof_the_figure_refutes() {
+        let mut sol = blank_solution();
+        sol.proved = true;
+        sol.proof = Some("001. something".into());
+        sol.goal_holds_numerically = Some(false);
+        reconcile(&mut sol, true);
+        assert!(!sol.proved);
+        assert!(sol.proof.is_none());
+        assert!(sol.note.contains("does not hold"), "{}", sol.note);
+    }
+
+    #[test]
+    fn reconcile_fills_in_a_missing_proof_text() {
+        let mut sol = blank_solution();
+        sol.proved = true;
+        reconcile(&mut sol, true);
+        assert!(sol.proved);
+        assert!(sol.proof.as_deref().unwrap_or("").contains("could not be extracted"));
+
+        let mut quiet = blank_solution();
+        quiet.proved = true;
+        reconcile(&mut quiet, false);
+        assert!(quiet.proof.is_none());
+    }
+
+    /// A metric goal that holds in every sampled figure but has no Euclidean
+    /// proof is NOT proved: it gets its own status, the numeric evidence, and
+    /// no proof text.
+    #[test]
+    fn numeric_only_metric_goal_is_not_proved() {
+        let sol = solve(NUMERIC_ONLY, &SolveOptions::default()).unwrap();
+        assert_eq!(sol.method, Method::Euclidean);
+        assert!(!sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::HoldsNumerically, "{}", sol.note);
+        assert_eq!(sol.goal_holds_numerically, Some(true));
+        assert!(sol.numeric_samples.is_some_and(|n| n >= 8), "{:?}", sol.numeric_samples);
+        assert!(sol.proof.is_none(), "{:?}", sol.proof);
+        assert!(sol.proof_steps.is_none());
+        let ev = sol.numeric_evidence.as_deref().unwrap_or("");
+        assert!(ev.contains("not a proof"), "{ev}");
+        assert!(sol.note.contains("not proved"), "{}", sol.note);
+
+        let json = serde_json::to_value(&sol).unwrap();
+        assert_eq!(json["proved"], false);
+        assert_eq!(json["status"], "holds-numerically");
+        assert_eq!(json["goal_holds_numerically"], true);
+        assert!(json["numeric_samples"].as_u64().is_some_and(|n| n >= 8));
+        assert!(json["proof"].is_null());
+    }
+
+    #[test]
+    fn numeric_only_metric_goal_is_not_proved_by_solve_best() {
+        let sol = solve_best(NUMERIC_ONLY, &SolveOptions::default(), Duration::from_secs(2)).unwrap();
+        assert!(!sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::HoldsNumerically);
+    }
+
+    #[test]
+    fn statuses_agree_with_proved() {
+        let proved = solve(include_str!("../../alphageometry-rs/examples/metric/stewart.geo"), &SolveOptions::default()).unwrap();
+        assert_eq!(proved.status, Status::Proved);
+        assert!(proved.numeric_evidence.is_none());
+        let refuted = solve(DIST_CONST_FREE, &SolveOptions::default()).unwrap();
+        assert_eq!(refuted.status, Status::Refuted);
+        assert!(refuted.proof.is_none());
+        assert!(refuted.numeric_evidence.as_deref().unwrap_or("").contains("counterexample"));
+        let ddar_false = solve(GENERIC_RIGHT_ANGLE, &SolveOptions::default()).unwrap();
+        assert!(!ddar_false.proved);
+        assert_ne!(ddar_false.status, Status::Proved);
+        assert_ne!(ddar_false.status, Status::HoldsNumerically);
+        let ddar_true = solve(THALES_ANGLE, &SolveOptions::default()).unwrap();
+        assert_eq!(ddar_true.status, Status::Proved);
+    }
+
+    #[test]
+    fn reconcile_strips_proof_text_from_an_unproved_result() {
+        let mut sol = blank_solution();
+        sol.proof = Some("NUMERICAL CHECK ...".into());
+        sol.proof_steps = Some(3);
+        sol.goal_holds_numerically = Some(true);
+        reconcile(&mut sol, true);
+        assert!(sol.proof.is_none());
+        assert!(sol.proof_steps.is_none());
+        assert_eq!(sol.status, Status::NotProved, "no numeric sampling ran");
+        sol.numeric_samples = Some(48);
+        reconcile(&mut sol, true);
+        assert_eq!(sol.status, Status::HoldsNumerically);
+    }
+
+    /// IMO 2008 P6 as the corpus benchmark translates it (`ddar --corpus-show
+    /// corpus/imo_ag_30.txt translated_imo_2008_p6`): two auxiliary points,
+    /// tens of seconds of search — never inside a sub-second limit.
+    const IMO_2008_P6_LOW: &str = "x@4.96_-0.13 y@-1.006896832888816_-1.253488108068277 z@-2.840284723857512_-4.911776273400683 o@2.8799999999999986_-5.489999999999998 w@6.909004923003877_-1.3884003936987552 a@-2.0807461969809653_2.6022298674851543 b@-1.6356942531718741_7.005065168739375 c@3.0150944694953736_2.4365912907211027 d@1.627271672827975_1.1632975597981003 i1@-0.5336859138585419_3.9557741308126197 i2@1.493701433748779_1.8726952212475096 f1@-0.5792688026773892_2.5534248527852315 f2@1.513617075191797_2.485396305421025 q@-1.2353352672275957_2.7407229046275674 t@1.1871434839892259_1.3418266172024904 p@0.6999287191540002_4.624247192763766 s@2.032680584622158_2.1647581018833413 k@3.066784783507625_0.2563998681478843 = cong o x o y, cong o y o z, cong o w o x, perp a z o z, perp a x o x, perp b z o z, perp b w o w, perp c y o y, perp c w o w, perp d x o x, perp d y o y, eqangle a b a i1 a i1 a c, eqangle c a c i1 c i1 c b, eqangle b c b i1 b i1 b a, eqangle a c a i2 a i2 a d, eqangle d a d i2 d i2 d c, eqangle c d c i2 c i2 c a, perp f1 i1 a c, coll f1 a c, perp f2 i2 a c, coll f2 a c, cong i1 q i1 f1, cong i2 t i2 f2, perp q i1 q t, perp t i2 t q, cong i1 p i1 f1, cong i2 s i2 f2, perp p i1 p s, perp s i2 s p, coll k q t, coll k p s ? cong o k o x";
+
+    /// IMO 2004 P1 as the corpus benchmark translates it: one auxiliary point.
+    const IMO_2004_P1_LOW: &str = "a@-0.26812581304757255_0.3590483780130336 b@-0.3580222430541735_0.9454793349468846 c@0.6776500220300667_0.4673564458552779 o@0.15981388948794661_0.7064178904010813 m@-0.26263300625391517_0.3232165664047112 n@-0.2905711669161747_0.3564779878429949 r@-0.2938786226991952_0.3253357312916927 o1@-0.2566679892835928_0.6425736584052819 o2@0.20775225394061608_0.28780690808240483 p@0.03961536474566685_0.7619080950264421 = coll o b c, cong o b o c, cong o m o b, coll m a b, cong o n o b, coll n a c, eqangle a b a r a r a c, eqangle o m o r o r o n, cong o1 b o1 m, cong o1 m o1 r, cong o2 c o2 n, cong o2 n o2 r, cong o1 p o1 r, cong o2 p o2 r ? coll p b c";
+
+    fn low_level() -> SolveOptions {
+        SolveOptions { kind: InputKind::LowLevel, ..SolveOptions::default() }
+    }
+
+    #[test]
+    fn the_butterfly_theorem_needs_and_gets_an_auxiliary_point() {
+        let _heavy = crate::engine::heavy_search_lock();
+        let sol = solve_within(BUTTERFLY, &SolveOptions::default(), Some(Duration::from_secs(30))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert_eq!(sol.method, Method::AuxSearch);
+        assert!(!sol.aux_constructions.is_empty());
+    }
+
+    #[test]
+    fn the_default_and_best_solves_run_the_corpus_search() {
+        let _heavy = crate::engine::heavy_search_lock();
+        let sol = solve_within(IMO_2004_P1_LOW, &low_level(), Some(Duration::from_secs(30))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert_eq!(sol.method, Method::AuxSearch);
+        assert_eq!(sol.aux_constructions.len(), 1, "{:?}", sol.aux_constructions);
+        let best = solve_best(IMO_2004_P1_LOW, &low_level(), Duration::from_secs(10)).unwrap();
+        assert!(best.proved, "{}", best.note);
+        let shortest = best
+            .note
+            .split("the shortest has ")
+            .nth(1)
+            .and_then(|r| r.split(' ').next())
+            .and_then(|n| n.parse::<usize>().ok())
+            .or(best.proof_steps);
+        assert!(shortest <= sol.proof_steps, "{:?} > {:?}: {}", shortest, sol.proof_steps, best.note);
+    }
+
+    fn human_cost_of(sol: &Solution) -> usize {
+        let fig = sol.figure.as_ref().expect("figure");
+        let first = fig.aux_from.unwrap_or(fig.problem.points.len());
+        let infos = ddar::human::aux_infos(&fig.problem, first, &sol.aux_constructions);
+        let opts = ddar::human::Opts { deadline: Some(Instant::now() + Duration::from_secs(10)), strict: false };
+        let (hp, ..) = ddar::human::for_problem(&fig.problem, &infos, &opts).expect("re-proves");
+        assert!(hp.available);
+        hp.metrics.human_cost
+    }
+
+    #[test]
+    #[ignore = "60 s best search; run with --ignored"]
+    fn best_mode_returns_a_proof_at_least_as_readable_as_the_imo_2023_p2_golden() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let src = std::fs::read_to_string(root.join("imo2023p2.geo")).unwrap();
+        let best = solve_best(&src, &SolveOptions::default(), Duration::from_secs(60)).unwrap();
+        assert!(best.proved, "{}", best.note);
+        assert!(best.note.starts_with("most readable of"), "{}", best.note);
+        let golden_src = std::fs::read_to_string(root.join("alphageometry-rs/tests/golden/human/imo_2023_p2.geo")).unwrap();
+        let golden = ddar::geo::compile(&golden_src).unwrap().problem;
+        let n = golden.points.len();
+        let descs = vec![
+            "T = intersect(perp(O, BE), BS)".to_string(),
+            "Q = parallelogram(A, L, B)".to_string(),
+        ];
+        let infos = ddar::human::aux_infos(&golden, n - 2, &descs);
+        let opts = ddar::human::Opts { deadline: Some(Instant::now() + Duration::from_secs(10)), strict: false };
+        let (hp, ..) = ddar::human::for_problem(&golden, &infos, &opts).unwrap();
+        let chosen = human_cost_of(&best);
+        eprintln!("best: {} | HumanCost chosen {chosen}, golden {}", best.note, hp.metrics.human_cost);
+        assert!(chosen <= hp.metrics.human_cost, "chosen {chosen} > golden {}", hp.metrics.human_cost);
+    }
+
+    /// Low-level input has no numeric goal check, so nothing but the search
+    /// itself stands between these false goals and a "proved".
+    #[test]
+    fn false_low_level_goals_stay_unproved_through_the_search() {
+        for goal in ["coll p a o", "cong o p o b", "perp p b p o1"] {
+            let input = IMO_2004_P1_LOW.replace("? coll p b c", &format!("? {goal}"));
+            assert_ne!(input, IMO_2004_P1_LOW);
+            let sol = solve_within(&input, &low_level(), Some(Duration::from_secs(3))).unwrap();
+            assert!(!sol.proved, "{goal} was proved: {:?}", sol.aux_constructions);
+            let best = solve_best(&input, &low_level(), Duration::from_secs(3)).unwrap();
+            assert!(!best.proved, "{goal} was proved in best mode: {:?}", best.aux_constructions);
+        }
+    }
+
+    #[test]
+    fn solve_within_honours_the_deadline() {
+        let t = Instant::now();
+        let opts = SolveOptions { kind: InputKind::LowLevel, ..SolveOptions::default() };
+        let sol = solve_within(IMO_2008_P6_LOW, &opts, Some(Duration::from_millis(300))).unwrap();
+        let took = t.elapsed();
+        assert!(took < Duration::from_secs(2), "took {took:?}");
+        assert!(!sol.proved);
+        assert!(sol.note.contains("time limit"), "{}", sol.note);
+    }
+
+    #[test]
+    fn an_abandoned_worker_holds_the_keepalive_until_it_exits() {
+        let guard = std::sync::Arc::new(());
+        let weak = std::sync::Arc::downgrade(&guard);
+        let r = with_keepalive(guard, || {
+            run_until(Some(Instant::now() + Duration::from_millis(50)), || {
+                std::thread::sleep(Duration::from_millis(500))
+            })
+        });
+        assert!(r.is_none(), "the deadline passes first");
+        assert!(weak.upgrade().is_some(), "the still-running worker owns the guard");
+        let t = Instant::now();
+        while weak.upgrade().is_some() && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(weak.upgrade().is_none(), "released when the worker exits");
+    }
+
+    #[test]
+    fn a_time_limited_search_stops_soon_after_the_deadline() {
+        const HARD: &str = "A B C = triangle\nH = orthocenter(A, B, C)\nD = midpoint(B, C)\n\
+            E = midpoint(C, A)\nF = midpoint(A, B)\nA1 = point: coll(B, C, A1), cong(D, A1, D, H)\n\
+            B1 = point: coll(C, A, B1), cong(E, B1, E, H)\nC1 = point: coll(A, B, C1), cong(F, C1, F, H)\n\
+            C2 = point: coll(A, B, C2), cong(F, C2, F, H)\nprove cyclic(C1, C2, B1, A1)";
+        let guard = std::sync::Arc::new(());
+        let weak = std::sync::Arc::downgrade(&guard);
+        let sol = with_keepalive(guard, || {
+            solve_within(HARD, &SolveOptions::default(), Some(Duration::from_secs(2))).unwrap()
+        });
+        if sol.proved {
+            return;
+        }
+        assert!(sol.note.contains("time limit"), "{}", sol.note);
+        let t = Instant::now();
+        while weak.upgrade().is_some() && t.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(weak.upgrade().is_none(), "the search was still running {:?} after the deadline", t.elapsed());
+    }
+
+    fn blank_solution() -> Solution {
+        Solution {
+            input: String::new(),
+            low_level: String::new(),
+            proved: false,
+            status: Status::NotProved,
+            method: Method::AuxSearch,
+            proof: None,
+            numeric_evidence: None,
+            numeric_samples: None,
+            svg: String::new(),
+            aux_constructions: Vec::new(),
+            constructions: Vec::new(),
+            goal: None,
+            goal_holds_numerically: None,
+            elapsed_secs: 0.0,
+            note: String::new(),
+            proof_steps: None,
+            examined: None,
+            figure: None,
+            human: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod corpus_tests {
+    use super::*;
+
+    const IMO_2008_P6: &str = "translated_imo_2008_p6\nx@4.96_-0.13 y@-1.0068968328888160_-1.2534881080682770 z@-2.8402847238575120_-4.9117762734006830 = triangle x y z; o = circle o x y z; w@6.9090049230038776_-1.3884003936987552 = on_circle w o x; a = on_tline a z o z, on_tline a x o x; b = on_tline b z o z, on_tline b w o w; c = on_tline c y o y, on_tline c w o w; d = on_tline d x o x, on_tline d y o y; i1 = incenter i1 a b c; i2 = incenter i2 a c d; f1 = foot f1 i1 a c; f2 = foot f2 i2 a c; q t p s = cc_tangent q t p s i1 f1 i2 f2; k = on_line k q t, on_line k p s ? cong o k o x";
+    const TRAPEZOID: &str = "a b c d = trapezoid a b c d; e = midpoint e d a; f = on_pline f e a b, on_line f b c ? midp f b c";
+
+    fn corpus(file: &str) -> Vec<(String, String)> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../corpus").join(file);
+        ddar::corpus::read_corpus(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn app_compile(input: &str) -> Result<usize, String> {
+        let opts = SolveOptions::default();
+        match InputKind::detect(input) {
+            InputKind::Corpus => {
+                let (_, tr) = corpus_translation(input)?;
+                if !tr.goal_holds {
+                    return Err("goal does not hold on the translated figure".into());
+                }
+                if tr.goals.len() == 1 {
+                    to_problem(input, InputKind::Corpus)?;
+                }
+                render_figure(&tr.problem, &opts, None)?;
+                Ok(tr.goals.len())
+            }
+            kind => {
+                let (p, _) = to_problem(input, kind)?;
+                render_figure(&p, &opts, None)?;
+                Ok(1)
+            }
+        }
+    }
+
+    #[test]
+    fn every_corpus_problem_compiles_through_the_app() {
+        let mut failures = Vec::new();
+        let mut total = 0;
+        for file in ["imo_ag_30.txt", "jgex_ag_231.txt"] {
+            for (name, body) in corpus(file) {
+                total += 1;
+                for input in [body.clone(), format!("{name}\n{body}")] {
+                    assert_eq!(InputKind::detect(&input), InputKind::Corpus, "{name}");
+                    if let Err(e) = app_compile(&input) {
+                        failures.push(format!("{file} {name}: {e}"));
+                    }
+                }
+                let tr = ddar::corpus::translate_text(&name, &body, 1).unwrap();
+                let low = tr.problem.to_ag_string();
+                assert_eq!(InputKind::detect(&low), InputKind::LowLevel, "{name}");
+                if let Err(e) = app_compile(&low) {
+                    failures.push(format!("{file} {name} (low-level): {e}"));
+                }
+            }
+        }
+        assert_eq!(total, 261);
+        assert!(failures.is_empty(), "{} of {total} fail:\n{}", failures.len(), failures.join("\n"));
+    }
+
+    #[test]
+    fn detection_keeps_geo_and_low_level_programs() {
+        assert_eq!(InputKind::detect("A B C = triangle\nprove coll(A, B, C)"), InputKind::Geo);
+        assert_eq!(InputKind::detect("A B C = triangle\n? coll(A, B, C)"), InputKind::Geo);
+        assert_eq!(InputKind::detect("# t\nA B C = triangle\nM = midpoint(A, B)\nprove cong(M, A, M, B)"), InputKind::Geo);
+        assert_eq!(InputKind::detect(TINY_LOW), InputKind::LowLevel);
+        assert_eq!(InputKind::detect("a@0_0 b@1_0 = coll a b ? cong a b"), InputKind::LowLevel);
+        assert_eq!(InputKind::detect(IMO_2008_P6), InputKind::Corpus);
+        assert_eq!(InputKind::detect("a b c = triangle a b c; d = middle d a b ? coll a b d"), InputKind::Corpus);
+        let err = solve_within("a b c = triangle a b c; d = middle d a b ? coll a b d", &SolveOptions { kind: InputKind::Corpus, ..SolveOptions::default() }, Some(Duration::from_secs(5)))
+            .err()
+            .expect("an unknown construction is a compile error");
+        assert!(err.contains("unknown construction `middle`"), "{err}");
+    }
+
+    const TINY_LOW: &str = "a@0_0 b@1_0 c@0_1 = coll a b c ? coll a b c";
+
+    fn corpus_opts() -> SolveOptions {
+        SolveOptions { kind: InputKind::Corpus, ..SolveOptions::default() }
+    }
+
+    #[test]
+    fn imo_2008_p6_corpus_text_is_proved_through_the_app() {
+        let _heavy = crate::engine::heavy_search_lock();
+        let sol = solve_within(IMO_2008_P6, &corpus_opts(), Some(Duration::from_secs(150))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert_eq!(sol.status, Status::Proved);
+        assert_eq!(sol.method, Method::AuxSearch);
+        assert!(!sol.aux_constructions.is_empty());
+        assert!(sol.proof.as_deref().is_some_and(|p| p.contains("cong o k o x")), "{:?}", sol.proof);
+    }
+
+    #[test]
+    fn a_conjunctive_corpus_goal_is_proved_only_as_a_whole() {
+        let _heavy = crate::engine::heavy_search_lock();
+        let sol = solve_within(TRAPEZOID, &corpus_opts(), Some(Duration::from_secs(60))).unwrap();
+        assert!(sol.proved, "{}", sol.note);
+        assert!(sol.note.contains("all 2 conjuncts of `midp f b c`"), "{}", sol.note);
+        let proof = sol.proof.as_deref().unwrap();
+        assert!(proof.contains("collinear: b f c") && proof.contains("intercept theorem"), "{proof}");
+        assert!(proof.trim_end().ends_with("\u{220e} midp f b c"), "{proof}");
+        assert!(sol.low_level.ends_with("? midp f b c"), "{}", sol.low_level);
+        let view = crate::present::build(&sol);
+        assert_eq!(view.goal.as_ref().map(|g| g.kind), Some("midp"));
+    }
+
+    #[test]
+    fn false_corpus_statements_stay_unproved() {
+        let _heavy = crate::engine::heavy_search_lock();
+        let generic = [
+            "a b c d = trapezoid a b c d; e = midpoint e d a; f = on_line f b c ? midp f b c",
+            "a b c = triangle a b c; d = midpoint d a b; e = on_line e a c ? midp e a c",
+            "a b c = triangle a b c; d = on_line d b c ? simtri a b d a c d",
+            "a b c = triangle a b c; d = midpoint d b c ? cong a d a b",
+        ];
+        for src in generic {
+            let sol = solve_within(src, &corpus_opts(), Some(Duration::from_secs(20))).unwrap();
+            assert!(!sol.proved, "{src}: {}", sol.proof.unwrap_or_default());
+            assert_eq!(sol.status, Status::Refuted, "{src}: {}", sol.note);
+            assert!(sol.proof.is_none());
+        }
+        let special = [
+            "a@0_0 b@2_0 c@0.7_1.9 = triangle a b c; d@1_0 = on_line d a b ? midp d a b",
+            "a@0_0 b@2_0 c@0.7_1.9 = triangle a b c; d@1_0 = on_line d a b ? cong d a d b",
+        ];
+        for src in special {
+            let sol = solve_within(src, &corpus_opts(), Some(Duration::from_secs(6))).unwrap();
+            assert_eq!(sol.goal_holds_numerically, Some(true), "{src}: the pinned figure satisfies the goal");
+            assert!(!sol.proved, "{src}: {}", sol.proof.unwrap_or_default());
+            assert_ne!(sol.status, Status::Proved, "{src}");
+        }
     }
 }

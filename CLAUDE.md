@@ -8,7 +8,7 @@ via a web app, an MCP server (Claude Desktop/Code), or a CLI.
 - `alphageometry-rs/` — the DDAR engine (library `ddar` + `ddar` binary). Do not
   break its tests; it is verified against the original AlphaGeometry2 Python.
 - `ag-studio/` — this product. One binary `agstudio` with subcommands
-  `render` / `translate` / `serve` / `mcp`.
+  `render` / `best` / `translate` / `serve` / `mcp`.
   - `src/engine.rs` — in-process solve wrapper (DDAR + aux search; routes
     absolute-length goals to the classical Euclidean prover). Returns proof + SVG.
   - `src/render.rs` — SVG→PNG (resvg) / SVG→PDF (svg2pdf); the combined
@@ -23,7 +23,7 @@ via a web app, an MCP server (Claude Desktop/Code), or a CLI.
 ```sh
 cargo build --release -p ag-studio          # the agstudio binary
 cargo test                                   # engine + ag-studio tests
-./run.ps1                                     # build + launch the web app (:8787)
+./run.sh  (Linux/macOS)  |  ./run.ps1 (Windows)  # build + launch the web app (:8787)
 agstudio render <program|file> [--pdf F --png F --svg F --theme light|dark]
 agstudio translate "<text>" | --image P [--solve --pdf F]
 agstudio serve [--port N]                     # web app
@@ -37,3 +37,16 @@ agstudio mcp                                  # MCP server (stdio)
 - Translation must use the Claude **subscription** (the `claude` CLI), never an
   `ANTHROPIC_API_KEY`.
 - MCP stdout is the protocol channel — never print to stdout in `mcp` mode.
+- **No coordinates** (owner's requirement, 2026-10-03): every proof is classical
+  steps — DDAR deductions (angle/ratio/distance chasing), cited theorems, and
+  trigonometry (law of sines/cosines, trig Ceva — explicitly allowed). No
+  coordinate/algebraic-geometry provers (`algebra.rs` was deleted on purpose), no
+  Wu/Groebner/complex/barycentric bashing, and a numerical check is never a proof
+  (`status: holds-numerically`). Coordinates may only propose
+  candidates, pick configuration branches and check non-degeneracy.
+- Measure capability with the corpus benchmark (`ddar --corpus`, results in
+  `~/Projects/geosolver-bench/`), never with `--bench` alone (26 pre-selected rows).
+- Soundness is the product. Every change to goal compilation or a prover needs a
+  regression test with a FALSE statement that must stay unproved.
+- State is one SQLite file (`AGSTUDIO_DB`); deploy files must put it on
+  persistent, writable storage.

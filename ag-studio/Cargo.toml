@@ -2,7 +2,7 @@
 name = "ag-studio"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.88"
 description = "GeoSolver — local web app + MCP server + PDF/PNG rendering wrapping the alphageometry-rs DDAR engine"
 license = "Apache-2.0"
 
@@ -17,11 +17,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 resvg = "0.45.1"
+# RGB (alpha-free) PNG icons for the home screen (pwa.rs); the version tiny-skia already uses.
+png = "0.17.16"
 svg2pdf = "0.13.0"
+pdf-writer = "0.12.1"
 wait-timeout = "0.2.1"
 axum = "0.8.4"
 tokio = { version = "1.52.3", features = ["full"] }
 base64 = "0.22.1"
+# Uploaded photos are decoded, turned upright and re-encoded without metadata (web.rs).
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.0", features = ["compression-gzip", "timeout"] }
 tempfile = "3.27.0"
@@ -29,6 +34,15 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 argon2 = "0.5"
 rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
+# The engine's thread pool, started up front in each solve worker (worker.rs).
+rayon = "1.12"
+# The web server's accept loop, for the header-read timeout (web.rs).
+hyper = { version = "1.10", features = ["server", "http1"] }
+hyper-util = { version = "0.1.20", features = ["tokio"] }
+
+[target.'cfg(unix)'.dependencies]
+# setrlimit/killpg/setpriority for the solve worker processes (worker.rs).
+libc = "0.2"
 
 [dev-dependencies]
 # `ServiceExt::oneshot` (behind the `util` feature) drives the router in tests

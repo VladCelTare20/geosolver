@@ -1,0 +1,6 @@
+EUCLIDEAN PROOF
+  Goal:  dist(A,B)^2 + dist(A,C)^2 = 2*dist(A,M)^2 + 2*dist(B,M)^2
+
+  1. By Apollonius's median theorem in triangle ABC with median AM: AB² + AC² = 2·AM² + 2·BM².
+
+  Combining the equations above gives dist(A,B)^2 + dist(A,C)^2 = 2*dist(A,M)^2 + 2*dist(B,M)^2  (= 0.4315). ∎

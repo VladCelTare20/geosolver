@@ -1,0 +1,6 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(A,B)^12 * dist(B,C)^7 = 2187 * dist(A,B)^19
+
+  1. Given: |BC| = 3·|AB| (hypothesis).
+
+  Combining the proportions above gives dist(A,B)^12 * dist(B,C)^7 = 2187 * dist(A,B)^19  (= 0.0161). ∎

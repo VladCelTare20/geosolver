@@ -25,15 +25,20 @@
 //! perpendicular-from-centre lemma, Thales, Apollonius's median law, midpoint
 //! bisection, and the two circle lemmas above — cover the classic length and
 //! sum-of-squares problems. Products/ratios of *unsquared* lengths (Ptolemy,
-//! Stewart, Menelaus, Ceva, power of a point) live outside a linear system and
-//! are catalogued for a future ratio layer.
+//! Menelaus, Ceva, power of a point) are the ratio prover's ([`crate::ratio`]).
+//!
+//! Coordinates are read only for configuration (which side, which order) and
+//! to skip degenerate cases. Every fact a rule consumes — a circle, a ratio, a
+//! parallel — is established from the hypotheses, never from a measurement.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::geo::AlgFigure;
+use crate::certify::{candidate_rat, derivation_block, pred, pred_c, with_refs, Certifier};
+use crate::geo::SampledFigure;
 use crate::metric::MExpr;
 use crate::numerics::Vec2;
-use crate::predicate::PointId;
+use crate::predicate::{PointId, Predicate};
 use crate::rational::Rat;
 
 /// A squared-length unknown `|ab|²`, keyed by the unordered pair.
@@ -103,6 +108,9 @@ struct Step {
     /// the goal is circular — restating the theorem — and is rejected. Elementary
     /// steps (given data, midpoint, Pythagoras, Thales) are never headlines.
     headline: bool,
+    /// For a fact derived by the DDAR closure, the closure facts it rests on;
+    /// the proof prints their derivation once, ahead of the steps.
+    derived: Option<Vec<crate::proof::FactId>>,
 }
 
 /// A named entry of the theorem library (for the catalogue / `--theorems`).
@@ -213,7 +221,7 @@ pub const THEOREMS: &[Theorem] = &[
     Theorem { category: "Cevians & centres", name: "excentral triangle", statement: "ABC is the orthic triangle of its excentral triangle, whose orthocentre is the incentre I  [catalogued]" },
     Theorem { category: "Cevians & centres", name: "nine-point centre", statement: "the nine-point centre is the midpoint of OH on the Euler line  [DDAR]" },
     Theorem { category: "Cevians & centres", name: "nine-point radius", statement: "the nine-point circle has radius R/2  [catalogued]" },
-    Theorem { category: "Cevians & centres", name: "Euler's theorem (OI distance)", statement: "OI² = R(R − 2r)  [catalogued]" },
+    Theorem { category: "Cevians & centres", name: "Euler's theorem (OI distance)", statement: "OI² = R(R − 2r) — DERIVED: power of I through the arc midpoint, the trillium congruence and a law-of-sines bridge  [ratio, derived]" },
     Theorem { category: "Cevians & centres", name: "circumcentre–orthocentre distance", statement: "OH² = 9R² − (a² + b² + c²)  [catalogued]" },
     Theorem { category: "Cevians & centres", name: "Nagel line", statement: "the incentre, centroid and Nagel point are collinear, with IG : GN = 1 : 2  [catalogued]" },
     Theorem { category: "Cevians & centres", name: "Sylvester's relation", statement: "as vectors from the circumcentre, OH = OA + OB + OC  [catalogued]" },
@@ -249,9 +257,9 @@ pub const THEOREMS: &[Theorem] = &[
     Theorem { category: "Circles: lengths", name: "intersecting chords", statement: "chords AB, CD meeting at P give PA·PB = PC·PD — DERIVED (power of a point)  [ratio, derived]" },
     Theorem { category: "Circles: lengths", name: "intersecting secants", statement: "secants from P give PA·PB = PC·PD — DERIVED (power of a point)  [ratio, derived]" },
     Theorem { category: "Circles: lengths", name: "tangent–secant power", statement: "PT² = PA·PB for a tangent PT and secant PAB — DERIVED (tangent–chord = inscribed angle)  [ratio, derived]" },
-    Theorem { category: "Circles: lengths", name: "power of a point", statement: "the product PA·PB along any line through P equals |PO² − R²|  [ratio, derived]" },
+    Theorem { category: "Circles: lengths", name: "power of a point", statement: "the product PA·PB along any line through P equals |PO² − R²| (the sign read from the configuration)  [ratio, derived]" },
     Theorem { category: "Circles: lengths", name: "perpendicular chords", statement: "AC² + BD² = 4R² for perpendicular chords — DERIVED from the antipode + Thales + Pythagoras  [derived]" },
-    Theorem { category: "Circles: lengths", name: "extended law of sines", statement: "a / sin A = 2R  [catalogued]" },
+    Theorem { category: "Circles: lengths", name: "extended law of sines", statement: "a = 2R·sin A, a chord against an inscribed angle (radii certified by DDAR)  [ratio]" },
     Theorem { category: "Circles: lengths", name: "Ptolemy's theorem", statement: "for a cyclic quadrilateral, AC·BD = AB·CD + AD·BC — DERIVED by the general auxiliary-point search (a point on a side + similar triangles), no per-theorem code  [ratio, derived, aux]" },
     Theorem { category: "Circles: lengths", name: "Ptolemy's inequality", statement: "AC·BD ≤ AB·CD + AD·BC, with equality iff ABCD is cyclic  [catalogued]" },
     Theorem { category: "Circles: lengths", name: "radical axis", statement: "the locus of equal power to two circles is a line ⟂ their centre line  [catalogued]" },
@@ -292,7 +300,7 @@ pub const THEOREMS: &[Theorem] = &[
     Theorem { category: "Quadrilaterals", name: "circumcentre–side distance", statement: "in a cyclic orthodiagonal quadrilateral, the distance from the circumcentre to a side is half the opposite side  [catalogued]" },
     Theorem { category: "Quadrilaterals", name: "anticentre (maltitudes)", statement: "the four maltitudes of a cyclic quadrilateral are concurrent at the anticentre  [catalogued]" },
     Theorem { category: "Quadrilaterals", name: "harmonic quadrilateral", statement: "in a cyclic quadrilateral with AB·CD = BC·DA, the tangents at A and C meet on line BD  [catalogued]" },
-    Theorem { category: "Quadrilaterals", name: "Ptolemy's second theorem", statement: "AC/BD = (AB·AD + CB·CD)/(BA·BC + DA·DC) for a cyclic quadrilateral  [catalogued]" },
+    Theorem { category: "Quadrilaterals", name: "Ptolemy's second theorem", statement: "AC/BD = (AB·AD + CB·CD)/(BA·BC + DA·DC) for a cyclic quadrilateral — DERIVED from the sine area formula and the law of sines  [ratio, derived]" },
     Theorem { category: "Quadrilaterals", name: "Fuss' theorem", statement: "a bicentric quadrilateral satisfies 1/(R+d)² + 1/(R−d)² = 1/r², d the distance between the centres  [catalogued]" },
 
     // ── Areas ─────────────────────────────────────────────────────────────────
@@ -317,13 +325,13 @@ pub const THEOREMS: &[Theorem] = &[
     Theorem { category: "Areas", name: "six equal triangles", statement: "the three medians divide a triangle into six triangles of equal area  [catalogued]" },
 
     // ── Trigonometric relations ───────────────────────────────────────────────
-    Theorem { category: "Trigonometry", name: "law of sines", statement: "a/sin A = b/sin B = c/sin C = 2R  [catalogued]" },
-    Theorem { category: "Trigonometry", name: "law of cosines", statement: "c² = a² + b² − 2ab·cos C  [catalogued]" },
+    Theorem { category: "Trigonometry", name: "law of sines", statement: "a/sin A = b/sin B = c/sin C; with equal sines (θ ≡ ±φ mod 180°, certified by DDAR) and the tabulated sines of 30°, 45°, 60°, 90°  [ratio]" },
+    Theorem { category: "Trigonometry", name: "law of cosines", statement: "c² = a² + b² − 2ab·cos C; cos θ = ±cos φ for a certified equal-or-supplementary pair, the sign read from the figure; cos 90° = 0  [ratio]" },
     Theorem { category: "Trigonometry", name: "law of tangents", statement: "(a−b)/(a+b) = tan(½(A−B)) / tan(½(A+B))  [catalogued]" },
     Theorem { category: "Trigonometry", name: "projection formula", statement: "a = b·cos C + c·cos B  [catalogued]" },
     Theorem { category: "Trigonometry", name: "Mollweide's formula", statement: "(a+b)/c = cos(½(A−B)) / sin(½C)  [catalogued]" },
     Theorem { category: "Trigonometry", name: "Stewart via cosines", statement: "Stewart's theorem follows from the law of cosines on the two sub-triangles  [additive]" },
-    Theorem { category: "Trigonometry", name: "sine area formula", statement: "area of a triangle = ½·ab·sin C  [catalogued]" },
+    Theorem { category: "Trigonometry", name: "sine area formula", statement: "area of a triangle = ½·ab·sin C, with a convex quadrilateral split along either diagonal  [ratio]" },
     Theorem { category: "Trigonometry", name: "law of cotangents", statement: "cot(A/2) = (s − a)/r, uniformly over the three angles  [catalogued]" },
     Theorem { category: "Trigonometry", name: "tangent identity", statement: "in any triangle, tan A + tan B + tan C = tan A · tan B · tan C  [catalogued]" },
     Theorem { category: "Trigonometry", name: "cosine sum identity", statement: "cos A + cos B + cos C = 1 + r/R  [catalogued]" },
@@ -499,11 +507,6 @@ struct Figure {
     /// can be appended beyond the base construction.
     names: Vec<String>,
     coords: Vec<Vec2>,
-    /// A *second*, independently re-sampled instance of the same construction,
-    /// aligned by index. Used to gate numeric detections (division ratios, equal
-    /// products, similarity) so a rule fires only on a quantity the construction
-    /// *fixes* — not a coincidence of one instance. `None` if unavailable.
-    coords2: Option<Vec<Vec2>>,
     /// `ab ⟂ cd` right-angle facts, each with the step that introduced it
     /// (`usize::MAX` = a given hypothesis; otherwise the deriving step).
     perps: Vec<([PointId; 4], usize)>,
@@ -514,26 +517,110 @@ struct Figure {
     midpoints: Vec<(PointId, PointId, PointId)>, // (m, a, b): m is the midpoint of ab
     circles: Vec<Circle>,
     abs_len2: Vec<(PointId, PointId, Rat)>, // |ab|² = value
+    abs_len: Vec<(PointId, PointId, Rat)>,  // |ab| = value
     /// For an auxiliary point, the step that introduced it (so proofs that use
     /// it cite the construction).
     aux_intro: BTreeMap<PointId, usize>,
     steps: Vec<Step>,
+    /// The construction's hypothesis predicates plus the defining facts of
+    /// every auxiliary point — what DDAR may use to certify a candidate fact.
+    preds: Vec<Predicate>,
+    /// How many of `preds` are the problem's hypotheses (the rest construct
+    /// auxiliary points).
+    hyps: usize,
+    cert: RefCell<Certifier>,
+    /// For a midpoint fact derived by DDAR (not given), the step holding its
+    /// derivation.
+    mid_src: BTreeMap<(PointId, PointId, PointId), usize>,
 }
 
 pub(crate) fn rat_of(v: f64) -> Option<Rat> {
-    if !v.is_finite() {
+    // Beyond 2^53 an f64 is no longer an exact integer, and `as i64` would
+    // saturate distinct values onto i64::MAX.
+    if !v.is_finite() || v.abs() >= 9.0e15 {
         return None;
     }
-    if (v - v.round()).abs() < 1e-9 {
+    let tol = |n: f64| 1e-12 * n.abs().max(1.0);
+    if (v - v.round()).abs() < tol(v) {
         return Some(Rat::from_int(v.round() as i64));
     }
     for den in 2..=5040i64 {
         let n = v * den as f64;
-        if (n - n.round()).abs() < 1e-9 {
+        if (n - n.round()).abs() < tol(n) {
             return Some(Rat::new(n.round() as i64, den));
         }
     }
     None
+}
+
+/// Circles established symbolically: points at equal distance from a centre,
+/// where "equal" follows from the hypotheses — a chain of `cong` facts, or
+/// absolute lengths with the same given value. Returns `(centre, on-points)`
+/// for every class of at least three points.
+pub(crate) fn equal_radius_circles(
+    n: usize,
+    congs: &[[PointId; 4]],
+    abs_len: &[(PointId, PointId, Rat)],
+) -> Vec<(PointId, BTreeSet<PointId>)> {
+    let mut ids: BTreeMap<Atom, usize> = BTreeMap::new();
+    let mut parent: Vec<usize> = Vec::new();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+    let mut id_of = |a: Atom, parent: &mut Vec<usize>| -> usize {
+        *ids.entry(a).or_insert_with(|| {
+            parent.push(parent.len());
+            parent.len() - 1
+        })
+    };
+    let mut unions: Vec<(Atom, Atom)> = Vec::new();
+    for c in congs {
+        if c[0] != c[1] && c[2] != c[3] {
+            unions.push((atom(c[0], c[1]), atom(c[2], c[3])));
+        }
+    }
+    let mut by_value: BTreeMap<Rat, Atom> = BTreeMap::new();
+    for (a, b, v) in abs_len {
+        if a == b {
+            continue;
+        }
+        match by_value.get(v) {
+            Some(&first) => unions.push((first, atom(*a, *b))),
+            None => {
+                by_value.insert(v.clone(), atom(*a, *b));
+            }
+        }
+    }
+    for (x, y) in &unions {
+        let (i, j) = (id_of(*x, &mut parent), id_of(*y, &mut parent));
+        let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+        if ri != rj {
+            parent[ri] = rj;
+        }
+    }
+    let mut out = Vec::new();
+    for o in 0..n as PointId {
+        let mut classes: BTreeMap<usize, BTreeSet<PointId>> = BTreeMap::new();
+        for p in 0..n as PointId {
+            if p == o {
+                continue;
+            }
+            if let Some(&i) = ids.get(&atom(o, p)) {
+                let root = find(&mut parent, i);
+                classes.entry(root).or_default().insert(p);
+            }
+        }
+        for (_, on) in classes {
+            if on.len() >= 3 {
+                out.push((o, on));
+            }
+        }
+    }
+    out
 }
 
 impl Figure {
@@ -558,35 +645,302 @@ impl Figure {
         (u - v).dot(u - v)
     }
 
-    /// The signed ratio `t = BD/BC` in which `d` divides the segment `bc`, but
-    /// only if the construction *fixes* it — i.e. the same rational value appears
-    /// in the second instance too. Returns `None` for a free point (ratio drifts
-    /// between instances) or when it does not rationalise. This is the soundness
-    /// gate that keeps a numerically-read ratio from becoming an invented fact.
-    fn fixed_ratio(&self, b: PointId, d: PointId, c: PointId) -> Option<Rat> {
-        let bc2 = self.d2(b, c);
-        if bc2 < 1e-12 {
+    /// A given absolute length `|ab|`, if the hypotheses state one.
+    fn given_len(&self, a: PointId, b: PointId) -> Option<Rat> {
+        self.abs_len
+            .iter()
+            .find(|(x, y, _)| atom(*x, *y) == atom(a, b))
+            .map(|(_, _, v)| v.clone())
+    }
+
+    /// The ratio `t = BD/BC` for a point `d` the figure shows strictly between
+    /// `b` and `c`, with the sentence that justifies it: from given lengths (two
+    /// of `|BD|`, `|DC|`, `|BC|`), or else a ratio `|BD|:|DC|` the figure
+    /// suggests and the DDAR closure derives from the hypotheses (e.g. the
+    /// centroid's 2:1). `None` unless the hypotheses fix it.
+    fn symbolic_ratio(
+        &self,
+        b: PointId,
+        d: PointId,
+        c: PointId,
+    ) -> Option<(Rat, String, Vec<crate::proof::FactId>)> {
+        let (bd, dc, bc) = (self.given_len(b, d), self.given_len(d, c), self.given_len(b, c));
+        let pos = |r: &Rat| !r.is_zero() && !r.is_negative();
+        let t = match (&bd, &dc, &bc) {
+            (Some(x), _, Some(z)) if pos(z) => x / z,
+            (Some(x), Some(y), _) if pos(&(x + y)) => x / &(x + y),
+            (_, Some(y), Some(z)) if pos(z) => &one() - &(y / z),
+            _ => return self.derived_ratio(b, d, c),
+        };
+        if !pos(&t) || !pos(&(&one() - &t)) {
             return None;
         }
-        let t = (self.coord(d) - self.coord(b)).dot(self.coord(c) - self.coord(b)) / bc2;
-        let r = rat_of(t)?;
-        // Require the *same* ratio in the independent instance.
-        if let Some(alt) = self.coords2.as_ref() {
-            let (vb, vd, vc) = (
-                *alt.get(b as usize)?,
-                *alt.get(d as usize)?,
-                *alt.get(c as usize)?,
-            );
-            let bc2b = (vc - vb).dot(vc - vb);
-            if bc2b < 1e-12 {
-                return None;
-            }
-            let t2 = (vd - vb).dot(vc - vb) / bc2b;
-            if (t2 - r.to_f64()).abs() > 1e-6 {
-                return None;
+        let given: Vec<String> = [(b, d, &bd), (d, c, &dc), (b, c, &bc)]
+            .iter()
+            .filter_map(|(x, y, v)| v.as_ref().map(|v| format!("|{}| = {v}", self.seg(*x, *y))))
+            .collect();
+        let why = format!(
+            "{} lies on {} between {} and {}, and {} (given)",
+            self.nm(d),
+            self.seg(b, c),
+            self.nm(b),
+            self.nm(c),
+            given.join(", ")
+        );
+        Some((t, why, Vec::new()))
+    }
+
+    /// `t = BD/BC` from a ratio `|BD|:|DC|` read off the figure as a candidate
+    /// and accepted only once DDAR derives it (`rconst B D D C k`).
+    fn derived_ratio(
+        &self,
+        b: PointId,
+        d: PointId,
+        c: PointId,
+    ) -> Option<(Rat, String, Vec<crate::proof::FactId>)> {
+        let (bd, dc) = (self.d2(b, d).sqrt(), self.d2(d, c).sqrt());
+        if dc < 1e-9 {
+            return None;
+        }
+        let k = candidate_rat(bd / dc)?;
+        if k.is_zero() || k.is_negative() || k.is_one() {
+            return None;
+        }
+        let goal = pred_c("rconst", &[b, d, d, c], vec![k.clone()]);
+        let deps = self.certify(&[goal])?;
+        let t = &k / &(&k + &one());
+        let why = format!(
+            "{} lies on {} between {} and {}, and |{}| : |{}| = {} : {} (derived from the hypotheses)",
+            self.nm(d),
+            self.seg(b, c),
+            self.nm(b),
+            self.nm(c),
+            self.seg(b, d),
+            self.seg(d, c),
+            numer_str(&k),
+            k.denom_i64().unwrap_or(1),
+        );
+        Some((t, why, deps))
+    }
+
+    /// Derive every predicate in `goals` from the hypotheses (and auxiliary
+    /// facts) with the DDAR closure; the numbered derivation, or `None`.
+    fn certify(&self, goals: &[Predicate]) -> Option<Vec<crate::proof::FactId>> {
+        self.cert
+            .borrow_mut()
+            .derive_deps(&self.names, &self.coords, &self.preds, self.hyps, goals)
+    }
+
+    /// Push a step stating a DDAR-derived fact.
+    fn push_derived(
+        &mut self,
+        text: String,
+        deps: Vec<crate::proof::FactId>,
+        premises: Vec<usize>,
+    ) -> usize {
+        let i = self.push_step(text, None, premises);
+        self.steps[i].derived = Some(deps);
+        i
+    }
+
+    /// Steps a midpoint fact rests on: the auxiliary points' introductions and,
+    /// for a derived midpoint, its derivation.
+    fn mid_prem(&self, m: PointId, a: PointId, b: PointId) -> Vec<usize> {
+        let mut prem = self.aux_prem(&[m, a, b]);
+        prem.extend(self.mid_src.get(&(m, a, b)).copied());
+        prem
+    }
+
+    /// Right angles the figure suggests and DDAR derives (e.g. at the foot of a
+    /// perpendicular, between a side and any point of the other side), each
+    /// recorded with its derivation so Pythagoras can cite it.
+    fn certify_right_angles(&mut self) {
+        let n = self.coords.len() as PointId;
+        let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
+            Vec::new();
+        for v in 0..n {
+            for x in 0..n {
+                for y in (x + 1)..n {
+                    if v == x || v == y {
+                        continue;
+                    }
+                    let (dx, dy) = (self.coord(x) - self.coord(v), self.coord(y) - self.coord(v));
+                    let (lx, ly) = (dx.norm(), dy.norm());
+                    if lx < 1e-9 || ly < 1e-9 || dx.dot(dy).abs() > 1e-9 * lx * ly {
+                        continue;
+                    }
+                    if self.has_perp(v, x, v, y) {
+                        continue;
+                    }
+                    let Some(deps) = self.certify(&[pred("perp", &[v, x, v, y])]) else {
+                        continue;
+                    };
+                    let text = format!(
+                        "∠{}{}{} = 90° (derived from the hypotheses).",
+                        self.nm(x),
+                        self.nm(v),
+                        self.nm(y),
+                    );
+                    found.push((v, x, y, text, deps));
+                }
             }
         }
-        Some(r)
+        for (v, x, y, text, deps) in found {
+            let prem = self.aux_prem(&[v, x, y]);
+            let st = self.push_derived(text, deps, prem);
+            self.perps.push(([v, x, v, y], st));
+        }
+    }
+
+    /// Equal lengths among `pts` the figure suggests and DDAR derives (e.g. the
+    /// diagonals of a rectangle), each a squared-length equation.
+    fn certify_equal_lengths(&mut self, pts: &[PointId]) {
+        let mut segs: Vec<Atom> = Vec::new();
+        for (i, &a) in pts.iter().enumerate() {
+            for &b in &pts[i + 1..] {
+                if a != b {
+                    segs.push(atom(a, b));
+                }
+            }
+        }
+        let len = |f: &Figure, s: Atom| (f.coord(s.0) - f.coord(s.1)).norm();
+        let mut found: Vec<(Atom, Atom, Vec<crate::proof::FactId>)> = Vec::new();
+        for (i, &s1) in segs.iter().enumerate() {
+            for &s2 in &segs[i + 1..] {
+                let (l1, l2) = (len(self, s1), len(self, s2));
+                if l1 < 1e-9 || (l1 - l2).abs() > 1e-9 * (1.0 + l1) {
+                    continue;
+                }
+                let known = self.congs.iter().any(|c| {
+                    let (x, y) = (atom(c[0], c[1]), atom(c[2], c[3]));
+                    (x, y) == (s1, s2) || (y, x) == (s1, s2)
+                });
+                if known {
+                    continue;
+                }
+                let goal = pred("cong", &[s1.0, s1.1, s2.0, s2.1]);
+                if let Some(deps) = self.certify(&[goal]) {
+                    found.push((s1, s2, deps));
+                }
+            }
+        }
+        for (s1, s2, deps) in found {
+            let mut eq = Eq::default();
+            eq.add_term(s1, one());
+            eq.add_term(s2, ri(-1));
+            let text = format!(
+                "|{}| = |{}| (derived from the hypotheses), so {} = {}.",
+                self.seg(s1.0, s1.1),
+                self.seg(s2.0, s2.1),
+                self.sq(s1.0, s1.1),
+                self.sq(s2.0, s2.1)
+            );
+            let prem = self.aux_prem(&[s1.0, s1.1, s2.0, s2.1]);
+            let st = self.push_derived(text, deps, prem);
+            self.steps[st].eq = Some(eq);
+        }
+    }
+
+    /// Midpoints the figure suggests and DDAR derives (e.g. the diagonals of a
+    /// parallelogram bisect each other), recorded with their derivation.
+    fn certify_midpoints(&mut self) {
+        let n = self.coords.len() as PointId;
+        let mut found: Vec<(PointId, PointId, PointId, String, Vec<crate::proof::FactId>)> =
+            Vec::new();
+        for m in 0..n {
+            for a in 0..n {
+                for b in (a + 1)..n {
+                    if m == a || m == b || self.midpoints.iter().any(|&(mm, x, y)| {
+                        mm == m && atom(x, y) == atom(a, b)
+                    }) {
+                        continue;
+                    }
+                    let mid = (self.coord(a) + self.coord(b)) * 0.5;
+                    let ab = (self.coord(a) - self.coord(b)).norm();
+                    if ab < 1e-9 || (self.coord(m) - mid).norm() > 1e-9 * (1.0 + ab) {
+                        continue;
+                    }
+                    let goals = [pred("coll", &[a, m, b]), pred("cong", &[m, a, m, b])];
+                    let Some(deps) = self.certify(&goals) else {
+                        continue;
+                    };
+                    let text = format!(
+                        "{} is the midpoint of {} (derived from the hypotheses).",
+                        self.nm(m),
+                        self.seg(a, b),
+                    );
+                    found.push((m, a, b, text, deps));
+                }
+            }
+        }
+        for (m, a, b, text, deps) in found {
+            let prem = self.aux_prem(&[m, a, b]);
+            let st = self.push_derived(text, deps, prem);
+            self.midpoints.push((m, a, b));
+            self.mid_src.insert((m, a, b), st);
+        }
+    }
+
+    /// Introduce, as auxiliary points, the intersections of pairs of lines
+    /// through the goal's segments (e.g. the diagonals of a quadrilateral):
+    /// the classical point that lets the median theorem reach a sum of squares.
+    /// With `centres_only`, only intersections that bisect one of the two
+    /// segments are added (the centre of a parallelogram or rectangle).
+    fn add_segment_intersections(&mut self, segs: &[Atom], centres_only: bool) {
+        const NAMES: [&str; 8] = ["M", "N", "K", "L", "Q", "R", "U", "V"];
+        let mut jobs: Vec<(Atom, Atom, Vec2)> = Vec::new();
+        for (i, &(a, b)) in segs.iter().enumerate() {
+            for &(c, d) in &segs[i + 1..] {
+                if [a, b].contains(&c) || [a, b].contains(&d) {
+                    continue;
+                }
+                let l1 = crate::numerics::NumLine::through(self.coord(a), self.coord(b));
+                let l2 = crate::numerics::NumLine::through(self.coord(c), self.coord(d));
+                let Some(x) = crate::numerics::intersect_ll(&l1, &l2) else {
+                    continue;
+                };
+                let bisects = |p: PointId, q: PointId| {
+                    let mid = (self.coord(p) + self.coord(q)) * 0.5;
+                    (mid - x).norm() < 1e-9 * (1.0 + (self.coord(p) - self.coord(q)).norm())
+                };
+                if centres_only && !bisects(a, b) && !bisects(c, d) {
+                    continue;
+                }
+                if !x.x.is_finite() || !x.y.is_finite() {
+                    continue;
+                }
+                if self.coords.iter().any(|q| (*q - x).norm() < 1e-6)
+                    || jobs.iter().any(|(_, _, y)| (*y - x).norm() < 1e-6)
+                {
+                    continue;
+                }
+                jobs.push(((a, b), (c, d), x));
+            }
+        }
+        for ((a, b), (c, d), x) in jobs {
+            let Some(name) = NAMES
+                .iter()
+                .map(|s| s.to_string())
+                .chain((1..).map(|i| format!("X{i}")))
+                .find(|nm| !self.names.contains(nm))
+            else {
+                continue;
+            };
+            let id = self.coords.len() as PointId;
+            self.names.push(name.clone());
+            self.coords.push(x);
+            let text = format!(
+                "Let {name} be the intersection of {} and {}.",
+                self.seg(a, b),
+                self.seg(c, d)
+            );
+            let st = self.push_step(text, None, vec![]);
+            self.aux_intro.insert(id, st);
+            self.colls.push(vec![a, b, id]);
+            self.colls.push(vec![c, d, id]);
+            self.preds.push(pred("coll", &[a, b, id]));
+            self.preds.push(pred("coll", &[c, d, id]));
+        }
     }
 
     fn push_step(&mut self, text: String, eq: Option<Eq>, premises: Vec<usize>) -> usize {
@@ -595,6 +949,7 @@ impl Figure {
             eq,
             premises,
             headline: false,
+            derived: None,
         });
         self.steps.len() - 1
     }
@@ -607,14 +962,11 @@ impl Figure {
         i
     }
 
-    /// Gather the symbolic hypotheses of the construction as facts. `coords2`, if
-    /// present, is a second independent instance (aligned by index) used to gate
-    /// numeric detections against instance-specific coincidences.
-    fn gather(fig: &AlgFigure, coords2: Option<Vec<Vec2>>) -> Figure {
+    /// Gather the symbolic hypotheses of the construction as facts.
+    fn gather(fig: &SampledFigure) -> Figure {
         let mut f = Figure {
             names: fig.names.clone(),
             coords: fig.coords.clone(),
-            coords2,
             perps: Vec::new(),
             paras: Vec::new(),
             congs: Vec::new(),
@@ -622,8 +974,13 @@ impl Figure {
             midpoints: Vec::new(),
             circles: Vec::new(),
             abs_len2: Vec::new(),
+            abs_len: Vec::new(),
             aux_intro: BTreeMap::new(),
             steps: Vec::new(),
+            preds: fig.preds.clone(),
+            hyps: fig.preds.len(),
+            cert: RefCell::new(Certifier::default()),
+            mid_src: BTreeMap::new(),
         };
 
         // Predicates.
@@ -651,6 +1008,7 @@ impl Figure {
         for &(a, b, v) in &fig.scale {
             if let Some(r) = rat_of(v) {
                 f.abs_len2.push((a, b, &r * &r));
+                f.abs_len.push((a, b, r));
             }
         }
 
@@ -659,43 +1017,18 @@ impl Figure {
         f
     }
 
-    /// A circle = a centre `o` with ≥3 points at equal distance, evidenced by
-    /// `cong(o,·,o,·)` predicates or shared-centre absolute lengths.
+    /// A circle = a centre `o` with ≥3 points whose equal distance from `o`
+    /// follows from the hypotheses (see [`equal_radius_circles`]). The figure is
+    /// only a consistency guard.
     fn detect_circles(&mut self) {
-        let n = self.coords.len();
-        // union of "equidistant from o" evidence
-        let mut on: Vec<BTreeSet<PointId>> = vec![BTreeSet::new(); n];
-        for c in &self.congs {
-            // cong(o,a,o,b): o repeated in positions 0 and 2 → o centre, a,b on it.
-            if c[0] == c[2] && c[1] != c[3] {
-                on[c[0] as usize].insert(c[1]);
-                on[c[0] as usize].insert(c[3]);
-            }
-            if c[1] == c[3] && c[0] != c[2] {
-                on[c[1] as usize].insert(c[0]);
-                on[c[1] as usize].insert(c[2]);
-            }
-        }
-        for &(a, b, _) in &self.abs_len2 {
-            // shared-centre absolute radii mark a circle (o = the repeated first pt)
-            on[a as usize].insert(b);
-        }
-        for o in 0..n as PointId {
-            let set = &on[o as usize];
-            if set.len() < 3 {
-                continue;
-            }
-            // Verify numerically that they really are equidistant from o.
-            let pts: Vec<PointId> = set.iter().copied().collect();
+        for (o, on) in equal_radius_circles(self.coords.len(), &self.congs, &self.abs_len) {
+            let pts: Vec<PointId> = on.iter().copied().collect();
             let r2 = self.d2(o, pts[0]);
             if pts
                 .iter()
                 .all(|&p| (self.d2(o, p) - r2).abs() < 1e-6 * (1.0 + r2))
             {
-                self.circles.push(Circle {
-                    centre: o,
-                    on: set.clone(),
-                });
+                self.circles.push(Circle { centre: o, on });
             }
         }
     }
@@ -841,7 +1174,7 @@ impl Figure {
             let mut eq = Eq::default();
             eq.add_term(atom(a, m), one());
             eq.add_term(atom(a, b), Rat::new(-1, 4));
-            let prem = self.aux_prem(&[m, a, b]);
+            let prem = self.mid_prem(m, a, b);
             let text = format!(
                 "{} is the midpoint of {}, so {} = ¼·{}.",
                 self.nm(m),
@@ -872,7 +1205,8 @@ impl Figure {
                         self.seg(a, b),
                         self.nm(*o)
                     );
-                    let s = self.push_step(text, None, vec![]);
+                    let prem = self.mid_prem(m, a, b);
+                    let s = self.push_step(text, None, prem);
                     // right angle at M between O and A (and O and B)
                     self.perps.push(([*o, m, a, b], s));
                 }
@@ -974,7 +1308,9 @@ impl Figure {
                     self.sq(a, m),
                     self.sq(b, m)
                 );
-                self.push_step(text, Some(eq), vec![]);
+                let mut prem = self.mid_prem(m, b, c);
+                prem.extend(self.aux_prem(&[a]));
+                self.push_step(text, Some(eq), prem);
             }
         }
     }
@@ -1021,6 +1357,11 @@ impl Figure {
                         if !(self.has_para(a, b, d, c) && self.has_para(a, d, b, c)) {
                             continue;
                         }
+                        // Segments of one line are trivially "parallel"; four
+                        // collinear points are no parallelogram.
+                        if self.numerically_collinear(a, b, c) || self.numerically_collinear(a, b, d) {
+                            continue;
+                        }
                         let key = {
                             let (x, y) = (atom(a, c), atom(b, d));
                             if x <= y { (x, y) } else { (y, x) }
@@ -1036,9 +1377,10 @@ impl Figure {
     }
 
     /// Rectangles `ABCD` (cyclic order): right angles at two adjacent vertices
-    /// plus the connecting opposite sides parallel (or a third right angle) — a
-    /// characterisation that fires for the `square` construction and for figures
-    /// with three asserted right angles. Deduplicated by the diagonal pair.
+    /// plus the remaining pair of opposite sides parallel (or a third right
+    /// angle) — a characterisation that fires for the `square` construction and
+    /// for figures with three asserted right angles. Deduplicated by the
+    /// diagonal pair.
     fn find_rectangles(&self) -> Vec<[PointId; 4]> {
         let n = self.coords.len() as PointId;
         let mut seen: BTreeSet<(Atom, Atom)> = BTreeSet::new();
@@ -1055,7 +1397,13 @@ impl Figure {
                         if !(right_b && right_c) {
                             continue;
                         }
-                        let closes = self.has_para(a, b, d, c) || self.has_perp(c, d, d, a);
+                        // The right angles at B and C already force AB ∥ DC, so
+                        // that parallel says nothing more (a right trapezoid has
+                        // it). Closing needs the *other* pair of sides parallel
+                        // or a third right angle.
+                        let closes = self.has_para(a, d, b, c)
+                            || self.has_perp(c, d, d, a)
+                            || self.has_perp(d, a, a, b);
                         if !closes {
                             continue;
                         }
@@ -1077,14 +1425,14 @@ impl Figure {
     /// `BD:DC = p:q` and *any* apex `A`, the section identity holds exactly:
     /// `AD² = (1−t)·AB² + t·AC² − t(1−t)·BC²` with `t = BD/BC`. This generalises
     /// Apollonius's median theorem (the `t = ½` case, handled by `rule_median`)
-    /// to an arbitrary cevian. The ratio is read numerically but only used when
-    /// the construction *fixes* it (`fixed_ratio` cross-checks a second instance),
-    /// so it never becomes an invented fact.
+    /// to an arbitrary cevian. The ratio comes from given lengths
+    /// (`symbolic_ratio`); the figure only says that `D` lies between `B`, `C`.
     fn rule_stewart(&mut self) {
         let n = self.coords.len() as PointId;
         // Interior division points (b, d, c) with d strictly between b and c,
         // taken from the collinear sets (symbolic evidence that d ∈ line bc).
-        let mut triples: Vec<(PointId, PointId, PointId, Rat)> = Vec::new();
+        type Triple = (PointId, PointId, PointId, Rat, String, Vec<crate::proof::FactId>);
+        let mut triples: Vec<Triple> = Vec::new();
         for set in self.colls.clone() {
             for i in 0..set.len() {
                 for j in 0..set.len() {
@@ -1100,20 +1448,27 @@ impl Figure {
                         if (vd - vb).dot(vc - vd) <= 0.0 {
                             continue; // d not strictly between b and c
                         }
-                        let Some(t) = self.fixed_ratio(b, d, c) else {
+                        let Some((t, why, derivation)) = self.symbolic_ratio(b, d, c) else {
                             continue;
                         };
                         // The midpoint case is Apollonius — leave it to rule_median.
-                        if (t.to_f64() - 0.5).abs() < 1e-9 {
+                        if t == Rat::new(1, 2) {
                             continue;
                         }
-                        triples.push((b, d, c, t));
+                        triples.push((b, d, c, t, why, derivation));
                     }
                 }
             }
         }
-        for (b, d, c, t) in triples {
+        for (b, d, c, t, why, derivation) in triples {
             let one_minus_t = &one() - &t;
+            let (lead, ratio_step) = if derivation.is_empty() {
+                (format!("{why}, so "), None)
+            } else {
+                let prem = self.aux_prem(&[b, d, c]);
+                let step = self.push_derived(format!("{why}."), derivation, prem);
+                (String::new(), Some(step))
+            };
             for a in 0..n {
                 if a == b || a == c || a == d {
                     continue;
@@ -1127,14 +1482,13 @@ impl Figure {
                 eq.add_term(atom(a, b), -(&one_minus_t)); // −(1−t)·AB²
                 eq.add_term(atom(a, c), -(&t)); // −t·AC²
                 eq.add_term(atom(b, c), &t * &one_minus_t); // +t(1−t)·BC²
-                let prem = self.aux_prem(&[a, b, c, d]);
+                let mut prem = self.aux_prem(&[a, b, c, d]);
+                prem.extend(ratio_step);
                 let abc = format!("{}{}{}", self.nm(a), self.nm(b), self.nm(c));
                 let text = format!(
-                    "By Stewart's theorem for the cevian {ad} in triangle {abc} \
-                     (D divides {bc} with {bd}:{dc} = {p}:{q}): \
-                     {ad2} = {om}·{ab2} + {tt}·{ac2} − {tomt}·{bc2}.",
+                    "{lead}{bd}:{dc} = {p}:{q}. By Stewart's theorem for the cevian {ad} \
+                     in triangle {abc}: {ad2} = {om}·{ab2} + {tt}·{ac2} − {tomt}·{bc2}.",
                     ad = self.seg(a, d),
-                    bc = self.seg(b, c),
                     bd = self.seg(b, d),
                     dc = self.seg(d, c),
                     p = numer_str(&t),
@@ -1261,9 +1615,11 @@ impl Figure {
     }
 
     /// Two parallel chords of a circle cut equal arcs, so the chords joining
-    /// corresponding endpoints are equal: `AB ∥ ED` (both chords) ⇒ `AE = BD`
-    /// (the pairing that holds is chosen from the figure). This is the
-    /// elementary step behind the perpendicular-chords result.
+    /// corresponding endpoints are equal: `WX ∥ YZ` ⇒ the legs of the isosceles
+    /// trapezoid they bound are equal. Which endpoints correspond is a matter of
+    /// configuration — whether `W→X` and `Y→Z` point the same way — read from
+    /// the figure. This is the elementary step behind the perpendicular-chords
+    /// result.
     fn rule_parallel_chords(&mut self) {
         let paras = self.paras.clone();
         let mut jobs: Vec<(Atom, Atom, usize, [PointId; 4])> = Vec::new();
@@ -1275,19 +1631,20 @@ impl Figure {
             if !on_circle {
                 continue;
             }
-            // Corresponding endpoints: pick the pairing whose cross-chords are
-            // numerically equal (the true one for parallel chords).
-            let d = |p: PointId, q: PointId| (self.coord(p) - self.coord(q)).norm();
-            let (wy, xz) = (d(w, y), d(x, z));
-            let (wz, xy) = (d(w, z), d(x, y));
-            let (e1, e2) = if (wy - xz).abs() < 1e-6 * (1.0 + wy) {
-                (atom(w, y), atom(x, z))
-            } else if (wz - xy).abs() < 1e-6 * (1.0 + wz) {
-                (atom(w, z), atom(x, y))
-            } else {
+            if [w, x].contains(&y) || [w, x].contains(&z) || w == x || y == z {
                 continue;
+            }
+            let along = (self.coord(x) - self.coord(w)).dot(self.coord(z) - self.coord(y));
+            if along.abs() < 1e-12 {
+                continue;
+            }
+            let (e1, e2) = if along > 0.0 {
+                (atom(w, y), atom(x, z))
+            } else {
+                (atom(w, z), atom(x, y))
             };
-            if e1 == e2 {
+            let d = |p: Atom| (self.coord(p.0) - self.coord(p.1)).norm();
+            if e1 == e2 || (d(e1) - d(e2)).abs() > 1e-6 * (1.0 + d(e1)) {
                 continue;
             }
             jobs.push((e1, e2, src, [w, x, y, z]));
@@ -1350,6 +1707,8 @@ impl Figure {
                 circ.on.insert(id);
             }
             self.midpoints.push((o, p, id));
+            self.preds.push(pred("coll", &[p, o, id]));
+            self.preds.push(pred("cong", &[o, p, o, id]));
         }
     }
 }
@@ -1448,7 +1807,7 @@ impl Figure {
         }
         // Anti-circularity: a proof that is a lone citation of a compound named
         // theorem merely restates it — reject, so such a goal is instead derived
-        // from elementary steps (or falls through to the numeric certificate).
+        // from elementary steps (or left unproved).
         if used.len() == 1 {
             let only = *used.iter().next().unwrap();
             if self.steps[only].headline {
@@ -1469,25 +1828,51 @@ impl Figure {
             }
         }
         let order: Vec<usize> = keep.iter().copied().collect(); // step order == creation order
+        let mut deps: Vec<crate::proof::FactId> = order
+            .iter()
+            .filter_map(|&i| self.steps[i].derived.as_ref())
+            .flatten()
+            .copied()
+            .collect();
+        deps.sort_unstable();
+        deps.dedup();
+        // The shared derivation goes right before the first step that cites it
+        // (after any auxiliary point it mentions has been introduced).
+        let lead_at = order
+            .iter()
+            .position(|&i| self.steps[i].derived.is_some())
+            .unwrap_or(order.len());
+        let shift = |n: usize| if n >= lead_at && !deps.is_empty() { n + 2 } else { n + 1 };
+        let lead_no = lead_at + 1;
         let number: BTreeMap<usize, usize> =
-            order.iter().enumerate().map(|(n, &i)| (i, n + 1)).collect();
+            order.iter().enumerate().map(|(n, &i)| (i, shift(n))).collect();
 
         let mut out = String::new();
         out.push_str("EUCLIDEAN PROOF\n");
         out.push_str(&format!("  Goal:  {goal_text}\n\n"));
         for (n, &i) in order.iter().enumerate() {
+            if n == lead_at && !deps.is_empty() {
+                let lines = self.cert.borrow().lines(&deps);
+                out.push_str(&format!(
+                    "  {lead_no}. Facts derived from the hypotheses by the deductive closure:{}\n",
+                    derivation_block(&lines)
+                ));
+            }
             let step = &self.steps[i];
-            let cites: Vec<String> = step
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|k| k.to_string()))
-                .collect();
+            let mut nums: Vec<usize> =
+                step.premises.iter().filter_map(|p| number.get(p).copied()).collect();
+            if step.derived.is_some() {
+                nums.push(lead_no);
+            }
+            nums.sort_unstable();
+            nums.dedup();
+            let cites: Vec<String> = nums.iter().map(|k| k.to_string()).collect();
             let refs = if cites.is_empty() {
                 String::new()
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}{}\n", n + 1, step.text, refs));
+            out.push_str(&format!("  {}. {}\n", shift(n), with_refs(&step.text, &refs)));
         }
         out.push_str(&format!(
             "\n  Combining the equations above gives {goal_text}  (= {}). ∎\n",
@@ -1503,7 +1888,7 @@ impl Figure {
 
 /// Lower one side of the goal to a linear form over squared lengths, or `None`
 /// if it is not linear in squared lengths (a bare/odd length, an area, a
-/// product, …) — those need the ratio layer and fall through to numerics.
+/// product, …) — those are the ratio prover's.
 fn lower(e: &MExpr, fig: &Figure) -> Option<Eq> {
     match e {
         MExpr::Num(v) => {
@@ -1592,6 +1977,30 @@ pub enum Outcome {
     Unhandled(String),
 }
 
+/// The segments `dist(A,B)` a metric expression mentions, as atoms.
+fn collect_segments(e: &MExpr, fig: &Figure, out: &mut Vec<Atom>) {
+    match e {
+        MExpr::Dist(a, b) => {
+            if let (Some(a), Some(b)) = (fig.pt(a), fig.pt(b)) {
+                if a != b {
+                    out.push(atom(a, b));
+                }
+            }
+        }
+        MExpr::Neg(x)
+        | MExpr::Sqrt(x)
+        | MExpr::Cos(x)
+        | MExpr::Sin(x)
+        | MExpr::Tan(x)
+        | MExpr::Pow(x, _) => collect_segments(x, fig, out),
+        MExpr::Add(x, y) | MExpr::Sub(x, y) | MExpr::Mul(x, y) | MExpr::Div(x, y) => {
+            collect_segments(x, fig, out);
+            collect_segments(y, fig, out);
+        }
+        MExpr::Num(_) | MExpr::Angle(..) | MExpr::Area(..) => {}
+    }
+}
+
 /// Collect the point names appearing in a metric expression.
 fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
     match e {
@@ -1618,26 +2027,6 @@ fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
     }
 }
 
-/// Build a second, independent instance of `cons_src` and return its coordinates
-/// aligned to `names` (by point name). Used only to gate numeric detections —
-/// `None` when a second valid instance is unavailable (rules then stay
-/// conservative and skip ratio/product detections).
-pub(crate) fn second_instance(cons_src: &str, names: &[String]) -> Option<Vec<Vec2>> {
-    let instances = crate::geo::build_instances(cons_src, 4).ok()?;
-    if instances.len() < 2 {
-        return None;
-    }
-    // The last instance uses the highest seed, hence is the most independent of
-    // the first (which `build_algebraic` produced).
-    let inst = instances.last()?;
-    let map: std::collections::HashMap<&str, Vec2> =
-        inst.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-    names
-        .iter()
-        .map(|n| map.get(n.as_str()).copied())
-        .collect()
-}
-
 /// Attempt a classical Euclidean proof of the metric equation `goal` about the
 /// coordinate-free construction `cons_src`. Tries the base figure first, then —
 /// if that is not enough — introduces classical auxiliary points (the antipodes
@@ -1645,34 +2034,50 @@ pub(crate) fn second_instance(cons_src: &str, names: &[String]) -> Option<Vec<Ve
 /// theorems rather than citing a high-level theorem that would *be* the goal.
 pub fn prove_euclidean(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let (lhs, rhs) = crate::metric::parse_equation(goal)?;
-    let algfig = crate::geo::build_algebraic(cons_src)?;
-
-    // A second, independently re-sampled instance (aligned to `algfig` by name)
-    // lets the theorem rules gate any numerically-read quantity — a division
-    // ratio, an equal product — on the construction actually fixing it.
-    let coords2 = second_instance(cons_src, &algfig.names);
+    let sampled = crate::geo::build_sampled_figure(cons_src)?;
 
     let mut names: BTreeSet<String> = BTreeSet::new();
     collect_points(&lhs, &mut names);
     collect_points(&rhs, &mut names);
 
     for use_aux in [false, true] {
-        let mut fig = Figure::gather(&algfig, coords2.clone());
+        let mut fig = Figure::gather(&sampled);
         if use_aux {
             let mut relevant: BTreeSet<PointId> = names.iter().filter_map(|n| fig.pt(n)).collect();
-            for p in &algfig.preds {
+            for p in &sampled.preds {
                 if p.name == "perp" {
                     relevant.extend(p.points.iter().copied());
                 }
             }
             fig.add_antipodes(&relevant);
+            let mut segs: Vec<Atom> = Vec::new();
+            collect_segments(&lhs, &fig, &mut segs);
+            collect_segments(&rhs, &fig, &mut segs);
+            segs.sort();
+            segs.dedup();
+            fig.add_segment_intersections(&segs, false);
+            let goal_pts: Vec<PointId> = names.iter().filter_map(|n| fig.pt(n)).collect();
+            let mut pairs: Vec<Atom> = Vec::new();
+            for (i, &a) in goal_pts.iter().enumerate() {
+                for &b in &goal_pts[i + 1..] {
+                    pairs.push(atom(a, b));
+                }
+            }
+            fig.add_segment_intersections(&pairs, true);
+            let mut pts = goal_pts;
+            pts.extend(fig.aux_intro.keys().copied());
+            pts.sort_unstable();
+            pts.dedup();
+            fig.certify_equal_lengths(&pts);
         }
+        fig.certify_midpoints();
+        fig.certify_right_angles();
         fig.apply_theorems();
 
         // General metric hypotheses imposed by `point:` become given equations
         // (squared-length ones — the ratio prover handles the multiplicative ones).
         let mut hyp_steps: Vec<(String, Eq)> = Vec::new();
-        for (hl, hr) in &algfig.metric_hyps {
+        for (hl, hr) in &sampled.metric_hyps {
             if let (Some(le), Some(re)) = (lower(hl, &fig), lower(hr, &fig)) {
                 let mut eq = le;
                 eq.sub_scaled(&re, &one());
@@ -1847,11 +2252,19 @@ mod tests {
     #[test]
     fn parallelogram_law_is_not_circularly_proved() {
         // The parallelogram law as a *goal* must not be "proved" by citing the
-        // parallelogram law — it falls through to another route (here, none).
-        assert!(!proved(
+        // parallelogram law; it is derived from the diagonals bisecting each
+        // other and Apollonius's median theorem instead.
+        match prove_euclidean(
             "A = free\nB = free\nC = free\nD = parallelogram(A, B, C)",
-            "dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2"
-        ));
+            "dist(A,C)^2 + dist(B,D)^2 = 2*dist(A,B)^2 + 2*dist(B,C)^2",
+        ) {
+            Ok(Outcome::Proved(p)) => {
+                assert!(!p.contains("parallelogram law"), "cited itself:\n{p}");
+                assert!(p.contains("median theorem"), "{p}");
+                assert!(p.contains("is the midpoint of BD"), "{p}");
+            }
+            _ => panic!("the parallelogram law should be derived"),
+        }
     }
 
     #[test]

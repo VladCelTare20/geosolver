@@ -1,0 +1,2716 @@
+{
+  "name": "orthocenter-vertex-distance",
+  "program": "A B C = triangle\nO = circumcenter(A, B, C)\nH = orthocenter(A, B, C)\nMa = midpoint(B, C)\nprove dist(A, H) = 2 * dist(O, Ma)",
+  "view": {
+    "aux": [],
+    "helpers": [],
+    "points": [
+      {
+        "aux": false,
+        "name": "A"
+      },
+      {
+        "aux": false,
+        "name": "B"
+      },
+      {
+        "aux": false,
+        "name": "C"
+      },
+      {
+        "aux": false,
+        "name": "O"
+      },
+      {
+        "aux": false,
+        "name": "H"
+      },
+      {
+        "aux": false,
+        "name": "Ma"
+      }
+    ],
+    "proof": {
+      "steps": [
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "OA",
+              "OB"
+            ],
+            "kind": "cong",
+            "points": [
+              "O",
+              "A",
+              "B"
+            ]
+          },
+          "kind": "given",
+          "n": 1,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "OB",
+              "OC"
+            ],
+            "kind": "cong",
+            "points": [
+              "O",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "given",
+          "n": 2,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "AH",
+              "BC"
+            ],
+            "kind": "perp",
+            "points": [
+              "A",
+              "H",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "given",
+          "n": 3,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "BH",
+              "AC"
+            ],
+            "kind": "perp",
+            "points": [
+              "B",
+              "H",
+              "A",
+              "C"
+            ]
+          },
+          "kind": "given",
+          "n": 4,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "B",
+              "C",
+              "Ma"
+            ],
+            "kind": "coll",
+            "points": [
+              "B",
+              "C",
+              "Ma"
+            ]
+          },
+          "kind": "given",
+          "n": 5,
+          "rule": "given"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "MaB",
+              "MaC"
+            ],
+            "kind": "cong",
+            "points": [
+              "Ma",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "given",
+          "n": 6,
+          "rule": "given"
+        },
+        {
+          "deps": [
+            1
+          ],
+          "fact": {
+            "args": [
+              "AOB",
+              "BOA"
+            ],
+            "kind": "simtri",
+            "points": [
+              "A",
+              "O",
+              "B"
+            ]
+          },
+          "kind": "step",
+          "n": 7,
+          "rule": "similar"
+        },
+        {
+          "deps": [
+            1,
+            2,
+            4
+          ],
+          "fact": {
+            "args": [
+              "ACO",
+              "CAO"
+            ],
+            "kind": "simtri",
+            "points": [
+              "A",
+              "C",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 8,
+          "rule": "similar"
+        },
+        {
+          "deps": [
+            2,
+            4,
+            8
+          ],
+          "fact": {
+            "args": [
+              "BCO",
+              "CBO"
+            ],
+            "kind": "simtri",
+            "points": [
+              "B",
+              "C",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 9,
+          "rule": "similar"
+        },
+        {
+          "deps": [
+            2,
+            4,
+            5,
+            6,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "BOMa",
+              "COMa"
+            ],
+            "kind": "simtri",
+            "points": [
+              "B",
+              "O",
+              "Ma",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 10,
+          "rule": "similar"
+        },
+        {
+          "deps": [
+            6
+          ],
+          "fact": {
+            "args": [
+              "BMa",
+              "CMa"
+            ],
+            "kind": "cong",
+            "points": [
+              "B",
+              "Ma",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 11,
+          "rule": "transfer"
+        },
+        {
+          "deps": [
+            5,
+            6,
+            11
+          ],
+          "fact": {
+            "args": [
+              "BC",
+              "BMa",
+              "2"
+            ],
+            "kind": "rconst",
+            "points": [
+              "B",
+              "C",
+              "Ma"
+            ]
+          },
+          "kind": "step",
+          "n": 12,
+          "rule": "transfer"
+        },
+        {
+          "deps": [
+            4
+          ],
+          "fact": {
+            "args": [
+              "AB² + CH² = AH² + CB²"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "C",
+              "B",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 13,
+          "rule": "theorem",
+          "rule_name": "perpendicular ⇒ squared lengths (Pythagoras)",
+          "rule_name_ro": "perpendicularitate ⇒ pătrate de lungimi (Pitagora)"
+        },
+        {
+          "deps": [
+            3
+          ],
+          "fact": {
+            "args": [
+              "AB² + HC² = AC² + HB²"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "H",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 14,
+          "rule": "theorem",
+          "rule_name": "perpendicular ⇒ squared lengths (Pythagoras)",
+          "rule_name_ro": "perpendicularitate ⇒ pătrate de lungimi (Pitagora)"
+        },
+        {
+          "deps": [
+            13,
+            14
+          ],
+          "fact": {
+            "args": [
+              "AB",
+              "CH"
+            ],
+            "kind": "perp",
+            "points": [
+              "A",
+              "B",
+              "C",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 15,
+          "rule": "theorem",
+          "rule_name": "perpendicular from squared lengths",
+          "rule_name_ro": "perpendicularitate din pătrate de lungimi"
+        },
+        {
+          "deps": [
+            4,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(OB,OC))| = |sin ∠(OC,OB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "O",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 16,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            4,
+            7,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(AB,AC))| = |sin ∠(AC,AB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 17,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            4,
+            7,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(AB,AC) + 90°)| = |sin ∠(BA,BH)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "C",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 18,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "x = ∠(AB,AC), 2x ≡ ±∠(OC,OB): |sin x|·|sin(x + 90°)| = |sin 2x| / 2"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "C",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 19,
+          "rule": "theorem",
+          "rule_name": "double-angle formula",
+          "rule_name_ro": "formula unghiului dublu"
+        },
+        {
+          "deps": [
+            4,
+            8
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(OA,OC))| = |sin ∠(OC,OA)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "O",
+              "A",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 20,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            3,
+            4,
+            7,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(AB,AH))| = |sin ∠(AH,AB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 21,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            4,
+            7,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(AB,AH) + 90°)| = |sin ∠(BA,BC)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "H",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 22,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "x = ∠(AB,AH), 2x ≡ ±∠(OC,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "H",
+              "O",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 23,
+          "rule": "theorem",
+          "rule_name": "double-angle formula",
+          "rule_name_ro": "formula unghiului dublu"
+        },
+        {
+          "deps": [
+            4,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(OB,OA))| = |sin ∠(OB,OA)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "O",
+              "B",
+              "A"
+            ]
+          },
+          "kind": "step",
+          "n": 24,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            4
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(CB,CA))| = |sin ∠(CB,CA)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "C",
+              "B",
+              "A"
+            ]
+          },
+          "kind": "step",
+          "n": 25,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            4,
+            7,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin(∠(CB,CA) + 90°)| = |sin ∠(AO,AB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "C",
+              "B",
+              "A",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 26,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "x = ∠(CB,CA), 2x ≡ ±∠(OB,OA): |sin x|·|sin(x + 90°)| = |sin 2x| / 2"
+            ],
+            "kind": "formula",
+            "points": [
+              "C",
+              "B",
+              "A",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 27,
+          "rule": "theorem",
+          "rule_name": "double-angle formula",
+          "rule_name_ro": "formula unghiului dublu"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △ABC, BC / |sin ∠(AC,AB)| = AC / |sin ∠(BA,BC)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 28,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △ABC, CA / |sin ∠(BA,BC)| = BA / |sin ∠(CB,CA)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          "kind": "step",
+          "n": 29,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △ABO, BO / |sin ∠(AO,AB)| = AO / |sin ∠(BA,BO)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 30,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △ABO, OA / |sin ∠(BA,BO)| = BA / |sin ∠(OB,OA)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 31,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △ABH, BH / |sin ∠(AH,AB)| = AH / |sin ∠(BA,BH)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "B",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 32,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △ACO, OA / |sin ∠(CA,CO)| = CA / |sin ∠(OC,OA)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "C",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 33,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △BCO, OB / |sin ∠(CB,CO)| = CB / |sin ∠(OC,OB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "B",
+              "C",
+              "O"
+            ]
+          },
+          "kind": "step",
+          "n": 34,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △BCH, HB / |sin ∠(CB,CH)| = CB / |sin ∠(HC,HB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "B",
+              "C",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 35,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △BOMa, OMa / |sin ∠(BMa,BO)| = BMa / |sin ∠(OB,OMa)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "B",
+              "O",
+              "Ma"
+            ]
+          },
+          "kind": "step",
+          "n": 36,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [],
+          "fact": {
+            "args": [
+              "in △BOMa, MaB / |sin ∠(OB,OMa)| = OB / |sin ∠(MaO,MaB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "B",
+              "O",
+              "Ma"
+            ]
+          },
+          "kind": "step",
+          "n": 37,
+          "rule": "theorem",
+          "rule_name": "law of sines",
+          "rule_name_ro": "teorema sinusurilor"
+        },
+        {
+          "deps": [
+            4,
+            5,
+            8,
+            9,
+            10
+          ],
+          "fact": {
+            "args": [
+              "|sin ∠(MaO,MaB)| = 1"
+            ],
+            "kind": "formula",
+            "points": [
+              "Ma",
+              "O",
+              "B"
+            ]
+          },
+          "kind": "step",
+          "n": 38,
+          "rule": "theorem",
+          "rule_name": "sine of 90°",
+          "rule_name_ro": "sinusul lui 90°"
+        },
+        {
+          "deps": [
+            4,
+            7,
+            8,
+            9,
+            15
+          ],
+          "fact": {
+            "args": [
+              "|sin ∠(AC,AB)| = |sin ∠(HC,HB)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "A",
+              "C",
+              "B",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 39,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            4,
+            7,
+            8,
+            9,
+            15
+          ],
+          "fact": {
+            "args": [
+              "|sin ∠(CA,CO)| = |sin ∠(CB,CH)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "C",
+              "A",
+              "O",
+              "B",
+              "H"
+            ]
+          },
+          "kind": "step",
+          "n": 40,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        },
+        {
+          "deps": [
+            4,
+            5,
+            8,
+            9
+          ],
+          "fact": {
+            "args": [
+              "|sin ∠(CB,CO)| = |sin ∠(BMa,BO)|"
+            ],
+            "kind": "formula",
+            "points": [
+              "C",
+              "B",
+              "O",
+              "Ma"
+            ]
+          },
+          "kind": "step",
+          "n": 41,
+          "rule": "theorem",
+          "rule_name": "equal or supplementary angles have equal sines",
+          "rule_name_ro": "unghiurile egale sau suplementare au sinusuri egale"
+        }
+      ],
+      "style": "ddar"
+    }
+  },
+  "human": {
+    "version": 1,
+    "as_drawn": false,
+    "setup": [
+      {
+        "kind": "notation",
+        "triangle": [
+          "A",
+          "B",
+          "C"
+        ],
+        "circumcentre": "O"
+      }
+    ],
+    "blocks": [
+      {
+        "id": 1,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "perp",
+          "args": [
+            "CH",
+            "AB"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "H"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "perp",
+              "args": [
+                "CH",
+                "AB"
+              ],
+              "points": [
+                "A",
+                "B",
+                "C",
+                "H"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "orthocentre",
+                "args": [
+                  "H",
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "stmt": {
+                  "kind": "perp",
+                  "args": [
+                    "CH",
+                    "AB"
+                  ],
+                  "points": [
+                    "A",
+                    "B",
+                    "C",
+                    "H"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "H",
+          "A",
+          "B",
+          "C"
+        ],
+        "objects": [],
+        "step": 1,
+        "tag": true
+      },
+      {
+        "id": 2,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "perp",
+          "args": [
+            "OMa",
+            "BC"
+          ],
+          "points": [
+            "B",
+            "C",
+            "O",
+            "Ma"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "perp",
+              "args": [
+                "OMa",
+                "BC"
+              ],
+              "points": [
+                "B",
+                "C",
+                "O",
+                "Ma"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "perp_bisector",
+                "args": [
+                  "O",
+                  "Ma",
+                  "B",
+                  "C"
+                ],
+                "stmt": {
+                  "kind": "perp",
+                  "args": [
+                    "OMa",
+                    "BC"
+                  ],
+                  "points": [
+                    "B",
+                    "C",
+                    "O",
+                    "Ma"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "O",
+          "Ma",
+          "B",
+          "C"
+        ],
+        "objects": [],
+        "step": 2,
+        "tag": true
+      },
+      {
+        "id": 3,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "eq",
+          "args": [
+            "AC",
+            "2R·sin B"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "O"
+          ]
+        },
+        "body": [
+          {
+            "kind": "computation",
+            "comp": "trig",
+            "terms": [
+              "AC",
+              "AB·sin B / sin C",
+              "2·AB·sin B·cos C / sin∠BOA",
+              "2·AB·sin B·sin∠OAB / sin∠BOA",
+              "2·AB·sin B·sin∠OBA / sin∠BOA",
+              "2R·sin B"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABC"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "step": 29,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠BOA",
+                      "2·sin C·cos C"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": 27,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "central_angle",
+                        "args": [
+                          "O",
+                          "A",
+                          "B",
+                          "C"
+                        ],
+                        "stmt": {
+                          "kind": "eq",
+                          "args": [
+                            "∡AOB",
+                            "2∡ACB"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "cos C",
+                      "sin∠OAB"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": 26,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "central_angle",
+                        "args": [
+                          "O",
+                          "A",
+                          "B",
+                          "C"
+                        ],
+                        "stmt": {
+                          "kind": "eq",
+                          "args": [
+                            "∡AOB",
+                            "2∡ACB"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      },
+                      {
+                        "kind": "atom",
+                        "key": "isosceles",
+                        "args": [
+                          "O",
+                          "A",
+                          "B"
+                        ],
+                        "stmt": {
+                          "kind": "cong",
+                          "args": [
+                            "OA",
+                            "OB"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABO"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "O"
+                    ],
+                    "step": 30,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "radii",
+                    "args": [
+                      "O",
+                      "A",
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "OA",
+                        "OB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "O"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  },
+                  {
+                    "reason": 1,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABO"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "O"
+                    ],
+                    "step": 31,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "A",
+          "B",
+          "C",
+          "O"
+        ],
+        "objects": [],
+        "step": 3,
+        "tag": true
+      },
+      {
+        "id": 4,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "eq",
+          "args": [
+            "BH",
+            "2R·sin∠HCB"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "O",
+            "H"
+          ]
+        },
+        "body": [
+          {
+            "kind": "computation",
+            "comp": "trig",
+            "terms": [
+              "BH",
+              "BC·sin∠HCB / sin∠CHB",
+              "BC·sin∠HCB / sin A",
+              "AC·sin∠HCB / sin B",
+              "2R·sin∠HCB"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △BCH"
+                    ],
+                    "points": [
+                      "B",
+                      "C",
+                      "H"
+                    ],
+                    "step": 35,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin A",
+                      "sin∠CHB"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "H"
+                    ],
+                    "step": 39,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "hyp",
+                        "stmt": {
+                          "kind": "perp",
+                          "args": [
+                            "BH",
+                            "AC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "H"
+                          ]
+                        },
+                        "step": 4
+                      },
+                      {
+                        "kind": "perp",
+                        "args": [
+                          "CH",
+                          "AB"
+                        ],
+                        "points": [
+                          "A",
+                          "B",
+                          "C",
+                          "H"
+                        ],
+                        "step": null,
+                        "block": 1,
+                        "because": [],
+                        "lemma": true,
+                        "sentence": 0
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABC"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "step": 28,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "AC",
+                      "2R·sin B"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": null,
+                    "block": 3,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "A",
+          "B",
+          "C",
+          "O",
+          "H"
+        ],
+        "objects": [],
+        "step": 4,
+        "tag": true
+      },
+      {
+        "id": 5,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "eq",
+          "args": [
+            "AH",
+            "2R·cos A"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "O",
+            "H"
+          ]
+        },
+        "body": [
+          {
+            "kind": "computation",
+            "comp": "trig",
+            "terms": [
+              "AH",
+              "BH·sin∠HBA / sin∠HAB",
+              "BH·cos A / sin∠HAB",
+              "2·BH·cos A·cos∠HAB / sin∠COA",
+              "2·BH·cos A·sin B / sin∠COA",
+              "AC·BH·cos A / (R·sin∠COA)",
+              "BH·cos A / sin∠OCA",
+              "BH·cos A / sin∠HCB",
+              "2R·cos A"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABH"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "H"
+                    ],
+                    "step": 32,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "cos A",
+                      "sin∠ABH"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "H"
+                    ],
+                    "step": 18,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "hyp",
+                        "stmt": {
+                          "kind": "perp",
+                          "args": [
+                            "BH",
+                            "AC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "H"
+                          ]
+                        },
+                        "step": 4
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠COA",
+                      "2·sin∠BAH·cos∠BAH"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O",
+                      "H"
+                    ],
+                    "step": 23,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "hyp",
+                        "stmt": {
+                          "kind": "perp",
+                          "args": [
+                            "AH",
+                            "BC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "H"
+                          ]
+                        },
+                        "step": 3
+                      },
+                      {
+                        "kind": "atom",
+                        "key": "central_angle",
+                        "args": [
+                          "O",
+                          "A",
+                          "C",
+                          "B"
+                        ],
+                        "stmt": {
+                          "kind": "eq",
+                          "args": [
+                            "∡AOC",
+                            "2∡ABC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "cos∠BAH",
+                      "sin B"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "H"
+                    ],
+                    "step": 22,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "hyp",
+                        "stmt": {
+                          "kind": "perp",
+                          "args": [
+                            "AH",
+                            "BC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "H"
+                          ]
+                        },
+                        "step": 3
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "AC",
+                      "2R·sin B"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": null,
+                    "block": 3,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ACO"
+                    ],
+                    "points": [
+                      "A",
+                      "C",
+                      "O"
+                    ],
+                    "step": 33,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠ACO",
+                      "sin∠BCH"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O",
+                      "H"
+                    ],
+                    "step": 40,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "isosceles",
+                        "args": [
+                          "O",
+                          "A",
+                          "C"
+                        ],
+                        "stmt": {
+                          "kind": "cong",
+                          "args": [
+                            "OA",
+                            "OC"
+                          ],
+                          "points": [
+                            "A",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      },
+                      {
+                        "kind": "atom",
+                        "key": "central_angle",
+                        "args": [
+                          "O",
+                          "A",
+                          "C",
+                          "B"
+                        ],
+                        "stmt": {
+                          "kind": "eq",
+                          "args": [
+                            "∡AOC",
+                            "2∡ABC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      },
+                      {
+                        "kind": "perp",
+                        "args": [
+                          "CH",
+                          "AB"
+                        ],
+                        "points": [
+                          "A",
+                          "B",
+                          "C",
+                          "H"
+                        ],
+                        "step": null,
+                        "block": 1,
+                        "because": [],
+                        "lemma": true,
+                        "sentence": 0
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "BH",
+                      "2R·sin∠HCB"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O",
+                      "H"
+                    ],
+                    "step": null,
+                    "block": 4,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "A",
+          "B",
+          "C",
+          "O",
+          "H"
+        ],
+        "objects": [],
+        "step": 5,
+        "tag": true
+      },
+      {
+        "id": 6,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "eq",
+          "args": [
+            "BC",
+            "2R·sin A"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "O"
+          ]
+        },
+        "body": [
+          {
+            "kind": "computation",
+            "comp": "trig",
+            "terms": [
+              "BC",
+              "AC·sin A / sin B",
+              "2R·sin A"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △ABC"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "step": 28,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "AC",
+                      "2R·sin B"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": null,
+                    "block": 3,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "A",
+          "B",
+          "C",
+          "O"
+        ],
+        "objects": [],
+        "step": 6,
+        "tag": true
+      },
+      {
+        "id": 7,
+        "kind": "step",
+        "n": null,
+        "stmt": {
+          "kind": "eq",
+          "args": [
+            "MaO",
+            "R·cos A"
+          ],
+          "points": [
+            "A",
+            "B",
+            "C",
+            "O",
+            "Ma"
+          ]
+        },
+        "body": [
+          {
+            "kind": "computation",
+            "comp": "trig",
+            "terms": [
+              "MaO",
+              "BMa·sin∠MaBO / sin∠MaOB",
+              "R·sin∠MaBO / sin∠OMaB",
+              "R·sin∠MaBO",
+              "R·sin∠OCB",
+              "R²·sin∠COB / BC",
+              "R·sin∠COB / (2·sin A)",
+              "R·cos A"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △BOMa"
+                    ],
+                    "points": [
+                      "B",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 36,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △BOMa"
+                    ],
+                    "points": [
+                      "B",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 37,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "aconst",
+                    "args": [
+                      "∠OMaB",
+                      "90"
+                    ],
+                    "points": [
+                      "B",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 38,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "perp",
+                        "args": [
+                          "OMa",
+                          "BC"
+                        ],
+                        "points": [
+                          "B",
+                          "C",
+                          "O",
+                          "Ma"
+                        ],
+                        "step": null,
+                        "block": 2,
+                        "because": [],
+                        "lemma": true,
+                        "sentence": 0
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠BCO",
+                      "sin∠MaBO"
+                    ],
+                    "points": [
+                      "B",
+                      "C",
+                      "O",
+                      "Ma"
+                    ],
+                    "step": 41,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "isosceles",
+                        "args": [
+                          "O",
+                          "B",
+                          "C"
+                        ],
+                        "stmt": {
+                          "kind": "cong",
+                          "args": [
+                            "OB",
+                            "OC"
+                          ],
+                          "points": [
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "radii",
+                    "args": [
+                      "O",
+                      "A",
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "OA",
+                        "OB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "O"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  },
+                  {
+                    "reason": 1,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "formula",
+                    "args": [
+                      "law of sines in △BCO"
+                    ],
+                    "points": [
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": 34,
+                    "block": null,
+                    "because": []
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "radii",
+                    "args": [
+                      "O",
+                      "A",
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "OA",
+                        "OB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "O"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  },
+                  {
+                    "reason": 1,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "BC",
+                      "2R·sin A"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": null,
+                    "block": 6,
+                    "because": [],
+                    "lemma": true,
+                    "sentence": 0
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "eq",
+                    "args": [
+                      "sin∠COB",
+                      "2·sin A·cos A"
+                    ],
+                    "points": [
+                      "A",
+                      "B",
+                      "C",
+                      "O"
+                    ],
+                    "step": 19,
+                    "block": null,
+                    "because": [
+                      {
+                        "kind": "atom",
+                        "key": "central_angle",
+                        "args": [
+                          "O",
+                          "B",
+                          "C",
+                          "A"
+                        ],
+                        "stmt": {
+                          "kind": "eq",
+                          "args": [
+                            "∡BOC",
+                            "2∡BAC"
+                          ],
+                          "points": [
+                            "A",
+                            "B",
+                            "C",
+                            "O"
+                          ]
+                        },
+                        "from": []
+                      }
+                    ]
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "A",
+          "B",
+          "C",
+          "O",
+          "Ma"
+        ],
+        "objects": [],
+        "step": 7,
+        "tag": true
+      },
+      {
+        "id": 8,
+        "kind": "conclusion",
+        "n": null,
+        "stmt": {
+          "kind": "rconst",
+          "args": [
+            "AH",
+            "MaO",
+            "2"
+          ],
+          "points": [
+            "A",
+            "O",
+            "H",
+            "Ma"
+          ]
+        },
+        "body": [
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "rconst",
+              "args": [
+                "AH",
+                "MaO",
+                "2"
+              ],
+              "points": [
+                "A",
+                "O",
+                "H",
+                "Ma"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "eq",
+                "args": [
+                  "AH",
+                  "2R·cos A"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "C",
+                  "O",
+                  "H"
+                ],
+                "step": null,
+                "block": 5,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "eq",
+                "args": [
+                  "MaO",
+                  "R·cos A"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "C",
+                  "O",
+                  "Ma"
+                ],
+                "step": null,
+                "block": 7,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              }
+            ],
+            "combination": [
+              {
+                "reason": 0,
+                "row": 0,
+                "coef": "1"
+              },
+              {
+                "reason": 1,
+                "row": 0,
+                "coef": "-1"
+              }
+            ]
+          }
+        ],
+        "engine_steps": [
+          18,
+          19,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "points": [
+          "A",
+          "O",
+          "H",
+          "Ma"
+        ],
+        "objects": [],
+        "step": 8,
+        "tag": false
+      }
+    ],
+    "plan": [
+      5,
+      7
+    ],
+    "goal": {
+      "kind": "stmt"
+    },
+    "metrics": {
+      "raw_steps": 42,
+      "derived": 36,
+      "blocks": 8,
+      "claims": 0,
+      "sentences": 8,
+      "chain_links": 26,
+      "chains": 0,
+      "pure_chains": 0,
+      "pooled": 0,
+      "fallback_blocks": 0,
+      "words_en": 437,
+      "lines_en": 36,
+      "citations": 33,
+      "aux_shown": 0,
+      "human_cost": 72,
+      "reproved": 20,
+      "silent": 12,
+      "pruned": 4,
+      "represented": 0,
+      "theorem": 0,
+      "fallback_facts": 0,
+      "check_violations": 0,
+      "similar_steps": 0,
+      "theorem_steps": 2,
+      "steps": 8,
+      "multi_fact_links": 0,
+      "undirected_chains": 0,
+      "directed_chains": 0
+    }
+  }
+}

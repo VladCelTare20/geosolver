@@ -1,0 +1,19 @@
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Write A, B, C for the angles of triangle ABC and R = OA = OB = OC for its circumradius. Write D, E, F for the angles of triangle DEF. Let Ω be the circumcircle of triangle ABC, with center O; S lies on Ω. Let ω₁ be the circle (DEF); G lies on ω₁. Let U be a point other than A on the perpendicular from A to BC. Let V be a point other than D on the parallel to EF through D. Let X be the midpoint of BC. Let Y be the foot of the perpendicular from A to BC. Let Z be the reflection of H in BC. Let W be the reflection of A in O. Let L be the circumcenter of △ABH. Let M be the orthocenter of △ABC. Let N be the incenter of △ABC. Let T be the excenter of △ABC opposite A. Let X be an excenter of △ABC. Let Y be the centroid of △ABC. Let Z be the foot of the bisector from A in △ABC. Let W be the antipode of A on Ω. Let L be the antipode of D on ω₁. Let M be the point such that ABCM is a parallelogram. Let N be the point where the incircle of △ABC touches the side opposite A. Let T be the point where the excircle of △ABC opposite A touches the side opposite A. Let X be the center of the spiral similarity taking AB to CD. Let Y be the isogonal conjugate of P in △ABC. Let Z be the inverse of P in Ω. Let W be the pole of line BC with respect to Ω. Let L be the point of contact of a tangent from P to the circle (Q, QD). Let M be the midpoint of arc BC of Ω. Let N be the harmonic conjugate of D with respect to B and C. Let T be the intersection of the parallel to BC through D and AB. Let X be the intersection of the perpendicular to AC through H and the tangent at A to the circle centered at O. Let Y be the intersection of the isogonal of AP in ∠BAC and BC. Let Z be the second intersection of line AD with Ω. Let W be the second intersection of Ω with the circle (Q, QD).
+
+Plan: it suffices to show that ∡ABX = ∡XCA.
+
+1. We show that ∡ABX = ∡XCA:
+
+∡ABX = ∡ACX    [inscribed angles in Ω]
+     = ∡XCA    [A, B, C, X concyclic] (1)
+
+2. We show that AB ⟂ CX:
+
+∡DEG = ∡DFG    [∡DEG = ∡DFG]
+     = ∡QDE + 90°    [QD = QE = QF = QG; radii of Ω; HA = HB = HC; KA = KB = KC; AY is tangent to Ω (tangent–chord angle)]
+
+D, E, F, G on ω₁, so ∡DEG = ∡DFG. ∡ABX = ∡XCA, by (1), so AB ⟂ CX, as required. Apply the law of sines in △ABC. Apply the law of sines in △DEF (DE ⟂ EF).
+
+AB = 2R·sin C    [law of sines in △ABC; sin∠AXB = sin C]
+
+D, E, F, G on ω₁, so ∡EDF = ∡EGF. ∎
