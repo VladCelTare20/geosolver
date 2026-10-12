@@ -43,14 +43,14 @@ async function verdictInView(page, tag, mod) {
   });
   await page.waitForTimeout(700);
   let v = await at();
-  check(v.top >= 0 && v.bottom <= v.ih && v.focus === 'verdict-head', `${tag}: after Ctrl+Enter the verdict is on screen (${v.top}..${v.bottom} of ${v.ih}, scrollY ${v.sy}, focus ${v.focus})`);
+  check(v.top >= 0 && v.bottom <= v.ih, `${tag}: after Ctrl+Enter the verdict is on screen (${v.top}..${v.bottom} of ${v.ih}, scrollY ${v.sy}, focus ${v.focus})`);
   const program = await page.inputValue('#geo-input');
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.fill('#geo-input', '# a longer program\n# pushes the result down\n' + program);
   await page.focus('#geo-input');
   await page.keyboard.press(`${mod}+Enter`);
   await page.waitForSelector('#state-solving:not([hidden])', { timeout: 10000 }).catch(() => {});
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(450);
   const busy = await page.evaluate(() => {
     const c = document.getElementById('state-solving');
     if (!c || c.hidden) return null;

@@ -398,15 +398,7 @@ fn report_translate_status(state: Shared) {
         let on = format!("on ({who}; local Claude subscription)");
         let unverified = format!("{on} — CLAUDE_CODE_OAUTH_TOKEN is not checked until the first AI call; `agstudio doctor` tests it now");
         let status = state.translate_status().await;
-        let broken = if status.installed && !status.logged_in && translate::token_in_env() {
-            tokio::task::spawn_blocking(translate::cli_start_error)
-                .await
-                .ok()
-                .flatten()
-        } else {
-            None
-        };
-        let note = translate_banner(status, translate::in_container(), broken);
+        let note = translate_banner(status, translate::in_container());
         let note = match note {
             TranslateBanner::Unverified => unverified,
             TranslateBanner::On => on,
@@ -422,18 +414,7 @@ enum TranslateBanner {
     Other(String),
 }
 
-fn translate_banner(
-    s: translate::Status,
-    container: bool,
-    start_error: Option<String>,
-) -> TranslateBanner {
-    if let Some(e) = start_error {
-        return TranslateBanner::Other(format!(
-            "off — the `claude` CLI is installed but cannot start ({e}). Under systemd \
-             install deploy/agstudio-ai.conf (MemoryDenyWriteExecute=no); then \
-             `agstudio doctor` in the service's environment"
-        ));
-    }
+fn translate_banner(s: translate::Status, container: bool) -> TranslateBanner {
     match s {
         s if s.logged_in && translate::token_in_env() => TranslateBanner::Unverified,
         s if s.logged_in => TranslateBanner::On,
@@ -2273,6 +2254,9 @@ async fn api_translate(
         Ok(Err(Failed::Image(why))) => image_rejected(lang, why),
         Ok(Err(Failed::Model(e))) => {
             eprintln!("translate error: {e:#}");
+            if let Some(hint) = translate::sandbox_hint(&e) {
+                eprintln!("  hint: {hint}");
+            }
             state.note_ai_outcome(Err(&e));
             translate_failed(lang, &e, photo)
         }
@@ -2396,6 +2380,9 @@ async fn api_humanize(
         }
         Ok(Err(e)) => {
             eprintln!("humanize error: {e:#}");
+            if let Some(hint) = translate::sandbox_hint(&e) {
+                eprintln!("  hint: {hint}");
+            }
             state.note_ai_outcome(Err(&e));
             if translate::failure(&e) == Some(translate::Failure::SignedOut) {
                 return err_code(
@@ -7260,6 +7247,28 @@ mod tests {
         assert!(state.ai_call_allowed(a));
         assert!(!state.ai_call_allowed(a));
         assert!(state.ai_call_allowed(b));
+    }
+
+    #[test]
+    fn the_ai_banner_gives_server_advice() {
+        let st = |installed, logged_in| translate::Status {
+            installed,
+            logged_in,
+        };
+        let words = |b: TranslateBanner| match b {
+            TranslateBanner::Other(s) => s,
+            _ => String::new(),
+        };
+        let docker_off = words(translate_banner(st(false, false), true));
+        assert!(docker_off.contains("GEOSOLVER_TARGET=ai"), "{docker_off}");
+        let docker_token = words(translate_banner(st(true, false), true));
+        assert!(
+            docker_token.contains("CLAUDE_CODE_OAUTH_TOKEN") && docker_token.contains("setup-token"),
+            "{docker_token}"
+        );
+        assert!(!docker_token.contains("auth login"), "{docker_token}");
+        let host = words(translate_banner(st(true, false), false));
+        assert!(host.contains("setup-token") && host.contains("auth login"), "{host}");
     }
 
     #[test]

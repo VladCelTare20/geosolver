@@ -3800,14 +3800,43 @@ pub fn bisector_shape(st: &Stmt) -> Option<(bool, bool)> {
     }
 }
 
+pub fn internal_bisector(t: &super::trace::EngineTrace, p: PointId, x: PointId, y: PointId, q: PointId) -> bool {
+    let a = super::theorems::interior_degrees(t, p, x, y);
+    let b = super::theorems::interior_degrees(t, y, x, q);
+    let whole = super::theorems::interior_degrees(t, p, x, q);
+    (1e-6..180.0 - 1e-6).contains(&a) && (a - b).abs() < 1e-6 && (a + b - whole).abs() < 1e-6
+}
+
 fn figure_bisectors(cx: &Ctx, hp: &mut HumanProof) {
     let mut fix = |r: &mut Reason| {
-        if let Reason::Hyp { stmt, .. } = r {
-            if bisector_shape(stmt) == Some((true, true)) {
+        let Reason::Hyp { stmt, .. } = r else {
+            return;
+        };
+        let Some(shape) = bisector_shape(stmt) else {
+            return;
+        };
+        let Stmt::EqAngle {
+            lhs: Expr::Angle { a, b, c, .. },
+            rhs: Expr::Angle { c: c2, .. },
+        } = stmt.clone()
+        else {
+            return;
+        };
+        if internal_bisector(cx.t, a, b, c, c2) {
+            if shape == (true, true) {
                 if let Some(u) = undirected_stmt(cx, stmt) {
                     *stmt = u;
                 }
             }
+            return;
+        }
+        let undirected = if shape == (true, true) {
+            undirected_stmt(cx, stmt)
+        } else {
+            Some(stmt.clone())
+        };
+        if let Some(Stmt::EqAngle { lhs, rhs }) = undirected {
+            *stmt = Stmt::EqAngle { lhs: rhs, rhs: lhs };
         }
     };
     for b in hp.blocks.iter_mut() {
@@ -3939,11 +3968,7 @@ pub fn goal_words(cx: &Ctx) -> GoalWords {
                     if v == v2 && shared(l1, l4) == Some(v) {
                         let other = |a: (PointId, PointId)| if a.0 == v { a.1 } else { a.0 };
                         let (x, y, z) = (other(l1), other(l2), other(l4));
-                        let half = super::theorems::interior_degrees(cx.t, x, v, y);
-                        let other_half = super::theorems::interior_degrees(cx.t, y, v, z);
-                        let inside = (1e-6..180.0 - 1e-6).contains(&half)
-                            && (half - other_half).abs() < 1e-6;
-                        if inside {
+                        if internal_bisector(cx.t, x, v, y, z) {
                             return GoalWords::Bisects {
                                 line: (v, y),
                                 angle: (x, v, z),

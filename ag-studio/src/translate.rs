@@ -78,7 +78,7 @@ pub fn status() -> Status {
 /// Advisory only — the real gate is the translate call itself.
 fn detect_login() -> bool {
     if env_login_hint(|k| std::env::var(k).ok()) {
-        return cli_start_error().is_none();
+        return true;
     }
     let Some(bin) = claude_bin() else {
         return false;
@@ -99,36 +99,15 @@ fn detect_login() -> bool {
     }
 }
 
-/// Why the installed `claude` CLI cannot even print its version, if it cannot
-/// (e.g. a sandbox forbidding the writable+executable memory its JIT needs).
-/// A token in the environment is otherwise taken as signed in without running
-/// the CLI at all, so a CLI that crashes on start would look "on".
-pub fn cli_start_error() -> Option<String> {
-    let bin = claude_bin()?;
-    let mut cmd = Command::new(&bin);
-    cmd.arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    scrub_env(&mut cmd);
-    match run_with_timeout(cmd, Duration::from_secs(15)) {
-        Ok(out) if out.status.success() => None,
-        Ok(out) => Some(format!(
-            "`{} --version` failed ({}): {}",
-            bin.display(),
-            out.status,
-            first_line(&out.stderr).unwrap_or_else(|| first_line(&out.stdout).unwrap_or_default())
-        )),
-        Err(e) => Some(format!("`{} --version` failed: {e:#}", bin.display())),
-    }
-}
-
-fn first_line(bytes: &[u8]) -> Option<String> {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .map(|l| l.chars().take(200).collect())
+/// A hint for an AI call that failed for no reason the CLI named: under
+/// systemd the usual cause is the unit's `MemoryDenyWriteExecute=yes`, which
+/// lets `claude --version` and `auth status` run but kills a model call once
+/// its JavaScript is compiled.
+pub fn sandbox_hint(e: &anyhow::Error) -> Option<&'static str> {
+    (failure(e).is_none() && std::env::var_os("INVOCATION_ID").is_some()).then_some(
+        "under systemd, an unexplained AI failure is usually MemoryDenyWriteExecute=yes; \
+         install deploy/agstudio-ai.conf as a drop-in (DEPLOY.md, \"AI on a server\")",
+    )
 }
 
 /// Running inside a container image (Docker, Podman).

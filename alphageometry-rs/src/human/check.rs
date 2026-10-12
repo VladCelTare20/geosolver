@@ -1059,7 +1059,7 @@ fn bisector_wording(cx: &Ctx, hp: &HumanProof) -> Vec<(u16, String)> {
             let y = super::theorems::interior_degrees(cx.t, *c, *v, *c2);
             let equal = (x - y).abs() < 1e-6;
             let wrong = match shape {
-                (false, false) => !equal,
+                (false, false) => !super::barem::internal_bisector(cx.t, *a, *v, *c, *c2),
                 (true, true) => equal,
                 _ => false,
             };
@@ -1099,9 +1099,6 @@ pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
             );
         }
     }
-    for (block, detail) in bisector_wording(cx, hp) {
-        bad(block, detail);
-    }
     let Some(goal) = &hp.goal else {
         if !hp.plan.is_empty() || hp.blocks.iter().any(|b| b.tag) {
             bad(
@@ -1113,6 +1110,9 @@ pub fn layout_violations(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
     };
     if *goal != super::barem::goal_words(cx) {
         bad(0, "the conclusion's wording does not match the goal".into());
+    }
+    for (block, detail) in bisector_wording(cx, hp) {
+        bad(block, detail);
     }
     let mut cited: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
     for b in &hp.blocks {

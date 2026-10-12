@@ -313,8 +313,10 @@ pub fn bisector_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> 
             continue;
         };
         let equal = (x - y).abs() < 1e-4;
+        let whole = interior(fig, names, *a, *v, *c2).unwrap_or(f64::NAN);
+        let internal = equal && (x + y - whole).abs() < 1e-4;
         let worded = match shape {
-            (false, false) if !equal => "bisects",
+            (false, false) if !internal => "bisects",
             (true, true) if equal => "is the external bisector of",
             _ => continue,
         };
@@ -332,7 +334,8 @@ pub fn bisector_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> 
             interior(fig, names, angle.0, line.0, line.1),
             interior(fig, names, line.1, line.0, angle.2),
         ) {
-            if (x - y).abs() >= 1e-4 {
+            let whole = interior(fig, names, angle.0, line.0, angle.2).unwrap_or(f64::NAN);
+            if (x - y).abs() >= 1e-4 || (x + y - whole).abs() >= 1e-4 {
                 bad.push(format!(
                     "the conclusion says {}{} bisects ∠{}{}{} but the figure reads {x:.2}° and {y:.2}°",
                     name(line.0),

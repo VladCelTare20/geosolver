@@ -335,8 +335,8 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("We show that XA = XP:"), "{t}");
     assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");
     assert!(
-        t.contains("so AX bisects \u{2220}BAC, as required. \u{220e}"),
-        "{t}"
+        t.contains("so \u{2221}BAX = \u{2221}XAC, as required. \u{220e}"),
+        "X is on the bisector's line beyond A in this figure, so AX does not bisect \u{2220}BAC as a ray:\n{t}"
     );
     assert!(!t.contains("OA : OX = OP : OX"), "{t}");
     assert!(!t.contains("2\u{2221}"), "no doubled directed angles:\n{t}");

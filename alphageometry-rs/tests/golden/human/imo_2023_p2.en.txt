@@ -65,4 +65,4 @@ OA = OP, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
          = ∡(BC, AD) + 90°      [DL ∥ BC]
          = 0°                   [AD ⟂ BC]
 So A, I, X are collinear. (7)
-8. A, I, X collinear, by (7) and AI bisects ∠BAC, so AX bisects ∠BAC, as required. ∎
+8. A, I, X collinear, by (7) and AI bisects ∠BAC, so ∡BAX = ∡XAC, as required. ∎

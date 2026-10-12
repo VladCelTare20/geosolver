@@ -552,8 +552,10 @@ never an API key. A server needs the CLI and a subscription token:
      then `sudo systemctl daemon-reload`): `MemoryDenyWriteExecute=no`, since
      the CLI's JIT needs writable+executable memory, and `HOME`/`CLAUDE_CONFIG_DIR`
      inside `/var/lib/agstudio`, since DynamicUser has no home of its own.
-     Without the drop-in the CLI crashes on start; the banner then says
-     `AI translation: off — the claude CLI is installed but cannot start`.
+     Without the drop-in, `claude --version` still runs, so the banner says AI
+     is on, but every model call dies once its JavaScript is compiled; each
+     such failure is logged with `hint: … install deploy/agstudio-ai.conf`.
+     `agstudio doctor` below catches it before users do.
    - **D (NixOS):** `ai.package = pkgs.claude-code;` then
      `sudo geosolver-claude-token`.
 3. Restart. The startup log says `AI translation: on (…)`, `/api/status`
@@ -602,13 +604,15 @@ and exits 1. Run it inside the service's environment, not from a login shell:
 docker compose -f deploy/docker-compose.yml exec app agstudio doctor
 # B
 docker exec geosolver agstudio doctor
-# C: the unit's env file, an unprivileged user and its sandbox (a plain
-#    `sudo …/agstudio doctor` sees no env file and reports "the claude CLI was
-#    not found"). HOME is a private /tmp, so the running service's state
+# C: the unit's env file, an unprivileged user and the unit's own
+#    MemoryDenyWriteExecute (so a missing agstudio-ai.conf shows up here). A
+#    plain `sudo …/agstudio doctor` sees no env file and reports "the claude CLI
+#    was not found". HOME is a private /tmp, so the running service's state
 #    directory is left alone.
 sudo systemd-run --quiet --wait --pipe --collect \
   -p EnvironmentFile=/etc/agstudio.env -p DynamicUser=yes -p PrivateTmp=yes \
-  -p ProtectHome=yes -p ProtectSystem=strict -p MemoryDenyWriteExecute=no \
+  -p ProtectHome=yes -p ProtectSystem=strict \
+  -p MemoryDenyWriteExecute=$(systemctl show agstudio -p MemoryDenyWriteExecute --value) \
   -E HOME=/tmp -E CLAUDE_CONFIG_DIR=/tmp/claude -E DISABLE_AUTOUPDATER=1 \
   /opt/agstudio/agstudio doctor
 # D
