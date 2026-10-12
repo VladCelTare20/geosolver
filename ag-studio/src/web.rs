@@ -1696,6 +1696,7 @@ fn ip_text(ip: Option<&axum::Extension<security::ClientIp>>) -> String {
 /// [`AppState::per_caller_limit`] per caller and [`AppState::guest_ip_limit`]
 /// per address (accounts included), so slow AI calls from one client cannot
 /// hold every heavy slot. 503 `busy` otherwise.
+#[allow(clippy::result_large_err)]
 fn claim_ai_slots(
     state: &Shared,
     caller: &Caller,
