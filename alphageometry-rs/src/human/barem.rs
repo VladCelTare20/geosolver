@@ -1626,6 +1626,11 @@ fn undirected_hyps(cx: &Ctx, s: &Sentence) -> Option<Sentence> {
             for r in l.reasons.iter_mut() {
                 if let Reason::Hyp { stmt, fact } = r {
                     if let Some(st) = undirected_stmt(cx, stmt) {
+                        if bisector_shape(stmt) == Some((true, true))
+                            && matches!(st, Stmt::Eq { .. })
+                        {
+                            continue;
+                        }
                         *r = Reason::Hyp {
                             stmt: st,
                             fact: *fact,
