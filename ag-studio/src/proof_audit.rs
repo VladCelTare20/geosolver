@@ -263,48 +263,21 @@ fn hyps_of_reason<'a>(r: &'a Reason, out: &mut Vec<&'a Stmt>) {
     }
 }
 
-fn all_stmts(hp: &HumanProof) -> Vec<&Stmt> {
-    collect_stmts(hp, false)
-}
-
 fn hyp_stmts(hp: &HumanProof) -> Vec<&Stmt> {
-    collect_stmts(hp, true)
-}
-
-fn collect_stmts(hp: &HumanProof, only_hyps: bool) -> Vec<&Stmt> {
     let mut stmts: Vec<&Stmt> = Vec::new();
-    let of_reason = if only_hyps {
-        hyps_of_reason
-    } else {
-        stmts_of_reason
-    };
     for b in &hp.blocks {
-        if !only_hyps {
-            stmts.push(&b.stmt);
-        }
         for s in &b.body {
             match s {
-                Sentence::Chain { links, then, .. } => {
-                    if !only_hyps {
-                        stmts.extend(then.iter());
-                    }
+                Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => {
                     for r in links.iter().flat_map(|l| &l.reasons) {
-                        of_reason(r, &mut stmts);
+                        hyps_of_reason(r, &mut stmts);
                     }
                 }
-                Sentence::Computation { links, .. } => {
-                    for r in links.iter().flat_map(|l| &l.reasons) {
-                        of_reason(r, &mut stmts);
-                    }
-                }
-                Sentence::Because { stmt, reasons, .. }
-                | Sentence::Pooled { stmt, reasons, .. }
-                | Sentence::Theorem { stmt, reasons, .. } => {
-                    if !only_hyps {
-                        stmts.push(stmt);
-                    }
+                Sentence::Because { reasons, .. }
+                | Sentence::Pooled { reasons, .. }
+                | Sentence::Theorem { reasons, .. } => {
                     for r in reasons {
-                        of_reason(r, &mut stmts);
+                        hyps_of_reason(r, &mut stmts);
                     }
                 }
                 Sentence::Raw { .. } => {}
@@ -777,7 +750,11 @@ mod tests {
         );
         let mut forged = sh.view.clone();
         let g = forged.goal.as_mut().unwrap();
-        g.args = g.args.iter().map(|a| a.replace('\u{2221}', "\u{2220}")).collect();
+        g.args = g
+            .args
+            .iter()
+            .map(|a| a.replace('\u{2221}', "\u{2220}"))
+            .collect();
         assert!(
             !statement_violations(&forged, fig).is_empty(),
             "the audit catches a figure-angle symbol on a false reading"

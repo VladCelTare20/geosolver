@@ -1080,9 +1080,6 @@
     "as_drawn": true,
     "setup": [
       {
-        "kind": "figure_angles"
-      },
-      {
         "kind": "directed_angles"
       },
       {
@@ -1291,7 +1288,13 @@
                 ]
               }
             ],
-            "then": {
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "thales_converse",
+            "stmt": {
               "kind": "cyclic",
               "args": [
                 "F",
@@ -1306,7 +1309,42 @@
                 "F"
               ]
             },
-            "directed": false
+            "reasons": [
+              {
+                "kind": "aconst",
+                "args": [
+                  "∠BFA",
+                  "90"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "F"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "aconst",
+                "args": [
+                  "∠BNA",
+                  "90"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "N"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              }
+            ]
           }
         ],
         "engine_steps": [
@@ -1738,7 +1776,13 @@
                 ]
               }
             ],
-            "then": {
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "inscribed_converse",
+            "stmt": {
               "kind": "cyclic",
               "args": [
                 "R",
@@ -1753,7 +1797,70 @@
                 "F"
               ]
             },
-            "directed": false
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∠NFR",
+                  "∠NOR"
+                ],
+                "points": [
+                  "O",
+                  "N",
+                  "R",
+                  "F"
+                ],
+                "step": null,
+                "block": 6,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "atom",
+                "key": "on_segment",
+                "args": [
+                  "F",
+                  "R",
+                  "A"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "A",
+                    "R",
+                    "F"
+                  ]
+                },
+                "from": []
+              },
+              {
+                "kind": "atom",
+                "key": "same_side",
+                "args": [
+                  "F",
+                  "O",
+                  "N",
+                  "R"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "O",
+                    "N",
+                    "R",
+                    "F"
+                  ]
+                },
+                "from": []
+              }
+            ]
           }
         ],
         "engine_steps": [
@@ -2225,17 +2332,17 @@
       "derived": 29,
       "blocks": 8,
       "claims": 4,
-      "sentences": 10,
+      "sentences": 12,
       "chain_links": 13,
       "chains": 4,
       "pure_chains": 4,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 398,
-      "lines_en": 30,
-      "citations": 24,
+      "words_en": 430,
+      "lines_en": 29,
+      "citations": 29,
       "aux_shown": 1,
-      "human_cost": 107,
+      "human_cost": 115,
       "reproved": 5,
       "silent": 19,
       "pruned": 5,
@@ -2244,7 +2351,7 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 0,
-      "theorem_steps": 7,
+      "theorem_steps": 11,
       "steps": 8,
       "multi_fact_links": 0,
       "undirected_chains": 3,

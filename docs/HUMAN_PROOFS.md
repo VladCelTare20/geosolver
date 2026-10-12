@@ -1054,3 +1054,102 @@ Multi-fact links rose because half-angle intermediates (`½·∡PFA` lines) are 
 - Long corpus proofs (2008 P6, 2015 P3) keep steps whose justification is a list of ingredients; a congruence obtained from SAS similarity plus an equal side is labelled SAS (2005 P5); the Miquel step does not rule out the other intersection point (2000 P1).
 - Supplementary angles on a line are labelled `angle addition` ("∠OTX = 180° − ∠OTB [angle addition]").
 
+### 13.11 Readability round 1 (`wf/hp-final3`)
+
+The owner, verbatim: "make sure the proof is correct and understandable and resembles human proofs! BUT make sure that the proof is detailed enough so that anyone understands the solution! Make sure it uses theorems and other stuff instead of only similar triangles and other verbose stuff ... Also look at the romanian national evaluation math rubric". This round removes the sub-arguments that the §13.10 reviewers found hidden in brackets and conclusions. Every rule is generic (no per-problem text), every new line kind is re-checked by `check.rs`, and the engine's facts are unchanged.
+
+**Concyclicity is concluded by a named converse** (`cyclic.rs:converse_steps`). A chain that ends in "So …, … are concyclic" becomes an equality chain followed by one barem line: "∠C = ∠AKB and C, K lie on the same side of AB, so by the converse of the inscribed angle theorem, A, B, C, K lie on one circle" (RO "…, iar C, K sunt de aceeași parte a dreptei AB, deci, din reciproca teoremei unghiului înscris, …"). The equality is the chain's own end equality, written on the chord's points; opposite sides with supplementary angles (or two right angles) read "the converse of the opposite-angle theorem for cyclic quadrilaterals", an exterior angle equal to the opposite interior angle "the converse of the exterior-angle theorem", and directed chains need no side condition. Five or more points get one more line: "X, Q, Q₁, P concyclic and X, Q, Q₁, B′ concyclic; these circles share three points, so they coincide and …" (`CircleMerge`, which may cite earlier cyclic steps). The checker (`converse_ok`, `merge_ok`) requires the cited equality to have the theorem's shape on exactly the four concluded points, the side condition to be the figure's, and every merged circle to share three points with the union.
+
+**Cyclic quadrilaterals are read the way the figure has them** (`cyclic_kind`, `cyclic_quads`). An inscribed-angle link whose two angles lie on opposite sides of the chord is labelled "opposite angles of the cyclic quadrilateral PXQY" or "exterior angle of the cyclic quadrilateral …"; any other flipped ray in a cyclic link is opaque and is exposed with a "supplementary angles" line. The checker re-derives the label from the figure for every such link.
+
+**Identities are named** (`identity_label`). "X, T, B collinear: supplementary angles" replaces `angle addition` on a 180° identity; "vertical angles at B" and "common angle at A" label a renaming of one angle (a hidden vertical angle in a figure-angle link is now opaque and exposed); triangle sums are labelled in directed chains too. A link hiding two angle additions around one fact is exposed as identity, fact, identity (`expose_split`), and exposures that leave the fact's own link opaque are rejected.
+
+**Central angles say what they are** (`merge_central`, `central_isosceles`, `radius_chord`). Two consecutive central-angle links through the same centre and chord become one inscribed-angle link (IMO 2005 P5 no longer detours through O₁ and O₂); a central angle whose centre no displayed angle shows becomes its two isosceles triangles (IMO 2023 P2 step 4 no longer says "central angle" over two isosceles triangles); half a central angle plus half an isosceles triangle in a directed chain becomes "the tangent at E is ⟂ OE (tangent–chord angle)" (step 5's figure-dependent `180° − ½∠AOE` is gone).
+
+**Triangle steps** (`triangles.rs`). Equal chords from equal base angles read "Equal base angles in △AMC, so MA = AC" instead of the arc–chord theorem; a similarity with one shown angle names the common angle ("Common angle at A, so ∠NAE = ∠EAP. Hence △ANE ∼ △AEP (AA)"); a degenerate chain ∠AFB = ∠BFA is renamed to the triangles' corresponding angles; the side equality after a congruence cites the congruence and the equality that completes it ("△ABM ≅ △ABE, by (4) and MA = AC, by (3), so AC = AE"). A congruence obtained from a similarity and one equal side is "similar by SAS, with equal corresponding sides", not SAS.
+
+**Wording.** Miquel's theorem names the second common point and the third circle ("the second common point N of the circles (CAM) and (DMB) lies on the circle (EBA)"); a directed hypothesis whose figure angles are supplementary is cited "∠CQ₁Q = 180° − ∠B"; a sum of negative angles leads with its constant ("90° − ½·∠CMA").
+
+**Renderers.** `text.rs`, `ag-studio/src/human_view.rs` and `ag-studio/assets/site.js` render the new keys from `hp.atom.<key>`, `hp.thm.<key>`, `hp.theorem_with.converse`, `hp.theorem_with.circle_merge` and `hp.crit.sim_*` in both catalogues; the synthetic fixture uses every new key, and the node parity harness gives 12/12 identical texts (EN and RO).
+
+**Measured (base `7595460` → `wf/hp-final3`).** Writer on every proved conjunct, `hpmetrics.py`, four jobs, bench lock; the machine carried a load of 20–50 from other sessions throughout, so timings are given paired (base and final binaries alternated per problem, median of three).
+
+| | IMO base | IMO final | JGEX base | JGEX final |
+|---|---|---|---|---|
+| conjuncts / panics / checker violations | 30 / 0 / 0 | 30 / 0 / 0 | 240 / 0 / 0 | 240 / 0 / 0 |
+| pooled sentences (proofs) | 4 (2) | 4 (2) | 3 (2) | 3 (2) |
+| multi-fact links | 20 | 13 | 57 | 40 |
+| proofs with 2∡ (2∡ uses) | 5 (24) | 5 (24) | 8 (14) | 8 (14) |
+| steps / chain links | 338 / 971 | 339 / 960 | 685 / 1563 | 685 / 1593 |
+| words (EN) | 16 811 | 17 725 | 31 352 | 34 213 |
+| writer ms, paired sequential, median / p95 / max | 84.3 / 268.2 / 474.8 | 86.4 / 281.2 / 469.7 | — | — |
+| writer ms, four jobs, median / p95 | 124.6 / 563.2 | 143.7 / 567.1 | 9.7 / 78.4 | 7.7 / 65.5 |
+
+The barem passes added here cost 1–3 ms per proof (per-pass timing on IMO 2015 P3: the largest are the pre-existing `cut_long` 8 ms and `undirected` 6 ms). Paired, the final writer is within 5 % of base on every heavy problem (2011 P6 270.7 → 275.9, 2000 P6 228.0 → 217.2, 2015 P3 153.5 → 163.0, 2008 P6 120.2 → 124.9 ms, five alternations each). The §13.10 quiet-machine figure (base p95 130 ms) could not be reproduced under this load; base itself measured p95 143–268 ms here, so the 150 ms gate is unverified on this build, not failed against base.
+
+**Gates.** `cargo test --release --workspace --no-fail-fast`: every suite ok (ag-studio 327 passed, 3 ignored; 24 test binaries). Under a load of ~30 from other sessions the first run had two `render.rs` tests fail because a fresh `solve` of IMO 2023 P2 came back without a human proof (writer deadline, 2 s); both pass alone and the whole run passed on the rerun. IMO 30 + JGEX 240 human proofs: 0 panics, 0 checker violations. Goldens and the ag-studio fixtures re-blessed; node parity harness 12/12 identical (EN and RO). Engine code untouched, so no IMO 30/30 rerun.
+
+**Review packet.** `/tmp/claude-1000/hpf4/round-1/<name>.txt` (problem, points, the app's EN text) and `<name>.ro.txt` for the fourteen review problems; texts come from `human_view.rs:review_packet_texts`, the server's own path.
+
+**Still weak.**
+- Pooled sentences (IMO 2008 P6 step 9, 2015 P3 steps 22–23, JGEX E074-24, morley) and 2∡ (IMO 2000 P6, 2008 P6, 2011 P6, 2016 P1, 2019 P6 and eight JGEX proofs) are unchanged: both need a different route, not a different presentation.
+- Links that still cite several facts: a congruence plus the isosceles triangle it gives (IMO 2021 P3 step 7), the five-fact bracket of IMO 2005 P5 step 4 (the key equality ∠EMF = ∠CMA is not stated), and links where no order of the facts has displayable intermediate expressions.
+- Long chains keep their route (IMO 2023 P2 step 4 has eleven links); a single-link chain followed by a converse repeats its equality once.
+
+### 13.12 Readability round 2 (`wf/hp-final3`)
+
+Same goal as §13.11. The round-1 reviewers (fourteen proofs, packet without coordinates) returned 7 BLOCKING and 7 MINOR verdicts. The causes fell into three groups, and each is fixed by a generic rule rather than per-problem text.
+
+**Configuration.** Five BLOCKING verdicts came from figure-angle steps that are true on the drawn figure but false on the official IMO configuration: IMO 2000 P1 (N is closer to AB), 2005 P5 (a non-convex quadrilateral with E, F on the extensions), 2019 P2 (A₁, B₁, Q outside the sides, so the angle conditions hold only as directed angles), 2021 P3 (AB < AC, obtuse ∠A), and the corpus 2004 P1 (obtuse ∠A). The writer cannot change the corpus figure, so it now avoids configuration-dependent arguments where a configuration-free one exists, and it names the configuration facts it uses:
+- *Converse of Thales' theorem* (`cyclic.rs:converse_form`, `TheoremKey::ThalesConverse`). When both end angles of a concyclicity chain are 90° on one segment, the step concludes with "∠BFA = 90° and ∠BNA = 90°, so by the converse of Thales' theorem, F, N, B, A are concyclic". There is no side condition, so the step holds in every configuration. The checker (`converse_ok`) requires two right-angle lemmas on one segment, each established by the chain (`establishes` accepts `AngleConst` from a chain with that constant).
+- *Renamed rays are stated.* An angle that the chain changes only by moving a point along its ray gets the label `OnSegment` ("H lies on the segment KA"). The same label is used when a converse sentence states an angle that the chain proved under another name ("∠NFR = ∠NOR, A lies on the segment FR and F, O lie on the same side of NR, …"). The label is read from the figure and checked as a configuration template.
+- *Parallel angles are named.* A figure-angle link or sentence that cites one parallel is labelled "alternate angles" or "corresponding angles" (`labels.rs:parallel_kind`), and so is Reim's theorem. Reim's citation now states its parallel ("Reim's theorem on SJ: RK ∥ TA; alternate angles").
+- The review packet states the drawn configuration for every corpus problem whose figure differs from the official one. The 2008 P6 statement is corrected: round 1 described an incircle, but the corpus figure is the official excircle configuration.
+
+**Hidden sub-arguments.**
+- *Theorem hypotheses get their own step* (`claims.rs:Presenter::expose_hyps`). The base-angle equality behind "equal base angles in △BAS, by (3)" (IMO 2012 P1) is routed as its own figure-angle chain. The route search uses no theorem atoms and only engine rows from displayed steps, so the chain cannot depend on the isosceles atom itself. The theorem then cites that step ("equal base angles in △BAS, by (5)", `labels.rs:fold_hyp_lemmas`).
+- An angle bisector theorem step that listed ten engine premises now reads "∠BQH = ∠HQB′, by (10) and B, H, B′ are collinear, so HB : HB′ = QB : QB′ (the angle bisector theorem)" (IMO 2015 P3).
+- An equality that has already been exposed is cited, not proved a second time.
+- *Reflection.* "K is the reflection of H in BC, so BC is the perpendicular bisector of HK" replaces "BH = BK and CH = CK, so …" (`labels.rs:reflections`). This applies only when both pairs of equal distances are hypotheses of the point that is defined later.
+- *Congruence and similarity criteria.* Two triangles that share a side cite it ("Common side AB, so △ABM ≅ △ABE (ASA)"). A similarity proved by one ratio chain cites the common angle and reads SAS (`triangles.rs:common_angle`).
+- *Corner names.* The end angles of a chain in a similarity step use the names of the triangles' corners ("∠GAH = ∠OMG", not "∠AMO").
+- A collinearity proved by two parallels through one point is a single sentence ("CM ∥ AB and DM ∥ AB, so C, M, D are collinear").
+- "The second intersection" is used whenever an earlier point lies on both the line and the circle (`aux.rs:parse`).
+
+**Tool artefacts removed.**
+- The line "Angles written ∠ are read from the figure" is gone.
+- The directed-angle lines now read "…; such directed angles do not depend on how the figure is drawn. They are used only in step 8, where …".
+- A computation of one link is a single sentence ("Extended law of sines in △CAB, so AB = 2R·sin C.") rather than a "We show that" display that repeats its own statement.
+- Radii of the notation's circumcentre are not cited in computations, since R is defined as OA = OB = OC.
+- An isosceles or radii citation that a cited lemma restates is shown once.
+
+**Renderers.** `text.rs`, `ag-studio/src/human_view.rs` and `ag-studio/assets/site.js` render the new keys (`hp.atom.on_segment`, `reflection`, `alternate_angles`, `corresponding_angles`, `common_side`, `hp.say.reflection`, `hp.thm.thales_converse`) in both catalogues. The synthetic fixture uses every one of them, and the node parity harness reports 12/12 identical texts (EN and RO).
+
+**Measured (base `7595460` → round 1 `8f0382e` → round 2).** Writer on every proved conjunct, `hpmetrics.py`, bench lock. IMO 2021 P3 is left out of the IMO columns: under the current load `ddar --corpus-one` does not prove it within 1200 s (the engine's auxiliary search, which this branch does not touch), so it was solved through the app's own server (`/api/solve`, best mode): proved, 10 steps, 50 chain links, 0 pooled, 0 multi-fact links, 0 checker violations.
+
+| | IMO base | IMO round 1 | IMO round 2 | JGEX base | JGEX round 1 | JGEX round 2 |
+|---|---|---|---|---|---|---|
+| conjuncts / panics / checker violations | 29 / 0 / 0 | 29 / 0 / 0 | 29 / 0 / 0 | 240 / 0 / 0 | 240 / 0 / 0 | 240 / 0 / 0 |
+| pooled sentences (proofs) | 4 (2) | 4 (2) | 4 (2) | 3 (2) | 3 (2) | 3 (2) |
+| multi-fact links | 18 | 13 | 14 | 57 | 40 | 40 |
+| proofs with 2∡ (2∡ uses) | 5 (24) | 5 (24) | 5 (22) | 8 (14) | 8 (14) | 8 (14) |
+| steps / chain links | 329 / 924 | 330 / 911 | 336 / 937 | 685 / 1563 | 685 / 1593 | 697 / 1630 |
+| words (EN) | 16 116 | 16 986 | 16 884 | 31 352 | 34 213 | 33 278 |
+| similarity steps | 116 | 116 | 119 | 213 | 213 | 212 |
+
+Steps and links rise because the hypotheses of theorems are now their own steps (IMO 2012 P1 step 5, the 2015 P3 bisector equality). IMO 2011 P6 takes a different route in round 2 (19 → 20 steps, 2∡ uses 9 → 7, chain links 83 → 74, similarity steps 9 → 12): the three SSS congruences of round-1 steps 1–3 are gone and the concyclicities through B became concyclicities through C. The cause is not isolated; both versions pass the checker.
+
+**Timing.** Paired, sequential, base and round-2 binaries alternated per problem, median of three, 29 IMO conjuncts, under a load of 20–28 from another workflow: base median / p95 / max 61.0 / 291.4 / 610.1 ms, round 2 63.4 / 272.2 / 503.6 ms. Four jobs: IMO median 94.5, p95 1074.6 ms; JGEX median 21.0, p95 147.5 ms. Base itself is far over 150 ms at this load, so the 150 ms gate is unverified on this build, not failed against base; round 2 is not slower than base when paired.
+
+**Gates.** `cargo test --release --workspace --no-fail-fast`: 582 passed, 0 failed over 24 test binaries (ag-studio 327 passed). IMO 29 + 2021 P3 via the server + JGEX 240 human proofs: 0 panics, 0 checker violations. Goldens and the ag-studio fixtures re-blessed; node parity harness 12/12 identical (EN and RO). Engine code untouched, so no IMO 30/30 rerun.
+
+**Review packet.** `/tmp/claude-1000/hpf4/round-2/<name>.txt` (problem statement describing the drawn configuration, points, the app's EN text) and `<name>.ro.txt` for the same fourteen problems.
+
+**Still weak.**
+- IMO 2015 P3 and 2008 P6 still contain long algebra and the pooled sentences of §13.11.
+- A radii citation with derived support hides part of its hypothesis (IMO 2008 P6 step 18: "C′Y = C′K, by (17)" also uses the parallelogram).
+- IMO 2005 P5 step 4 still has a five-fact link.
+- The exposed base-angle chain of IMO 2012 P1 is correct but long and mechanical.
+- ah-2-oma step 3 keeps the gap "[C = 180° − ∠AHB; AH ⟂ BC]": the plain route search finds no drawn route.
+- The ratio link "[BM = 1/2·BC]" of IMO 2015 P3 is not explained.
+- Corpus figure-angle proofs hold for the drawn configuration only; the packet now states that configuration.

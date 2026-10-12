@@ -246,10 +246,23 @@ pub enum AtomKey {
     AngleAddition,
     AngleSum,
     ExteriorAngle,
+    Supplementary,
+    VerticalAngles,
+    SameSide,
+    OppositeSides,
+    CyclicOpposite,
+    CyclicExterior,
+    RadiusChord,
+    CommonAngle,
+    OnSegment,
+    Reflection,
+    AlternateAngles,
+    CorrespondingAngles,
+    CommonSide,
 }
 
 impl AtomKey {
-    pub const ALL: [AtomKey; 45] = [
+    pub const ALL: [AtomKey; 58] = [
         AtomKey::Inscribed,
         AtomKey::Thales,
         AtomKey::TangentChord,
@@ -295,12 +308,44 @@ impl AtomKey {
         AtomKey::AngleAddition,
         AtomKey::AngleSum,
         AtomKey::ExteriorAngle,
+        AtomKey::Supplementary,
+        AtomKey::VerticalAngles,
+        AtomKey::SameSide,
+        AtomKey::OppositeSides,
+        AtomKey::CyclicOpposite,
+        AtomKey::CyclicExterior,
+        AtomKey::RadiusChord,
+        AtomKey::CommonAngle,
+        AtomKey::OnSegment,
+        AtomKey::Reflection,
+        AtomKey::AlternateAngles,
+        AtomKey::CorrespondingAngles,
+        AtomKey::CommonSide,
     ];
     pub fn is_identity_label(self) -> bool {
         matches!(
             self,
-            AtomKey::AngleAddition | AtomKey::AngleSum | AtomKey::ExteriorAngle
+            AtomKey::AngleAddition
+                | AtomKey::AngleSum
+                | AtomKey::ExteriorAngle
+                | AtomKey::Supplementary
+                | AtomKey::VerticalAngles
+                | AtomKey::CommonAngle
         )
+    }
+    pub fn is_config_label(self) -> bool {
+        matches!(
+            self,
+            AtomKey::SameSide
+                | AtomKey::OppositeSides
+                | AtomKey::OnSegment
+                | AtomKey::AlternateAngles
+                | AtomKey::CorrespondingAngles
+                | AtomKey::CommonSide
+        )
+    }
+    pub fn is_cyclic_quad(self) -> bool {
+        matches!(self, AtomKey::CyclicOpposite | AtomKey::CyclicExterior)
     }
     pub fn as_str(self) -> &'static str {
         match self {
@@ -349,6 +394,19 @@ impl AtomKey {
             AtomKey::AngleAddition => "angle_addition",
             AtomKey::AngleSum => "angle_sum",
             AtomKey::ExteriorAngle => "exterior_angle",
+            AtomKey::Supplementary => "supplementary",
+            AtomKey::VerticalAngles => "vertical_angles",
+            AtomKey::SameSide => "same_side",
+            AtomKey::OppositeSides => "opposite_sides",
+            AtomKey::CyclicOpposite => "cyclic_opposite",
+            AtomKey::CyclicExterior => "cyclic_exterior",
+            AtomKey::RadiusChord => "radius_chord",
+            AtomKey::CommonAngle => "common_angle",
+            AtomKey::OnSegment => "on_segment",
+            AtomKey::Reflection => "reflection",
+            AtomKey::AlternateAngles => "alternate_angles",
+            AtomKey::CorrespondingAngles => "corresponding_angles",
+            AtomKey::CommonSide => "common_side",
         }
     }
 }
@@ -386,10 +444,15 @@ pub enum TheoremKey {
     Collinear,
     Concyclic,
     Other,
+    InscribedConverse,
+    OppositeAnglesConverse,
+    CircleMerge,
+    ExteriorAngleConverse,
+    ThalesConverse,
 }
 
 impl TheoremKey {
-    pub const ALL: [TheoremKey; 30] = [
+    pub const ALL: [TheoremKey; 35] = [
         TheoremKey::RadicalAxis,
         TheoremKey::ArcChord,
         TheoremKey::AngleBisectorThm,
@@ -420,7 +483,21 @@ impl TheoremKey {
         TheoremKey::Collinear,
         TheoremKey::Concyclic,
         TheoremKey::Other,
+        TheoremKey::InscribedConverse,
+        TheoremKey::OppositeAnglesConverse,
+        TheoremKey::CircleMerge,
+        TheoremKey::ExteriorAngleConverse,
+        TheoremKey::ThalesConverse,
     ];
+    pub fn is_converse(self) -> bool {
+        matches!(
+            self,
+            TheoremKey::InscribedConverse
+                | TheoremKey::OppositeAnglesConverse
+                | TheoremKey::ExteriorAngleConverse
+                | TheoremKey::ThalesConverse
+        )
+    }
     pub fn as_str(self) -> &'static str {
         match self {
             TheoremKey::RadicalAxis => "radical_axis",
@@ -453,6 +530,11 @@ impl TheoremKey {
             TheoremKey::Collinear => "collinear",
             TheoremKey::Concyclic => "concyclic",
             TheoremKey::Other => "other",
+            TheoremKey::InscribedConverse => "inscribed_converse",
+            TheoremKey::OppositeAnglesConverse => "opposite_angles_converse",
+            TheoremKey::CircleMerge => "circle_merge",
+            TheoremKey::ExteriorAngleConverse => "exterior_angle_converse",
+            TheoremKey::ThalesConverse => "thales_converse",
         }
     }
 }

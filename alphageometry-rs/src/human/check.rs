@@ -75,7 +75,7 @@ pub fn check_rows(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Vec<(T
             Table::Angle,
             &(&d(a[0], a[2])? - &d(a[0], a[1])?) - &ang(a[0], a[3], a[2])?,
         ),
-        AtomKey::PerpBisector => {
+        AtomKey::PerpBisector | AtomKey::Reflection => {
             let mut r = &d(a[0], a[1])? - &d(a[2], a[3])?;
             r.add_term(ANGLE_UNIT, -&half);
             one(Table::Angle, r)
@@ -127,7 +127,24 @@ pub fn check_rows(t: &EngineTrace, key: AtomKey, a: &[PointId]) -> Option<Vec<(T
             }
             out
         }
-        k if k.is_identity_label() => Vec::new(),
+        k if k.is_identity_label() || k.is_config_label() => Vec::new(),
+        AtomKey::RadiusChord => {
+            if a.len() != 4 {
+                return None;
+            }
+            let mut r = &ang(a[0], a[1], a[2])? - &ang(a[1], a[3], a[2])?;
+            r.add_term(ANGLE_UNIT, -&half);
+            one(Table::Angle, r)
+        }
+        AtomKey::CyclicOpposite | AtomKey::CyclicExterior => {
+            if a.len() != 4 {
+                return None;
+            }
+            one(
+                Table::Angle,
+                &ang(a[1], a[0], a[3])? - &ang(a[1], a[2], a[3])?,
+            )
+        }
         k => super::theorems::spec(t, k, a)?.rows,
     })
 }
@@ -247,6 +264,32 @@ pub fn residual_ok(cx: &Ctx, tb: Table, diff: &LinComb, sum: &LinComb, directed:
 
 pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
     let t = cx.t;
+    if let (
+        Sentence::Chain {
+            terms,
+            directed,
+            then: None,
+            ..
+        },
+        Stmt::AngleConst { angle, degrees },
+    ) = (s, st)
+    {
+        if !terms
+            .iter()
+            .any(|e| matches!(e, Expr::Const { degrees: d } if d == degrees))
+        {
+            return false;
+        }
+        let Some((tb, x)) = eval(t, angle) else {
+            return false;
+        };
+        return [&terms[0], &terms[terms.len() - 1]].iter().any(|e| {
+            let dir = *directed && is_directed(e) && is_directed(angle);
+            eval(t, e).is_some_and(|(tb2, y)| {
+                tb2 == tb && residual_ok(cx, tb, &(&x - &y), &LinComb::zero(), dir)
+            })
+        });
+    }
     match s {
         Sentence::Chain {
             terms,
@@ -267,9 +310,27 @@ pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
             };
             let directed =
                 *directed && is_directed(&terms[0]) && is_directed(terms.last().unwrap());
-            residual_ok(cx, tb, &(&a - &b), &(&x - &y), directed)
+            if residual_ok(cx, tb, &(&a - &b), &(&x - &y), directed) {
+                return true;
+            }
+            let right = terms[1..terms.len() - 1]
+                .iter()
+                .any(|e| matches!(e, Expr::Const { degrees } if *degrees == Rat::from_int(90)));
+            if !right || tb != Table::Angle {
+                return false;
+            }
+            let mut both = &a + &b;
+            both.add_term(ANGLE_UNIT, Rat::from_int(-1));
+            residual_ok(cx, tb, &both, &(&x - &y), directed)
         }
         Sentence::Because { stmt, .. } | Sentence::Pooled { stmt, .. } => stmt == st,
+        Sentence::Theorem {
+            key,
+            stmt: Stmt::Cyclic { pts },
+            ..
+        } if key.is_converse() || *key == TheoremKey::CircleMerge => {
+            matches!(st, Stmt::Cyclic { pts: p2 } if same_set(pts, p2))
+        }
         Sentence::Chain { then: Some(t2), .. }
             if matches!(
                 st,
@@ -286,6 +347,214 @@ pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
         }
         _ => false,
     }
+}
+
+pub fn same_set(a: &[PointId], b: &[PointId]) -> bool {
+    a.len() == b.len() && a.iter().all(|p| b.contains(p)) && b.iter().all(|p| a.contains(p))
+}
+
+pub fn sides(t: &EngineTrace, p: PointId, q: PointId, x: PointId, y: PointId) -> Option<bool> {
+    let (a, b) = (t.orient(x, y, p), t.orient(x, y, q));
+    (a != 0 && b != 0).then_some(a == b)
+}
+
+fn plain_angle(e: &Expr) -> Option<(PointId, PointId, PointId, bool)> {
+    match e {
+        Expr::Angle { a, b, c, directed } => Some((*a, *b, *c, *directed)),
+        _ => None,
+    }
+}
+
+fn side_label(
+    reasons: &[Reason],
+    key: AtomKey,
+    p: PointId,
+    q: PointId,
+    x: PointId,
+    y: PointId,
+) -> bool {
+    reasons.iter().any(|r| matches!(r, Reason::Atom { key: k, args, .. } if *k == key && args.len() == 4 && same_set(&args[0..2], &[p, q]) && same_set(&args[2..4], &[x, y])))
+}
+
+fn exterior_ok(cx: &Ctx, lhs: &Expr, rhs: &Expr) -> Option<(PointId, PointId, PointId, PointId)> {
+    let (Some((a, p, c, false)), Some((x, q, y, false))) = (plain_angle(lhs), plain_angle(rhs))
+    else {
+        return None;
+    };
+    for (u, keep) in [(a, c), (c, a)] {
+        if u != x && u != y {
+            continue;
+        }
+        let w = if u == x { y } else { x };
+        let line = match (cx.t.dir(p, keep), cx.t.dir(p, w)) {
+            (Some(d1), Some(d2)) => cx
+                .quot
+                .q(&(&d1 - &d2))
+                .terms
+                .iter()
+                .all(|(v, _)| *v == ANGLE_UNIT),
+            _ => false,
+        };
+        if line && super::barem::opposite_ray(cx, p, keep, w) {
+            return Some((p, q, x, y));
+        }
+    }
+    None
+}
+
+pub fn converse_ok(
+    cx: &Ctx,
+    key: TheoremKey,
+    stmt: &Stmt,
+    reasons: &[Reason],
+) -> Result<(), String> {
+    let Stmt::Cyclic { pts } = stmt else {
+        return Err("a converse of the inscribed angle theorem concludes a concyclicity".into());
+    };
+    let Some(Reason::Lemma { stmt: ls, .. }) = reasons.first() else {
+        return Err("a converse step cites the angle equality it uses first".into());
+    };
+    if pts.len() != 4 {
+        return Err("a converse step concludes four concyclic points".into());
+    }
+    let (p, q, x, y, directed) = match (key, ls) {
+        (TheoremKey::InscribedConverse, Stmt::EqAngle { lhs, rhs }) => {
+            let (Some((x1, p, y1, d1)), Some((x2, q, y2, d2))) =
+                (plain_angle(lhs), plain_angle(rhs))
+            else {
+                return Err("the converse equality is not two inscribed angles".into());
+            };
+            let chord_ok = if d1 && d2 {
+                x1 == x2 && y1 == y2
+            } else {
+                !d1 && !d2 && same_set(&[x1, y1], &[x2, y2])
+            };
+            if !chord_ok {
+                return Err("the two angles do not stand on one chord".into());
+            }
+            (p, q, x1, y1, d1)
+        }
+        (TheoremKey::ExteriorAngleConverse, Stmt::EqAngle { lhs, rhs }) => {
+            let Some((p, q, x, y)) = exterior_ok(cx, lhs, rhs) else {
+                return Err("the exterior angle does not extend a side of the quadrilateral along a proven line".into());
+            };
+            (p, q, x, y, false)
+        }
+        (TheoremKey::ThalesConverse, Stmt::AngleConst { angle: e1, degrees })
+            if *degrees == Rat::from_int(90) =>
+        {
+            let Some(Reason::Lemma {
+                stmt:
+                    Stmt::AngleConst {
+                        angle: e2,
+                        degrees: d2,
+                    },
+                ..
+            }) = reasons.get(1)
+            else {
+                return Err("the converse of Thales' theorem cites two right angles".into());
+            };
+            let (Some((x1, p, y1, false)), Some((x2, q, y2, false))) =
+                (plain_angle(e1), plain_angle(e2))
+            else {
+                return Err("Thales: two figure angles".into());
+            };
+            if *d2 != Rat::from_int(90) || !same_set(&[x1, y1], &[x2, y2]) {
+                return Err("Thales: two right angles on one segment".into());
+            }
+            (p, q, x1, y1, true)
+        }
+        (
+            TheoremKey::OppositeAnglesConverse,
+            Stmt::Eq {
+                lhs: Expr::Lin { terms },
+                rhs: Expr::Const { degrees },
+            },
+        ) if *degrees == Rat::from_int(180) => {
+            let [(k1, e1), (k2, e2)] = terms.as_slice() else {
+                return Err("opposite angles: two angles".into());
+            };
+            let (Some((x1, p, y1, false)), Some((x2, q, y2, false))) =
+                (plain_angle(e1), plain_angle(e2))
+            else {
+                return Err("opposite angles: two figure angles".into());
+            };
+            if !k1.is_one() || !k2.is_one() || !same_set(&[x1, y1], &[x2, y2]) {
+                return Err("opposite angles: one chord, unit coefficients".into());
+            }
+            (p, q, x1, y1, false)
+        }
+        _ => return Err("converse step with an equality of the wrong shape".into()),
+    };
+    if p == q
+        || [p, q].contains(&x)
+        || [p, q].contains(&y)
+        || x == y
+        || !same_set(&[p, q, x, y], pts)
+    {
+        return Err("the converse equality is not about the four concyclic points".into());
+    }
+    if !directed {
+        let want = if key == TheoremKey::InscribedConverse {
+            AtomKey::SameSide
+        } else {
+            AtomKey::OppositeSides
+        };
+        if super::check::sides(cx.t, p, q, x, y) != Some(want == AtomKey::SameSide) {
+            return Err("the side condition does not hold in the figure".into());
+        }
+        if !side_label(reasons, want, p, q, x, y) {
+            return Err("an undirected converse step must state on which sides of the chord the two vertices lie".into());
+        }
+    }
+    Ok(())
+}
+
+pub fn merge_ok(stmt: &Stmt, reasons: &[Reason]) -> Result<(), String> {
+    let Stmt::Cyclic { pts } = stmt else {
+        return Err("a circle merge concludes a concyclicity".into());
+    };
+    let mut sets: Vec<Vec<PointId>> = Vec::new();
+    for r in reasons {
+        match r {
+            Reason::Lemma {
+                stmt: Stmt::Cyclic { pts: q },
+                ..
+            }
+            | Reason::Hyp {
+                stmt: Stmt::Cyclic { pts: q },
+                ..
+            }
+            | Reason::Fact {
+                stmt: Stmt::Cyclic { pts: q },
+                ..
+            } => sets.push(q.clone()),
+            _ => return Err("a circle merge cites only concyclicities".into()),
+        }
+    }
+    let Some(first) = sets.first().cloned() else {
+        return Err("empty circle merge".into());
+    };
+    let mut have = first;
+    let mut used = vec![false; sets.len()];
+    used[0] = true;
+    loop {
+        let next = (0..sets.len())
+            .find(|&i| !used[i] && sets[i].iter().filter(|p| have.contains(p)).count() >= 3);
+        let Some(i) = next else { break };
+        used[i] = true;
+        for &p in &sets[i] {
+            if !have.contains(&p) {
+                have.push(p);
+            }
+        }
+    }
+    if used.iter().any(|u| !u) || !same_set(&have, pts) {
+        return Err(
+            "the merged circles do not share three points or do not give the stated points".into(),
+        );
+    }
+    Ok(())
 }
 
 pub fn conclusion_forms(t: &EngineTrace, s: &Stmt) -> Option<Vec<(Table, LinComb)>> {
@@ -494,6 +763,17 @@ impl<'c, 'a> Checker<'c, 'a> {
                     && self.equidistant(h, a[0], &[a[2], a[3]])
                     && self.equidistant(h, a[1], &[a[2], a[3]])
             }
+            AtomKey::Reflection => {
+                a.len() == 4
+                    && super::labels::reflection_args(self.cx, a).as_deref() == Some(a)
+                    && self.equidistant(h, a[0], &[a[2], a[3]])
+                    && self.equidistant(h, a[1], &[a[2], a[3]])
+            }
+            AtomKey::OnSegment => super::labels::on_segment_ok(self.cx, a),
+            AtomKey::AlternateAngles | AtomKey::CorrespondingAngles => {
+                super::labels::parallel_kind(self.cx, a) == Some(key)
+            }
+            AtomKey::CommonSide => a.len() == 2 && a[0] != a[1],
             AtomKey::Parallel => {
                 a.len() == 6
                     && self.perp_proven(h, (a[0], a[1]), (a[4], a[5]))
@@ -502,6 +782,7 @@ impl<'c, 'a> Checker<'c, 'a> {
             AtomKey::Radii | AtomKey::Isosceles => {
                 a.len() >= 3 && self.equidistant(h, a[0], &a[1..])
             }
+            AtomKey::RadiusChord => a.len() == 4 && self.equidistant(h, a[0], &[a[1], a[2], a[3]]),
             AtomKey::CentralAngle => {
                 (a.len() == 4 || (a.len() == 5 && a[4] == a[3] && self.reflex_inscribed(a)))
                     && self.equidistant(h, a[0], &[a[1], a[2], a[3]])
@@ -525,6 +806,15 @@ impl<'c, 'a> Checker<'c, 'a> {
                     && self.perp_proven(h, (a[2], a[0]), (a[3], a[1]))
             }
             k if k.is_identity_label() => true,
+            AtomKey::SameSide | AtomKey::OppositeSides => {
+                a.len() == 4
+                    && sides(self.cx.t, a[0], a[1], a[2], a[3]) == Some(key == AtomKey::SameSide)
+            }
+            AtomKey::CyclicOpposite | AtomKey::CyclicExterior => {
+                a.len() == 4
+                    && sides(self.cx.t, a[0], a[2], a[1], a[3]) == Some(false)
+                    && self.on_circle(h, a)
+            }
             k => self.theorem_ok(h, k, a),
         }
     }
@@ -741,6 +1031,26 @@ impl<'c, 'a> Checker<'c, 'a> {
             .ok_or(
                 "link combination does not resolve, or uses an atom row outside the engine span",
             )?;
+        for r in &link.reasons {
+            if let Reason::Atom { key, args, .. } = r {
+                if key.is_cyclic_quad() {
+                    let want = match super::cyclic::cyclic_kind(self.cx, blocks, a, b, link) {
+                        Some((super::cyclic::CyclicKind::Opposite, q)) => {
+                            Some((AtomKey::CyclicOpposite, q))
+                        }
+                        Some((super::cyclic::CyclicKind::Exterior, q)) => {
+                            Some((AtomKey::CyclicExterior, q))
+                        }
+                        _ => None,
+                    };
+                    if directed
+                        || want.is_none_or(|(k, q)| k != *key || q.as_slice() != args.as_slice())
+                    {
+                        return Err(format!("cyclic quadrilateral label {key:?} {args:?} does not describe {a:?} -> {b:?}"));
+                    }
+                }
+            }
+        }
         if link.combination.is_empty() {
             return Err("link without a combination".into());
         }
@@ -868,9 +1178,14 @@ impl<'c, 'a> Checker<'c, 'a> {
                     self.link_ok(blocks, h, &terms[k], &terms[k + 1], l, true)?;
                 }
             }
-            Sentence::Theorem { reasons, .. } => {
+            Sentence::Theorem { key, stmt, reasons } => {
                 for r in reasons {
                     self.reason_ok(blocks, cur, sidx, h, r)?;
+                }
+                if key.is_converse() {
+                    converse_ok(self.cx, *key, stmt, reasons)?;
+                } else if *key == TheoremKey::CircleMerge {
+                    merge_ok(stmt, reasons)?;
                 }
             }
             Sentence::Raw { engine_fact, .. } => {
@@ -935,6 +1250,7 @@ impl<'c, 'a> Checker<'c, 'a> {
             let by_body = b.kind != BlockKind::Conclusion && b.body.iter().any(|s| {
                 establishes(cx, s, &b.stmt)
                     && !matches!(s, Sentence::Because { combination, .. } if combination.is_empty())
+                    && !matches!(s, Sentence::Theorem { .. })
             });
             for (tb, row) in targets {
                 if !t.holds(tb, &row) && !t.holds(tb, &row.negated()) {

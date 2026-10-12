@@ -1,4 +1,4 @@
-Angles written ∠ are read from the figure. Let M be the midpoint of BC. Let N be the midpoint of AC.
+Let M be the midpoint of BC. Let N be the midpoint of AC.
 
 Plan: it suffices to show that △AHG ∼ △MOG.
 
@@ -22,7 +22,7 @@ Plan: it suffices to show that △AHG ∼ △MOG.
 
 Hence △AHB ∼ △MON (AA). (5)
 
-6. AH ∥ OM, by (4), so ∠GAH = ∠AMO.
+6. AH ∥ OM, by (4), so ∠GAH = ∠OMG (alternate angles).
 
 MG / AG = 1 / 2    [AG : GM = 2, by (1)]
         = MN / AB    [MN is a midline of △CBA]

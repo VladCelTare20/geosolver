@@ -1,4 +1,4 @@
-Angles written ∠ are read from the figure. ∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These angles do not depend on how the figure is drawn. Directed angles are needed only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
+∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ); such directed angles do not depend on how the figure is drawn. They are used only in steps 5 and 7, where the figure-angle form would depend on the configuration. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
 
 Plan: it suffices to show that A, I, X are collinear.
 
@@ -15,25 +15,28 @@ Hence NB = NC. (1)
 3. We show that T, E, S, O are concyclic:
 
 ∠OTB = 90° − ∠EBT    [OT ⟂ BE]
-     = 90° − ∠ENS    [inscribed angles in Ω]
+     = 90° − ∠ENS    [exterior angle of the cyclic quadrilateral BENS]
      = ∠ESO    [NS is a diameter of Ω]
      = ∠OES    [OS = OE]
 
-So T, E, S, O are concyclic. (3)
+∠OTS = ∠OES, B lies on the segment TS and T, E lie on the same side of OS, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (3)
 
 4. We show that T, P, X, O are concyclic:
 
-∠OTB = 90° − ∠LBD    [OT ⟂ BE]
+∠OTB = 90° − ∠EBT    [OT ⟂ BE]
+     = 90° − ∠LBD    [vertical angles at B]
      = ∠BLD − ∠LDX + 90°    [exterior angle of △DBL]
      = ∠BPD − ∠LDX + 90°    [inscribed angles in ω₁]
-     = ∠BPD − ∠CBT + 90°    [DL ∥ BC]
-     = ∠BPD + ∠XBC − 90°    [angle addition]
+     = ∠BPD − ∠CBT + 90°    [DL ∥ BC; alternate angles]
      = ∠BPD − ∠OSB    [ON ⟂ BC, by (2)]
-     = ∠XBP − ∠OPD    [central angle in Ω]
+     = ∠BPD − ∠XBO    [OS = OB]
+     = ∠BPO − ∠XBO − ∠OPD    [angle addition]
+     = ∠OBP − ∠OPD − ∠XBO    [OP = OB]
+     = ∠XBP − ∠OPD    [angle addition]
      = ∠DPX − ∠OPD    [PX is tangent to ω₁ (tangent–chord angle)]
      = ∠OPX    [angle addition]
 
-So T, P, X, O are concyclic. (4)
+∠OTX = ∠OPX, B lies on the segment TX and T, P lie on the same side of OX, so by the converse of the inscribed angle theorem, T, P, X, O are concyclic. (4)
 
 5. We show that T, P, E, D are concyclic:
 
@@ -45,9 +48,10 @@ So T, P, X, O are concyclic. (4)
      = ∡OEA + ∡BPD + ∡AEB + 90°    [angle addition]
      = ∡OEA + ∡BPD + ∡APB + 90°    [inscribed angles in Ω]
      = ∡OEA + ∡APD + 90°    [angle addition]
-     = ∡EPD    [OA = OE; inscribed angle ∠APE = 180° − ½∠AOE]
+     = ∡EPA + ∡APD    [the tangent at E is ⟂ OE (tangent–chord angle)]
+     = ∡EPD    [angle addition]
 
-So T, P, E, D are concyclic. (5)
+∡ETD = ∡EPD, so by the converse of the inscribed angle theorem, T, P, E, D are concyclic. (5)
 
 6. We show that XA = XP:
 
@@ -71,7 +75,7 @@ Radii of Ω, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
      = ∡BPA + ∡DPB + 90°    [angle addition]
      = ∡BEA + ∡DPB + 90°    [inscribed angles in Ω]
      = ∡BEA + ∡DLB + 90°    [inscribed angles in ω₁]
-     = ∡LDA + 90°    [angle addition]
+     = ∡LDA + 90°    [angle sum in △EDL]
      = ∡(BC, AD) + 90°    [DL ∥ BC]
      = 0°    [AD ⟂ BC]
 

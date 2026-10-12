@@ -4,9 +4,7 @@ Plan: it suffices to show that AH = 2R·cos A and MaO = R·cos A.
 
 1. OB = OC and MaB = MaC, so OMa is the perpendicular bisector of BC; hence OMa ⟂ BC. (1)
 
-2. We show that AB = 2R·sin C:
-
-AB = 2R·sin C    [extended law of sines in △CAB; OA = OC] (2)
+2. Extended law of sines in △CAB, so AB = 2R·sin C. (2)
 
 3. We show that AH = 2R·cos A:
 
@@ -17,7 +15,7 @@ AH = AB·sin∠HBA / sin∠BHA    [law of sines in △BHA]
 
 4. We show that MaO = R·cos A:
 
-MaO = R·sin∠MaBO    [law of sines in △BMaO; ∠OMaB = 90° (OMa ⟂ BC, by (1)); OA = OB]
+MaO = R·sin∠MaBO    [law of sines in △BMaO; ∠OMaB = 90° (OMa ⟂ BC, by (1))]
     = R·cos A    [∠OBMa = 90° − A; central angle ∠BOC = 2∠BAC; OB = OC] (4)
 
 5. AH = 2R·cos A, by (3) and MaO = R·cos A, by (4), so AH : MaO = 2, as required. ∎

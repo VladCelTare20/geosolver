@@ -1317,9 +1317,6 @@
     "as_drawn": true,
     "setup": [
       {
-        "kind": "figure_angles"
-      },
-      {
         "kind": "directed_angles"
       },
       {
@@ -1658,20 +1655,20 @@
                 "reasons": [
                   {
                     "kind": "atom",
-                    "key": "inscribed",
+                    "key": "cyclic_exterior",
                     "args": [
                       "B",
+                      "E",
                       "N",
-                      "S",
-                      "E"
+                      "S"
                     ],
                     "stmt": {
                       "kind": "cyclic",
                       "args": [
                         "B",
+                        "E",
                         "N",
-                        "S",
-                        "E"
+                        "S"
                       ],
                       "points": [
                         "B",
@@ -1680,15 +1677,14 @@
                         "E"
                       ]
                     },
-                    "from": [],
-                    "circle": "Ω"
+                    "from": []
                   }
                 ],
                 "combination": [
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               },
@@ -1760,7 +1756,13 @@
                 ]
               }
             ],
-            "then": {
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "inscribed_converse",
+            "stmt": {
               "kind": "cyclic",
               "args": [
                 "T",
@@ -1775,7 +1777,70 @@
                 "T"
               ]
             },
-            "directed": false
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∠OTS",
+                  "∠OES"
+                ],
+                "points": [
+                  "O",
+                  "S",
+                  "E",
+                  "T"
+                ],
+                "step": null,
+                "block": 3,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "atom",
+                "key": "on_segment",
+                "args": [
+                  "T",
+                  "B",
+                  "S"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "B",
+                    "S",
+                    "T"
+                  ]
+                },
+                "from": []
+              },
+              {
+                "kind": "atom",
+                "key": "same_side",
+                "args": [
+                  "T",
+                  "E",
+                  "O",
+                  "S"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "O",
+                    "S",
+                    "E",
+                    "T"
+                  ]
+                },
+                "from": []
+              }
+            ]
           }
         ],
         "engine_steps": [
@@ -1824,12 +1889,15 @@
             "kind": "chain",
             "terms": [
               "∠OTB",
+              "90° − ∠EBT",
               "90° − ∠LBD",
               "∠BLD − ∠LDX + 90°",
               "∠BPD − ∠LDX + 90°",
               "∠BPD − ∠CBT + 90°",
-              "∠BPD + ∠XBC − 90°",
               "∠BPD − ∠OSB",
+              "∠BPD − ∠XBO",
+              "∠BPO − ∠XBO − ∠OPD",
+              "∠OBP − ∠OPD − ∠XBO",
               "∠XBP − ∠OPD",
               "∠DPX − ∠OPD",
               "∠OPX"
@@ -1862,6 +1930,28 @@
                     "coef": "-1"
                   }
                 ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "vertical_angles",
+                    "args": [
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "B"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
               },
               {
                 "reasons": [
@@ -1945,6 +2035,33 @@
                       ]
                     },
                     "step": 17
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "alternate_angles",
+                    "args": [
+                      "L",
+                      "D",
+                      "X",
+                      "C",
+                      "B",
+                      "T"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "B",
+                        "C",
+                        "D",
+                        "L",
+                        "X",
+                        "T"
+                      ]
+                    },
+                    "from": []
                   }
                 ],
                 "combination": [
@@ -1954,28 +2071,6 @@
                     "coef": "-1"
                   }
                 ]
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "atom",
-                    "key": "angle_addition",
-                    "args": [
-                      "B"
-                    ],
-                    "stmt": {
-                      "kind": "formula",
-                      "args": [
-                        ""
-                      ],
-                      "points": [
-                        "B"
-                      ]
-                    },
-                    "from": []
-                  }
-                ],
-                "combination": []
               },
               {
                 "reasons": [
@@ -2010,24 +2105,22 @@
                 "reasons": [
                   {
                     "kind": "atom",
-                    "key": "central_angle",
+                    "key": "isosceles",
                     "args": [
                       "O",
                       "S",
-                      "P",
                       "B"
                     ],
                     "stmt": {
-                      "kind": "eq",
+                      "kind": "cong",
                       "args": [
-                        "∡SOP",
-                        "2∡SBP"
+                        "OS",
+                        "OB"
                       ],
                       "points": [
                         "B",
                         "O",
-                        "S",
-                        "P"
+                        "S"
                       ]
                     },
                     "from": []
@@ -2040,6 +2133,83 @@
                     "coef": "1"
                   }
                 ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "angle_addition",
+                    "args": [
+                      "P"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "P"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "isosceles",
+                    "args": [
+                      "O",
+                      "P",
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "cong",
+                      "args": [
+                        "OP",
+                        "OB"
+                      ],
+                      "points": [
+                        "B",
+                        "O",
+                        "P"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "angle_addition",
+                    "args": [
+                      "B"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "B"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
               },
               {
                 "reasons": [
@@ -2100,7 +2270,13 @@
                 "combination": []
               }
             ],
-            "then": {
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "inscribed_converse",
+            "stmt": {
               "kind": "cyclic",
               "args": [
                 "T",
@@ -2115,7 +2291,70 @@
                 "T"
               ]
             },
-            "directed": false
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∠OTX",
+                  "∠OPX"
+                ],
+                "points": [
+                  "O",
+                  "P",
+                  "X",
+                  "T"
+                ],
+                "step": null,
+                "block": 4,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "atom",
+                "key": "on_segment",
+                "args": [
+                  "T",
+                  "B",
+                  "X"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "B",
+                    "X",
+                    "T"
+                  ]
+                },
+                "from": []
+              },
+              {
+                "kind": "atom",
+                "key": "same_side",
+                "args": [
+                  "T",
+                  "P",
+                  "O",
+                  "X"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "O",
+                    "P",
+                    "X",
+                    "T"
+                  ]
+                },
+                "from": []
+              }
+            ]
           }
         ],
         "engine_steps": [
@@ -2172,6 +2411,7 @@
               "∡OEA + ∡BPD + ∡AEB + 90°",
               "∡OEA + ∡BPD + ∡APB + 90°",
               "∡OEA + ∡APD + 90°",
+              "∡EPA + ∡APD",
               "∡EPD"
             ],
             "links": [
@@ -2391,41 +2631,17 @@
                 "reasons": [
                   {
                     "kind": "atom",
-                    "key": "isosceles",
+                    "key": "radius_chord",
                     "args": [
                       "O",
-                      "A",
-                      "E"
-                    ],
-                    "stmt": {
-                      "kind": "cong",
-                      "args": [
-                        "OA",
-                        "OE"
-                      ],
-                      "points": [
-                        "A",
-                        "O",
-                        "E"
-                      ]
-                    },
-                    "from": []
-                  },
-                  {
-                    "kind": "atom",
-                    "key": "central_angle",
-                    "args": [
-                      "O",
-                      "A",
                       "E",
-                      "P",
+                      "A",
                       "P"
                     ],
                     "stmt": {
-                      "kind": "eq",
+                      "kind": "formula",
                       "args": [
-                        "∠APE",
-                        "180° − ½·∠AOE"
+                        ""
                       ],
                       "points": [
                         "A",
@@ -2441,17 +2657,40 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "1/2"
-                  },
-                  {
-                    "reason": 1,
-                    "row": 0,
-                    "coef": "-1/2"
+                    "coef": "1"
                   }
                 ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "angle_addition",
+                    "args": [
+                      "P"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "P"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
               }
             ],
-            "then": {
+            "then": null,
+            "directed": true
+          },
+          {
+            "kind": "theorem",
+            "key": "inscribed_converse",
+            "stmt": {
               "kind": "cyclic",
               "args": [
                 "T",
@@ -2466,7 +2705,26 @@
                 "T"
               ]
             },
-            "directed": true
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∡ETD",
+                  "∡EPD"
+                ],
+                "points": [
+                  "D",
+                  "E",
+                  "P",
+                  "T"
+                ],
+                "step": null,
+                "block": 5,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              }
+            ]
           }
         ],
         "engine_steps": [
@@ -3046,14 +3304,22 @@
                 "reasons": [
                   {
                     "kind": "atom",
-                    "key": "angle_addition",
-                    "args": [],
+                    "key": "angle_sum",
+                    "args": [
+                      "E",
+                      "D",
+                      "L"
+                    ],
                     "stmt": {
                       "kind": "formula",
                       "args": [
                         ""
                       ],
-                      "points": []
+                      "points": [
+                        "D",
+                        "E",
+                        "L"
+                      ]
                     },
                     "from": []
                   }
@@ -3278,17 +3544,17 @@
       "derived": 31,
       "blocks": 8,
       "claims": 4,
-      "sentences": 11,
-      "chain_links": 43,
+      "sentences": 14,
+      "chain_links": 47,
       "chains": 6,
       "pure_chains": 3,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 629,
-      "lines_en": 63,
-      "citations": 48,
+      "words_en": 723,
+      "lines_en": 66,
+      "citations": 59,
       "aux_shown": 0,
-      "human_cost": 166,
+      "human_cost": 184,
       "reproved": 4,
       "silent": 24,
       "pruned": 3,
@@ -3297,9 +3563,9 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 1,
-      "theorem_steps": 11,
+      "theorem_steps": 23,
       "steps": 8,
-      "multi_fact_links": 1,
+      "multi_fact_links": 0,
       "undirected_chains": 4,
       "directed_chains": 2
     }

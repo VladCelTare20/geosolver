@@ -178,18 +178,17 @@ fn golden_examples_have_the_planned_shape() {
     numbered(hp, t);
     assert!(t.contains("BC is the perpendicular bisector of HK"), "{t}");
     assert!(t.contains("so A, H, K are collinear. (2)"), "{t}");
+    assert!(!t.contains("read from the figure"), "{t}");
     assert!(
-        t.contains("Angles written \u{2220} are read from the figure."),
+        t.contains("K is the reflection of H in BC, so BC is the perpendicular bisector of HK"),
         "{t}"
     );
+    assert!(t.contains("H lies on the segment KA"), "{t}");
     assert!(
         !t.contains("counter-clockwise"),
         "only figure angles are used:\n{t}"
     );
-    assert!(
-        t.contains("So A, B, C, K lie on one circle, as required. \u{220e}"),
-        "{t}"
-    );
+    assert!(t.contains("C, K lie on the same side of AB, so by the converse of the inscribed angle theorem, A, B, C, K lie on one circle, as required. \u{220e}"), "{t}");
 
     let (_, hp, t) = get("euler_line");
     numbered(hp, t);
@@ -223,8 +222,11 @@ fn golden_examples_have_the_planned_shape() {
         "{t}"
     );
     assert!(t.contains("We show that AH = 2R\u{b7}cos A:"), "{t}");
-    assert!(t.contains("We show that AB = 2R\u{b7}sin C:"), "{t}");
-    assert!(t.contains("extended law of sines"), "{t}");
+    assert!(
+        t.contains("so AB = 2R\u{b7}sin C."),
+        "a one-line computation is a sentence:\n{t}"
+    );
+    assert!(t.to_lowercase().contains("extended law of sines"), "{t}");
     assert!(t.contains("law of sines in \u{25b3}BHA"), "{t}");
     assert!(
         !t.contains("sin\u{2220}COA")
@@ -297,7 +299,11 @@ fn golden_examples_have_the_planned_shape() {
         "{t}"
     );
     assert!(t.contains("OF is the perpendicular bisector of BN"), "{t}");
-    assert!(t.contains("So R, N, F, O are concyclic."), "{t}");
+    assert!(
+        t.contains("so by the converse of the inscribed angle theorem, R, N, F, O are concyclic."),
+        "{t}"
+    );
+    assert!(t.contains("\u{2220}BFA = 90\u{b0} and \u{2220}BNA = 90\u{b0}, so by the converse of Thales' theorem, F, N, B, A are concyclic."), "two right angles on BA need no side condition:\n{t}");
     assert!(
         t.contains("= \u{bd}\u{b7}\u{2220}NOM    [central angle"),
         "{t}"
@@ -331,7 +337,26 @@ fn golden_examples_have_the_planned_shape() {
         "NB = NC is used twice, so it is its own step:\n{t}"
     );
     assert!(!t.contains("NB = NC (inscribed angles"), "{t}");
-    assert!(t.contains("So T, E, S, O are concyclic."), "{t}");
+    assert!(t.contains("T, E lie on the same side of SO, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (3)"), "{t}");
+    assert!(
+        t.contains("[X, T, B collinear: supplementary angles]")
+            && !t.contains("180\u{b0} \u{2212} \u{2220}OTB           [angle addition]"),
+        "supplementary angles on a line are named:\n{t}"
+    );
+    assert!(
+        t.contains("[the tangent at E is \u{27c2} OE (tangent\u{2013}chord angle)]")
+            && !t.contains("central angle \u{2220}AOE = 2\u{2220}APE]"),
+        "a halved central angle in a directed chain reads as the tangent at E:\n{t}"
+    );
+    assert!(
+        t.contains("[exterior angle of the cyclic quadrilateral"),
+        "{t}"
+    );
+    assert!(
+        !t.contains("\nSo T, P, X, O are concyclic")
+            && !t.contains("\nSo T, P, E, D are concyclic"),
+        "every concyclicity names its converse:\n{t}"
+    );
     assert!(t.contains("We show that XA = XP:"), "{t}");
     assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");
     assert!(
@@ -560,6 +585,145 @@ fn identity_links_are_checked_and_honestly_labelled() {
     assert!(
         !verify(&s, &m).is_empty(),
         "a fact link relabelled as angle addition accepted"
+    );
+}
+
+fn converse(hp: &mut HumanProof) -> Option<(&mut human::TheoremKey, &mut Stmt, &mut Vec<Reason>)> {
+    for b in hp.blocks.iter_mut() {
+        for s in b.body.iter_mut() {
+            if let Sentence::Theorem { key, stmt, reasons } = s {
+                if key.is_converse() && reasons.len() == 2 {
+                    return Some((key, stmt, reasons));
+                }
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn converse_steps_and_cyclic_labels_are_checked() {
+    let c = geo_case("imo_2023_p2", "tests/golden/human/imo_2023_p2.geo");
+    let s = solve(&c);
+    let base = write(&s, &strict());
+    assert!(verify(&s, &base).is_empty());
+    let mut probe = base.clone();
+    assert!(
+        converse(&mut probe).is_some(),
+        "the golden proof names a converse of the inscribed angle theorem"
+    );
+
+    let mut m = base.clone();
+    let (_, _, reasons) = converse(&mut m).unwrap();
+    if let Reason::Atom { key, .. } = &mut reasons[1] {
+        *key = if *key == human::AtomKey::SameSide {
+            human::AtomKey::OppositeSides
+        } else {
+            human::AtomKey::SameSide
+        };
+    }
+    assert!(
+        !verify(&s, &m).is_empty(),
+        "a false same-side condition accepted"
+    );
+
+    let mut m = base.clone();
+    let (_, _, reasons) = converse(&mut m).unwrap();
+    reasons.truncate(1);
+    assert!(
+        !verify(&s, &m).is_empty(),
+        "a figure-angle converse without its side condition accepted"
+    );
+
+    let mut m = base.clone();
+    let (_, stmt, _) = converse(&mut m).unwrap();
+    if let Stmt::Cyclic { pts } = stmt {
+        pts[0] = (0..20).find(|p| !pts.contains(p)).unwrap();
+    }
+    assert!(
+        !verify(&s, &m).is_empty(),
+        "a converse concluding other points accepted"
+    );
+
+    let mut m = base.clone();
+    let (key, _, _) = converse(&mut m).unwrap();
+    *key = human::TheoremKey::OppositeAnglesConverse;
+    assert!(
+        !verify(&s, &m).is_empty(),
+        "an equal-angle converse relabelled as opposite angles accepted"
+    );
+
+    let mut m = base.clone();
+    let mut swapped = false;
+    for b in m.blocks.iter_mut() {
+        for st in b.body.iter_mut() {
+            if let Sentence::Chain { links, .. } = st {
+                for l in links.iter_mut() {
+                    for r in l.reasons.iter_mut() {
+                        if let Reason::Atom { key, .. } = r {
+                            if key.is_cyclic_quad() && !swapped {
+                                *key = if *key == human::AtomKey::CyclicExterior {
+                                    human::AtomKey::CyclicOpposite
+                                } else {
+                                    human::AtomKey::CyclicExterior
+                                };
+                                swapped = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(swapped, "the golden proof labels a cyclic quadrilateral");
+    assert!(
+        !verify(&s, &m).is_empty(),
+        "an exterior angle relabelled as opposite angles accepted"
+    );
+}
+
+#[test]
+fn a_circle_merge_needs_three_shared_points() {
+    let a = Stmt::Cyclic {
+        pts: vec![0, 1, 2, 3],
+    };
+    let b = Stmt::Cyclic {
+        pts: vec![0, 1, 2, 4],
+    };
+    let far = Stmt::Cyclic {
+        pts: vec![0, 1, 4, 5],
+    };
+    let lemma = |st: &Stmt| Reason::Lemma {
+        stmt: st.clone(),
+        block: 1,
+        sentence: 0,
+    };
+    assert!(human::check::merge_ok(
+        &Stmt::Cyclic {
+            pts: vec![0, 1, 2, 3, 4]
+        },
+        &[lemma(&a), lemma(&b)]
+    )
+    .is_ok());
+    assert!(
+        human::check::merge_ok(
+            &Stmt::Cyclic {
+                pts: vec![0, 1, 2, 3, 5]
+            },
+            &[lemma(&a), lemma(&far)]
+        )
+        .is_err(),
+        "two circles sharing two points merged"
+    );
+    assert!(
+        human::check::merge_ok(
+            &Stmt::Cyclic {
+                pts: vec![0, 1, 2, 3, 4, 5]
+            },
+            &[lemma(&a), lemma(&b)]
+        )
+        .is_err(),
+        "a merge naming a point no circle contains"
     );
 }
 

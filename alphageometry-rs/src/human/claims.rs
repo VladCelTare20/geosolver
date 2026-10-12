@@ -1196,6 +1196,8 @@ pub struct Presenter<'w, 'c, 'a> {
     pub allowed: BTreeSet<FactId>,
     pub as_drawn: bool,
     pub force_undirected: bool,
+    pub plain_route: bool,
+    pub exposed: Vec<(Stmt, FactId, usize)>,
     pub halve_graph: std::cell::OnceCell<super::route::Graph>,
     pub drawn_graph: std::cell::OnceCell<super::route::Graph>,
     pub ratio_graph: std::cell::OnceCell<super::route::Graph>,
@@ -3481,11 +3483,21 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             self.ratio_graph
                 .get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Ratio, false))
         };
+        let plain = self.plain_route;
+        let shown = &self.block_of;
         let weights: Vec<i64> = w
             .atoms
             .iter()
             .map(|a| {
-                if a.table == target.table && a.cost > 0 && a.admissible(h) {
+                let barred = plain
+                    && match a.src {
+                        AtomSrc::Human(k) => super::theorems::is_theorem(k),
+                        AtomSrc::Hyp(_) | AtomSrc::Line(_) => false,
+                        AtomSrc::Glue(f) | AtomSrc::Engine(f) => {
+                            !shown.contains_key(&cx.displayable(f))
+                        }
+                    };
+                if a.table == target.table && a.cost > 0 && a.admissible(h) && !barred {
                     eff(a, focus, &w.claim_cost, cx) as i64 + 2
                 } else {
                     super::route::OFF
@@ -3522,11 +3534,21 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
     ) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let w = self.w;
+        let plain = self.plain_route;
+        let shown = &self.block_of;
         let weights: Vec<i64> = w
             .atoms
             .iter()
             .map(|a| {
-                if a.table == Table::Angle && a.cost > 0 && a.admissible(h) {
+                let barred = plain
+                    && match a.src {
+                        AtomSrc::Human(k) => super::theorems::is_theorem(k),
+                        AtomSrc::Hyp(_) | AtomSrc::Line(_) => false,
+                        AtomSrc::Glue(f) | AtomSrc::Engine(f) => {
+                            !shown.contains_key(&cx.displayable(f))
+                        }
+                    };
+                if a.table == Table::Angle && a.cost > 0 && a.admissible(h) && !barred {
                     eff(a, focus, &w.claim_cost, cx) as i64 + 2
                 } else {
                     super::route::OFF
@@ -4350,7 +4372,7 @@ pub fn atom_stmt(key: AtomKey, a: &[PointId]) -> Stmt {
             line: (a[0], a[1]),
             circle: vec![a[4]],
         },
-        AtomKey::PerpBisector => Stmt::Perp {
+        AtomKey::PerpBisector | AtomKey::Reflection => Stmt::Perp {
             l1: (a[0], a[1]),
             l2: (a[2], a[3]),
         },
@@ -4436,6 +4458,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             allowed: BTreeSet::new(),
             as_drawn: false,
             force_undirected: false,
+            plain_route: false,
+            exposed: Vec::new(),
             halve_graph: std::cell::OnceCell::new(),
             drawn_graph: std::cell::OnceCell::new(),
             ratio_graph: std::cell::OnceCell::new(),
@@ -4478,6 +4502,223 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             block,
             because,
         }
+    }
+
+    fn expose_hyps(&mut self, f: FactId, mut sentences: Vec<Sentence>) -> Vec<Sentence> {
+        let cx = self.w.cx;
+        if cx.timed_out() {
+            return sentences;
+        }
+        let h = self.w.nodes[&f].horizon;
+        let mut extra: Vec<Sentence> = Vec::new();
+        let mut cites: Vec<(usize, usize, Stmt, usize)> = Vec::new();
+        let mut reused: Vec<(usize, usize, Stmt, u16, usize)> = Vec::new();
+        for si in 0..sentences.len() {
+            let links = match &sentences[si] {
+                Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => {
+                    links.clone()
+                }
+                _ => continue,
+            };
+            for (li, l) in links.iter().enumerate() {
+                for r in &l.reasons {
+                    let Reason::Atom { key, args, .. } = r else {
+                        continue;
+                    };
+                    let Some((stmt, ld, rd)) = hyp_lemma(cx, *key, args) else {
+                        continue;
+                    };
+                    if cites.iter().any(|c| c.2 == stmt) || reused.iter().any(|c| c.2 == stmt) {
+                        continue;
+                    }
+                    let earlier = self
+                        .exposed
+                        .iter()
+                        .find(|(st, g, _)| {
+                            *st == stmt
+                                && matches!(self.role.get(g), Some(Role::Claim | Role::Step))
+                                && self.block_of.contains_key(g)
+                        })
+                        .map(|(_, g, i)| (self.block_of[g], *i));
+                    if let Some((b, i)) = earlier {
+                        reused.push((si, li, stmt, b, i));
+                        continue;
+                    }
+                    let Some(target) = super::classify::angle_target(cx, ld, rd, stmt.clone())
+                    else {
+                        continue;
+                    };
+                    let focus: BTreeSet<PointId> = args.iter().copied().collect();
+                    self.plain_route = true;
+                    let found = [self.route_drawn(&target, h, None, &focus)];
+                    self.plain_route = false;
+                    let usable = |ls: &Vec<Sentence>| -> Option<(usize, Sentence)> {
+                        let [chain @ Sentence::Chain {
+                            links: cl, terms, ..
+                        }] = ls.as_slice()
+                        else {
+                            return None;
+                        };
+                        if cl.len() > 6
+                            || multiple_directed(chain)
+                            || !super::check::establishes(cx, chain, &stmt)
+                        {
+                            return None;
+                        }
+                        let mut lemma_free = true;
+                        super::barem::visit(chain, &mut |r| {
+                            lemma_free &= !matches!(r, Reason::Lemma { .. })
+                        });
+                        let size: usize = cl.iter().map(|l| l.reasons.len()).sum::<usize>()
+                            + terms.iter().map(super::barem::expr_terms).sum::<usize>();
+                        lemma_free.then(|| (size, chain.clone()))
+                    };
+                    let Some((_, mut chain)) = found
+                        .iter()
+                        .flatten()
+                        .filter_map(usable)
+                        .min_by_key(|x| x.0)
+                    else {
+                        continue;
+                    };
+                    if let (
+                        Sentence::Chain {
+                            terms, directed, ..
+                        },
+                        Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs },
+                    ) = (&mut chain, &stmt)
+                    {
+                        let n = terms.len();
+                        for (i, want) in [(0, lhs), (n - 1, rhs)] {
+                            if *directed && !matches!(want, Expr::Angle { .. }) {
+                                continue;
+                            }
+                            let mut w2 = want.clone();
+                            if let Expr::Angle { directed: d, .. } = &mut w2 {
+                                *d = *directed;
+                            }
+                            let same = match (
+                                super::expr::eval(cx.t, &terms[i]),
+                                super::expr::eval(cx.t, &w2),
+                            ) {
+                                (Some((_, x)), Some((_, y))) => super::check::residual_ok(
+                                    cx,
+                                    Table::Angle,
+                                    &(&x - &y),
+                                    &LinComb::zero(),
+                                    false,
+                                ),
+                                _ => false,
+                            };
+                            if same {
+                                terms[i] = w2;
+                            }
+                        }
+                    }
+                    if !super::check::establishes(cx, &chain, &stmt) {
+                        continue;
+                    }
+                    extra.push(chain);
+                    cites.push((si, li, stmt, extra.len() - 1));
+                }
+            }
+        }
+        let mut theorem_lemmas: Vec<(usize, Stmt, Reason, usize)> = Vec::new();
+        for si in 0..sentences.len() {
+            let Sentence::Theorem {
+                key: TheoremKey::AngleBisectorThm,
+                stmt: Stmt::EqRatio { segs },
+                reasons,
+            } = &sentences[si]
+            else {
+                continue;
+            };
+            if reasons.len() <= 3 {
+                continue;
+            }
+            let Some((stmt, ld, rd, x, p, y)) = bisector_lemma(cx, segs) else {
+                continue;
+            };
+            let line = reasons.iter().find(|r| matches!(r, Reason::Hyp { stmt: Stmt::Coll { pts }, .. } | Reason::Fact { stmt: Stmt::Coll { pts }, .. } if [x, p, y].iter().all(|q| pts.contains(q)))).cloned().or_else(|| {
+                let f = cx.hyp_pred.iter().filter(|(f, h)| h.name == "coll" && matches!(cx.class.get(**f as usize), Some(FactClass::Hyp)) && [x, p, y].iter().all(|q| h.points.contains(q))).map(|(f, _)| *f).min()?;
+                Some(Reason::Hyp { stmt: Stmt::Coll { pts: vec![x, p, y] }, fact: f })
+            });
+            let Some(line) = line else { continue };
+            let Some(target) = super::classify::angle_target(cx, ld, rd, stmt.clone()) else {
+                continue;
+            };
+            let focus: BTreeSet<PointId> = super::view::stmt_points(&stmt).into_iter().collect();
+            self.plain_route = true;
+            let found = self.route_drawn(&target, h, None, &focus);
+            self.plain_route = false;
+            let Some(ls) = found else { continue };
+            let [chain @ Sentence::Chain { links: cl, .. }] = ls.as_slice() else {
+                continue;
+            };
+            let mut lemma_free = true;
+            super::barem::visit(chain, &mut |r| {
+                lemma_free &= !matches!(r, Reason::Lemma { .. })
+            });
+            if cl.len() > 6 || !lemma_free || !super::check::establishes(cx, chain, &stmt) {
+                continue;
+            }
+            extra.push(chain.clone());
+            theorem_lemmas.push((si, stmt, line, extra.len() - 1));
+        }
+        for (si, li, stmt, b, i) in reused {
+            if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } =
+                &mut sentences[si]
+            {
+                links[li].reasons.push(Reason::Lemma {
+                    stmt,
+                    block: b,
+                    sentence: i as u16,
+                });
+            }
+        }
+        if extra.is_empty() {
+            return sentences;
+        }
+        for (_, _, st, ei) in &cites {
+            self.exposed.push((st.clone(), f, *ei));
+        }
+        shift_pending(&mut sentences, extra.len());
+        for (si, stmt, line, ei) in theorem_lemmas {
+            if let Sentence::Theorem { reasons, .. } = &mut sentences[si] {
+                *reasons = vec![
+                    Reason::Lemma {
+                        stmt,
+                        block: PENDING_BLOCK,
+                        sentence: ei as u16,
+                    },
+                    line,
+                ];
+            }
+        }
+        for (si, li, stmt, ei) in cites {
+            if let Sentence::Chain { links, .. } | Sentence::Computation { links, .. } =
+                &mut sentences[si]
+            {
+                let l = &mut links[li];
+                for r in l.reasons.iter_mut() {
+                    if let Reason::Atom {
+                        key, args, from, ..
+                    } = r
+                    {
+                        if hyp_lemma(cx, *key, args).is_some_and(|x| x.0 == stmt) {
+                            from.clear();
+                        }
+                    }
+                }
+                l.reasons.push(Reason::Lemma {
+                    stmt,
+                    block: PENDING_BLOCK,
+                    sentence: ei as u16,
+                });
+            }
+        }
+        extra.extend(sentences);
+        extra
     }
 
     pub fn node_sentences(&mut self, f: FactId) -> (Vec<Sentence>, usize, bool) {
@@ -4788,6 +5029,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let t0 = std::time::Instant::now();
             let started = std::time::Instant::now();
             let (sentences, links, pooled) = self.node_sentences(f);
+            let sentences = self.expose_hyps(f, sentences);
             if std::env::var_os("HP_TIME").is_some() {
                 eprintln!(
                     "present node {f}: {:.1} ms",
@@ -4926,11 +5168,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut facts = merge_facts;
         facts.extend(goal.extra.iter().copied());
         let t0 = std::time::Instant::now();
-        let (mut body, _, _) = if goal.parts.is_some() {
+        let (body, _, _) = if goal.parts.is_some() {
             self.node_sentences(GOAL)
         } else {
             (Vec::new(), 0, false)
         };
+        let mut body = self.expose_hyps(GOAL, body);
         if std::env::var_os("HP_TIME").is_some() {
             eprintln!("present goal: {:.1} ms", t0.elapsed().as_secs_f64() * 1e3);
         }
@@ -5092,6 +5335,86 @@ fn even_expr(e: &Expr) -> bool {
                 })
         }
         _ => false,
+    }
+}
+
+fn bisector_lemma(
+    cx: &Ctx,
+    segs: &[(PointId, PointId)],
+) -> Option<(Stmt, Expr, Expr, PointId, PointId, PointId)> {
+    let [s1, s2, s3, s4] = segs else { return None };
+    let split =
+        |a: (PointId, PointId), b: (PointId, PointId)| -> Option<(PointId, PointId, PointId)> {
+            if a.0 == b.0 {
+                Some((a.0, a.1, b.1))
+            } else if a.0 == b.1 {
+                Some((a.0, a.1, b.0))
+            } else if a.1 == b.0 {
+                Some((a.1, a.0, b.1))
+            } else if a.1 == b.1 {
+                Some((a.1, a.0, b.0))
+            } else {
+                None
+            }
+        };
+    let (p, x, y) = split(*s1, *s2)?;
+    let (v, x2, y2) = split(*s3, *s4)?;
+    if (x, y) != (x2, y2) || [x, y].contains(&p) || [x, y, p].contains(&v) {
+        return None;
+    }
+    let t = cx.t;
+    let (a, b, c) = (t.coord(x), t.coord(p), t.coord(y));
+    let along = ((b.0 - a.0) * (c.0 - a.0) + (b.1 - a.1) * (c.1 - a.1))
+        / ((c.0 - a.0).powi(2) + (c.1 - a.1).powi(2)).max(1e-300);
+    if !(1e-9..1.0 - 1e-9).contains(&along) || !super::barem::near_line(cx, x, y, p) {
+        return None;
+    }
+    let ang =
+        |a: PointId, b: PointId, c: PointId, directed: bool| Expr::Angle { a, b, c, directed };
+    Some((
+        Stmt::EqAngle {
+            lhs: ang(x, v, p, false),
+            rhs: ang(p, v, y, false),
+        },
+        ang(x, v, p, true),
+        ang(p, v, y, true),
+        x,
+        p,
+        y,
+    ))
+}
+
+pub fn hyp_lemma(cx: &Ctx, key: AtomKey, args: &[PointId]) -> Option<(Stmt, Expr, Expr)> {
+    let ang =
+        |a: PointId, b: PointId, c: PointId, directed: bool| Expr::Angle { a, b, c, directed };
+    match key {
+        AtomKey::IsoscelesConverse => {
+            let [o, p, q] = args[..] else { return None };
+            Some((
+                Stmt::EqAngle {
+                    lhs: ang(o, p, q, false),
+                    rhs: ang(p, q, o, false),
+                },
+                ang(o, p, q, true),
+                ang(p, q, o, true),
+            ))
+        }
+        AtomKey::SineSupplement if args.len() == 7 && args[6] == args[0] => {
+            let x = ang(args[1], args[0], args[2], true);
+            let y = ang(args[4], args[3], args[5], true);
+            let neg = |e: Expr| Expr::Lin {
+                terms: vec![(Rat::from_int(-1), e)],
+            };
+            [(x.clone(), y.clone()), (x, neg(y))]
+                .into_iter()
+                .find_map(|(l, r)| {
+                    let (_, a) = super::expr::eval(cx.t, &l)?;
+                    let (_, b) = super::expr::eval(cx.t, &r)?;
+                    cx.t.holds(Table::Angle, &(&a - &b))
+                        .then(|| (atom_stmt(key, args), l, r))
+                })
+        }
+        _ => None,
     }
 }
 

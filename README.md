@@ -73,9 +73,11 @@ power of a point, radical axis, law of sines, …) or is one chain of equalities
 with **one fact per link** and the reason beside it
 (`∠BFA = 90° [BF ⟂ AR] = ∠BNA [BC is a diameter]`). A step that a later step
 uses is tagged (k) and cited "by (k)"; the last step restates the goal in the
-problem's words ("…, as required. ∎"). Angles written ∠ are read from the
-figure; directed angles ∡ are used only where a chain must not depend on the
-drawing, and are then defined in words together with the steps that need them.
+problem's words ("…, as required. ∎"). Angles written ∠ are the angles of the
+drawn figure; directed angles ∡ are used only where a chain must not depend on
+the drawing, and are then defined in words together with the steps that need
+them. Concyclicity is concluded by a named converse (two right angles on one
+segment need no side condition: "the converse of Thales' theorem").
 When a fact gives one angle and the chain needs a neighbouring one, the step in
 between is its own line (`[angle addition]`, `[exterior angle of △DBL]`,
 `[angle sum in △PBC]`), checked like any other link. Setup lines only introduce

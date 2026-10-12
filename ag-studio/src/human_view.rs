@@ -492,6 +492,19 @@ closed_keys!(AtomKey, eng::AtomKey, {
     AngleAddition => "angle_addition",
     AngleSum => "angle_sum",
     ExteriorAngle => "exterior_angle",
+    Supplementary => "supplementary",
+    VerticalAngles => "vertical_angles",
+    SameSide => "same_side",
+    OppositeSides => "opposite_sides",
+    CyclicOpposite => "cyclic_opposite",
+    CyclicExterior => "cyclic_exterior",
+    RadiusChord => "radius_chord",
+    CommonAngle => "common_angle",
+    OnSegment => "on_segment",
+    Reflection => "reflection",
+    AlternateAngles => "alternate_angles",
+    CorrespondingAngles => "corresponding_angles",
+    CommonSide => "common_side",
 });
 
 impl AtomKey {
@@ -531,6 +544,11 @@ closed_keys!(TheoremKey, eng::TheoremKey, {
     Collinear => "collinear",
     Concyclic => "concyclic",
     Other => "other",
+    InscribedConverse => "inscribed_converse",
+    OppositeAnglesConverse => "opposite_angles_converse",
+    CircleMerge => "circle_merge",
+    ExteriorAngleConverse => "exterior_angle_converse",
+    ThalesConverse => "thales_converse",
 });
 
 impl TheoremKey {
@@ -1031,6 +1049,13 @@ fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
             (0, r) if r >= 2 => Some("sss"),
             _ => None,
         }
+    } else if ratios >= 1 && sides >= 1 {
+        match (angles, ratios) {
+            (a, _) if a >= 2 => Some("sim_aa"),
+            (1, _) => Some("sim_sas"),
+            (0, r) if r >= 2 => Some("sim_sss"),
+            _ => None,
+        }
     } else {
         match (angles, ratios + sides) {
             (a, s) if a >= 2 && s >= 1 => Some("asa"),
@@ -1321,6 +1346,7 @@ impl Cx<'_> {
         let g = |i: usize| args.get(i).cloned().unwrap_or_default();
         let shown: Vec<String> = match key {
             AtomKey::PerpBisector
+            | AtomKey::Reflection
             | AtomKey::Orthocentre
             | AtomKey::Centroid
             | AtomKey::Midline
@@ -1466,6 +1492,13 @@ impl Cx<'_> {
                 if facts.iter().any(|s| same_stmt(s, stmt)) {
                     continue;
                 }
+                if matches!(key, AtomKey::Isosceles | AtomKey::Radii)
+                    && rs
+                        .iter()
+                        .any(|x| matches!(x, Reason::Lemma { stmt: s2, .. } if same_stmt(s2, stmt)))
+                {
+                    continue;
+                }
                 if let Some(centre) = self.equal_lengths_centre(*key, args, from) {
                     let group = format!("={centre}");
                     match groups.iter_mut().find(|g| g.0 == group) {
@@ -1598,7 +1631,7 @@ fn perp_lines(r: &Reason) -> Option<[(String, String); 2]> {
             (args[2].clone(), args[1].clone()),
         ]),
         Reason::Atom {
-            key: AtomKey::PerpBisector | AtomKey::Orthocentre,
+            key: AtomKey::PerpBisector | AtomKey::Reflection | AtomKey::Orthocentre,
             args,
             ..
         } if args.len() >= 4 => Some([
@@ -2128,6 +2161,28 @@ impl Cx<'_> {
         reasons: &[Reason],
         goal: Option<&(Stmt, String)>,
     ) -> Option<String> {
+        let angle_label = |r: &Reason| {
+            matches!(
+                r,
+                Reason::Atom {
+                    key: AtomKey::AlternateAngles | AtomKey::CorrespondingAngles,
+                    ..
+                }
+            )
+        };
+        if let Some(lab) = reasons.iter().find(|r| angle_label(r)) {
+            let rest: Vec<Reason> = reasons
+                .iter()
+                .filter(|r| !angle_label(r))
+                .cloned()
+                .collect();
+            let base = self.because(own, stmt, &rest, goal)?;
+            return Some(format!(
+                "{} ({}).",
+                base.trim_end_matches('.'),
+                self.reason(lab, Ctx::Note)
+            ));
+        }
         let mut st = self.so_stmt(stmt, goal);
         if let Some(c) = criterion(stmt, self.body.get()) {
             st = format!("{st} ({})", self.t(&format!("hp.crit.{c}")));
@@ -2304,10 +2359,34 @@ impl Cx<'_> {
             Sentence::Chain {
                 terms, links, then, ..
             } => {
-                let rs = links
+                let angle_label = |r: &Reason| {
+                    matches!(
+                        r,
+                        Reason::Atom {
+                            key: AtomKey::AlternateAngles | AtomKey::CorrespondingAngles,
+                            ..
+                        }
+                    )
+                };
+                let lab: Option<String> = links
                     .first()
-                    .map(|l| self.texts(&l.reasons, Ctx::Note))
+                    .and_then(|l| l.reasons.iter().find(|r| angle_label(r)))
+                    .map(|r| self.reason(r, Ctx::Note));
+                let rest: Vec<Reason> = links
+                    .first()
+                    .map(|l| {
+                        l.reasons
+                            .iter()
+                            .filter(|r| !angle_label(r))
+                            .cloned()
+                            .collect()
+                    })
                     .unwrap_or_default();
+                let rs = self.texts(&rest, Ctx::Note);
+                let terms_eq = match &lab {
+                    Some(l) => format!("{} ({l})", terms.join(" = ")),
+                    None => terms.join(" = "),
+                };
                 let zero = terms.last().is_some_and(|t| t == "0\u{b0}");
                 if let (Some(t), Some(l), [_, _]) = (
                     then.as_ref().filter(|t| t.kind == "coll"),
@@ -2358,7 +2437,7 @@ impl Cx<'_> {
                         "hp.because_then",
                         &[
                             ("reasons", join_list(&rs, self.lang)),
-                            ("eq", terms.join(" = ")),
+                            ("eq", terms_eq.clone()),
                             ("stmt", self.so_stmt(t, goal)),
                         ],
                     ),
@@ -2366,7 +2445,7 @@ impl Cx<'_> {
                         "hp.because",
                         &[
                             ("reasons", join_list(&rs, self.lang)),
-                            ("stmt", terms.join(" = ")),
+                            ("stmt", terms_eq.clone()),
                         ],
                     ),
                 };
@@ -2428,11 +2507,19 @@ impl Cx<'_> {
                     }
                 } else {
                     let st = self.so_stmt(stmt, goal);
+                    let with = match key {
+                        TheoremKey::InscribedConverse
+                        | TheoremKey::OppositeAnglesConverse
+                        | TheoremKey::ExteriorAngleConverse
+                        | TheoremKey::ThalesConverse => "hp.theorem_with.converse",
+                        TheoremKey::CircleMerge => "hp.theorem_with.circle_merge",
+                        _ => "hp.theorem_with",
+                    };
                     if rs.is_empty() {
                         self.tf("hp.theorem", &[("thm", thm), ("stmt", st)])
                     } else {
                         self.tf(
-                            "hp.theorem_with",
+                            with,
                             &[
                                 ("thm", thm),
                                 ("reasons", join_list(&rs, self.lang)),
@@ -2443,7 +2530,23 @@ impl Cx<'_> {
                 };
                 vec![Part::Text(capitalize(&text))]
             }
-            Sentence::Computation { terms, links, .. } => vec![Part::Rows(self.rows(terms, links))],
+            Sentence::Computation { terms, links, .. } => {
+                let links = self.comp_links(links);
+                if let [l] = links.as_slice() {
+                    let text = self.tf(
+                        "hp.because",
+                        &[
+                            (
+                                "reasons",
+                                join_list(&self.texts(&l.reasons, Ctx::Note), self.lang),
+                            ),
+                            ("stmt", terms.join(" = ")),
+                        ],
+                    );
+                    return vec![Part::Text(capitalize(&text))];
+                }
+                vec![Part::Rows(self.rows(terms, &links))]
+            }
             Sentence::Raw { step, .. } => {
                 let n = step.map(|s| s.to_string()).unwrap_or_default();
                 let text = match step.and_then(|s| raw_step(self.view, s)) {
@@ -2506,11 +2609,27 @@ impl Cx<'_> {
         Some(capitalize(&text))
     }
 
+    fn comp_links(&self, links: &[Link]) -> Vec<Link> {
+        let centre = self.h.setup.iter().find_map(|l| match l {
+            SetupLine::Notation {
+                circumcentre: Some(o),
+                ..
+            } => Some(o.clone()),
+            _ => None,
+        });
+        links
+            .iter()
+            .map(|l| Link {
+                reasons: l.reasons.iter().filter(|r| !matches!(r, Reason::Atom { key: AtomKey::Radii, args, .. } if centre.is_some() && args.first() == centre.as_ref())).cloned().collect(),
+                combination: l.combination.clone(),
+            })
+            .collect()
+    }
+
     fn lead(&self, b: &Block, goal: Option<&(Stmt, String)>) -> Option<String> {
         let first = b.body.first()?;
         let rows = match first {
-            Sentence::Chain { links, .. } => links.len() >= 2,
-            Sentence::Computation { .. } => true,
+            Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => links.len() >= 2,
             _ => false,
         };
         if !rows || b.kind == BlockKind::Raw {
@@ -4128,6 +4247,277 @@ pub mod tests {
                 then: Some(st("eqangle", &["∡EGF", "∡EDF"], &["D", "E", "F", "G"])),
                 directed: true,
             },
+            Sentence::Chain {
+                terms: strs(&[
+                    "∠DEG",
+                    "180° − ∠GEK",
+                    "∠LEM",
+                    "∠DFG",
+                    "180° − ∠DSG",
+                    "∠XDY",
+                    "∠ZDY",
+                ]),
+                links: vec![
+                    Link {
+                        reasons: vec![atom(
+                            AtomKey::Supplementary,
+                            &["E", "D", "K"],
+                            st("formula", &[""], &["E", "D", "K"]),
+                            None,
+                        )],
+                        combination: vec![],
+                    },
+                    Link {
+                        reasons: vec![atom(
+                            AtomKey::VerticalAngles,
+                            &["E"],
+                            st("formula", &[""], &["E"]),
+                            None,
+                        )],
+                        combination: vec![],
+                    },
+                    Link {
+                        reasons: vec![atom(
+                            AtomKey::CyclicExterior,
+                            &["E", "D", "F", "G"],
+                            st("cyclic", &["E", "D", "F", "G"], &["D", "E", "F", "G"]),
+                            None,
+                        )],
+                        combination: vec![],
+                    },
+                    Link {
+                        reasons: vec![atom(
+                            AtomKey::CyclicOpposite,
+                            &["F", "D", "S", "G"],
+                            st("cyclic", &["F", "D", "S", "G"], &["D", "F", "G", "S"]),
+                            None,
+                        )],
+                        combination: vec![],
+                    },
+                    Link {
+                        reasons: vec![atom(
+                            AtomKey::RadiusChord,
+                            &["O", "D", "Y", "S"],
+                            st("formula", &[""], &["D", "O", "S", "Y"]),
+                            None,
+                        )],
+                        combination: vec![],
+                    },
+                    Link {
+                        reasons: vec![atom(
+                            AtomKey::CommonAngle,
+                            &["D"],
+                            st("formula", &[""], &["D"]),
+                            None,
+                        )],
+                        combination: vec![],
+                    },
+                ],
+                then: None,
+                directed: false,
+            },
+            Sentence::Theorem {
+                key: TheoremKey::InscribedConverse,
+                stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]),
+                reasons: vec![
+                    Reason::Lemma {
+                        stmt: st("eqangle", &["∠DEG", "∠DFG"], &["D", "E", "F", "G"]),
+                        block: 2,
+                        sentence: 7,
+                    },
+                    atom(
+                        AtomKey::SameSide,
+                        &["E", "F", "D", "G"],
+                        st("formula", &[""], &["D", "E", "F", "G"]),
+                        None,
+                    ),
+                ],
+            },
+            Sentence::Theorem {
+                key: TheoremKey::OppositeAnglesConverse,
+                stmt: st("cyclic", &["D", "F", "G", "S"], &["D", "F", "G", "S"]),
+                reasons: vec![
+                    Reason::Lemma {
+                        stmt: st("eq", &["∠DFG + ∠DSG", "180°"], &["D", "F", "G", "S"]),
+                        block: 2,
+                        sentence: 7,
+                    },
+                    atom(
+                        AtomKey::OppositeSides,
+                        &["F", "S", "D", "G"],
+                        st("formula", &[""], &["D", "F", "G", "S"]),
+                        None,
+                    ),
+                ],
+            },
+            Sentence::Theorem {
+                key: TheoremKey::ExteriorAngleConverse,
+                stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]),
+                reasons: vec![
+                    Reason::Lemma {
+                        stmt: st("eqangle", &["∠GEK", "∠DFG"], &["D", "E", "F", "G", "K"]),
+                        block: 2,
+                        sentence: 7,
+                    },
+                    atom(
+                        AtomKey::OppositeSides,
+                        &["E", "F", "D", "G"],
+                        st("formula", &[""], &["D", "E", "F", "G"]),
+                        None,
+                    ),
+                ],
+            },
+            Sentence::Theorem {
+                key: TheoremKey::CircleMerge,
+                stmt: st(
+                    "cyclic",
+                    &["D", "E", "F", "G", "S"],
+                    &["D", "E", "F", "G", "S"],
+                ),
+                reasons: vec![
+                    Reason::Lemma {
+                        stmt: st("cyclic", &["D", "E", "F", "G"], &["D", "E", "F", "G"]),
+                        block: 2,
+                        sentence: 8,
+                    },
+                    Reason::Lemma {
+                        stmt: st("cyclic", &["D", "F", "G", "S"], &["D", "F", "G", "S"]),
+                        block: 2,
+                        sentence: 9,
+                    },
+                ],
+            },
+            Sentence::Chain {
+                terms: strs(&["DE / DF", "AB / AC"]),
+                links: vec![Link {
+                    reasons: vec![Reason::Hyp {
+                        stmt: st(
+                            "eqratio",
+                            &["DE", "DF", "AB", "AC"],
+                            &["A", "B", "C", "D", "E", "F"],
+                        ),
+                        step: None,
+                    }],
+                    combination: vec![],
+                }],
+                then: None,
+                directed: false,
+            },
+            Sentence::Because {
+                stmt: st("contri", &["DEF", "ABC"], &["A", "B", "C", "D", "E", "F"]),
+                reasons: vec![Reason::Hyp {
+                    stmt: st("cong", &["DE", "AB"], &["A", "B", "D", "E"]),
+                    step: None,
+                }],
+                combination: vec![],
+            },
+            Sentence::Because {
+                stmt: st("perp", &["BC", "HK"], &["B", "C", "H", "K"]),
+                reasons: vec![atom(
+                    AtomKey::Reflection,
+                    &["B", "C", "H", "K"],
+                    st("perp", &["BC", "HK"], &["B", "C", "H", "K"]),
+                    None,
+                )],
+                combination: vec![],
+            },
+            Sentence::Chain {
+                terms: strs(&["∠HKB", "∠AKB"]),
+                links: vec![Link {
+                    reasons: vec![
+                        Reason::Hyp {
+                            stmt: st("coll", &["A", "H", "K"], &["A", "H", "K"]),
+                            step: None,
+                        },
+                        atom(
+                            AtomKey::OnSegment,
+                            &["K", "H", "A"],
+                            st("formula", &[""], &["A", "H", "K"]),
+                            None,
+                        ),
+                    ],
+                    combination: vec![],
+                }],
+                then: None,
+                directed: false,
+            },
+            Sentence::Chain {
+                terms: strs(&["∠GAH", "∠AMO"]),
+                links: vec![Link {
+                    reasons: vec![
+                        Reason::Hyp {
+                            stmt: st("para", &["AH", "OM"], &["A", "H", "M", "O"]),
+                            step: None,
+                        },
+                        atom(
+                            AtomKey::AlternateAngles,
+                            &["G", "A", "H", "A", "M", "O"],
+                            st("formula", &[""], &["A", "G", "H", "M", "O"]),
+                            None,
+                        ),
+                    ],
+                    combination: vec![],
+                }],
+                then: None,
+                directed: false,
+            },
+            Sentence::Chain {
+                terms: strs(&["∠MCA", "∠BAE", "∠AMC"]),
+                links: vec![
+                    Link {
+                        reasons: vec![
+                            Reason::Hyp {
+                                stmt: st("para", &["CM", "AB"], &["A", "B", "C", "M"]),
+                                step: None,
+                            },
+                            atom(
+                                AtomKey::CorrespondingAngles,
+                                &["M", "C", "A", "B", "A", "E"],
+                                st("formula", &[""], &["A", "B", "C", "E", "M"]),
+                                None,
+                            ),
+                        ],
+                        combination: vec![],
+                    },
+                    Link {
+                        reasons: vec![atom(
+                            AtomKey::AngleSum,
+                            &["M", "A", "C"],
+                            st("formula", &[""], &["A", "C", "M"]),
+                            None,
+                        )],
+                        combination: vec![],
+                    },
+                ],
+                then: None,
+                directed: false,
+            },
+            Sentence::Theorem {
+                key: TheoremKey::ThalesConverse,
+                stmt: st("cyclic", &["F", "N", "B", "A"], &["A", "B", "F", "N"]),
+                reasons: vec![
+                    Reason::Lemma {
+                        stmt: st("aconst", &["∠BFA", "90"], &["A", "B", "F"]),
+                        block: 2,
+                        sentence: 7,
+                    },
+                    Reason::Lemma {
+                        stmt: st("aconst", &["∠BNA", "90"], &["A", "B", "N"]),
+                        block: 2,
+                        sentence: 7,
+                    },
+                ],
+            },
+            Sentence::Because {
+                stmt: st("contri", &["ABM", "ABE"], &["A", "B", "E", "M"]),
+                reasons: vec![atom(
+                    AtomKey::CommonSide,
+                    &["A", "B"],
+                    st("cong", &["AB", "AB"], &["A", "B"]),
+                    None,
+                )],
+                combination: vec![],
+            },
         ];
         let conclusion = Block {
             id: 2,
@@ -4229,13 +4619,30 @@ pub mod tests {
             "D, E, F, G on ω₁",
             "Apply the law of sines in △ABC.",
             "Apply the law of sines in △DEF (DE ⟂ EF).",
-            "[law of sines in △ABC; sin∠AXB = sin C]",
+            "Law of sines in △ABC and sin∠AXB = sin C, so AB = 2R·sin C.",
+            "K is the reflection of H in BC, so BC is the perpendicular bisector of HK; hence BC ⟂ HK.",
+            "A, H, K collinear and H lies on the segment KA, so ∠HKB = ∠AKB.",
+            "AH ∥ OM, so ∠GAH = ∠AMO (alternate angles).",
+            "[CM ∥ AB; corresponding angles]",
+            "∠BFA = 90° and ∠BNA = 90°, so by the converse of Thales' theorem, F, N, B, A are concyclic.",
+            "Common side AB, so △ABM ≅ △ABE",
             "D, E, F, G on ω₁, so ∡EDF = ∡EGF.",
+            "[D, E, K collinear: supplementary angles]",
+            "[vertical angles at E]",
+            "[exterior angle of the cyclic quadrilateral EDFG]",
+            "[opposite angles of the cyclic quadrilateral FDSG]",
+            "[the tangent at D is ⟂ OD (tangent–chord angle)]",
+            "[common angle at D]",
+            "∠DEG = ∠DFG and E, F lie on the same side of DG, so by the converse of the inscribed angle theorem, D, E, F, G are concyclic.",
+            "∠DFG + ∠DSG = 180° and F, S lie on opposite sides of DG, so by the converse of the opposite-angle theorem for cyclic quadrilaterals, D, F, G, S are concyclic.",
+            "so by the converse of the exterior-angle theorem for cyclic quadrilaterals, D, E, F, G are concyclic.",
+            "these circles share three points, so they coincide and D, E, F, G, S are concyclic.",
+            "(similar by AA, with equal corresponding sides)",
         ] {
             assert!(en.contains(want), "{want:?} missing from\n{en}");
         }
         let ro = text(&h, &view, Lang::Ro);
-        for want in ["teorema sinusurilor în △ABC", "∡ABX = ∡XCA, din (1)", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
+        for want in ["teorema sinusurilor în △ABC", "K este simetricul lui H față de BC", "H se află pe segmentul KA", "(unghiuri alterne)", "unghiuri corespondente", "reciproca proprietății unghiului înscris în semicerc", "Latura comună AB", "∡ABX = ∡XCA, din (1)", "deci, din reciproca teoremei unghiului înscris, punctele D, E, F, G sunt conciclice", "cercurile au trei puncte comune, deci coincid", "unghiuri opuse la vârf în E", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
             assert!(ro.contains(want), "{want:?} missing from\n{ro}");
         }
         let path = dir().join("synthetic-wording.json");
@@ -4378,5 +4785,52 @@ pub mod tests {
     fn a_missing_human_proof_is_none() {
         assert!(of_view(&json!({"human": null})).is_none());
         assert!(of_view(&json!({})).is_none());
+    }
+
+    #[test]
+    #[ignore = "writes the app's proof text for each HP_PACKET entry (name, kind, best seconds, program file) into HP_PACKET_OUT"]
+    fn review_packet_texts() {
+        let (Some(list), Some(out)) = (
+            std::env::var_os("HP_PACKET"),
+            std::env::var_os("HP_PACKET_OUT"),
+        ) else {
+            return;
+        };
+        let out = PathBuf::from(out);
+        for line in std::fs::read_to_string(list)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+        {
+            let cols: Vec<&str> = line.split('\t').collect();
+            let (name, kind, best, file) = (cols[0], cols[1], cols[2], cols[3]);
+            let program = std::fs::read_to_string(file).unwrap();
+            let opts = SolveOptions {
+                kind: if kind == "corpus" {
+                    crate::engine::InputKind::Corpus
+                } else {
+                    crate::engine::InputKind::Geo
+                },
+                ..SolveOptions::default()
+            };
+            let started = std::time::Instant::now();
+            let sol = match best.parse::<u64>().ok().filter(|s| *s > 0) {
+                Some(s) => solve_best(&program, &opts, Duration::from_secs(s)),
+                None => solve(&program, &opts),
+            }
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(sol.proved, "{name} must be proved");
+            let v = crate::present::solution_json(&sol, None);
+            let h = of_view(&v["view"]).unwrap_or_else(|| panic!("{name}: no human proof"));
+            let view = view_subset(&v["view"]);
+            for lang in [Lang::En, Lang::Ro] {
+                std::fs::write(
+                    out.join(format!("{name}.proof.{}.txt", lang.code())),
+                    format!("{}\n", text(&h, &view, lang)),
+                )
+                .unwrap();
+            }
+            eprintln!("packet {name}: {:.1} s", started.elapsed().as_secs_f64());
+        }
     }
 }

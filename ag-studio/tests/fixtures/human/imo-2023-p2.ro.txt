@@ -1,4 +1,4 @@
-Unghiurile notate ∠ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
+∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Unghiurile orientate nu depind de figură. Le folosim doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
 
 Ideea: este suficient să arătăm că punctele A, I, X sunt coliniare.
 
@@ -15,25 +15,28 @@ Deci NB = NC. (1)
 3. Arătăm că punctele T, E, S, O sunt conciclice:
 
 ∠OTB = 90° − ∠EBT    [OT ⟂ BE]
-     = 90° − ∠ENS    [unghiuri înscrise în Ω]
+     = 90° − ∠ENS    [unghi exterior al patrulaterului inscriptibil BENS]
      = ∠ESO    [NS este diametru al cercului Ω]
      = ∠OES    [OS = OE]
 
-Deci punctele T, E, S, O sunt conciclice. (3)
+∠OTS = ∠OES, B se află pe segmentul TS și T, E sunt de aceeași parte a dreptei OS, deci, din reciproca teoremei unghiului înscris, punctele T, E, S, O sunt conciclice. (3)
 
 4. Arătăm că punctele T, P, X, O sunt conciclice:
 
-∠OTB = 90° − ∠LBD    [OT ⟂ BE]
+∠OTB = 90° − ∠EBT    [OT ⟂ BE]
+     = 90° − ∠LBD    [unghiuri opuse la vârf în B]
      = ∠BLD − ∠LDX + 90°    [unghi exterior al △DBL]
      = ∠BPD − ∠LDX + 90°    [unghiuri înscrise în ω₁]
-     = ∠BPD − ∠CBT + 90°    [DL ∥ BC]
-     = ∠BPD + ∠XBC − 90°    [adunarea unghiurilor]
+     = ∠BPD − ∠CBT + 90°    [DL ∥ BC; unghiuri alterne]
      = ∠BPD − ∠OSB    [ON ⟂ BC, din (2)]
-     = ∠XBP − ∠OPD    [unghi la centru în Ω]
+     = ∠BPD − ∠XBO    [OS = OB]
+     = ∠BPO − ∠XBO − ∠OPD    [adunarea unghiurilor]
+     = ∠OBP − ∠OPD − ∠XBO    [OP = OB]
+     = ∠XBP − ∠OPD    [adunarea unghiurilor]
      = ∠DPX − ∠OPD    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
      = ∠OPX    [adunarea unghiurilor]
 
-Deci punctele T, P, X, O sunt conciclice. (4)
+∠OTX = ∠OPX, B se află pe segmentul TX și T, P sunt de aceeași parte a dreptei OX, deci, din reciproca teoremei unghiului înscris, punctele T, P, X, O sunt conciclice. (4)
 
 5. Arătăm că punctele T, P, E, D sunt conciclice:
 
@@ -45,9 +48,10 @@ Deci punctele T, P, X, O sunt conciclice. (4)
      = ∡OEA + ∡BPD + ∡AEB + 90°    [adunarea unghiurilor]
      = ∡OEA + ∡BPD + ∡APB + 90°    [unghiuri înscrise în Ω]
      = ∡OEA + ∡APD + 90°    [adunarea unghiurilor]
-     = ∡EPD    [OA = OE; unghiul înscris ∠APE = 180° − ½∠AOE]
+     = ∡EPA + ∡APD    [tangenta în E este ⟂ OE (unghiul dintre tangentă și coardă)]
+     = ∡EPD    [adunarea unghiurilor]
 
-Deci punctele T, P, E, D sunt conciclice. (5)
+∡ETD = ∡EPD, deci, din reciproca teoremei unghiului înscris, punctele T, P, E, D sunt conciclice. (5)
 
 6. Arătăm că XA = XP:
 
@@ -71,7 +75,7 @@ Raze în Ω ⇒ △OAX ≡ △OPX (LUL). Deci XA = XP. (6)
      = ∡BPA + ∡DPB + 90°    [adunarea unghiurilor]
      = ∡BEA + ∡DPB + 90°    [unghiuri înscrise în Ω]
      = ∡BEA + ∡DLB + 90°    [unghiuri înscrise în ω₁]
-     = ∡LDA + 90°    [adunarea unghiurilor]
+     = ∡LDA + 90°    [suma unghiurilor în △EDL]
      = ∡(BC, AD) + 90°    [DL ∥ BC]
      = 0°    [AD ⟂ BC]
 

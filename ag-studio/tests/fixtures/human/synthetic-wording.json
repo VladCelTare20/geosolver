@@ -1365,6 +1365,843 @@
               ]
             },
             "directed": true
+          },
+          {
+            "kind": "chain",
+            "terms": [
+              "∠DEG",
+              "180° − ∠GEK",
+              "∠LEM",
+              "∠DFG",
+              "180° − ∠DSG",
+              "∠XDY",
+              "∠ZDY"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "supplementary",
+                    "args": [
+                      "E",
+                      "D",
+                      "K"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "E",
+                        "D",
+                        "K"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "vertical_angles",
+                    "args": [
+                      "E"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "E"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "cyclic_exterior",
+                    "args": [
+                      "E",
+                      "D",
+                      "F",
+                      "G"
+                    ],
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "E",
+                        "D",
+                        "F",
+                        "G"
+                      ],
+                      "points": [
+                        "D",
+                        "E",
+                        "F",
+                        "G"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "cyclic_opposite",
+                    "args": [
+                      "F",
+                      "D",
+                      "S",
+                      "G"
+                    ],
+                    "stmt": {
+                      "kind": "cyclic",
+                      "args": [
+                        "F",
+                        "D",
+                        "S",
+                        "G"
+                      ],
+                      "points": [
+                        "D",
+                        "F",
+                        "G",
+                        "S"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "radius_chord",
+                    "args": [
+                      "O",
+                      "D",
+                      "Y",
+                      "S"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "D",
+                        "O",
+                        "S",
+                        "Y"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "common_angle",
+                    "args": [
+                      "D"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "D"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "inscribed_converse",
+            "stmt": {
+              "kind": "cyclic",
+              "args": [
+                "D",
+                "E",
+                "F",
+                "G"
+              ],
+              "points": [
+                "D",
+                "E",
+                "F",
+                "G"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∠DEG",
+                  "∠DFG"
+                ],
+                "points": [
+                  "D",
+                  "E",
+                  "F",
+                  "G"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 7
+              },
+              {
+                "kind": "atom",
+                "key": "same_side",
+                "args": [
+                  "E",
+                  "F",
+                  "D",
+                  "G"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "D",
+                    "E",
+                    "F",
+                    "G"
+                  ]
+                },
+                "from": []
+              }
+            ]
+          },
+          {
+            "kind": "theorem",
+            "key": "opposite_angles_converse",
+            "stmt": {
+              "kind": "cyclic",
+              "args": [
+                "D",
+                "F",
+                "G",
+                "S"
+              ],
+              "points": [
+                "D",
+                "F",
+                "G",
+                "S"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "eq",
+                "args": [
+                  "∠DFG + ∠DSG",
+                  "180°"
+                ],
+                "points": [
+                  "D",
+                  "F",
+                  "G",
+                  "S"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 7
+              },
+              {
+                "kind": "atom",
+                "key": "opposite_sides",
+                "args": [
+                  "F",
+                  "S",
+                  "D",
+                  "G"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "D",
+                    "F",
+                    "G",
+                    "S"
+                  ]
+                },
+                "from": []
+              }
+            ]
+          },
+          {
+            "kind": "theorem",
+            "key": "exterior_angle_converse",
+            "stmt": {
+              "kind": "cyclic",
+              "args": [
+                "D",
+                "E",
+                "F",
+                "G"
+              ],
+              "points": [
+                "D",
+                "E",
+                "F",
+                "G"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∠GEK",
+                  "∠DFG"
+                ],
+                "points": [
+                  "D",
+                  "E",
+                  "F",
+                  "G",
+                  "K"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 7
+              },
+              {
+                "kind": "atom",
+                "key": "opposite_sides",
+                "args": [
+                  "E",
+                  "F",
+                  "D",
+                  "G"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "D",
+                    "E",
+                    "F",
+                    "G"
+                  ]
+                },
+                "from": []
+              }
+            ]
+          },
+          {
+            "kind": "theorem",
+            "key": "circle_merge",
+            "stmt": {
+              "kind": "cyclic",
+              "args": [
+                "D",
+                "E",
+                "F",
+                "G",
+                "S"
+              ],
+              "points": [
+                "D",
+                "E",
+                "F",
+                "G",
+                "S"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "cyclic",
+                "args": [
+                  "D",
+                  "E",
+                  "F",
+                  "G"
+                ],
+                "points": [
+                  "D",
+                  "E",
+                  "F",
+                  "G"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 8
+              },
+              {
+                "kind": "cyclic",
+                "args": [
+                  "D",
+                  "F",
+                  "G",
+                  "S"
+                ],
+                "points": [
+                  "D",
+                  "F",
+                  "G",
+                  "S"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 9
+              }
+            ]
+          },
+          {
+            "kind": "chain",
+            "terms": [
+              "DE / DF",
+              "AB / AC"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "eqratio",
+                      "args": [
+                        "DE",
+                        "DF",
+                        "AB",
+                        "AC"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "D",
+                        "E",
+                        "F"
+                      ]
+                    },
+                    "step": null
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "contri",
+              "args": [
+                "DEF",
+                "ABC"
+              ],
+              "points": [
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "hyp",
+                "stmt": {
+                  "kind": "cong",
+                  "args": [
+                    "DE",
+                    "AB"
+                  ],
+                  "points": [
+                    "A",
+                    "B",
+                    "D",
+                    "E"
+                  ]
+                },
+                "step": null
+              }
+            ],
+            "combination": []
+          },
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "perp",
+              "args": [
+                "BC",
+                "HK"
+              ],
+              "points": [
+                "B",
+                "C",
+                "H",
+                "K"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "reflection",
+                "args": [
+                  "B",
+                  "C",
+                  "H",
+                  "K"
+                ],
+                "stmt": {
+                  "kind": "perp",
+                  "args": [
+                    "BC",
+                    "HK"
+                  ],
+                  "points": [
+                    "B",
+                    "C",
+                    "H",
+                    "K"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": []
+          },
+          {
+            "kind": "chain",
+            "terms": [
+              "∠HKB",
+              "∠AKB"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "coll",
+                      "args": [
+                        "A",
+                        "H",
+                        "K"
+                      ],
+                      "points": [
+                        "A",
+                        "H",
+                        "K"
+                      ]
+                    },
+                    "step": null
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "on_segment",
+                    "args": [
+                      "K",
+                      "H",
+                      "A"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "A",
+                        "H",
+                        "K"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "chain",
+            "terms": [
+              "∠GAH",
+              "∠AMO"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "para",
+                      "args": [
+                        "AH",
+                        "OM"
+                      ],
+                      "points": [
+                        "A",
+                        "H",
+                        "M",
+                        "O"
+                      ]
+                    },
+                    "step": null
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "alternate_angles",
+                    "args": [
+                      "G",
+                      "A",
+                      "H",
+                      "A",
+                      "M",
+                      "O"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "A",
+                        "G",
+                        "H",
+                        "M",
+                        "O"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "chain",
+            "terms": [
+              "∠MCA",
+              "∠BAE",
+              "∠AMC"
+            ],
+            "links": [
+              {
+                "reasons": [
+                  {
+                    "kind": "hyp",
+                    "stmt": {
+                      "kind": "para",
+                      "args": [
+                        "CM",
+                        "AB"
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "M"
+                      ]
+                    },
+                    "step": null
+                  },
+                  {
+                    "kind": "atom",
+                    "key": "corresponding_angles",
+                    "args": [
+                      "M",
+                      "C",
+                      "A",
+                      "B",
+                      "A",
+                      "E"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "A",
+                        "B",
+                        "C",
+                        "E",
+                        "M"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "atom",
+                    "key": "angle_sum",
+                    "args": [
+                      "M",
+                      "A",
+                      "C"
+                    ],
+                    "stmt": {
+                      "kind": "formula",
+                      "args": [
+                        ""
+                      ],
+                      "points": [
+                        "A",
+                        "C",
+                        "M"
+                      ]
+                    },
+                    "from": []
+                  }
+                ],
+                "combination": []
+              }
+            ],
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "thales_converse",
+            "stmt": {
+              "kind": "cyclic",
+              "args": [
+                "F",
+                "N",
+                "B",
+                "A"
+              ],
+              "points": [
+                "A",
+                "B",
+                "F",
+                "N"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "aconst",
+                "args": [
+                  "∠BFA",
+                  "90"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "F"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 7
+              },
+              {
+                "kind": "aconst",
+                "args": [
+                  "∠BNA",
+                  "90"
+                ],
+                "points": [
+                  "A",
+                  "B",
+                  "N"
+                ],
+                "step": null,
+                "block": 2,
+                "because": [],
+                "lemma": true,
+                "sentence": 7
+              }
+            ]
+          },
+          {
+            "kind": "because",
+            "stmt": {
+              "kind": "contri",
+              "args": [
+                "ABM",
+                "ABE"
+              ],
+              "points": [
+                "A",
+                "B",
+                "E",
+                "M"
+              ]
+            },
+            "reasons": [
+              {
+                "kind": "atom",
+                "key": "common_side",
+                "args": [
+                  "A",
+                  "B"
+                ],
+                "stmt": {
+                  "kind": "cong",
+                  "args": [
+                    "AB",
+                    "AB"
+                  ],
+                  "points": [
+                    "A",
+                    "B"
+                  ]
+                },
+                "from": []
+              }
+            ],
+            "combination": []
           }
         ],
         "engine_steps": [],

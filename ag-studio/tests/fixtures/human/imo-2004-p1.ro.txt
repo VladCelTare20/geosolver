@@ -1,4 +1,4 @@
-Unghiurile notate ∠ sunt citite din figură. ∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Aceste unghiuri nu depind de figură. Unghiurile orientate sunt necesare doar la pasul 8, unde forma cu unghiuri din figură ar depinde de configurație. Fie ω₂ cercul (CNR); P se află pe ω₂. Fie F piciorul perpendicularei din B pe AR.
+∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Unghiurile orientate nu depind de figură. Le folosim doar la pasul 8, unde forma cu unghiuri din figură ar depinde de configurație. Fie ω₂ cercul (CNR); P se află pe ω₂. Fie F piciorul perpendicularei din B pe AR.
 
 Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conciclice și punctele A, R, P, F sunt coliniare.
 
@@ -9,7 +9,7 @@ Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conci
 ∠BFA = 90°    [BF ⟂ AR]
      = ∠BNA    [∠BNC = 90°, din (1)]
 
-Deci punctele F, N, B, A sunt conciclice. (2)
+∠BFA = 90° și ∠BNA = 90°, deci, din reciproca proprietății unghiului înscris în semicerc, punctele F, N, B, A sunt conciclice. (2)
 
 3. AR este bisectoarea ∠BAC ⇒ ∠FAC = ∠BAF. F, N, B, A conciclice, din (2) ⇒ FN = BF (unghiurile înscrise egale sau suplementare subîntind coarde egale). (3)
 
@@ -23,7 +23,7 @@ Deci punctele F, N, B, A sunt conciclice. (2)
      = ½·∠NOM    [unghiul la centru ∠MON = 2∠MBN]
      = ∠NOR    [OR este bisectoarea ∠MON]
 
-Deci punctele R, N, F, O sunt conciclice. (6)
+∠NFR = ∠NOR, R se află pe segmentul FA și F, O sunt de aceeași parte a dreptei NR, deci, din reciproca teoremei unghiului înscris, punctele R, N, F, O sunt conciclice. (6)
 
 7. AB·AM = AC·AN (puterea punctului A față de (BMCN)). Puterea lui A față de cercurile (PRMB) și ω₂ este aceeași ⇒ A se află pe axa lor radicală, dreapta PR ⇒ punctele A, R, P, F sunt coliniare. (7)
 

@@ -7263,12 +7263,16 @@ mod tests {
         assert!(docker_off.contains("GEOSOLVER_TARGET=ai"), "{docker_off}");
         let docker_token = words(translate_banner(st(true, false), true));
         assert!(
-            docker_token.contains("CLAUDE_CODE_OAUTH_TOKEN") && docker_token.contains("setup-token"),
+            docker_token.contains("CLAUDE_CODE_OAUTH_TOKEN")
+                && docker_token.contains("setup-token"),
             "{docker_token}"
         );
         assert!(!docker_token.contains("auth login"), "{docker_token}");
         let host = words(translate_banner(st(true, false), false));
-        assert!(host.contains("setup-token") && host.contains("auth login"), "{host}");
+        assert!(
+            host.contains("setup-token") && host.contains("auth login"),
+            "{host}"
+        );
     }
 
     #[test]
