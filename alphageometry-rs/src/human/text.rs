@@ -1390,6 +1390,7 @@ pub fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
             && matches!(e, Expr::Prod { .. } | Expr::Seg { .. } | Expr::Num { .. })
     };
     let (mut angles, mut ratios, mut sides) = (0, 0, 0);
+    let mut concluded = false;
     for s in body {
         match s {
             Sentence::Chain { terms, .. } | Sentence::Computation { terms, .. } => {
@@ -1404,8 +1405,9 @@ pub fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
             Sentence::Because { stmt, reasons, .. } => match stmt {
                 Stmt::EqAngle { .. } | Stmt::AngleConst { .. } => angles += 1,
                 Stmt::Eq { .. } | Stmt::EqRatio { .. } | Stmt::RatioConst { .. } => ratios += 1,
-                Stmt::Cong { .. } => sides += 1,
+                Stmt::Cong { .. } => sides += usize::from(!concluded),
                 Stmt::Sim { .. } | Stmt::Congruent { .. } => {
+                    concluded = true;
                     sides += reasons
                         .iter()
                         .filter(|r| {

@@ -1000,6 +1000,7 @@ fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
         return None;
     }
     let (mut angles, mut ratios, mut sides) = (0, 0, 0);
+    let mut concluded = false;
     for s in body {
         match s {
             Sentence::Chain { terms, .. } | Sentence::Computation { terms, .. } => {
@@ -1013,8 +1014,9 @@ fn criterion(own: &Stmt, body: &[Sentence]) -> Option<&'static str> {
             Sentence::Because { stmt, reasons, .. } => match stmt.kind.as_str() {
                 "eqangle" | "aconst" => angles += 1,
                 "eq" | "eqratio" | "rconst" => ratios += 1,
-                "cong" => sides += 1,
+                "cong" => sides += usize::from(!concluded),
                 "simtri" | "contri" => {
+                    concluded = true;
                     sides += reasons.iter().filter(|r| matches!(r, Reason::Hyp { stmt, .. } | Reason::Fact { stmt, .. } | Reason::Atom { stmt, .. } if stmt.kind == "cong")).count();
                 }
                 _ => {}
