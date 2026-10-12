@@ -248,29 +248,63 @@ fn stmts_of_reason<'a>(r: &'a Reason, out: &mut Vec<&'a Stmt>) {
     }
 }
 
+fn hyps_of_reason<'a>(r: &'a Reason, out: &mut Vec<&'a Stmt>) {
+    match r {
+        Reason::Hyp { stmt, .. } => out.push(stmt),
+        Reason::Fact { because, .. } => {
+            for b in because {
+                hyps_of_reason(b, out);
+            }
+        }
+        Reason::Atom { .. }
+        | Reason::Lemma { .. }
+        | Reason::Claim { .. }
+        | Reason::Engine { .. } => {}
+    }
+}
+
 fn all_stmts(hp: &HumanProof) -> Vec<&Stmt> {
+    collect_stmts(hp, false)
+}
+
+fn hyp_stmts(hp: &HumanProof) -> Vec<&Stmt> {
+    collect_stmts(hp, true)
+}
+
+fn collect_stmts(hp: &HumanProof, only_hyps: bool) -> Vec<&Stmt> {
     let mut stmts: Vec<&Stmt> = Vec::new();
+    let of_reason = if only_hyps {
+        hyps_of_reason
+    } else {
+        stmts_of_reason
+    };
     for b in &hp.blocks {
-        stmts.push(&b.stmt);
+        if !only_hyps {
+            stmts.push(&b.stmt);
+        }
         for s in &b.body {
             match s {
                 Sentence::Chain { links, then, .. } => {
-                    stmts.extend(then.iter());
+                    if !only_hyps {
+                        stmts.extend(then.iter());
+                    }
                     for r in links.iter().flat_map(|l| &l.reasons) {
-                        stmts_of_reason(r, &mut stmts);
+                        of_reason(r, &mut stmts);
                     }
                 }
                 Sentence::Computation { links, .. } => {
                     for r in links.iter().flat_map(|l| &l.reasons) {
-                        stmts_of_reason(r, &mut stmts);
+                        of_reason(r, &mut stmts);
                     }
                 }
                 Sentence::Because { stmt, reasons, .. }
                 | Sentence::Pooled { stmt, reasons, .. }
                 | Sentence::Theorem { stmt, reasons, .. } => {
-                    stmts.push(stmt);
+                    if !only_hyps {
+                        stmts.push(stmt);
+                    }
                     for r in reasons {
-                        stmts_of_reason(r, &mut stmts);
+                        of_reason(r, &mut stmts);
                     }
                 }
                 Sentence::Raw { .. } => {}
@@ -295,7 +329,7 @@ fn interior(fig: &Problem, names: &[String], p: u32, v: u32, q: u32) -> Option<f
 pub fn bisector_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec<String> {
     let mut bad = Vec::new();
     let name = |id: u32| names.get(id as usize).cloned().unwrap_or_default();
-    for st in all_stmts(hp) {
+    for st in hyp_stmts(hp) {
         let (
             Some(shape),
             Stmt::EqAngle {
