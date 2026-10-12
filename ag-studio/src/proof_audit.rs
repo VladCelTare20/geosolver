@@ -384,6 +384,63 @@ pub fn bisector_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> 
     bad
 }
 
+fn read_points(text: &str, shown: &[String]) -> Option<Vec<usize>> {
+    let mut order: Vec<usize> = (0..shown.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(shown[i].chars().count()));
+    let mut out = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let i = order
+            .iter()
+            .copied()
+            .find(|&i| !shown[i].is_empty() && rest.starts_with(shown[i].as_str()))?;
+        out.push(i);
+        rest = &rest[shown[i].len()..];
+    }
+    Some(out)
+}
+
+pub fn statement_violations(view: &crate::present::View, fig: &Problem) -> Vec<String> {
+    let shown: Vec<String> = view.points.iter().map(|p| p.name.clone()).collect();
+    let at = |i: usize| fig.points.get(i).map(|p| (p.value.x, p.value.y));
+    let reading = |text: &str| -> Option<f64> {
+        let body = text.strip_prefix('\u{2220}')?;
+        let ids = read_points(body, &shown)?;
+        let [a, b, c] = ids[..] else { return None };
+        let (a, o, c) = (at(a)?, at(b)?, at(c)?);
+        let (u, w) = ((a.0 - o.0, a.1 - o.1), (c.0 - o.0, c.1 - o.1));
+        let n = (u.0 * u.0 + u.1 * u.1).sqrt() * (w.0 * w.0 + w.1 * w.1).sqrt();
+        (n > 1e-12).then(|| {
+            ((u.0 * w.0 + u.1 * w.1) / n)
+                .clamp(-1.0, 1.0)
+                .acos()
+                .to_degrees()
+        })
+    };
+    let mut bad = Vec::new();
+    let facts = view
+        .given
+        .iter()
+        .chain(view.given_proof.iter().flatten())
+        .chain(view.goal.iter());
+    for f in facts {
+        if f.kind != "eqangle" && f.kind != "aconst" {
+            continue;
+        }
+        let [l, r] = &f.args[..] else { continue };
+        let (Some(x), rhs) = (reading(l), reading(r)) else {
+            continue;
+        };
+        let y = rhs.or_else(|| r.trim_end_matches('\u{b0}').parse::<f64>().ok());
+        if let Some(y) = y {
+            if (x - y).abs() > 1e-3 {
+                bad.push(format!("the statement {l} = {r} reads {x:.2}° vs {y:.2}°"));
+            }
+        }
+    }
+    bad
+}
+
 pub fn angle_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec<String> {
     let at = |id: u32| xy(fig, names, id);
     let show = |e: &Expr| format!("{e:?}");
@@ -605,6 +662,7 @@ mod tests {
         bad.extend(angle_violations(&h.proof, &h.names, fig));
         bad.extend(bisector_violations(&h.proof, &h.names, fig));
         bad.extend(setup_violations(&h.proof, &h.names, fig, goal));
+        bad.extend(statement_violations(&sh.view, fig));
         if let Err(e) = svg_draws(&sh.view.svg, fig) {
             bad.push(format!(
                 "the page's figure is not the figure the proof reads: {e}"
@@ -696,6 +754,33 @@ mod tests {
         assert!(
             svg_draws(&sh.view.svg, &moved).is_err(),
             "a figure other than the drawn one must not pass"
+        );
+    }
+
+    #[test]
+    fn a_directed_statement_is_not_shown_as_a_figure_angle_equality() {
+        let src = "A B C = triangle\nD = reflect(B, A)\nprove eqangle(A, D, A, C, A, B, A, C)";
+        let sol = crate::engine::solve(src, &SolveOptions::default()).unwrap();
+        assert!(sol.proved);
+        let sh = shown(&sol);
+        let fig = &sh.sol.figure.as_ref().unwrap().problem;
+        let goal = sh.view.goal.as_ref().unwrap();
+        assert!(
+            statement_violations(&sh.view, fig).is_empty(),
+            "{:?}",
+            goal.args
+        );
+        assert!(
+            goal.args.iter().all(|a| a.starts_with('\u{2221}')),
+            "{:?}",
+            goal.args
+        );
+        let mut forged = sh.view.clone();
+        let g = forged.goal.as_mut().unwrap();
+        g.args = g.args.iter().map(|a| a.replace('\u{2221}', "\u{2220}")).collect();
+        assert!(
+            !statement_violations(&forged, fig).is_empty(),
+            "the audit catches a figure-angle symbol on a false reading"
         );
     }
 
