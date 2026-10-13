@@ -350,6 +350,10 @@ fn human_proof_controls_reach_48px_and_chains_fold_on_phones() {
         at(".hp-chain .hp-why", "display", "none"),
         "reasons fold behind \"Show reasons\" on phones"
     );
+    assert!(
+        at(".hp-chain .m-nb", "text-indent", "0"),
+        "an inline-block angle in a stacked chain must not inherit the row's hanging indent and print over the \"=\""
+    );
     assert!(at(".hp-why-toggle", "display", "inline-block"));
     assert!(
         at(".hp-chain .hp-why .hp-nb", "white-space", "normal"),

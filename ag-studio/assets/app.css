@@ -633,6 +633,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
   .hp-chain tr.hp-row { padding: 2px 0 2px 2.2em; text-indent: -1.1em; border-radius: 4px; }
   .hp-chain:not(.lhs-own) tr.hp-row:first-child { padding-left: 1.1em; }
   .hp-chain .hp-rhs { padding-right: 0; white-space: normal; }
+  .hp-chain .m-nb { text-indent: 0; }
   .hp-chain .hp-why { display: none; }
   .hp-chain.show-why .hp-why:not(:empty) { display: block; text-indent: 0; padding: 0 0 2px 0.2em; overflow-wrap: anywhere; }
   .hp-chain .hp-why .hp-nb { white-space: normal; }
