@@ -86,6 +86,30 @@
     var x = wr.left + (alignRight ? wr.width - w : 0);
     x = Math.max(8, Math.min(x, vw - 8 - w));
     menu.style.left = Math.round(x - wr.left) + "px";
+    fitMenuY(menu);
+  }
+  function fitMenuY(menu) {
+    var wrap = menu.parentElement, gap = 6, pad = 8;
+    menu.style.top = ""; menu.style.bottom = ""; menu.style.maxHeight = "";
+    var cap = parseFloat(getComputedStyle(menu).maxHeight);
+    var want = menu.scrollHeight + 2;
+    if (cap > 0 && cap < want) want = cap;
+    var vv = window.visualViewport, vh = vv ? vv.height : window.innerHeight;
+    var hdr = document.querySelector(".site-header"), limit = 0;
+    if (hdr && getComputedStyle(hdr).position === "sticky") limit = Math.max(0, hdr.getBoundingClientRect().bottom);
+    var rooms = function () {
+      var wr = wrap.getBoundingClientRect();
+      return { below: vh - wr.bottom - gap - pad, above: wr.top - limit - gap - pad, top: wr.top };
+    };
+    var r = rooms();
+    if (want <= r.below) return;
+    if (want <= r.above) { menu.style.top = "auto"; menu.style.bottom = "calc(100% + " + gap + "px)"; return; }
+    var shift = Math.min(want - r.below, r.top - limit - 4);
+    if (shift > 0) { window.scrollBy(0, shift); r = rooms(); }
+    if (want <= r.below) return;
+    if (r.above > r.below) { menu.style.top = "auto"; menu.style.bottom = "calc(100% + " + gap + "px)"; menu.style.maxHeight = Math.max(96, Math.floor(r.above)) + "px"; }
+    else menu.style.maxHeight = Math.max(96, Math.floor(r.below)) + "px";
+    menu.style.overflowY = "auto";
   }
 
   // ---------------------------------------------------------------- status --
@@ -163,8 +187,18 @@
         if (pending && pending === editor.get().trim() && !S.busy && !S.sol) { setMode("geo"); solve(); }
       }
     }).catch(function () {
-      if (attempt < 6) setTimeout(function () { loadStatus(attempt + 1); }, Math.min(30000, 2000 * Math.pow(2, attempt)));
+      if (attempt < 6) { setTimeout(function () { loadStatus(attempt + 1); }, Math.min(30000, 2000 * Math.pow(2, attempt))); return; }
+      S.statusFailed = true;
+      paintAiPill();
+      paintGates();
+      firstModeChoice();
     });
+  }
+  function retryStatus() {
+    S.statusFailed = false;
+    paintAiPill();
+    paintGates();
+    loadStatus(0);
   }
   function refreshAiStatus() {
     api("/api/status").then(function (r) {
@@ -175,7 +209,7 @@
     }).catch(function () {});
   }
   window.addEventListener("online", function () {
-    if (!S.status) loadStatus(1);
+    if (!S.status) { S.statusFailed = false; paintAiPill(); paintGates(); loadStatus(1); }
     var e = S.lastError;
     if (e && e.offline && !S.busy && !$("state-error").hidden) { S.autoRetrying = true; solve(); }
   });
@@ -202,14 +236,15 @@
   function paintAiPill() {
     var st = S.status;
     var cls = "checking", key = "ai.checking", tip = t("ai.reason.checking");
-    if (st && !st.translate_checking) {
+    if (!st && S.statusFailed) { cls = "off"; key = "ai.unreachable"; tip = t("ai.reason.unreachable"); }
+    else if (st && !st.translate_checking) {
       if (st.can_translate) { cls = "on"; key = "ai.on"; tip = t("ai.tip.on"); }
       else if (st.translate_block === "sign_in") { cls = "off"; key = "ai.signin"; tip = t("ai.reason.sign_in"); }
       else { cls = "off"; key = aiOffKey(st.translate_block); tip = t("ai.reason." + (st.translate_block || "disabled")); }
     }
     ["ai-pill", "ai-pill-m"].forEach(function (id) {
       var pill = $(id), txt = pill.querySelector(".pill-text");
-      pill.className = "status-pill " + cls;
+      pill.className = "status-pill " + cls + (key === "ai.unreachable" ? " retry" : "");
       txt.textContent = t(key);
       txt.setAttribute("data-i18n", key);
       pill.title = tip;
@@ -223,7 +258,7 @@
 
   function aiBlock() {
     var st = S.status;
-    if (!st) return "checking";
+    if (!st) return S.statusFailed ? "unreachable" : "checking";
     if (st.can_translate) return null;
     return st.translate_block || "disabled";
   }
@@ -249,6 +284,7 @@
       g.hidden = false;
       body.hidden = true;
       var actions = '<button type="button" class="btn btn-secondary btn-sm" data-goto-geo>' + esc(t("unavailable.write_geo")) + "</button>";
+      if (block === "unreachable") actions = '<button type="button" class="btn btn-primary btn-sm" data-retry-status>' + esc(t("unavailable.retry")) + "</button>" + actions;
       if (block === "sign_in") actions = '<a class="btn btn-primary btn-sm" href="/auth">' + esc(t("unavailable.signin")) + '</a><a class="btn btn-secondary btn-sm" href="/auth?mode=register">' + esc(t("nav.create")) + "</a>" + actions;
       g.innerHTML = '<div class="banner ' + (block === "checking" ? "tone-info" : "tone-neutral") + '">' + (block === "checking" ? '<span class="spinner" aria-hidden="true"></span>' : icons.info) +
         "<div><p>" + esc(t("ai.reason." + block)) + '</p><div class="gate-actions">' + actions + "</div></div></div>";
@@ -296,6 +332,7 @@
     });
     document.addEventListener("click", function (e) {
       if (e.target.closest("[data-goto-geo]")) { setMode("geo"); $("geo-input").focus(); }
+      if (e.target.closest("[data-retry-status]") || e.target.closest(".status-pill.off.retry")) retryStatus();
     });
   }
 
@@ -375,6 +412,17 @@
         box.innerHTML = icons.alert + "<span>" + (err ? '<strong>' + esc(t("err.where", { line: err.line, col: err.col })) + "</strong> · " : "") + esc(e.message) + "</span>";
       } else { box.hidden = true; box.innerHTML = ""; }
       render();
+      if (err) revealError();
+    }
+    function revealError() {
+      var mark = code.querySelector(".tk-err");
+      if (!mark) return;
+      var mr = mark.getBoundingClientRect(), pr = pre.getBoundingClientRect(), pad = 24;
+      var left = mr.left - pr.left + pre.scrollLeft, right = mr.right - pr.left + pre.scrollLeft;
+      var view = ta.clientWidth;
+      if (left >= ta.scrollLeft + pad && right <= ta.scrollLeft + view - pad) return;
+      ta.scrollLeft = Math.max(0, Math.min(left - pad, right - view + 2 * pad));
+      sync();
     }
     function focusError() {
       if (!err) return;
@@ -1256,6 +1304,7 @@
     S.geo = sol.input;
     S.baseline = sol.input;
     var v = sol.view || {};
+    GS.setPoints(v.points);
     var m = renderVerdict(sol);
     S.rendering = true;
     renderProof(sol);
@@ -2157,8 +2206,18 @@
     var ar = ae && ae !== document.body && ae.getBoundingClientRect ? ae.getBoundingClientRect() : null;
     var header = document.querySelector(".site-header"), hr = header.getBoundingClientRect();
     var top = getComputedStyle(header).position === "sticky" ? Math.max(0, hr.bottom) : 0;
-    var atTop = !!ar && (ar.top + ar.bottom) / 2 > (top + H) / 2;
     var small = Math.min(176, W * 0.42, (H * 0.36) / ratio);
+    var atTop = false;
+    if (ar) {
+      var ph = Math.round(Math.max(96, Math.round(small)) * ratio), zt = top + 12, zb = H - 12 - ph;
+      var covered = function (z0) {
+        var all = Math.max(0, Math.min(ar.bottom, z0 + ph) - Math.max(ar.top, z0));
+        var lead = Math.max(0, Math.min(ar.top + 80, z0 + ph) - Math.max(ar.top, z0));
+        return all + 2 * lead;
+      };
+      var ct = covered(zt), cb = covered(zb);
+      atTop = ct === cb ? (ar.top + ar.bottom) / 2 > (top + H) / 2 : ct < cb;
+    }
     var w = small;
     if (peek.big) {
       var room = ar ? (atTop ? ar.top - top - 24 : H - ar.bottom - 24) : H * 0.62;
@@ -2166,9 +2225,6 @@
     }
     w = Math.max(96, Math.round(w));
     var h = Math.round(w * ratio);
-    var s0 = Math.min((w - 2) / b0.w, (h - 2) / b0.h);
-    var pad = Math.max(0, (Math.max(0.35, Math.min(4.5, 15 / s0 / 18)) - 1) * 32);
-    var b = { x: b0.x - pad, y: b0.y - pad, w: b0.w + 2 * pad, h: b0.h + 2 * pad };
     el.style.setProperty("--peek-w", w + "px");
     el.style.setProperty("--peek-h", h + "px");
     el.classList.toggle("is-big", peek.big);
@@ -2180,11 +2236,13 @@
     svg.removeAttribute("aria-label");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
-    svg.setAttribute("viewBox", b.x + " " + b.y + " " + b.w + " " + b.h);
     el.textContent = "";
     el.appendChild(svg);
     el.hidden = false;
-    GS.fitLabels(svg, b, { width: w - 2, height: h - 2 });
+    var pr = { width: w - 2, height: h - 2 };
+    var b = GS.labelBase(svg, b0, pr);
+    svg.setAttribute("viewBox", b.x + " " + b.y + " " + b.w + " " + b.h);
+    GS.fitLabels(svg, b, pr, b);
   }
   viewer.onHighlight = function (on) {
     peek.lit = on;

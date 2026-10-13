@@ -31,6 +31,7 @@
 
       "ai.on": "AI translation on",
       "ai.checking": "Checking AI…",
+      "ai.unreachable": "Can\u2019t check AI \u00b7 Retry",
       "ai.off": "AI translation off",
       "ai.signin": "AI needs sign-in",
       "ai.unset": "AI not set up yet",
@@ -42,6 +43,7 @@
       "ai.reason.not_installed": "AI translation is not available on this server right now. Write the problem as a .geo program instead.",
       "ai.reason.not_logged_in": "AI translation is not available on this server right now. Until it is, write the problem as a .geo program.",
       "ai.reason.checking": "Checking whether AI translation is available…",
+      "ai.reason.unreachable": "The server did not answer, so it is not known whether AI translation is available. Retry, or write the problem as a .geo program.",
 
       "app.problem": "Problem",
       "tab.describe": "Describe",
@@ -81,6 +83,7 @@
       "examples": "Examples",
       "examples.title": "Example problems",
       "unavailable.write_geo": "Write .geo instead",
+      "unavailable.retry": "Retry",
       "unavailable.signin": "Sign in",
 
       "effort.label": "Search",
@@ -788,6 +791,7 @@
 
       "ai.on": "Traducere AI activă",
       "ai.checking": "Se verifică traducerea AI…",
+      "ai.unreachable": "Nu pot verifica AI \u00b7 Reîncearcă",
       "ai.off": "Traducere AI inactivă",
       "ai.signin": "AI necesită autentificare",
       "ai.unset": "AI neconfigurat încă",
@@ -799,6 +803,7 @@
       "ai.reason.not_installed": "Traducerea AI nu este disponibilă acum pe acest server. Scrie problema ca program .geo.",
       "ai.reason.not_logged_in": "Traducerea AI nu este disponibilă acum pe acest server. Până atunci, scrie problema ca program .geo.",
       "ai.reason.checking": "Se verifică dacă traducerea AI este disponibilă…",
+      "ai.reason.unreachable": "Serverul nu a răspuns, deci nu se știe dacă traducerea AI este disponibilă. Reîncearcă sau scrie problema ca program .geo.",
 
       "app.problem": "Problemă",
       "tab.describe": "Descriere",
@@ -838,6 +843,7 @@
       "examples": "Exemple",
       "examples.title": "Probleme exemplu",
       "unavailable.write_geo": "Scrie .geo",
+      "unavailable.retry": "Reîncearcă",
       "unavailable.signin": "Autentificare",
 
       "effort.label": "Căutare",

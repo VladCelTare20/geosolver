@@ -47,7 +47,50 @@
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  var NAME_RE = /[A-ZΩω][a-z]?[₀-₉]*[′″]*/g;
+  var NAME_RE = /[A-ZΩω](?:[a-z](?![a-z]))?[₀-₉]*[′″]*/g;
+  var COMPACT_NAME = /^[A-ZΩω][a-z]?[₀-₉]*[′″]*$/;
+  var NAME_RUN = /[A-Za-zΩω][A-Za-zΩω₀-₉′″]*/g;
+  var NAME_SEP = "\u2009";
+  var known = [], longNames = 0;
+  function setPoints(points) {
+    var seen = {};
+    known = [];
+    longNames = 0;
+    (points || []).forEach(function (p) {
+      var n = typeof p === "string" ? p : p && p.name;
+      if (!n || seen[n]) return;
+      seen[n] = true;
+      known.push(n);
+      if (!COMPACT_NAME.test(n)) longNames++;
+    });
+    known.sort(function (a, b) { return b.length - a.length; });
+  }
+  function segmentNames(run) {
+    var out = [];
+    function go(rest) {
+      if (!rest) return true;
+      for (var i = 0; i < known.length; i++) {
+        var k = known[i];
+        if (rest.slice(0, k.length) === k) {
+          out.push(k);
+          if (go(rest.slice(k.length))) return true;
+          out.pop();
+        }
+      }
+      return false;
+    }
+    return go(run) ? out : null;
+  }
+  function longRun(run) {
+    if (!longNames || run.length < 3 || !/^[A-ZΩω]/.test(run)) return null;
+    var seg = segmentNames(run);
+    return seg && seg.some(function (n) { return !COMPACT_NAME.test(n); }) ? seg : null;
+  }
+  function namesHtml(seg) {
+    return seg.map(function (n) {
+      return COMPACT_NAME.test(n) ? nameHtml(n) : "<i>" + esc(n).replace(/[₀-₉]+/g, '<span class="m-up">$&</span>') + "</i>";
+    }).join(NAME_SEP);
+  }
   function nameHtml(m) {
     var low = /^([A-ZΩω])([a-z])(.*)$/.exec(m);
     var html = low ? low[1] + "<sub>" + low[2] + "</sub>" + low[3] : m;
@@ -66,7 +109,18 @@
     }).join("");
   }
   function mathRun(s) {
-    return esc(s).replace(NAME_RE, nameHtml).replace(/((?:sin|cos)?[∠∡△])((?:<i>.*?<\/i>)+)/g, '<span class="m-nb">$1$2</span>').replace(/((?:sin|cos|tan)[²³]?) (<i>.*?<\/i>)/g, '<span class="m-nb">$1 $2</span>');
+    var runs = [];
+    if (longNames) {
+      s = s.replace(NAME_RUN, function (m) {
+        var seg = longRun(m);
+        if (!seg) return m;
+        runs.push(namesHtml(seg));
+        return "\uE000" + (runs.length - 1) + "\uE001";
+      });
+    }
+    var h = esc(s).replace(NAME_RE, nameHtml);
+    if (runs.length) h = h.replace(/\uE000(\d+)\uE001/g, function (_, i) { return runs[+i]; });
+    return h.replace(/((?:sin|cos)?[∠∡△])((?:<i>.*?<\/i>\u2009?)+)/g, '<span class="m-nb">$1$2</span>').replace(/((?:sin|cos|tan)[²³]?) (<i>.*?<\/i>)/g, '<span class="m-nb">$1 $2</span>');
   }
   function fracHtml(x) {
     var i = x.indexOf(" / ");
@@ -96,6 +150,10 @@
   }
   function mathPart(tok) {
     if (isNameTok(tok)) return esc(tok).replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml);
+    if (longNames) {
+      var lm = /^((?:sin|cos|tan)[²³]?)?([∠∢∡△]?)(.+?)([²³]?)$/.exec(tok), lseg = lm && longRun(lm[3]);
+      if (lseg && lm[3].replace(NAME_RUN, "") === "") return esc((lm[1] || "") + lm[2]) + namesHtml(lseg) + lm[4];
+    }
     var m = /^((?:sin|cos|tan)[²³]?)?([∠△])([A-Z][A-Z₀-₉′″]*)([²³]?)$/.exec(tok);
     if (m) return esc((m[1] || "") + m[2]) + m[3].replace(/[A-ZΩω][₀-₉]*[′″]*/g, nameHtml) + m[4];
     return esc(tok);
@@ -1104,6 +1162,7 @@
   }
 
   function humanText(h, view, opts) {
+    setPoints(view && view.points);
     var o = {};
     for (var k in (opts || {})) o[k] = opts[k];
     o.plain = true;
@@ -1142,6 +1201,7 @@
 
   function renderHuman(root, h, view, hooks) {
     hooks = hooks || {};
+    setPoints(view && view.points);
     var d = hpDoc(h, view, { auxText: hooks.auxText });
     var T = d.T;
     function rowsHtml(rows, tail) {
@@ -1470,11 +1530,24 @@
       if (handled) e.preventDefault();
     });
     vp.addEventListener("blur", function () { if (me.kbPoint != null) me.stepPoint(0); });
+    var latched = null;
     vp.addEventListener("pointerover", function (e) {
-      var el = e.target.closest && e.target.closest(".f-lbl, .f-dot");
-      if (me.onPoint) me.onPoint(el ? el.getAttribute("data-p") : null);
+      var el = e.target.closest && e.target.closest(".f-lbl, .f-dot, .f-hit");
+      var name = el ? el.getAttribute("data-p") || el.getAttribute("data-hit") : null;
+      if (e.pointerType === "touch") {
+        if (name && name === latched) { latched = null; name = null; } else latched = name;
+      } else latched = null;
+      if (me.onPoint) me.onPoint(name);
     });
-    vp.addEventListener("pointerleave", function () { if (me.onPoint) me.onPoint(null); });
+    vp.addEventListener("pointerleave", function (e) {
+      if (e.pointerType === "touch" && latched) return;
+      if (me.onPoint) me.onPoint(null);
+    });
+    document.addEventListener("pointerdown", function (e) {
+      if (!latched || e.pointerType !== "touch" || vp.contains(e.target)) return;
+      latched = null;
+      if (me.onPoint) me.onPoint(null);
+    }, true);
     function center() { var r = vp.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
     if (els.zoomIn) els.zoomIn.addEventListener("click", function () { var c = center(); me.zoomAt(c[0], c[1], 1.4); });
     if (els.zoomOut) els.zoomOut.addEventListener("click", function () { var c = center(); me.zoomAt(c[0], c[1], 1 / 1.4); });
@@ -1502,6 +1575,19 @@
     this.svg.setAttribute("aria-label", ariaLabel || t("fig.title"));
     this.labels = Array.prototype.slice.call(this.svg.querySelectorAll(".f-lbl"));
     this.dots = Array.prototype.slice.call(this.svg.querySelectorAll(".f-dot"));
+    var firstLabel = this.svg.querySelector(".f-lbl"), svgNs = "http://www.w3.org/2000/svg", svg = this.svg;
+    this.dots.forEach(function (d) {
+      var c = document.createElementNS(svgNs, "circle");
+      c.setAttribute("class", "f-hit");
+      c.setAttribute("cx", d.getAttribute("cx"));
+      c.setAttribute("cy", d.getAttribute("cy"));
+      c.setAttribute("r", "10");
+      c.setAttribute("fill", "transparent");
+      c.setAttribute("stroke", "none");
+      c.setAttribute("pointer-events", "all");
+      c.setAttribute("data-hit", d.getAttribute("data-p"));
+      svg.insertBefore(c, firstLabel);
+    });
     this.reset();
   };
   Viewer.prototype.zoomed = function () { return this.vb && this.base && this.vb.w < this.base.w * 0.999; };
@@ -1525,7 +1611,41 @@
   /** Keep a figure's labels and dots a constant on-screen size while the
    * `vb` part of it is shown in a box of size `r`. */
   function labelPx(r) { return Math.max(15, Math.min(17, r.width / 26)); }
-  function fitLabels(svg, vb, r) {
+  function labelWpf(el) {
+    if (el._wpf == null) {
+      var n = (el.textContent || "").length;
+      try { el._wpf = el.getComputedTextLength() / (parseFloat(getComputedStyle(el).fontSize) || 18); } catch (e) { el._wpf = 0; }
+      if (!(el._wpf > 0.2)) el._wpf = 0.62 * n + 0.15;
+    }
+    return el._wpf;
+  }
+  /** The frame that holds the figure and every label at the size they are
+   * shown at: the server's frame grown by the label scale, then by whatever
+   * the (wider than reserved) labels still stick out. */
+  function labelBase(svg, b0, r) {
+    var labels = Array.prototype.slice.call(svg.querySelectorAll(".f-lbl"));
+    var base = { x: b0.x, y: b0.y, w: b0.w, h: b0.h }, last = 0;
+    for (var it = 0; it < 8; it++) {
+      var s0 = Math.min(r.width / base.w, r.height / base.h);
+      var k = Math.max(0.35, Math.min(4.5, labelPx(r) / s0 / 18));
+      var pad = Math.max(0, (k - 1) * 32);
+      var x0 = b0.x - pad, y0 = b0.y - pad, x1 = b0.x + b0.w + pad, y1 = b0.y + b0.h + pad;
+      labels.forEach(function (el) {
+        var w = (labelWpf(el) + 0.15) * 18 * k, h = 18 * k * 0.9;
+        var cx = +el.getAttribute("data-x") + +el.getAttribute("data-dx") * k, cy = +el.getAttribute("data-y") + +el.getAttribute("data-dy") * k;
+        x0 = Math.min(x0, cx - w / 2 - 4); x1 = Math.max(x1, cx + w / 2 + 4);
+        y0 = Math.min(y0, cy - h / 2 - 4); y1 = Math.max(y1, cy + h / 2 + 4);
+      });
+      var grown = { x: x0, y: y0, w: Math.min(x1 - x0, b0.w * 6), h: Math.min(y1 - y0, b0.h * 6) };
+      if (grown.w < x1 - x0) grown.x = x0 + (x1 - x0 - grown.w) / 2;
+      if (grown.h < y1 - y0) grown.y = y0 + (y1 - y0 - grown.h) / 2;
+      base = grown;
+      if (Math.abs(k - last) < 0.01) break;
+      last = k;
+    }
+    return base;
+  }
+  function fitLabels(svg, vb, r, fence) {
     if (!svg || !vb || !r.width || !r.height) return;
     var s = Math.min(r.width / vb.w, r.height / vb.h);
     var fs = labelPx(r);
@@ -1533,6 +1653,17 @@
     svg.style.setProperty("--lbl-fs", (18 * k).toFixed(2) + "px");
     var dotR = Math.max(1.2, Math.min(8, (r.width < 500 ? 3.2 : 3.8) / s));
     var offsets = placeLabels(svg, k, dotR, s);
+    if (fence) {
+      svg.querySelectorAll(".f-lbl").forEach(function (el, i) {
+        var o = offsets[i], w = (labelWpf(el) + 0.15) * 18 * k, h = 18 * k * 0.9;
+        var cx = +el.getAttribute("data-x") + o.dx, cy = +el.getAttribute("data-y") + o.dy;
+        var m = 3 / s;
+        if (cx + w / 2 > fence.x + fence.w - m) o.dx -= cx + w / 2 - (fence.x + fence.w - m);
+        if (cx - w / 2 < fence.x + m) o.dx += fence.x + m - (cx - w / 2);
+        if (cy + h / 2 > fence.y + fence.h - m) o.dy -= cy + h / 2 - (fence.y + fence.h - m);
+        if (cy - h / 2 < fence.y + m) o.dy += fence.y + m - (cy - h / 2);
+      });
+    }
     svg.querySelectorAll(".f-lbl").forEach(function (el, i) {
       var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), o = offsets[i];
       el.setAttribute("x", (x + o.dx).toFixed(1));
@@ -1540,6 +1671,8 @@
       el.setAttribute("stroke-width", (5 * k).toFixed(2));
     });
     svg.querySelectorAll(".f-dot").forEach(function (el) { el.setAttribute("r", dotR.toFixed(2)); });
+    var hitR = ((r.width < 500 ? 17 : 12) / s).toFixed(2);
+    svg.querySelectorAll(".f-hit").forEach(function (el) { el.setAttribute("r", hitR); });
     var mk = Math.max(1, Math.min(2.2, k));
     svg.querySelectorAll(".f-mark[data-a]").forEach(function (el) {
       var a = el.getAttribute("data-a").split(",").map(Number);
@@ -1613,12 +1746,7 @@
     var gap = 3 / s, placed = [], leads = [], out = [];
     labels.forEach(function (el) {
       var x = +el.getAttribute("data-x"), y = +el.getAttribute("data-y"), dx0 = +el.getAttribute("data-dx"), dy0 = +el.getAttribute("data-dy");
-      if (el._wpf == null) {
-        var n = (el.textContent || "").length;
-        try { el._wpf = el.getComputedTextLength() / (parseFloat(getComputedStyle(el).fontSize) || 18); } catch (e) { el._wpf = 0; }
-        if (!(el._wpf > 0.2)) el._wpf = 0.62 * n + 0.15;
-      }
-      var w = (el._wpf + 0.15) * 18 * k, h = 18 * k * 0.9;
+      var w = (labelWpf(el) + 0.15) * 18 * k, h = 18 * k * 0.9;
       var crowded = dots.some(function (d) { var dd = Math.hypot(d[0] - x, d[1] - y); return dd > 1e-6 && dd < 18 * k * 1.6; });
       function cost(cx, cy, ring) {
         var b = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], c = ring * 0.35;
@@ -1669,18 +1797,13 @@
   }
   Viewer.prototype.restyle = function () {
     if (!this.svg || !this.vb) return;
-    fitLabels(this.svg, this.vb, this.els.viewport.getBoundingClientRect());
+    fitLabels(this.svg, this.vb, this.els.viewport.getBoundingClientRect(), this.zoomed() ? null : this.base);
   };
   Viewer.prototype.reset = function () {
     if (!this.base) return;
     var b0 = this.base0 || (this.base0 = { x: this.base.x, y: this.base.y, w: this.base.w, h: this.base.h });
     var r = this.els.viewport.getBoundingClientRect();
-    if (r.width && r.height) {
-      var s0 = Math.min(r.width / b0.w, r.height / b0.h);
-      var k = Math.max(0.35, Math.min(4.5, labelPx(r) / s0 / 18));
-      var pad = Math.max(0, (k - 1) * 32);
-      this.base = { x: b0.x - pad, y: b0.y - pad, w: b0.w + 2 * pad, h: b0.h + 2 * pad };
-    }
+    if (r.width && r.height) this.base = labelBase(this.svg, b0, r);
     this.vb = { x: this.base.x, y: this.base.y, w: this.base.w, h: this.base.h };
     this.apply();
   };
@@ -2091,5 +2214,5 @@
     return new Promise(function () {});
   }
 
-  window.GS = { icons: icons, esc: esc, math: math, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, renderHuman: renderHuman, humanText: humanText, Viewer: Viewer, fitLabels: fitLabels, modal: modal, lockScroll: lockScroll, backLayer: backLayer, dropLayer: dropLayer, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
+  window.GS = { icons: icons, esc: esc, math: math, setPoints: setPoints, fact: fact, factText: factText, figShape: figShape, ruleLabel: ruleLabel, renderSteps: renderSteps, renderHuman: renderHuman, humanText: humanText, Viewer: Viewer, fitLabels: fitLabels, labelBase: labelBase, modal: modal, lockScroll: lockScroll, backLayer: backLayer, dropLayer: dropLayer, initTheme: initTheme, fmtSecs: fmtSecs, toast: toast, isGate: isGate, toGate: toGate };
 })();
