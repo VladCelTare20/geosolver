@@ -111,6 +111,26 @@ pub fn theorem_key(name: &str) -> TheoremKey {
     }
 }
 
+fn theorem_key_in_figure(cx: &Ctx, name: &str, p: &[PointId]) -> TheoremKey {
+    let key = theorem_key(name);
+    let internal = match (key, p) {
+        (TheoremKey::AngleBisectorThm | TheoremKey::AngleBisectorThmConverse, [_, x, b, c]) => {
+            let t = cx.t;
+            let (vx, vb, vc) = (t.coord(*x), t.coord(*b), t.coord(*c));
+            let len2 = (vc.0 - vb.0).powi(2) + (vc.1 - vb.1).powi(2);
+            let along =
+                ((vx.0 - vb.0) * (vc.0 - vb.0) + (vx.1 - vb.1) * (vc.1 - vb.1)) / len2.max(1e-300);
+            along > 1e-9 && along < 1.0 - 1e-9
+        }
+        _ => true,
+    };
+    match (key, internal) {
+        (TheoremKey::AngleBisectorThm, false) => TheoremKey::ExtAngleBisectorThm,
+        (TheoremKey::AngleBisectorThmConverse, false) => TheoremKey::ExtAngleBisectorThmConverse,
+        _ => key,
+    }
+}
+
 pub fn kind(cx: &Ctx, f: FactId) -> Kind {
     match &cx.t.facts[f as usize].reason {
         Reason::Concyclic(_) => Kind::Cyclic,
@@ -126,7 +146,7 @@ pub fn kind(cx: &Ctx, f: FactId) -> Kind {
         }
         Reason::TransferArcChord(..) => Kind::Cong,
         Reason::TransferAddMul(..) => Kind::Length,
-        Reason::Theorem(name, _) => Kind::Theorem(theorem_key(name)),
+        Reason::Theorem(name, p) => Kind::Theorem(theorem_key_in_figure(cx, name, p)),
         Reason::Formula(name, _, _) => Kind::Formula(theorem_key(name)),
         Reason::PointMerge(..) | Reason::TangentMerge(..) => Kind::Merge,
         _ => Kind::Other,
@@ -450,11 +470,65 @@ pub fn pred_stmt(p: &Predicate) -> Stmt {
             angle: line_angle_expr(pair(2), pair(0)),
             degrees: p.constants.first().cloned().unwrap_or_else(Rat::zero),
         },
+        "distmeq" => distmeq_stmt(p).unwrap_or_else(|| Stmt::Formula {
+            text: "a relation between lengths".into(),
+            pts: q.clone(),
+        }),
         _ => Stmt::Formula {
             text: p.name.clone(),
             pts: q.clone(),
         },
     }
+}
+
+fn distmeq_stmt(p: &Predicate) -> Option<Stmt> {
+    let k = p.constants.len().checked_sub(1)?;
+    if k == 0 || p.points.len() != 2 * k {
+        return None;
+    }
+    let rational = |r: &Rat| -> Option<String> {
+        let (n, d) = (r.numer_i64()?, r.denom_i64()?);
+        Some(if d == 1 {
+            n.to_string()
+        } else {
+            format!("{n}/{d}")
+        })
+    };
+    let (mut num, mut den) = (Vec::new(), Vec::new());
+    for (i, c) in p.constants[..k].iter().enumerate() {
+        let (e, d) = (c.numer_i64()?, c.denom_i64()?);
+        if e == 0 {
+            continue;
+        }
+        let seg = format!("{{{}}}{{{}}}", 2 * i, 2 * i + 1);
+        let pow = match (e.abs(), d) {
+            (1, 1) => seg,
+            (m, 1) => format!("{seg}^{m}"),
+            (m, d) => format!("{seg}^({m}/{d})"),
+        };
+        if e > 0 {
+            num.push(pow)
+        } else {
+            den.push(pow)
+        }
+    }
+    let kt = rational(&p.constants[k])?;
+    let side = |v: &[String]| {
+        if v.is_empty() {
+            "1".to_string()
+        } else {
+            v.join("\u{b7}")
+        }
+    };
+    let rhs = match (kt.as_str(), den.is_empty()) {
+        ("1", _) => side(&den),
+        (_, true) => kt,
+        _ => format!("{kt}\u{b7}{}", side(&den)),
+    };
+    Some(Stmt::Formula {
+        text: format!("{} = {rhs}", side(&num)),
+        pts: p.points.clone(),
+    })
 }
 
 pub fn line_angle_expr(l1: (PointId, PointId), l2: (PointId, PointId)) -> Expr {

@@ -118,7 +118,7 @@ What makes it flexible:
   RNG; the figure is re-sampled if degenerate and **validated through DDAR** so a
   compiled problem never crashes the engine.
 - **Mistake detection.** If the goal does not hold in the sampled figure, the
-  compiler warns you the statement is probably false before trying to prove it.
+  solver reports the statement as probably false and accepts no derivation of it.
 - **Auto-fallback to aux search.** `--geo` first tries pure deduction and, if
   that is not enough, automatically searches for auxiliary points
   (see [Auxiliary-point search](#auxiliary-point-search)).

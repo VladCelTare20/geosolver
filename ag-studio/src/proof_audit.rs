@@ -376,38 +376,66 @@ fn read_points(text: &str, shown: &[String]) -> Option<Vec<usize>> {
 pub fn statement_violations(view: &crate::present::View, fig: &Problem) -> Vec<String> {
     let shown: Vec<String> = view.points.iter().map(|p| p.name.clone()).collect();
     let at = |i: usize| fig.points.get(i).map(|p| (p.value.x, p.value.y));
-    let reading = |text: &str| -> Option<f64> {
-        let body = text.strip_prefix('\u{2220}')?;
+    let reading = |text: &str| -> Option<(f64, bool)> {
+        let directed = text.starts_with('\u{2221}');
+        let body = text
+            .strip_prefix('\u{2220}')
+            .or_else(|| text.strip_prefix('\u{2221}'))?;
         let ids = read_points(body, &shown)?;
         let [a, b, c] = ids[..] else { return None };
         let (a, o, c) = (at(a)?, at(b)?, at(c)?);
+        if directed {
+            return Some(((dir(o, c) - dir(o, a)).rem_euclid(180.0), true));
+        }
         let (u, w) = ((a.0 - o.0, a.1 - o.1), (c.0 - o.0, c.1 - o.1));
         let n = (u.0 * u.0 + u.1 * u.1).sqrt() * (w.0 * w.0 + w.1 * w.1).sqrt();
         (n > 1e-12).then(|| {
-            ((u.0 * w.0 + u.1 * w.1) / n)
-                .clamp(-1.0, 1.0)
-                .acos()
-                .to_degrees()
+            (
+                ((u.0 * w.0 + u.1 * w.1) / n)
+                    .clamp(-1.0, 1.0)
+                    .acos()
+                    .to_degrees(),
+                false,
+            )
         })
+    };
+    let differs = |x: (f64, bool), y: (f64, bool)| {
+        if x.1 != y.1 {
+            return false;
+        }
+        let d = x.0 - y.0;
+        if x.1 {
+            let d = d.rem_euclid(180.0);
+            d > 1e-3 && d < 180.0 - 1e-3
+        } else {
+            d.abs() > 1e-3
+        }
     };
     let mut bad = Vec::new();
     let facts = view
         .given
         .iter()
         .chain(view.given_proof.iter().flatten())
-        .chain(view.goal.iter());
+        .chain(view.goal.iter())
+        .chain(view.proof.steps.iter().map(|s| &s.fact));
     for f in facts {
         if f.kind != "eqangle" && f.kind != "aconst" {
             continue;
         }
         let [l, r] = &f.args[..] else { continue };
-        let (Some(x), rhs) = (reading(l), reading(r)) else {
-            continue;
-        };
-        let y = rhs.or_else(|| r.trim_end_matches('\u{b0}').parse::<f64>().ok());
+        let Some(x) = reading(l) else { continue };
+        let y = reading(r).or_else(|| {
+            r.trim_end_matches('\u{b0}')
+                .parse::<f64>()
+                .ok()
+                .map(|v| (v, x.1))
+        });
         if let Some(y) = y {
-            if (x - y).abs() > 1e-3 {
-                bad.push(format!("the statement {l} = {r} reads {x:.2}° vs {y:.2}°"));
+            if differs(x, y) {
+                bad.push(format!(
+                    "the statement {l} = {r} reads {:.2}\u{b0} vs {:.2}\u{b0}",
+                    x.0, y.0
+                ));
             }
         }
     }
@@ -758,6 +786,60 @@ mod tests {
         assert!(
             !statement_violations(&forged, fig).is_empty(),
             "the audit catches a figure-angle symbol on a false reading"
+        );
+    }
+
+    #[test]
+    fn directed_constants_and_converse_bisector_steps_read_true_in_the_shown_figure() {
+        let _heavy = crate::engine::heavy_search_lock();
+        let mut cases = corpus("jgex_ag_231.txt", Duration::from_secs(60));
+        cases.retain(|c| {
+            [
+                "ye_aux_ll43",
+                "E076-31",
+                "L025-5",
+                "E056-33",
+                "E061-65",
+                "E061-66",
+            ]
+            .iter()
+            .any(|n| c.name.contains(n))
+        });
+        assert_eq!(cases.len(), 6);
+        let mut external_steps = 0;
+        let mut directed_constants = 0;
+        for (i, r) in solve_all(&cases, 3) {
+            let sol = r.unwrap();
+            let name = &cases[i].name;
+            assert!(sol.proved, "{name}: {}", sol.note);
+            let sh = shown(&sol);
+            let fig = &sh.sol.figure.as_ref().unwrap().problem;
+            let bad = statement_violations(&sh.view, fig);
+            assert!(bad.is_empty(), "{name}: {bad:?}");
+            external_steps += sh
+                .view
+                .proof
+                .steps
+                .iter()
+                .filter(|s| {
+                    s.rule_name.as_deref() == Some("angle bisector theorem (converse)")
+                        && s.fact.args.iter().all(|a| a.starts_with('\u{2221}'))
+                })
+                .count();
+            directed_constants += sh
+                .view
+                .given
+                .iter()
+                .filter(|f| f.kind == "aconst" && f.args[0].starts_with('\u{2221}'))
+                .count();
+        }
+        assert!(
+            external_steps >= 1,
+            "no external converse step was exercised"
+        );
+        assert!(
+            directed_constants >= 1,
+            "no directed constant was exercised"
         );
     }
 

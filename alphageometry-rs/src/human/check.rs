@@ -795,6 +795,7 @@ impl<'c, 'a> Checker<'c, 'a> {
             }
             AtomKey::Midline => {
                 a.len() == 5
+                    && !super::barem::near_line(self.cx, a[2], a[3], a[4])
                     && self.on_line(h, &[a[0], a[4], a[2]])
                     && self.on_line(h, &[a[1], a[4], a[3]])
                     && self.equidistant(h, a[0], &[a[4], a[2]])

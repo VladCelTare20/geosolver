@@ -518,6 +518,8 @@ closed_keys!(TheoremKey, eng::TheoremKey, {
     ArcChord => "arc_chord",
     AngleBisectorThm => "angle_bisector_thm",
     AngleBisectorThmConverse => "angle_bisector_thm_converse",
+    ExtAngleBisectorThm => "ext_angle_bisector_thm",
+    ExtAngleBisectorThmConverse => "ext_angle_bisector_thm_converse",
     Intercept => "intercept",
     Homothety => "homothety",
     Monge => "monge",

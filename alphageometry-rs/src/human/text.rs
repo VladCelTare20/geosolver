@@ -823,6 +823,10 @@ pub fn theorem_name(k: TheoremKey) -> &'static str {
         TheoremKey::ArcChord => "equal or supplementary inscribed angles stand on equal chords",
         TheoremKey::AngleBisectorThm => "the angle bisector theorem",
         TheoremKey::AngleBisectorThmConverse => "the converse of the angle bisector theorem",
+        TheoremKey::ExtAngleBisectorThm => "the external angle bisector theorem",
+        TheoremKey::ExtAngleBisectorThmConverse => {
+            "the converse of the external angle bisector theorem"
+        }
         TheoremKey::Intercept => "the intercept theorem",
         TheoremKey::Homothety => "the homothety at a centre of similitude",
         TheoremKey::Monge => "Monge–d'Alembert",

@@ -220,6 +220,8 @@ thread_local! {
 
 const TEXTBOOK_SEEDS: u64 = 200;
 
+const ANGLE_SUM_TOLERANCE_DEG: f64 = 1e-4;
+
 fn textbook_triangle(a: Vec2, b: Vec2, c: Vec2) -> bool {
     let angle = |p: Vec2, q: Vec2, r: Vec2| {
         let (u, v) = (q - p, r - p);
@@ -1274,6 +1276,7 @@ struct Scene {
     dof_used: usize,
     rng: Rng,
     anon: usize,
+    goal_source_holds: Option<bool>,
 }
 
 impl Scene {
@@ -1288,6 +1291,7 @@ impl Scene {
             dof_used: 0,
             rng: Rng::new(seed),
             anon: 0,
+            goal_source_holds: None,
         }
     }
     fn coord(&self, id: PointId) -> Vec2 {
@@ -2348,6 +2352,26 @@ impl Lowered {
         }
     }
 
+    fn source_holds(&self, scene: &Scene) -> Option<bool> {
+        let CKind::AngSumEq { coefs, konst } = &self.kind else {
+            return None;
+        };
+        let mut acc = 0.0;
+        for (i, coef) in coefs.iter().enumerate() {
+            let at = |k: usize| match self.pts[3 * i + k] {
+                PtRef::Id(id) => Some(scene.coord(id)),
+                PtRef::Unknown => None,
+            };
+            let (x, v, z) = (at(0)?, at(1)?, at(2)?);
+            let (u, w) = (x - v, z - v);
+            if u.norm() < 1e-9 || w.norm() < 1e-9 {
+                return None;
+            }
+            acc += coef.to_f64() * cross(u, w).abs().atan2(u.dot(w)).to_degrees();
+        }
+        Some((acc - konst.to_f64()).abs() < ANGLE_SUM_TOLERANCE_DEG)
+    }
+
     /// The goal form of this relation. Unlike a hypothesis, a goal must never
     /// lower to the trivially-true placeholder — DDAR would "prove" it. A
     /// metric goal (no DDAR predicate) yields `None`; [`compile`] rejects such
@@ -2750,6 +2774,7 @@ fn build_core(stmts: &[Stmt], seed: u64, dof_override: &[f64]) -> Result<CoreRes
                 }
                 let lowered = lower(&mut scene, rel, None)?;
                 goal = lowered.to_goal_predicate(&scene)?;
+                scene.goal_source_holds = lowered.source_holds(&scene);
             }
         }
     }
@@ -3115,6 +3140,7 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
                 continue;
             }
             Ok(Ok((scene, goal, _scale))) => {
+                let goal_source_holds = scene.goal_source_holds;
                 let problem = Problem {
                     points: scene.points,
                     preds: scene.preds,
@@ -3132,10 +3158,14 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
                 // signal: if the goal already PROVES on this figure, its branch
                 // structure demonstrably supports the whole derivation chain.
                 let proved_in_validation = matches!(&ok, Ok(Ok(true)));
-                let goal_numerically_holds = problem
-                    .goal
-                    .as_ref()
-                    .and_then(|g| numeric_holds(&problem, g));
+                let goal_numerically_holds = if goal_source_holds == Some(false) {
+                    Some(false)
+                } else {
+                    problem
+                        .goal
+                        .as_ref()
+                        .and_then(|g| numeric_holds(&problem, g))
+                };
                 let compiled = Compiled {
                     problem,
                     goal_numerically_holds,
@@ -3185,26 +3215,36 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
 }
 
 const CONFIGURATION_PROBES: u64 = 8;
+const GENERAL_PROBES: u64 = 40;
 const CONFIGURATION_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn goal_fails_in_another_figure(stmts: &[Stmt], after_seed: u64) -> bool {
     let started = std::time::Instant::now();
-    for seed in after_seed + 1..=after_seed + CONFIGURATION_PROBES {
+    let general_seed = |i: u64| TEXTBOOK_SEEDS + 1 + (after_seed + i * 37) % (400 - TEXTBOOK_SEEDS);
+    let mut order: Vec<(u64, bool)> = Vec::new();
+    for i in 0..GENERAL_PROBES {
+        if i < CONFIGURATION_PROBES {
+            order.push((after_seed + 1 + i, true));
+        }
+        order.push((general_seed(i), false));
+    }
+    for (seed, textbook_triangle) in order {
         if started.elapsed() > CONFIGURATION_PROBE_BUDGET {
             break;
         }
-        TEXTBOOK_TRIANGLE.with(|f| f.set(seed <= TEXTBOOK_SEEDS));
+        TEXTBOOK_TRIANGLE.with(|f| f.set(textbook_triangle && seed <= TEXTBOOK_SEEDS));
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
         TEXTBOOK_TRIANGLE.with(|f| f.set(false));
         let Ok(Ok((scene, Some(goal), _))) = built else {
             continue;
         };
+        let source = scene.goal_source_holds;
         let problem = Problem {
             points: scene.points,
             preds: scene.preds,
             goal: None,
         };
-        if numeric_holds(&problem, &goal) == Some(false) {
+        if source == Some(false) || numeric_holds(&problem, &goal) == Some(false) {
             return true;
         }
     }

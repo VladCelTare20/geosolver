@@ -662,7 +662,7 @@ impl<'c, 'a> Builder<'c, 'a> {
                         if p != pp || q == r || m == n2 {
                             continue;
                         }
-                        if m > n2 {
+                        if m > n2 || super::barem::near_line(cx, q, r, p) {
                             continue;
                         }
                         let mut s = s1.clone();

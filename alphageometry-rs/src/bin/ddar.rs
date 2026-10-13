@@ -540,10 +540,12 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
     }
 
     if compiled.goal_numerically_holds == Some(false) {
+        write_svg_if_requested(&compiled.problem, opts);
         println!(
-            "Warning: the goal does not hold in the sampled figure — the statement \
-             appears to be false. Proceeding anyway."
+            "Not proven: the goal does not hold in the sampled figure, so the statement \
+             appears to be false and no derivation of it is accepted."
         );
+        std::process::exit(1);
     }
 
     if compiled.configuration_dependent {

@@ -449,10 +449,12 @@ pub enum TheoremKey {
     CircleMerge,
     ExteriorAngleConverse,
     ThalesConverse,
+    ExtAngleBisectorThm,
+    ExtAngleBisectorThmConverse,
 }
 
 impl TheoremKey {
-    pub const ALL: [TheoremKey; 35] = [
+    pub const ALL: [TheoremKey; 37] = [
         TheoremKey::RadicalAxis,
         TheoremKey::ArcChord,
         TheoremKey::AngleBisectorThm,
@@ -488,6 +490,8 @@ impl TheoremKey {
         TheoremKey::CircleMerge,
         TheoremKey::ExteriorAngleConverse,
         TheoremKey::ThalesConverse,
+        TheoremKey::ExtAngleBisectorThm,
+        TheoremKey::ExtAngleBisectorThmConverse,
     ];
     pub fn is_converse(self) -> bool {
         matches!(
@@ -504,6 +508,8 @@ impl TheoremKey {
             TheoremKey::ArcChord => "arc_chord",
             TheoremKey::AngleBisectorThm => "angle_bisector_thm",
             TheoremKey::AngleBisectorThmConverse => "angle_bisector_thm_converse",
+            TheoremKey::ExtAngleBisectorThm => "ext_angle_bisector_thm",
+            TheoremKey::ExtAngleBisectorThmConverse => "ext_angle_bisector_thm_converse",
             TheoremKey::Intercept => "intercept",
             TheoremKey::Homothety => "homothety",
             TheoremKey::Monge => "monge",

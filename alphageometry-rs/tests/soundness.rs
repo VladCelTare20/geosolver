@@ -1611,6 +1611,51 @@ fn a_goal_that_fails_in_another_valid_figure_is_flagged_as_drawn() {
 }
 
 #[test]
+fn an_angle_sum_off_by_a_multiple_of_180_is_numerically_false() {
+    let triangle = "A B C = triangle\nprove angle(A, B, C) + angle(B, C, A) + angle(C, A, B)";
+    let parallelogram = "A B C = triangle\nD = parallelogram(A, B, C)\nprove";
+    for src in [
+        format!("{triangle} = 360"),
+        format!("{triangle} = 540"),
+        format!("{triangle} = 0"),
+        format!("{parallelogram} angle(A, B, C) - angle(C, D, A) = 180"),
+        format!("{parallelogram} angle(A, B, C) + angle(B, C, D) = 360"),
+        format!("{parallelogram} angle(A, B, C) + angle(B, C, D) + angle(C, D, A) + angle(D, A, B) = 720"),
+    ] {
+        let c = compile(&src).expect("compiles");
+        assert_eq!(c.goal_numerically_holds, Some(false), "{src}");
+    }
+    let c = compile(&format!("{triangle} = 180")).expect("compiles");
+    assert_eq!(c.goal_numerically_holds, Some(true));
+    assert!(!c.configuration_dependent);
+}
+
+#[test]
+fn betweenness_arc_side_and_obtuse_goals_are_flagged_as_drawn() {
+    for src in [
+        "A B C = triangle\nD = on_line(B, C)\nprove dist(B, D) + dist(D, C) = dist(B, C)",
+        "A B C = triangle\nD = foot(A, line(B, C))\nprove dist(B, D) + dist(D, C) = dist(B, C)",
+        "A B C = triangle\nD = on_line(B, C)\nprove angle(A, B, D) = angle(A, B, C)",
+        "A B C = triangle\nD = on_circum(A, B, C)\nprove angle(A, B, C) = angle(A, D, C)",
+        "A B C = triangle\nH = orthocenter(A, B, C)\nprove angle(B, H, C) + angle(B, A, C) = 180",
+    ] {
+        let c = compile(src).expect("compiles");
+        assert!(c.configuration_dependent, "not flagged as drawn:\n{src}");
+    }
+    for src in [
+        "A B C = triangle\nM = midpoint(B, C)\nprove dist(B, M) + dist(M, C) = dist(B, C)",
+        "A B C = triangle\nM = midpoint(B, C)\nprove angle(A, B, M) = angle(A, B, C)",
+        "A B C = triangle\nE = reflect(A, line(B, C))\nprove angle(A, B, C) = angle(E, B, C)",
+    ] {
+        let c = compile(src).expect("compiles");
+        assert!(
+            !c.configuration_dependent,
+            "flagged though it holds in every figure:\n{src}"
+        );
+    }
+}
+
+#[test]
 fn similar_or_congruent_degenerate_triangles_are_refused_not_proved() {
     for src in [
         "a@0_0 = ; b@1_0 = ; c@2_0 = coll a b c ; d@0_1 = ; e@1_1 = ; f@5_1 = coll d e f, cong a b d e ? contri a b c d e f",

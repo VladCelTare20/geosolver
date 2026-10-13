@@ -1044,7 +1044,7 @@ fn pretty_as_written(problem: &Problem, pred: &Predicate) -> String {
             let a = pred_names(problem, pred);
             format!(
                 "{} = {}\u{00b0}",
-                pretty_angle(&a[0], &a[1], &a[2], &a[3]),
+                pretty_angle(&a[2], &a[3], &a[0], &a[1]),
                 const_str(pred)
             )
         }

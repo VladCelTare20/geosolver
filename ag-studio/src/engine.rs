@@ -1810,6 +1810,57 @@ mod tests {
     }
 
     #[test]
+    fn angle_sums_off_by_a_multiple_of_180_are_refuted_on_every_path() {
+        let triangle = "A B C = triangle\nprove angle(A, B, C) + angle(B, C, A) + angle(C, A, B)";
+        let parallelogram = "A B C = triangle\nD = parallelogram(A, B, C)\nprove";
+        for src in [
+            format!("{triangle} = 360"),
+            format!("{triangle} = 540"),
+            format!("{triangle} = 720"),
+            format!("{triangle} = 0"),
+            format!("{parallelogram} angle(A, B, C) - angle(C, D, A) = 180"),
+            format!("{parallelogram} angle(A, B, C) + angle(B, C, D) = 360"),
+            format!(
+                "{parallelogram} angle(A, B, C) + angle(B, C, D) + angle(C, D, A) + angle(D, A, B) = 720"
+            ),
+        ] {
+            let opts = SolveOptions::default();
+            let sol = solve_within(&src, &opts, Some(Duration::from_secs(20))).unwrap();
+            assert!(!sol.proved, "{src}: {}", sol.note);
+            assert_eq!(sol.status, Status::Refuted, "{src}");
+            assert_eq!(sol.goal_holds_numerically, Some(false), "{src}");
+            let best = solve_best(&src, &opts, Duration::from_secs(10)).unwrap();
+            assert!(!best.proved, "best mode, {src}: {}", best.note);
+        }
+        let sol = solve_within(
+            &format!("{triangle} = 180"),
+            &SolveOptions::default(),
+            Some(Duration::from_secs(20)),
+        )
+        .unwrap();
+        assert!(sol.proved && !sol.as_drawn, "{}", sol.note);
+    }
+
+    #[test]
+    fn betweenness_and_arc_side_proofs_are_marked_as_drawn() {
+        for src in [
+            "A B C = triangle\nD = on_line(B, C)\nprove dist(B, D) + dist(D, C) = dist(B, C)",
+            "A B C = triangle\nD = foot(A, line(B, C))\nprove dist(B, D) + dist(D, C) = dist(B, C)",
+            "A B C = triangle\nD = on_line(B, C)\nprove angle(A, B, D) = angle(A, B, C)",
+            "A B C = triangle\nD = on_circum(A, B, C)\nprove angle(A, B, C) = angle(A, D, C)",
+            "A B C = triangle\nH = orthocenter(A, B, C)\nprove angle(B, H, C) + angle(B, A, C) = 180",
+        ] {
+            let sol = solve_within(src, &SolveOptions::default(), Some(Duration::from_secs(20)))
+                .unwrap();
+            assert!(
+                !sol.proved || sol.as_drawn,
+                "proved as a general theorem though it fails in another figure:\n{src}\n{}",
+                sol.note
+            );
+        }
+    }
+
+    #[test]
     fn a_configuration_dependent_proof_is_marked_as_drawn() {
         let sol = solve(
             "A B C = triangle\nP = point: angle(P, B, A) = angle(P, C, A)\nprove cyclic(A, P, B, C)",

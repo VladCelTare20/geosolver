@@ -135,7 +135,89 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
         }
         *hp = original;
     }
+    if check::violations_with(&mut ch, hp).is_empty() {
+        drop_restating_blocks(&mut ch, hp);
+    }
     finish(cx, hp);
+}
+
+fn same_point_set(a: &Stmt, b: &Stmt) -> bool {
+    let sorted = |v: &[PointId]| {
+        let mut v = v.to_vec();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    match (a, b) {
+        (Stmt::Coll { pts: x }, Stmt::Coll { pts: y })
+        | (Stmt::Cyclic { pts: x }, Stmt::Cyclic { pts: y }) => sorted(x) == sorted(y),
+        _ => false,
+    }
+}
+
+fn drop_restating_blocks(ch: &mut Checker, hp: &mut HumanProof) {
+    let mut skip: BTreeSet<u16> = BTreeSet::new();
+    loop {
+        let found = hp.blocks.iter().enumerate().find_map(|(j, b)| {
+            if skip.contains(&b.id) || b.kind == BlockKind::Raw {
+                return None;
+            }
+            let cites: Vec<u16> = cited_blocks(b).into_iter().collect();
+            let [k] = cites[..] else { return None };
+            let pk = hp.blocks.iter().position(|x| x.id == k)?;
+            (pk < j
+                && matches!(hp.blocks[pk].kind, BlockKind::Step | BlockKind::Claim(_))
+                && same_point_set(&hp.blocks[pk].stmt, &b.stmt))
+            .then_some((j, pk))
+        });
+        let Some((j, pk)) = found else { return };
+        let id = hp.blocks[j].id;
+        let mut cand = hp.clone();
+        let removed = cand.blocks.remove(j);
+        if removed.kind == BlockKind::Conclusion {
+            if pk + 1 != j || j != cand.blocks.len() {
+                skip.insert(id);
+                continue;
+            }
+            let kept = &mut cand.blocks[pk];
+            kept.kind = BlockKind::Conclusion;
+            kept.stmt = removed.stmt;
+            kept.horizon = kept.horizon.max(removed.horizon);
+            for f in removed.engine_facts {
+                if !kept.engine_facts.contains(&f) {
+                    kept.engine_facts.push(f);
+                }
+            }
+            remap_ids(&mut cand, &|x| if x > id { x - 1 } else { x });
+        } else {
+            let kept_id = cand.blocks[pk].id;
+            visit_mut(&mut cand, &mut |r| match r {
+                Reason::Claim { block, .. } | Reason::Lemma { block, .. } if *block == id => {
+                    *block = kept_id
+                }
+                Reason::Fact { block: Some(b), .. } if *b == id => *b = kept_id,
+                Reason::Atom { from, .. } => {
+                    for x in from.iter_mut().filter(|x| **x == id) {
+                        *x = kept_id;
+                    }
+                }
+                _ => {}
+            });
+            remap_ids(&mut cand, &|x| if x > id { x - 1 } else { x });
+        }
+        if check::violations_with(ch, &cand).is_empty() {
+            *hp = cand;
+            skip.clear();
+        } else {
+            if std::env::var_os("HP_DEBUG").is_some() {
+                eprintln!(
+                    "restating block {id}: {:?}",
+                    check::violations_with(ch, &cand)
+                );
+            }
+            skip.insert(id);
+        }
+    }
 }
 
 pub(crate) fn debug() -> bool {

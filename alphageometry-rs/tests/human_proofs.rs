@@ -956,3 +956,170 @@ fn checker_rejects_false_atom_instances() {
         );
     }
 }
+
+fn within_open_segment(
+    trace: &EngineTrace,
+    x: ddar::predicate::PointId,
+    b: ddar::predicate::PointId,
+    c: ddar::predicate::PointId,
+) -> bool {
+    let (px, pb, pc) = (trace.coord(x), trace.coord(b), trace.coord(c));
+    let len2 = (pc.0 - pb.0).powi(2) + (pc.1 - pb.1).powi(2);
+    let along = ((px.0 - pb.0) * (pc.0 - pb.0) + (px.1 - pb.1) * (pc.1 - pb.1)) / len2;
+    along > 1e-9 && along < 1.0 - 1e-9
+}
+
+fn collinear(
+    trace: &EngineTrace,
+    a: ddar::predicate::PointId,
+    b: ddar::predicate::PointId,
+    c: ddar::predicate::PointId,
+) -> bool {
+    let (pa, pb, pc) = (trace.coord(a), trace.coord(b), trace.coord(c));
+    let cross = (pb.0 - pa.0) * (pc.1 - pa.1) - (pb.1 - pa.1) * (pc.0 - pa.0);
+    let scale = [(pa, pb), (pb, pc), (pa, pc)]
+        .iter()
+        .map(|(p, q)| (p.0 - q.0).powi(2) + (p.1 - q.1).powi(2))
+        .fold(0.0f64, f64::max);
+    cross.abs() <= 1e-7 * scale
+}
+
+#[test]
+fn theorem_names_and_triangles_in_the_jgex_proofs_match_the_figure() {
+    use ddar::human::{AtomKey, TheoremKey};
+    let text = std::fs::read_to_string(root().join("../corpus/jgex_ag_231.txt")).expect("corpus");
+    let (mut internal, mut external, mut midlines) = (0usize, 0usize, 0usize);
+    for (name, body) in ddar::corpus::read_corpus(&text).expect("corpus parses") {
+        let Ok(tr) = ddar::corpus::translate_text(&name, &body, 1) else {
+            continue;
+        };
+        let problem = tr.problem;
+        let Ok(Some((_, trace, deps))) = ddar::runner::solve_problem_with_trace(&problem) else {
+            continue;
+        };
+        let goal = problem.goal.clone().unwrap();
+        let hp = human::write(&trace, &goal, &deps, &[], &Opts::default());
+        for block in &hp.blocks {
+            for sentence in &block.body {
+                if let Sentence::Theorem {
+                    key,
+                    stmt: Stmt::EqRatio { segs },
+                    ..
+                } = sentence
+                {
+                    if matches!(
+                        key,
+                        TheoremKey::AngleBisectorThm | TheoremKey::ExtAngleBisectorThm
+                    ) {
+                        let [(x, b), (x2, c), ..] = segs[..] else {
+                            continue;
+                        };
+                        assert_eq!(x, x2, "{name}");
+                        let between = within_open_segment(&trace, x, b, c);
+                        assert_eq!(*key == TheoremKey::AngleBisectorThm, between, "{name}");
+                        if between {
+                            internal += 1;
+                        } else {
+                            external += 1;
+                        }
+                    }
+                }
+                human::barem::visit(sentence, &mut |r| {
+                    if let Reason::Atom {
+                        key: AtomKey::Midline,
+                        args,
+                        ..
+                    } = r
+                    {
+                        midlines += 1;
+                        assert!(
+                            !collinear(&trace, args[2], args[3], args[4]),
+                            "{name}: a midline of a degenerate triangle"
+                        );
+                    }
+                });
+            }
+        }
+    }
+    assert!(
+        internal >= 1 && external >= 1 && midlines >= 1,
+        "{internal} {external} {midlines}"
+    );
+}
+
+fn restating_blocks(hp: &HumanProof) -> Vec<u16> {
+    let sorted = |v: &[ddar::predicate::PointId]| {
+        let mut v = v.to_vec();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    let mut out = Vec::new();
+    for b in &hp.blocks {
+        let cites: Vec<u16> = human::barem::cited_blocks(b).into_iter().collect();
+        let [k] = cites[..] else { continue };
+        let Some(prev) = hp.blocks.iter().find(|x| x.id == k) else {
+            continue;
+        };
+        let same = match (&prev.stmt, &b.stmt) {
+            (Stmt::Coll { pts: x }, Stmt::Coll { pts: y })
+            | (Stmt::Cyclic { pts: x }, Stmt::Cyclic { pts: y }) => sorted(x) == sorted(y),
+            _ => false,
+        };
+        if same {
+            out.push(b.id);
+        }
+    }
+    out
+}
+
+#[test]
+fn no_proof_shows_a_raw_predicate_name_or_a_block_that_restates_its_premise() {
+    let mut checked = 0usize;
+    let mut remaining: Vec<String> = Vec::new();
+    let mut sources: Vec<(String, Problem)> = Vec::new();
+    let named = root().join("examples/named");
+    for entry in std::fs::read_dir(&named).expect("named examples") {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|e| e == "geo") {
+            let src = std::fs::read_to_string(&path).unwrap();
+            if let Ok(c) = compile(&src) {
+                sources.push((path.display().to_string(), c.problem));
+            }
+        }
+    }
+    let text = std::fs::read_to_string(root().join("../corpus/jgex_ag_231.txt")).expect("corpus");
+    for (name, body) in ddar::corpus::read_corpus(&text).expect("corpus parses") {
+        if let Ok(tr) = ddar::corpus::translate_text(&name, &body, 1) {
+            sources.push((name, tr.problem));
+        }
+    }
+    for (name, problem) in sources {
+        let Some(goal) = problem.goal.clone() else {
+            continue;
+        };
+        let Ok(Some((_, trace, deps))) = ddar::runner::solve_problem_with_trace(&problem) else {
+            continue;
+        };
+        let hp = human::write(&trace, &goal, &deps, &[], &Opts::default());
+        if !hp.available {
+            continue;
+        }
+        checked += 1;
+        let rendered = human::render_en(&trace, &hp, &[]);
+        assert!(!rendered.contains("distmeq"), "{name}: {rendered}");
+        let restating = restating_blocks(&hp);
+        if !restating.is_empty() {
+            eprintln!("restating: {name} {restating:?}");
+            remaining.push(name);
+        }
+    }
+    assert!(checked >= 200, "only {checked} proofs checked");
+    assert!(
+        remaining
+            .iter()
+            .all(|n| !n.contains("examples/named/monge")),
+        "{remaining:?}"
+    );
+    assert!(remaining.len() <= 2, "{remaining:?}");
+}

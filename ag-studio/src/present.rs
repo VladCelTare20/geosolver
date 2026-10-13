@@ -600,7 +600,7 @@ fn fact_of_pred_as_written(problem: &Problem, names: &Names, pred: &Predicate) -
         "eqratio" if nm == 8 => Fact::new("eqratio", vec![seg(0), seg(2), seg(4), seg(6)], pts),
         "aconst" | "s_angle" if nm == 4 => Fact::new(
             "aconst",
-            vec![pretty_angle(&n, p[0], p[1], p[2], p[3]), const_str(pred)],
+            vec![pretty_angle(&n, p[2], p[3], p[0], p[1]), const_str(pred)],
             pts,
         ),
         "rconst" if nm == 4 => Fact::new("rconst", vec![seg(0), seg(2), const_str(pred)], pts),
@@ -1284,6 +1284,18 @@ fn unique(p: &[String]) -> Vec<String> {
     v
 }
 
+fn equal_undirected(v: Pt, c: Pt, b: Pt, d: Pt) -> bool {
+    let deg = |x: Pt, y: Pt| {
+        let (u, w) = ((x.0 - v.0, x.1 - v.1), (y.0 - v.0, y.1 - v.1));
+        let n = u.0.hypot(u.1) * w.0.hypot(w.1);
+        ((u.0 * w.0 + u.1 * w.1) / n)
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees()
+    };
+    (deg(c, b) - deg(b, d)).abs() < 1e-4
+}
+
 fn theorem_fact(name: &str, p: &[String], at: &[Option<Pt>]) -> Option<Fact> {
     let seg = |a: usize, b: usize| format!("{}{}", p[a], p[b]);
     let pts = |idx: &[usize]| idx.iter().map(|&i| p[i].clone()).collect::<Vec<_>>();
@@ -1429,14 +1441,20 @@ fn theorem_fact(name: &str, p: &[String], at: &[Option<Pt>]) -> Option<Fact> {
             vec![seg(1, 2), seg(1, 3), seg(0, 2), seg(0, 3)],
             pts(&[0, 1, 2, 3]),
         ),
-        ("angle bisector theorem (converse)", 4) => Fact::new(
-            "eqangle",
-            vec![
-                format!("\u{2220}{}{}{}", p[2], p[0], p[1]),
-                format!("\u{2220}{}{}{}", p[1], p[0], p[3]),
-            ],
-            pts(&[0, 1, 2, 3]),
-        ),
+        ("angle bisector theorem (converse)", 4) => {
+            let sym = match (at[0], at[1], at[2], at[3]) {
+                (Some(v), Some(b), Some(c), Some(d)) if !equal_undirected(v, c, b, d) => '\u{2221}',
+                _ => '\u{2220}',
+            };
+            Fact::new(
+                "eqangle",
+                vec![
+                    format!("{sym}{}{}{}", p[2], p[0], p[1]),
+                    format!("{sym}{}{}{}", p[1], p[0], p[3]),
+                ],
+                pts(&[0, 1, 2, 3]),
+            )
+        }
         ("radical axis" | "Monge–d'Alembert", 3) => Fact::new("coll", p.to_vec(), p.to_vec()),
         ("homothety at a centre of similitude", 5) => Fact::new(
             "para_ratio",
