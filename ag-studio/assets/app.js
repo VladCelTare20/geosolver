@@ -499,6 +499,14 @@
       if (s) loadExample(s.getAttribute("data-example-solve"), true);
     });
     $("syntax-btn").addEventListener("click", function () { setSyntax($("syntax-help").hidden); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape" || e.defaultPrevented || $("syntax-help").hidden) return;
+      var ae = document.activeElement;
+      if (ae && ae !== document.body && !$("syntax-help").contains(ae) && ae !== $("syntax-btn")) return;
+      e.preventDefault();
+      setSyntax(false);
+      $("syntax-btn").focus();
+    });
   }
   var SYNTAX_KEYS = ["unknown_construction", "unknown_shape", "unknown_relation", "arity", "arity_min", "not_a_point"];
   function setSyntax(open) {
@@ -1218,8 +1226,8 @@
       sol.search === "shortest" ? t("meta.shortest_search", { t: GS.fmtSecs(sol.elapsed_secs) }) : GS.fmtSecs(sol.elapsed_secs),
       nSteps ? tp("meta.steps", nSteps) : "",
       sol.status === "holds-numerically" && sol.numeric_samples ? tp("meta.samples", sol.numeric_samples) : "",
-      sol.status === "proved" && v.as_drawn ? t(v.figure_dependent ? "meta.as_drawn_config" : "meta.as_drawn") : "",
     ].filter(Boolean).map(function (x) { return "<span>" + esc(x) + "</span>"; });
+    if (sol.status === "proved" && v.as_drawn) meta.push('<span class="meta-note">' + esc(t(v.figure_dependent ? "meta.as_drawn_config" : "meta.as_drawn")) + "</span>");
     var guest = S.status && S.status.guest && !S.status.signed_in;
     var guestNote = guest ? '<p class="hint guest-note"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t("hist.guest")) + ' <a href="/auth?mode=register">' + esc(t("nav.create")) + "</a></span></p>" : "";
     var counter = v.counterexample ? '<p class="counter"><strong>' + esc(t("counter.title")) + ".</strong> " + GS.math(counterText(v.counterexample), true) + "</p>" : "";
@@ -2215,8 +2223,25 @@
         var lead = Math.max(0, Math.min(ar.top + 80, z0 + ph) - Math.max(ar.top, z0));
         return all + 2 * lead;
       };
+      var pw = Math.max(96, Math.round(small)), px0 = W - 12 - pw, px1 = W - 12, rects = [];
+      try {
+        var rg = document.createRange();
+        rg.selectNodeContents(ae);
+        rects = Array.prototype.slice.call(rg.getClientRects()).filter(function (q) { return q.width > 2 && q.height > 2 && q.right > px0 && q.left < px1; });
+      } catch (e) {}
+      if (rects.length) covered = function (z0) {
+        var sum = 0;
+        rects.forEach(function (q) {
+          var oy = Math.min(q.bottom, z0 + ph) - Math.max(q.top, z0);
+          if (oy <= 0) return;
+          var ox = Math.min(q.right, px1) - Math.max(q.left, px0);
+          sum += oy * ox * (q.top < ar.top + 80 ? 3 : 1);
+        });
+        return sum;
+      };
       var ct = covered(zt), cb = covered(zb);
       atTop = ct === cb ? (ar.top + ar.bottom) / 2 > (top + H) / 2 : ct < cb;
+      if (Math.min(ct, cb) > 0 && !peek.big) small = Math.max(96, Math.round(small * 0.7));
     }
     var w = small;
     if (peek.big) {

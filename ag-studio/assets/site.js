@@ -236,7 +236,7 @@
   }
   function stepHtml(s, hidden) {
     var cites = (s.deps || []).map(function (d) {
-      return '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
+      return '<a class="cite" href="#step-' + d + '" data-step="' + d + '" tabindex="-1" title="' + esc(t("proof.cite", { n: d })) + '" aria-label="' + esc(t("proof.cite", { n: d })) + '">' + d + "</a>";
     }).join(" ");
     var subs = (s.subs || []).map(function (u) {
       return '<li><span class="math">' + fact(u.fact) + '</span> <span class="rule">' + esc(ruleLabel(u)) + "</span></li>";
@@ -1251,7 +1251,7 @@
       });
       if ((b.engine_steps || []).length) {
         html += '<p class="hp-cites"><span class="cite-arrow" aria-hidden="true">→</span><span class="sr-only">' + esc(T("hp.chips_sr")) + " </span><span class=\"cites\">" +
-          b.engine_steps.map(function (n) { return '<a class="cite" href="#step-' + n + '" data-step="' + n + '" tabindex="-1" aria-label="' + esc(T("hp.chip", { n: n })) + '">' + n + "</a>"; }).join(" ") + "</span></p>";
+          b.engine_steps.map(function (n) { return '<a class="cite" href="#step-' + n + '" data-step="' + n + '" tabindex="-1" title="' + esc(T("hp.chip", { n: n })) + '" aria-label="' + esc(T("hp.chip", { n: n })) + '">' + n + "</a>"; }).join(" ") + "</span></p>";
       }
       html += "</li>";
     });
