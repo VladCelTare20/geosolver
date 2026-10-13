@@ -40,7 +40,7 @@ pub const MANIFEST: &str = r##"{
 }
 "##;
 
-pub const FAVICON_SVG: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\"><circle cx=\"16\" cy=\"16\" r=\"13\" fill=\"none\" stroke=\"#1f4fa0\" stroke-width=\"2.2\"/><path d=\"M16 4.6 26.2 22H5.8Z\" fill=\"none\" stroke=\"#1f4fa0\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></svg>\n";
+pub const FAVICON_SVG: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\"><style>@media (prefers-color-scheme: dark) { circle, path { stroke: #8db2e8; } }</style><circle cx=\"16\" cy=\"16\" r=\"13\" fill=\"none\" stroke=\"#1f4fa0\" stroke-width=\"2.2\"/><path d=\"M16 4.6 26.2 22H5.8Z\" fill=\"none\" stroke=\"#1f4fa0\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></svg>\n";
 
 const ROBOTS: &str = "User-agent: *\nDisallow: /\n";
 
@@ -371,6 +371,13 @@ mod tests {
         let w = u32::from_be_bytes(png[16..20].try_into().unwrap());
         let h = u32::from_be_bytes(png[20..24].try_into().unwrap());
         (w, h, png[25])
+    }
+
+    #[test]
+    fn the_favicon_lightens_on_a_dark_tab_strip() {
+        assert!(FAVICON_SVG.contains("prefers-color-scheme: dark"));
+        assert!(FAVICON_SVG.contains("#8db2e8"));
+        assert!(FAVICON_SVG.contains("stroke=\"#1f4fa0\""));
     }
 
     #[test]

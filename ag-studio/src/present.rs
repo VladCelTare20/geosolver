@@ -2687,12 +2687,17 @@ fn source_lengths(src: &str) -> Vec<(String, String, String)> {
             let tail = after[close + 1..].trim_start();
             if args.len() == 2 {
                 if let Some(t) = tail.strip_prefix('=') {
+                    let t = t.trim_start();
                     let num: String = t
-                        .trim_start()
                         .chars()
                         .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '/')
                         .collect();
-                    if !num.is_empty() {
+                    let ends_there = t[num.len()..]
+                        .trim_start()
+                        .chars()
+                        .next()
+                        .is_none_or(|c| matches!(c, ',' | ';' | ')'));
+                    if !num.is_empty() && ends_there {
                         out.push((args[0].to_string(), args[1].to_string(), num));
                     }
                 }
@@ -2701,6 +2706,45 @@ fn source_lengths(src: &str) -> Vec<(String, String, String)> {
         }
     }
     out
+}
+
+fn relation_key(f: &Fact) -> Option<String> {
+    let text = match (f.kind, f.args.as_slice()) {
+        ("formula", [t]) => t.clone(),
+        ("rconst", [a, b, k]) => format!("{a} = {k} \u{b7} {b}"),
+        _ => return None,
+    };
+    if text.contains(['\u{2220}', '\u{2221}', '\u{25b3}', '[']) {
+        return None;
+    }
+    let squeezed: String = text.chars().filter(|c| *c != ' ').collect();
+    let mut out = String::new();
+    let mut run = String::new();
+    let flush = |run: &mut String, out: &mut String| {
+        let mut cs: Vec<char> = run.chars().collect();
+        if cs.len() == 2 {
+            cs.sort_unstable();
+        }
+        out.extend(cs);
+        run.clear();
+    };
+    for c in squeezed.chars() {
+        if c.is_ascii_uppercase() {
+            run.push(c);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(if c == '\u{b7}' { '*' } else { c });
+        }
+    }
+    flush(&mut run, &mut out);
+    Some(out)
+}
+
+fn same_relation(a: &Fact, b: &Fact) -> bool {
+    match (relation_key(a), relation_key(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
 }
 
 fn is_plain_length(c: &str) -> bool {
@@ -4269,8 +4313,12 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
             }
         }
         for f in &from_source {
-            if !list.contains(f) {
-                list.push(f.clone());
+            if list.contains(f) {
+                continue;
+            }
+            match list.iter().position(|g| same_relation(g, f)) {
+                Some(i) => list[i] = f.clone(),
+                None => list.push(f.clone()),
             }
         }
     }
@@ -6191,6 +6239,30 @@ mod tests {
         assert_eq!(ro, "intersecția dintre paralela prin I la BA și CA");
         let t = serde_json::json!({ "kind": "intersect", "args": ["tangent_at(P, centre O)", "AB"], "text": "" });
         assert!(!crate::render::aux_text(&t, crate::i18n::Lang::En).contains('('));
+    }
+
+    #[test]
+    fn a_length_times_another_is_not_stated_as_a_length() {
+        let src = "A B C = triangle\nD = point: coll(B, C, D), dist(B,D) = 2*dist(D,C), dist(B,D) + dist(D,C) = dist(B,C)\nprove coll(B, C, D)";
+        assert!(source_lengths(src).is_empty(), "{:?}", source_lengths(src));
+        assert_eq!(
+            source_lengths("A B = segment\nC = point: dist(A,C) = 5, dist(B,C) = 1/2"),
+            vec![
+                ("A".to_string(), "C".to_string(), "5".to_string()),
+                ("B".to_string(), "C".to_string(), "1/2".to_string()),
+            ]
+        );
+        let (_, v) = view(src);
+        let given: Vec<String> = v.given.iter().map(Fact::plain).collect();
+        assert!(
+            !given.iter().any(|g| g == "BD = 2" || g == "CD = 2"),
+            "{given:?}"
+        );
+        let sums = given
+            .iter()
+            .filter(|g| g.replace(' ', "").contains("BD+") && g.ends_with("BC"))
+            .count();
+        assert_eq!(sums, 1, "the same sum is stated once: {given:?}");
     }
 
     #[test]

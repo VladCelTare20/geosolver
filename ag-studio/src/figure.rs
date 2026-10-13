@@ -26,7 +26,7 @@ const INK: &str = "#1b1f24";
 const CONSTRUCTION: &str = "#6e7a86";
 const CIRCLE: &str = "#2a6fb0";
 const GOAL: &str = "#c8102e";
-const AUX: &str = "#b45309";
+const AUX: &str = "#0f766e";
 const MARK: &str = "#4b525a";
 
 #[derive(Clone, Copy, PartialEq)]

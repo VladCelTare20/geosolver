@@ -666,7 +666,7 @@ const INK: &str = "#16191d";
 const MUTED: &str = "#4b525a";
 const RULE: &str = "#dadcd8";
 const ACCENT: &str = "#1f4fa0";
-const AUX_INK: &str = "#b45309";
+const AUX_INK: &str = "#0f766e";
 
 struct Block {
     h: f32,
@@ -1737,7 +1737,21 @@ fn hp_rows(
     lead: Option<&str>,
     split: bool,
 ) -> Vec<(String, f32)> {
-    let width = |s: &str, size: f32| s.chars().count() as f32 * size * 0.5;
+    let width = |s: &str, size: f32| {
+        s.chars()
+            .map(|c| match c {
+                '\u{2220}' | '\u{2221}' | '\u{25b3}' | '\u{2245}' | '\u{27c2}' | '\u{2225}' => 0.85,
+                '+' | '\u{2212}' | '=' | '\u{b7}' | '\u{2260}' => 0.7,
+                'M' | 'W' => 0.85,
+                c if c.is_ascii_uppercase() => 0.62,
+                '\u{2032}' | '\u{2033}' | '\u{2080}'..='\u{2089}' => 0.35,
+                '\u{2009}' => 0.17,
+                ' ' => 0.28,
+                _ => 0.5,
+            })
+            .sum::<f32>()
+            * size
+    };
     let indent = 14.0;
     let lhs_w = rows
         .iter()
@@ -2280,6 +2294,42 @@ mod tests {
             end = end.max(top + inner);
         }
         end
+    }
+
+    #[test]
+    fn the_reason_column_clears_a_wide_angle_row() {
+        use crate::human_view::Row;
+        let rows = vec![
+            Row {
+                lhs: "\u{2220}BPO".into(),
+                rhs: "\u{2220}XBO \u{2212} \u{2220}OPD \u{2212} \u{2220}XBO".into(),
+                reason: "angle addition".into(),
+            },
+            Row {
+                lhs: String::new(),
+                rhs: "\u{2220}OPX".into(),
+                reason: "OP = OB".into(),
+            },
+        ];
+        let ts = Typeset {
+            names: vec!["B", "D", "O", "P", "X"],
+        };
+        let blocks = hp_rows(&rows, PAGE_W - 2.0 * MARGIN, &ts, None, false);
+        let svg = &blocks[0].0;
+        let x_of = |needle: &str| -> f32 {
+            let at = svg.find(needle).expect(needle);
+            let head = &svg[..at];
+            let from = head.rfind("<text x=\"").unwrap() + 9;
+            head[from..].split('"').next().unwrap().parse().unwrap()
+        };
+        let rhs_x = x_of("\u{2212}");
+        let reason_x = x_of("angle addition");
+        assert!(
+            reason_x - rhs_x > 10.5 * BODY_FS + 21.0,
+            "the reason starts {} pt right of its row, which is about {} pt wide",
+            reason_x - rhs_x,
+            10.65 * BODY_FS
+        );
     }
 
     #[test]
