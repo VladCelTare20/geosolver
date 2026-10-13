@@ -1472,10 +1472,31 @@
     syncProofFigure();
   }
   var TAB_MODES = ["", "is-cols", "is-stack"];
+  function splitsWord(node) {
+    if (node.nodeType === 1) {
+      if (node.classList.contains("sr-only")) return false;
+      for (var c = node.firstChild; c; c = c.nextSibling) if (splitsWord(c)) return true;
+      return false;
+    }
+    if (node.nodeType !== 3) return false;
+    var re = /\S+/g, m, rg = document.createRange();
+    while ((m = re.exec(node.nodeValue))) {
+      rg.setStart(node, m.index);
+      rg.setEnd(node, m.index + m[0].length);
+      var rs = rg.getClientRects(), top = null;
+      for (var i = 0; i < rs.length; i++) {
+        if (rs[i].width < 0.5) continue;
+        if (top === null) top = rs[i].top;
+        else if (Math.abs(rs[i].top - top) > 2) return true;
+      }
+    }
+    return false;
+  }
   function tabsFit(el, btns) {
     if (el.scrollWidth > el.clientWidth + 1) return false;
     return btns.every(function (b) {
       if (b.scrollWidth > b.clientWidth + 1) return false;
+      if (splitsWord(b)) return false;
       var rg = document.createRange();
       rg.selectNodeContents(b);
       var tr = rg.getBoundingClientRect(), br = b.getBoundingClientRect();

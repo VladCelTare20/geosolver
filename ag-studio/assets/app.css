@@ -131,7 +131,7 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
 ::selection { background: var(--accent-a28); }
 [hidden] { display: none !important; }
-.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; -webkit-user-select: none; user-select: none; }
+.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; -webkit-user-select: none; user-select: none; }
 .skip-link { position: absolute; left: max(var(--s3), var(--sai-l)); top: max(var(--s3), var(--sai-t)); z-index: 100; background: var(--surface); color: var(--text); padding: var(--s2) var(--s3); border-radius: var(--r-control); text-decoration: none; transform: translateY(-200%); }
 .skip-link:focus { transform: none; box-shadow: var(--shadow-pop); }
 .math { font-family: var(--font-math); font-size: 1.08em; font-variant-numeric: lining-nums; }
@@ -649,7 +649,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .hp-cites .cite-arrow { margin: 0; }
 .hp-cites .cites { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px 4px; min-width: 0; }
 @media (min-width: 600px) {
-  .hp-chain { display: block; max-width: 100%; overflow-x: auto; }
+  .hp-chain { display: block; position: relative; max-width: 100%; overflow-x: auto; }
   .hp-chain .m-nb { white-space: nowrap; overflow-wrap: normal; max-width: none; }
 }
 @media (max-width: 599px) {

@@ -88,6 +88,14 @@ reports its git commit (`agstudio --version`, `/api/status`).
   and two labels no longer overlap (A' over S on a landscape SE); the 1280x720
   example chips end inside the screen; the gate card, the AI pill and the
   full-screen figure fit a 180-240 px page at 125-200 % text.
+- The page no longer scrolls sideways on the Proof tab, with Export open or with
+  the figure full screen at 600-768 px and 175-200 % text (`scrollWidth` was
+  772 at 600 px / 200 %, 788 at 768 px, 681 from 600 to 680 px at 175 %): the
+  screen-reader spans inside a derivation chain escaped its scroller, so the
+  chain is now their containing block and `.sr-only` is clipped with
+  `clip-path` too. Proof tab labels never break inside a word at 280-320 px
+  (three columns that split "Demonstrați / e" now give way to the stack), and a
+  tap where the hit areas of two step references meet goes to the nearer one.
 
 ### Final-attack fixes
 - Soundness: an angle-sum goal is also checked as written, on the undirected

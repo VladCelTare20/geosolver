@@ -471,8 +471,26 @@ async function proofTabSweep(engine, profile) {
                 const tx = rg.getBoundingClientRect(), bx = b.getBoundingClientRect();
                 return b.scrollWidth <= b.clientWidth + 1 && tx.left >= bx.left - 1 && tx.right <= bx.right + 1;
               });
+              const splitWord = bs.some((b) => {
+                const walk = (n) => {
+                  if (n.nodeType === 1) return !n.classList.contains('sr-only') && [...n.childNodes].some(walk);
+                  if (n.nodeType !== 3) return false;
+                  const re = /\S+/g;
+                  let w;
+                  while ((w = re.exec(n.nodeValue))) {
+                    const r = document.createRange();
+                    r.setStart(n, w.index);
+                    r.setEnd(n, w.index + w[0].length);
+                    const tops = [...r.getClientRects()].filter((x) => x.width > 0.5).map((x) => Math.round(x.top));
+                    if (tops.length && Math.max(...tops) - Math.min(...tops) > 2) return true;
+                  }
+                  return false;
+                };
+                return walk(b);
+              });
               const vw = Math.min(want, document.documentElement.clientWidth);
               return {
+                splitWord,
                 page: document.documentElement.scrollWidth <= vw && document.body.scrollWidth <= vw,
                 onscreen: rects.every((r) => r.left >= -0.5 && r.right <= vw + 0.5),
                 inside, noClip,
@@ -481,7 +499,7 @@ async function proofTabSweep(engine, profile) {
               };
             }, width);
             const tag = `${lang} ${width}px ${scale}% [${which}]`;
-            const why = [!m.page && 'page-scroll', !m.onscreen && 'off-screen', !m.inside && 'outside-track', !m.noClip && 'clipped', m.rows !== 1 && m.rows !== m.n && 'orphan'].filter(Boolean);
+            const why = [m.splitWord && 'word-split', !m.page && 'page-scroll', !m.onscreen && 'off-screen', !m.inside && 'outside-track', !m.noClip && 'clipped', m.rows !== 1 && m.rows !== m.n && 'orphan'].filter(Boolean);
             if (why.length) bad.push(`${tag} ${why.join('+')} (rows ${m.rows}/${m.n})`);
             if (width >= 400 && scale === 100 && m.rows !== 1) tight.push(`${tag} rows ${m.rows}`);
           }
@@ -494,7 +512,7 @@ async function proofTabSweep(engine, profile) {
         }
       }
     }
-    check(!bad.length, `${engine}: the proof tabs never overflow, clip or orphan (${combos} combinations of 280..480 px x 100-200% x EN/RO x 3 tabs)${bad.length ? `: ${bad.length} bad, e.g. ` + bad.filter((x, i) => i % 3 === 0).slice(0, 12).join(' ; ') : ''}`);
+    check(!bad.length, `${engine}: the proof tabs never overflow, clip, orphan or break a word (${combos} combinations of 280..480 px x 100-200% x EN/RO x 3 tabs)${bad.length ? `: ${bad.length} bad, e.g. ` + bad.filter((x, i) => i % 3 === 0).slice(0, 12).join(' ; ') : ''}`);
     check(!tight.length, `${engine}: from 400 px at normal text size the proof tabs share one row${tight.length ? ': ' + tight.slice(0, 6).join(' ; ') : ''}`);
     await ctx.close();
   } finally {
@@ -687,6 +705,155 @@ async function peekChecks(engine, profile) {
   }
 }
 
+
+const CHAIN_WIDTHS = [280, 320, 360, 390, 430, 600, 680, 768, 820, 1024, 1280];
+const CHAIN_SCALES = [100, 125, 150, 175, 200];
+
+async function chainOverflowChecks(engine, profile) {
+  const browser = await profile.launch.launch();
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 600, height: 800 }, httpCredentials: PASSWORD ? { username: '', password: PASSWORD } : undefined });
+    const page = await ctx.newPage();
+    await enter(page, BASE);
+    await page.click('#tab-geo');
+    await page.click('#examples-btn');
+    await page.click('[data-example="imo2023"]');
+    await page.click('#solve');
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 120000 });
+    await page.waitForSelector('#human .hp-chain', { timeout: 20000 });
+    await page.evaluate(() => {
+      const st = document.createElement('style');
+      st.id = 'sweep-scale';
+      document.head.appendChild(st);
+    });
+    const bad = [];
+    let combos = 0;
+    let escaped = 0;
+    for (const lang of ['en', 'ro']) {
+      await page.evaluate((l) => document.querySelector(`[data-lang-set="${l}"]`).click(), lang);
+      await page.waitForTimeout(250);
+      for (const scale of CHAIN_SCALES) {
+        await page.evaluate((x) => { document.getElementById('sweep-scale').textContent = `html{font-size:${x}% !important}`; }, scale);
+        for (const width of CHAIN_WIDTHS) {
+          await page.setViewportSize({ width, height: 800 });
+          await page.waitForTimeout(80);
+          for (const state of ['proof', 'export', 'full']) {
+            if (state === 'proof') await page.evaluate(() => document.getElementById('ptab-human').click());
+            if (state === 'export') await page.evaluate(() => document.getElementById('export-btn').click());
+            if (state === 'full') await page.evaluate(() => document.getElementById('z-full').click());
+            await page.waitForTimeout(state === 'proof' ? 40 : 120);
+            const m = await page.evaluate(() => {
+              let leak = 0;
+              document.querySelectorAll('#human .sr-only').forEach((e) => {
+                if (e.closest('[hidden]') || !e.getClientRects().length) return;
+                const chain = e.closest('.hp-chain');
+                if (chain && getComputedStyle(chain).overflowX !== 'visible' && e.offsetParent !== chain) leak++;
+              });
+              return { sw: document.documentElement.scrollWidth, bw: document.body.scrollWidth, vw: innerWidth, leak };
+            });
+            combos++;
+            escaped += m.leak;
+            if (Math.max(m.sw, m.bw) > m.vw) bad.push(`${lang} ${width}px ${scale}% ${state}: ${Math.max(m.sw, m.bw)} > ${m.vw}`);
+            if (state === 'export') await page.keyboard.press('Escape');
+            if (state === 'full' && (await page.evaluate(() => document.getElementById('fig-frame').classList.contains('is-full')))) await page.evaluate(() => document.getElementById('z-full').click());
+          }
+        }
+      }
+    }
+    check(!bad.length, `${engine}: the page never scrolls sideways on the Proof tab, with Export open or with the figure full screen (${combos} combinations of ${CHAIN_WIDTHS[0]}..${CHAIN_WIDTHS[CHAIN_WIDTHS.length - 1]} px x 100-200% x EN/RO)${bad.length ? `: ${bad.length} bad, e.g. ` + bad.slice(0, 8).join(' ; ') : ''}`);
+    check(escaped === 0, `${engine}: no screen-reader span inside a scrolling derivation chain has a containing block outside it (${escaped} escaped)`);
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+async function refTapChecks(engine, profile) {
+  if (!coarse(profile)) return;
+  const browser = await profile.launch.launch();
+  try {
+    const ctx = await browser.newContext({ ...profile.options, httpCredentials: PASSWORD ? { username: '', password: PASSWORD } : undefined });
+    const page = await ctx.newPage();
+    const tag = `${engine}/${profile.name}`;
+    await enter(page, BASE);
+    await page.evaluate(() => {
+      const st = document.createElement('style');
+      st.id = 'sweep-scale';
+      document.head.appendChild(st);
+    });
+    const boxes = () => page.evaluate(() => {
+      const out = [];
+      document.querySelectorAll('#human .hp-ref').forEach((e, i) => {
+        if (!e.getClientRects().length || e.closest('[hidden]')) return;
+        const b = e.getBoundingClientRect();
+        const cs = getComputedStyle(e, '::after');
+        const l = parseFloat(cs.left) || 0, r = parseFloat(cs.right) || 0;
+        out.push({ i, k: e.getAttribute('data-ref'), l: b.left + l, r: b.right - r, t: b.top, b: b.bottom, tl: b.left, tr: b.right, pt: parseFloat(getComputedStyle(e).paddingTop) || 0 });
+      });
+      return out;
+    });
+    let same = 0, taps = 0, contested = 0;
+    const sameBad = [], wrong = [], widths = new Set();
+    for (const ex of ['imo2019', 'imo2023']) {
+      await page.setViewportSize({ width: 390, height: 800 });
+      await page.click('#tab-geo');
+      await page.click('#examples-btn');
+      await page.click(`[data-example="${ex}"]`);
+      await page.click('#solve');
+      await page.waitForSelector('#verdict:not([hidden])', { timeout: 120000 });
+      await page.waitForSelector('#human .hp-ref', { state: 'attached', timeout: 20000 });
+      await page.waitForTimeout(400);
+      for (const scale of [100, 125, 150, 200]) {
+        await page.evaluate((x) => { document.getElementById('sweep-scale').textContent = `html{font-size:${x}% !important}`; }, scale);
+        for (const width of [320, 340, 360, 375, 390, 412, 430]) {
+          await page.setViewportSize({ width, height: 800 });
+          await page.waitForTimeout(80);
+          const bx = await boxes();
+          bx.forEach((a) => widths.add(Math.round(a.r - a.l)));
+          for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) {
+            const a = bx[i], c = bx[j];
+            const ox = Math.min(a.r, c.r) - Math.max(a.l, c.l);
+            if (Math.abs(a.t - c.t) <= 3) {
+              same++;
+              if (ox > 0.5) sameBad.push(`${ex} ${width}px ${scale}% (${a.k},${c.k}) ${ox.toFixed(1)} px`);
+              continue;
+            }
+            let first = a.t < c.t ? a : c, second = first === a ? c : a;
+            if (ox <= 2 || second.t >= first.b - 2) continue;
+            await page.evaluate((n) => document.querySelectorAll('#human .hp-ref')[n].scrollIntoView({ block: 'center' }), first.i);
+            await page.waitForTimeout(60);
+            const again = await boxes();
+            first = again.find((q) => q.i === first.i);
+            second = again.find((q) => q.i === second.i);
+            if (!first || !second) continue;
+            const x = Math.min(Math.max((first.tl + first.tr) / 2, Math.max(first.l, second.l) + 1), Math.min(first.r, second.r) - 1);
+            const y = (first.b + second.t) / 2 - 1;
+            const gap = (q) => {
+              const dx = Math.max(q.tl - x, 0, x - q.tr), dy = Math.max(q.t + q.pt - y, 0, y - (q.b - q.pt));
+              return dx * dx + dy * dy;
+            };
+            const d1 = gap(first), d2 = gap(second);
+            if (Math.abs(d1 - d2) < 2) continue;
+            const near = d1 < d2 ? first : second;
+            await page.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+            const top = await page.evaluate(([px, py]) => { const e = document.elementFromPoint(px, py); const r = e && e.closest('.hp-ref'); return r ? r.getAttribute('data-ref') : null; }, [x, y]);
+            if (top !== null && top !== near.k) contested++;
+            await page.mouse.click(x, y);
+            taps++;
+            const got = await page.evaluate(() => (document.activeElement && document.activeElement.id) || '');
+            if (got !== 'hp-step-' + near.k) wrong.push(`${ex} ${width}px ${scale}% tap nearer (${near.k}) gave ${got || 'nothing'}`);
+          }
+        }
+      }
+    }
+    check(same > 0 && sameBad.length === 0, `${tag}: step references on one line never share tap area (${same} pairs, boxes ${[...widths].sort((p, q) => p - q).join('/')} px${sameBad.length ? '; ' + sameBad.slice(0, 5).join(' ; ') : ''})`);
+    check(taps > 0 && wrong.length === 0, `${tag}: a tap where the boxes of two references on adjacent lines meet goes to the nearer one (${taps} taps, ${contested} of them under the other reference's box${wrong.length ? '; ' + wrong.slice(0, 4).join(' ; ') : ''})`);
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
 async function targetChecks(engine, profile) {
   if (!coarse(profile)) return;
   const browser = await profile.launch.launch();
@@ -719,9 +886,10 @@ async function targetChecks(engine, profile) {
 for (const engine of ENGINES) {
   const profile = PROFILES[engine];
   if (!profile) continue;
-  if (ONLY && ONLY !== 'tabs' && ONLY !== 'fixes') continue;
+  if (ONLY && ONLY !== 'tabs' && ONLY !== 'fixes' && ONLY !== 'chain') continue;
+  if (ONLY === 'chain') { await refTapChecks(engine, profile); await chainOverflowChecks(engine, profile); continue; }
   if (ONLY === 'tabs') { await proofTabSweep(engine, profile); continue; }
-  if (ONLY === 'fixes') { await atomChecks(engine, profile); await figureChecks(engine, profile); await verdictChecks(engine, profile); await peekChecks(engine, profile); await targetChecks(engine, profile); continue; }
+  if (ONLY === 'fixes') { await atomChecks(engine, profile); await figureChecks(engine, profile); await verdictChecks(engine, profile); await peekChecks(engine, profile); await targetChecks(engine, profile); await refTapChecks(engine, profile); await chainOverflowChecks(engine, profile); continue; }
   await layoutChecks(engine, profile);
   await copyChecks(engine, profile);
   await gateTheme(engine, profile);
@@ -737,6 +905,8 @@ for (const engine of ENGINES) {
   await verdictChecks(engine, profile);
   await peekChecks(engine, profile);
   await targetChecks(engine, profile);
+  await refTapChecks(engine, profile);
+  await chainOverflowChecks(engine, profile);
 }
 
 console.log(failures.length ? `\n${failures.length} FAILED` : '\nall ok');

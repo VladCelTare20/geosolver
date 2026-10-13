@@ -1334,10 +1334,26 @@
       el.focus({ preventScroll: true });
     }
     if (root._hpClick) root.removeEventListener("click", root._hpClick);
+    function nearestLink(hit, e) {
+      if (!e.clientX && !e.clientY) return hit;
+      var best = hit, bd = Infinity, all = root.querySelectorAll(".hp-ref, .hp-step");
+      for (var i = 0; i < all.length; i++) {
+        var c = all[i], b = c.getBoundingClientRect();
+        if (!b.width) continue;
+        var pt = parseFloat(getComputedStyle(c).paddingTop) || 0, ext = Math.max(14, (46 - b.width) / 2);
+        var dx = Math.max(b.left - e.clientX, 0, e.clientX - b.right), dy = Math.max(b.top + pt - e.clientY, 0, e.clientY - (b.bottom - pt));
+        if (dx > ext || dy > pt) continue;
+        var d = dx * dx + dy * dy;
+        if (d < bd || (d === bd && c === hit)) { bd = d; best = c; }
+      }
+      return best;
+    }
     root._hpClick = function (e) {
-      var a = e.target.closest(".cite, .hp-step");
+      var hit = e.target.closest(".hp-ref, .hp-step");
+      if (hit) hit = nearestLink(hit, e);
+      var a = hit ? (hit.classList.contains("hp-step") ? hit : null) : e.target.closest(".cite");
       if (a) { e.preventDefault(); if (hooks.jump) hooks.jump(+a.getAttribute("data-step")); return; }
-      var r = e.target.closest(".hp-ref");
+      var r = hit && hit.classList.contains("hp-ref") ? hit : null;
       if (r) { e.preventDefault(); var c = root.querySelector("#hp-step-" + r.getAttribute("data-ref")); if (c) flash(c); return; }
       var w = e.target.closest(".hp-why-toggle");
       if (w) {

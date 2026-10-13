@@ -151,3 +151,35 @@ fn contrast_and_forced_colours_keep_state_visible() {
         "the lit proof block keeps a visible marker when backgrounds are dropped"
     );
 }
+
+#[test]
+fn a_scrolling_derivation_chain_contains_its_screen_reader_spans() {
+    let wide = block_after(APP_CSS, "@media (min-width: 600px) {\n  .hp-chain");
+    let chain = wide
+        .lines()
+        .find(|l| l.trim_start().starts_with(".hp-chain {"))
+        .expect("the wide-screen .hp-chain rule");
+    assert!(
+        chain.contains("overflow-x: auto") && chain.contains("position: relative"),
+        "a scroller that clips absolutely positioned screen-reader spans must be their containing block: {chain}"
+    );
+    let sr = APP_CSS
+        .lines()
+        .find(|l| l.starts_with(".sr-only {"))
+        .expect(".sr-only rule");
+    assert!(sr.contains("clip-path: inset(50%)"), "{sr}");
+}
+
+#[test]
+fn proof_tabs_refuse_a_split_word_and_taps_between_references_pick_the_nearer() {
+    let fit = &APP_JS[APP_JS.find("function tabsFit").expect("tabsFit")..];
+    let fit = &fit[..fit.find("function fitProofTabs").expect("fitProofTabs")];
+    assert!(
+        fit.contains("splitsWord(b)"),
+        "tabsFit must reject a layout in which a word breaks across lines"
+    );
+    assert!(
+        SITE_JS.contains("function nearestLink") && SITE_JS.contains("nearestLink(hit, e)"),
+        "a click on overlapping reference hit areas must resolve to the nearer reference"
+    );
+}
