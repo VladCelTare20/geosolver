@@ -1153,3 +1153,12 @@ Steps and links rise because the hypotheses of theorems are now their own steps 
 - ah-2-oma step 3 keeps the gap "[C = 180° − ∠AHB; AH ⟂ BC]": the plain route search finds no drawn route.
 - The ratio link "[BM = 1/2·BC]" of IMO 2015 P3 is not explained.
 - Corpus figure-angle proofs hold for the drawn configuration only; the packet now states that configuration.
+
+### 13.13 Final-attack wording fixes
+
+- The engine rule "angle bisector theorem" (and its converse) is named from the figure: `TheoremKey::ExtAngleBisectorThm` / `ExtAngleBisectorThmConverse` when the foot lies outside the base segment ("the external angle bisector theorem"; Romanian "teorema bisectoarei exterioare"). Five corpus and named proofs cited the internal name for an external foot.
+- The midline atom is cited only for a non-degenerate triangle.
+- A `distmeq` hypothesis is written as the length equation it states ("ZO·AB = ZO'·CD") instead of the raw predicate name.
+- After polishing, a block whose only premise is an earlier block that already states the same collinear or concyclic point set is dropped (the earlier block becomes the conclusion when the dropped one was last). Two proofs keep such a block because their claim bookkeeping ties it to the fact it proves.
+- A directed constant `aconst a b c d K` is stated as the turn from `cd` to `ab`, in GIVEN, the legend and the derivation, the same way the proof text states it.
+- An external-bisector converse step is typeset with ∡ when its undirected angles differ in the figure; `proof_audit::statement_violations` now reads ∡ statements and every displayed step.
