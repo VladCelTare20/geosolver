@@ -408,7 +408,9 @@ fn narrow_screens_wrap_instead_of_scrolling_sideways() {
     );
     assert!(
         plain(".facts li", "overflow-wrap", "anywhere")
-            && plain(".st-block .label", "overflow-wrap", "anywhere"),
+            && plain(".goal", "overflow-wrap", "anywhere")
+            && plain(".st-block .label", "overflow-wrap", "anywhere")
+            && plain(".st-block", "grid-template-columns", "minmax(0, 1fr)"),
         "long point names wrap in GIVEN/PROVE"
     );
     assert!(

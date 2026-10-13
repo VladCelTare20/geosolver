@@ -518,7 +518,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .statement { padding: var(--s4) var(--s5); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
 .st-title { font-size: var(--fs-16); font-weight: 650; overflow-wrap: anywhere; }
 .facts li:focus-visible, .goal:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; background: var(--surface-2); }
-.st-block { display: grid; gap: 6px; }
+.st-block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .facts li { padding: 3px 8px; margin: 0 -8px; border-radius: 4px; font-size: 1.06rem; line-height: 1.5; }
 .goal { font-size: 1.15rem; font-weight: 500; padding: 4px 8px; margin: 0 -8px; border-radius: 4px; }
@@ -598,7 +598,7 @@ html.has-toast .hist-list { scroll-padding-bottom: calc(var(--toast-h, 0px) + 16
 .hp-link { border-radius: 3px; }
 .hp-nb, .hp-ref { white-space: nowrap; }
 .m-nb { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; vertical-align: baseline; }
-.facts li, .st-block .label { overflow-wrap: anywhere; }
+.facts li, .goal, .st-block .label { overflow-wrap: anywhere; }
 .m-frac { display: inline-block; max-width: 100%; text-indent: 0; }
 @media (hover: hover) { .hp-link:hover, .hp-note:hover { background: var(--hl-a14); } }
 .hp-link:focus { background: var(--hl-a14); }
