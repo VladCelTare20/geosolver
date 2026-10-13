@@ -22,6 +22,9 @@ Environment=AGSTUDIO_DB=/var/lib/agstudio/agstudio.db
 UMask=0077
 Restart=on-failure
 RestartSec=3
+# systemd gives services 1024 descriptors by default; a flood of idle
+# connections must not be able to exhaust them (the app also caps connections).
+LimitNOFILE=65536
 # SIGTERM only the server: it drains solves in flight (AGSTUDIO_SHUTDOWN_GRACE_SECS,
 # 70 s) and its workers exit on their own once it is gone. The default
 # KillMode=control-group would SIGTERM every worker at once.

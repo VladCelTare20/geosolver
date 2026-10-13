@@ -40,6 +40,7 @@ let
     WorkingDirectory = stateDir;
     UMask = "0077";
     EnvironmentFile = [ envFile ] ++ optional aiOn "-${claudeEnv}" ++ cfg.environmentFiles;
+    LimitNOFILE = 65536;
     NoNewPrivileges = true;
     ProtectSystem = "strict";
     ProtectHome = true;
@@ -68,6 +69,28 @@ let
     CapabilityBoundingSet = "";
     AmbientCapabilities = "";
   };
+
+  memoryMaxMb =
+    if cfg.memoryMax == null then
+      null
+    else
+      let
+        m = builtins.match "([0-9]+)([MG])" cfg.memoryMax;
+      in
+      if m == null then
+        null
+      else
+        lib.toInt (builtins.elemAt m 0) * (if builtins.elemAt m 1 == "G" then 1024 else 1);
+
+  workerMemoryMb =
+    if cfg.workerMemoryMb != null then
+      cfg.workerMemoryMb
+    else if memoryMaxMb != null && cfg.maxConcurrent != null then
+      lib.min 2048 (memoryMaxMb * 9 / 10 / cfg.maxConcurrent)
+    else
+      null;
+
+  tailscaleLocked = "${lib.getExe' pkgs.util-linux "flock"} /run/tailscale-serve.lock ${lib.getExe config.services.tailscale.package}";
 
   aiEnv = optionalAttrs aiOn {
     HOME = stateDir;
@@ -198,6 +221,12 @@ in
       description = "Simultaneous solves (AGSTUDIO_MAX_CONCURRENT); null = min(max(CPUs, 2), 8). Size memoryMax as slots x 2 GB.";
     };
 
+    workerMemoryMb = mkOption {
+      type = types.nullOr types.ints.positive;
+      default = null;
+      description = "Memory cap of each solve worker (AGSTUDIO_WORKER_MEM_MB). Default: 2048, lowered so that maxConcurrent workers fit in 90% of memoryMax when both are set in M or G.";
+    };
+
     cpuQuota = mkOption {
       type = types.nullOr types.str;
       default = null;
@@ -209,7 +238,7 @@ in
       type = types.nullOr types.str;
       default = null;
       example = "6G";
-      description = "systemd MemoryMax of the service.";
+      description = "systemd MemoryMax of the service, e.g. 9G. With maxConcurrent set, each worker is capped at 90% of this divided by the slots (at most 2048 MB).";
     };
 
     environment = mkOption {
@@ -274,6 +303,10 @@ in
         message = "services.geosolver.funnel needs publicHost (the machine's *.ts.net name).";
       }
       {
+        assertion = cfg.memoryMax == null || memoryMaxMb != null || cfg.workerMemoryMb != null;
+        message = "services.geosolver.memoryMax is not a plain number of M or G (e.g. \"9G\"), so the worker memory cap cannot be derived from it; set services.geosolver.workerMemoryMb.";
+      }
+      {
         assertion = !cfg.behindProxy || lib.hasPrefix "127." cfg.address || cfg.address == "::1";
         message = "services.geosolver.behindProxy trusts X-Forwarded-For; keep address on loopback.";
       }
@@ -328,6 +361,9 @@ in
       }
       // optionalAttrs (cfg.maxConcurrent != null) {
         AGSTUDIO_MAX_CONCURRENT = toString cfg.maxConcurrent;
+      }
+      // optionalAttrs (workerMemoryMb != null) {
+        AGSTUDIO_WORKER_MEM_MB = toString workerMemoryMb;
       }
       // optionalAttrs (!aiOn) { AGSTUDIO_DISABLE_TRANSLATE = "1"; }
       // aiEnv
@@ -427,9 +463,10 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
-        ExecStart = "${lib.getExe config.services.tailscale.package} funnel --bg --https=${toString cfg.funnel.port} http://${cfg.address}:${toString cfg.port}";
+        ExecStart = "${tailscaleLocked} funnel --bg --https=${toString cfg.funnel.port} http://${cfg.address}:${toString cfg.port}";
         ExecStop = [
-          "-${lib.getExe config.services.tailscale.package} funnel --https=${toString cfg.funnel.port} off"
+          "-${tailscaleLocked} funnel --https=${toString cfg.funnel.port} off"
+          "-${tailscaleLocked} serve --https=${toString cfg.funnel.port} off"
         ];
         Restart = "on-failure";
         RestartSec = 3;

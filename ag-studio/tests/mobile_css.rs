@@ -401,6 +401,26 @@ fn narrow_screens_wrap_instead_of_scrolling_sideways() {
     assert!(plain(".fig-tools", "flex-wrap", "wrap"));
     assert!(plain(".example-chips .btn", "white-space", "normal"));
     assert!(
+        plain(".m-nb", "display", "inline-block")
+            && plain(".m-nb", "max-width", "100%")
+            && plain(".m-nb", "overflow-wrap", "anywhere"),
+        "a name stays whole but may break inside when wider than the line"
+    );
+    assert!(
+        plain(".facts li", "overflow-wrap", "anywhere")
+            && plain(".st-block .label", "overflow-wrap", "anywhere"),
+        "long point names wrap in GIVEN/PROVE"
+    );
+    assert!(
+        plain(".editor-error > span", "min-width", "0")
+            && plain(".editor-error > span", "overflow-wrap", "anywhere"),
+        "a long token in the inline .geo error wraps instead of widening the page"
+    );
+    assert!(
+        plain(".sr-only", "user-select", "none"),
+        "selecting a proof must not copy its screen-reader wording"
+    );
+    assert!(
         plain(".link-btn", "text-align", "inherit"),
         "a wrapped inline link button lines up with the text around it, not centred"
     );

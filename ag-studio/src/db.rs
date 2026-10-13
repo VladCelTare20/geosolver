@@ -355,6 +355,16 @@ pub fn create_user(
     Ok(conn.last_insert_rowid())
 }
 
+pub fn count_users(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+}
+
+pub fn size_bytes(conn: &Connection) -> rusqlite::Result<u64> {
+    let pages: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+    let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+    Ok((pages.max(0) as u64).saturating_mul(page_size.max(0) as u64))
+}
+
 pub fn find_user_by_name(conn: &Connection, username: &str) -> rusqlite::Result<Option<User>> {
     conn.query_row(
         "SELECT id, username, password_hash FROM users \

@@ -1693,3 +1693,26 @@ fn similar_or_congruent_degenerate_triangles_are_refused_not_proved() {
         "similar is not congruent"
     );
 }
+
+#[test]
+fn a_point_name_over_sixteen_characters_is_refused_with_a_precise_error() {
+    let long = "A".repeat(5000);
+    for src in [
+        format!("{long} B C = triangle\nprove coll({long}, B, C)"),
+        format!("A B C = triangle\n{long} = midpoint(B, C)\nprove coll(A, B, C)"),
+        format!("A B C = triangle\n{long} = point: coll({long}, B, C)\nprove coll(A, B, C)"),
+    ] {
+        let e = compile(&src).err().expect("refused");
+        let msg = e.to_string();
+        assert!(msg.contains("at most 16 characters"), "{msg}");
+        assert!(
+            msg.len() < 200,
+            "the error must not echo the whole name: {}",
+            msg.len()
+        );
+    }
+    assert!(compile(
+        "A B C = triangle\nSixteenCharsName = midpoint(B, C)\nprove coll(B, SixteenCharsName, C)"
+    )
+    .is_ok());
+}

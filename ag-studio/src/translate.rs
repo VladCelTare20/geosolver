@@ -179,25 +179,70 @@ fn find_claude_from(
     candidates.into_iter().find(|c| probe(c))
 }
 
-/// Write the bundled grammar to a temp file once and return its path, so it can
-/// be passed via `--append-system-prompt-file` instead of as a huge,
-/// metacharacter-laden command-line argument.
 fn grammar_file() -> Option<PathBuf> {
     static PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
-    PATH.get_or_init(|| {
-        // A private, randomly-named temp file (created O_EXCL, mode 0600) avoids
-        // the symlink race a fixed name would allow on a shared host. Persisted
-        // for the process lifetime — the CLI subprocess reads it by path.
-        let mut f = tempfile::Builder::new()
-            .prefix("agstudio_grammar_")
-            .suffix(".md")
-            .tempfile()
-            .ok()?;
-        f.write_all(GRAMMAR.as_bytes()).ok()?;
-        f.flush().ok()?;
-        f.into_temp_path().keep().ok()
+    PATH.get_or_init(|| ensure_grammar_file(&std::env::temp_dir()))
+        .clone()
+}
+
+fn ensure_grammar_file(dir: &Path) -> Option<PathBuf> {
+    use sha2::{Digest, Sha256};
+    let digest: String = Sha256::digest(GRAMMAR.as_bytes())
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let path = dir.join(format!("agstudio_grammar_{digest}.md"));
+    for _ in 0..2 {
+        match create_private_file(&path) {
+            Ok(mut f) => {
+                if f.write_all(GRAMMAR.as_bytes())
+                    .and_then(|_| f.flush())
+                    .is_err()
+                {
+                    let _ = std::fs::remove_file(&path);
+                    return None;
+                }
+                return Some(path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if is_our_grammar(&path) {
+                    return Some(path);
+                }
+                if !is_ours(&path) {
+                    return None;
+                }
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    opts.open(path)
+}
+
+#[cfg(unix)]
+fn is_ours(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).is_ok_and(|m| {
+        m.is_file() && m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o022 == 0
     })
-    .clone()
+}
+
+#[cfg(not(unix))]
+fn is_ours(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
+}
+
+fn is_our_grammar(path: &Path) -> bool {
+    is_ours(path) && std::fs::read(path).is_ok_and(|b| b == GRAMMAR.as_bytes())
 }
 
 /// Does `<bin> --version` run successfully?
@@ -1387,5 +1432,37 @@ mod tests {
         assert!(env_login_hint(
             |k| (k == "CLAUDE_CODE_OAUTH_TOKEN").then(|| "t".into())
         ));
+    }
+    #[test]
+    fn the_grammar_file_has_one_stable_private_name_and_never_accumulates() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = ensure_grammar_file(dir.path()).expect("created");
+        assert_eq!(std::fs::read(&first).unwrap(), GRAMMAR.as_bytes());
+        let second = ensure_grammar_file(dir.path()).expect("reused");
+        assert_eq!(first, second);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&first).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{mode:o}");
+        }
+        std::fs::write(&first, "tampered").unwrap();
+        let third = ensure_grammar_file(dir.path()).expect("rewritten");
+        assert_eq!(std::fs::read(&third).unwrap(), GRAMMAR.as_bytes());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_planted_at_the_grammar_path_is_never_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("victim");
+        std::fs::write(&target, "keep me").unwrap();
+        let planted = ensure_grammar_file(dir.path()).expect("created");
+        std::fs::remove_file(&planted).unwrap();
+        std::os::unix::fs::symlink(&target, &planted).unwrap();
+        assert_eq!(ensure_grammar_file(dir.path()), None);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep me");
     }
 }

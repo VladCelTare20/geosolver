@@ -3076,7 +3076,31 @@ fn check_goal_is_ddar_expressible(stmts: &[Stmt]) -> Result<(), CompileError> {
     Ok(())
 }
 
+const MAX_POINT_NAME_CHARS: usize = 16;
+
+fn check_point_names(stmts: &[Stmt]) -> Result<(), String> {
+    for s in stmts {
+        let names: &[String] = match s {
+            Stmt::Bind { names, .. } => names,
+            Stmt::Constrain { name, .. } => std::slice::from_ref(name),
+            _ => continue,
+        };
+        if let Some(long) = names
+            .iter()
+            .find(|n| n.chars().count() > MAX_POINT_NAME_CHARS)
+        {
+            let shown: String = long.chars().take(MAX_POINT_NAME_CHARS).collect();
+            return Err(format!(
+                "point names are at most {MAX_POINT_NAME_CHARS} characters; `{shown}\u{2026}` is {} long",
+                long.chars().count()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
+    check_point_names(stmts)?;
     let n = point_count(stmts);
     if n > MAX_POINTS {
         return Err(format!(

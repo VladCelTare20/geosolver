@@ -40,6 +40,9 @@
 //! | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history |
 //! | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
 //! | `AGSTUDIO_SHUTDOWN_GRACE_SECS` | 70 | on SIGTERM/SIGINT: stop accepting, let requests in flight finish for at most this long (default = solve deadline + worker grace + 5 s), checkpoint the DB, exit 0. Keep the service manager's stop timeout above it |
+//! | `AGSTUDIO_MAX_CONNECTIONS` | 0 = half the soft open-files limit (64–4096) | simultaneous client connections; one over the cap is closed at once, so an idle-connection flood cannot exhaust file descriptors and wedge `accept`. Give the service `LimitNOFILE=65536` |
+//! | `AGSTUDIO_MAX_ACCOUNTS` | 2000 | registered accounts; past it `/api/auth/register` answers 503 (guests and existing accounts are unaffected; 0 = no limit) |
+//! | `AGSTUDIO_MAX_DB_MB` | 4096 | database size at which new history rows are stored without their full solution (they reopen by re-solving) and a warning is logged once (0 = no limit) |
 //! | `AGSTUDIO_ACCESS_LOG` | on | one stdout line per request: UTC time, client IP, method, path (no query), status, milliseconds; `/healthz` and `/readyz` are not logged. `0` turns it off |
 //!
 //! Flags take `1`/`0`, `true`/`false`, `yes`/`no` or `on`/`off` in any case; any other
@@ -73,6 +76,27 @@ pub const ARGON2_PERMITS: usize = 2;
 
 /// Minimum length of the shared Basic-auth password.
 const MIN_BASIC_PASSWORD_CHARS: usize = 8;
+const STRONG_BASIC_PASSWORD_CHARS: usize = 12;
+const COMMON_PASSWORDS: [&str; 12] = [
+    "password",
+    "password1",
+    "password123",
+    "12345678",
+    "123456789",
+    "1234567890",
+    "qwertyuiop",
+    "qwerty123",
+    "letmein123",
+    "iloveyou",
+    "welcome123",
+    "adminadmin",
+];
+
+fn is_weak_password(pass: &str) -> bool {
+    pass.chars().count() < STRONG_BASIC_PASSWORD_CHARS
+        || pass.chars().all(|c| c.is_ascii_digit())
+        || COMMON_PASSWORDS.contains(&pass.to_ascii_lowercase().as_str())
+}
 
 /// The marker of the template password in `deploy/.env.example`.
 const PLACEHOLDER_PASSWORD: &str = "change-me";
@@ -95,6 +119,7 @@ pub struct BasicAuth {
     /// `None` = password-only mode: any username is accepted.
     user: Option<[u8; 32]>,
     pass: [u8; 32],
+    weak: bool,
 }
 
 fn sha256(b: &[u8]) -> [u8; 32] {
@@ -133,7 +158,12 @@ impl BasicAuth {
         Ok(BasicAuth {
             user: user.map(|u| sha256(u.as_bytes())),
             pass: sha256(pass.as_bytes()),
+            weak: is_weak_password(pass),
         })
+    }
+
+    pub fn is_weak(&self) -> bool {
+        self.weak
     }
 
     /// Whether an `Authorization` header value carries these credentials.
@@ -236,9 +266,19 @@ pub struct Config {
     /// How long a client has to send a request's headers before the
     /// connection is closed.
     pub header_timeout: Duration,
+    /// How long `/gate` has to receive and answer a form before it is cut
+    /// off with 408 (a body trickled in a byte at a time cannot hold a
+    /// connection for the whole request timeout).
+    pub gate_timeout: Duration,
     /// How long requests in flight may run on after a shutdown signal.
     pub shutdown_grace: Duration,
     pub access_log: bool,
+    /// `AGSTUDIO_MAX_CONNECTIONS`; 0 = half the soft open-files limit.
+    pub max_connections: usize,
+    /// `AGSTUDIO_MAX_ACCOUNTS` (0 = no limit).
+    pub max_accounts: usize,
+    /// `AGSTUDIO_MAX_DB_MB` (0 = no limit), in bytes.
+    pub max_db_bytes: u64,
 }
 
 /// Default web solve deadline (`AGSTUDIO_SOLVE_DEADLINE_SECS`).
@@ -249,6 +289,8 @@ pub const EXTENDED_DEADLINE: Duration = Duration::from_secs(180);
 pub const REQUEST_TIMEOUT_MIN: Duration = Duration::from_secs(120);
 /// Default [`Config::header_timeout`].
 pub const HEADER_TIMEOUT: Duration = Duration::from_secs(30);
+/// Default [`Config::gate_timeout`].
+pub const GATE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A boolean setting: `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`, any case.
 pub fn parse_flag(v: &str) -> Option<bool> {
@@ -357,6 +399,7 @@ impl Config {
         };
         let gate_key = match env_secret(&get, "AGSTUDIO_GATE_KEY")? {
             None => None,
+            Some(v) if v.trim().is_empty() => None,
             Some(v) => Some(parse_hex32(v.trim()).ok_or(
                 "AGSTUDIO_GATE_KEY is set but unusable: it must be 64 hex characters (32 bytes), \
                  e.g. the output of `openssl rand -hex 32`",
@@ -432,6 +475,7 @@ impl Config {
             solve_deadline,
             extended_deadline,
             header_timeout: HEADER_TIMEOUT,
+            gate_timeout: GATE_TIMEOUT,
             shutdown_grace: match set_value(&get, "AGSTUDIO_SHUTDOWN_GRACE_SECS") {
                 Some(_) => Duration::from_secs(
                     env_num(&get, "AGSTUDIO_SHUTDOWN_GRACE_SECS", 0u64)?.min(600),
@@ -439,6 +483,9 @@ impl Config {
                 None => solve_deadline + crate::worker::GRACE + Duration::from_secs(5),
             },
             access_log: env_flag(&get, "AGSTUDIO_ACCESS_LOG")?.unwrap_or(true),
+            max_connections: env_num(&get, "AGSTUDIO_MAX_CONNECTIONS", 0usize)?,
+            max_accounts: env_num(&get, "AGSTUDIO_MAX_ACCOUNTS", 2000usize)?,
+            max_db_bytes: env_num(&get, "AGSTUDIO_MAX_DB_MB", 4096u64)?.saturating_mul(1 << 20),
         })
     }
 
@@ -499,6 +546,14 @@ impl Config {
                  AGSTUDIO_TRUST_PROXY=1 if the proxy sets X-Forwarded-For."
                     .to_string(),
             );
+        }
+        if self.basic_auth.as_ref().is_some_and(BasicAuth::is_weak) {
+            out.push(format!(
+                "the shared password is shorter than {STRONG_BASIC_PASSWORD_CHARS} characters, \
+                 all digits or a common one. The site name is public (certificate logs), so \
+                 it is the only barrier against guessing from many addresses. Use the output \
+                 of `openssl rand -hex 16`."
+            ));
         }
         out
     }
@@ -876,6 +931,27 @@ mod tests {
             w.iter().any(|m| m.contains("AGSTUDIO_TRUST_PROXY is off")),
             "{w:?}"
         );
+        for weak in ["password", "12345678", "short-pw-1", "123456789012345"] {
+            let c = cfg(&[
+                ("AGSTUDIO_BIND", "0.0.0.0:8787"),
+                ("AGSTUDIO_PUBLIC_HOST", "geo.example.com"),
+                ("AGSTUDIO_BASIC_AUTH", &format!(":{weak}")),
+            ])
+            .unwrap();
+            assert!(
+                c.deployment_warnings()
+                    .iter()
+                    .any(|m| m.contains("shared password is shorter")),
+                "{weak}"
+            );
+        }
+        let strong = cfg(&[
+            ("AGSTUDIO_BIND", "0.0.0.0:8787"),
+            ("AGSTUDIO_PUBLIC_HOST", "geo.example.com"),
+            ("AGSTUDIO_BASIC_AUTH", ":4f9c1e7a2b8d3065e1f4a9c7b2d83e60"),
+        ])
+        .unwrap();
+        assert!(strong.deployment_warnings().is_empty());
         for fine in [
             cfg(&[]).unwrap(),
             cfg(&[
@@ -885,7 +961,7 @@ mod tests {
             .unwrap(),
             cfg(&[
                 ("AGSTUDIO_BIND", "0.0.0.0:8787"),
-                ("AGSTUDIO_BASIC_AUTH", ":longenough"),
+                ("AGSTUDIO_BASIC_AUTH", ":4f9c1e7a2b8d3065e1f4a9c7b2d83e60"),
                 ("AGSTUDIO_PUBLIC_HOST", "geo.example.com"),
             ])
             .unwrap(),
@@ -920,6 +996,17 @@ mod tests {
             assert!(
                 !value.contains('#') && value == value.trim_end(),
                 "uncommenting {line:?} gives systemd the value {value:?}"
+            );
+            if name == "AGSTUDIO_BASIC_AUTH" || name.ends_with("_FILE") {
+                continue;
+            }
+            assert!(
+                cfg(&[
+                    ("AGSTUDIO_BASIC_AUTH", ":4f9c1e7a2b8d3065e1f4a9c7b2d83e60"),
+                    (name, value)
+                ])
+                .is_ok(),
+                "uncommenting {line:?} must start the server"
             );
         }
         assert!(seen >= 30, "only {seen} variables in the template");
@@ -1231,8 +1318,15 @@ mod tests {
             .gate_key
             .unwrap();
         assert_eq!((k[0], k[1], k[31]), (0x00, 0x11, 0xff));
+        assert!(cfg(&[("AGSTUDIO_GATE_KEY", "")])
+            .unwrap()
+            .gate_key
+            .is_none());
+        assert!(cfg(&[("AGSTUDIO_GATE_KEY", "  ")])
+            .unwrap()
+            .gate_key
+            .is_none());
         for bad in [
-            "",
             "abc",
             &hex[..63],
             &format!("{hex}0"),
@@ -1492,6 +1586,19 @@ impl RateLimiter {
         w.count <= limit
     }
 
+    fn window_spent<K: std::hash::Hash + Eq>(
+        map: &HashMap<K, Window>,
+        key: &K,
+        limit: u32,
+        now: Instant,
+        window: Duration,
+    ) -> bool {
+        limit != 0
+            && map
+                .get(key)
+                .is_some_and(|w| now.duration_since(w.start) < window && w.count >= limit)
+    }
+
     /// Whether `ip` has already used up `limit` in the current window (no hit).
     fn exhausted(map: &HashMap<IpAddr, Window>, ip: IpAddr, limit: u32, now: Instant) -> bool {
         limit != 0
@@ -1546,25 +1653,38 @@ impl AppState {
 
     /// Count one translation or AI explanation from `ip`, by a guest or an
     /// account, against `AGSTUDIO_GUEST_AI_PER_DAY` and the server-wide
-    /// `AGSTUDIO_AI_PER_DAY_TOTAL`; false once either day's budget is spent.
-    pub fn ai_call_allowed(&self, ip: IpAddr) -> bool {
+    /// `AGSTUDIO_AI_PER_DAY_TOTAL`. A spent server-wide budget refuses the call
+    /// without counting it against the address.
+    pub fn ai_call_allowed(&self, ip: IpAddr) -> AiAllowance {
         let now = Instant::now();
         let mut r = relock(&self.rate);
         r.sweep(now);
-        RateLimiter::hit_in(
+        let total = self.config.ai_per_day_total;
+        if RateLimiter::window_spent(&r.ai_day_total, &(), total, now, DAY) {
+            return AiAllowance::ServerSpent;
+        }
+        if !RateLimiter::hit_in(
             &mut r.guest_ai_day,
             ip,
             self.config.guest_ai_per_day,
             now,
             DAY,
-        ) && RateLimiter::hit_in(
-            &mut r.ai_day_total,
-            (),
-            self.config.ai_per_day_total,
-            now,
-            DAY,
-        )
+        ) {
+            return AiAllowance::NetworkSpent;
+        }
+        if RateLimiter::hit_in(&mut r.ai_day_total, (), total, now, DAY) {
+            AiAllowance::Allowed
+        } else {
+            AiAllowance::ServerSpent
+        }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiAllowance {
+    Allowed,
+    NetworkSpent,
+    ServerSpent,
 }
 
 /// Peers allowed to speak for someone else via `X-Forwarded-For`: the proxy is

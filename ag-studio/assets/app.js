@@ -972,6 +972,7 @@
     }
     if (r.status === 401 && d.code === "sign_in") return { titleKey: "err.title.auth", body: d.error, bodyKey: d.error ? null : "err.body.auth", signin: true };
     if (r.status === 401) { authLost(); return { titleKey: "err.title.auth", bodyKey: "err.body.auth", signin: true }; }
+    if (r.status === 429 && (d.code === "daily" || d.code === "daily_server") && d.error) return { titleKey: "err.title.daily", body: d.error };
     if (r.status === 429) return { titleKey: "err.title.rate", bodyKey: "err.body.rate", retry: true };
     if (r.status === 503 && d.code === "busy_extended") return { titleKey: "err.title.busy", body: d.error };
     if (r.status === 503 && d.code === "busy_self") return { titleKey: "err.title.busy_self", bodyKey: "err.body.busy_self", n: d.limit || 1, retry: true, retryAfter: r.retryAfter };
@@ -1472,6 +1473,7 @@
     var box = $("ai-text");
     if (!force && S.aiCache[key]) { if (box.innerHTML !== S.aiCache[key]) box.innerHTML = S.aiCache[key]; return; }
     var seq = ++S.aiSeq;
+    $("ai-regen").hidden = false;
     box.innerHTML = '<p class="ai-loading"><span class="spinner" aria-hidden="true"></span>' + esc(t("proof.ai.loading")) + "</p>";
     var v = sol.view;
     var problem = ["Given: " + (v.given || []).map(GS.factText).join("; "), v.goal ? "Prove: " + GS.factText(v.goal) : ""].join("\n");
@@ -1481,6 +1483,12 @@
     api("/api/humanize", { method: "POST", body: { problem: problem, proof: englishProof(), human: humanEn, aux: aux, lang: lang } }).then(function (r) {
       if (seq !== S.aiSeq) return;
       if (r.data && r.data.code === "translate_unavailable") refreshAiStatus();
+      if (r.status === 429 && r.data && (r.data.code === "daily" || r.data.code === "daily_server") && r.data.error) {
+        $("ai-regen").hidden = true;
+        box.innerHTML = '<p class="muted">' + esc(r.data.error) + "</p>";
+        announceStatus(r.data.error);
+        return;
+      }
       if (!r.ok || !r.data.proof) throw new Error("ai");
       var html = markdown(r.data.proof);
       S.aiCache[key] = html;
@@ -1711,13 +1719,19 @@
     var title = slug(sol.title);
     return "geosolver-" + (title ? title + "-" : "") + suffix;
   }
+  function withBackground(svg) {
+    var open = /^\s*<svg\b[^>]*>/.exec(svg);
+    var box = open && /viewBox="\s*(-?[\d.]+(?:e-?\d+)?)[\s,]+(-?[\d.]+(?:e-?\d+)?)[\s,]+([\d.]+(?:e-?\d+)?)[\s,]+([\d.]+(?:e-?\d+)?)\s*"/i.exec(open[0]);
+    if (!box) return svg;
+    return open[0] + '<rect x="' + box[1] + '" y="' + box[2] + '" width="' + box[3] + '" height="' + box[4] + '" fill="#ffffff"/>' + svg.slice(open[0].length);
+  }
   function exportAs(fmt) {
     var sol = S.sol;
     if (!sol) return;
     var label = fmt.toUpperCase();
     var derivation = !!(S.derivation && humanOf(sol));
     if (fmt === "svg") {
-      deliver(new Blob([figureFor(sol)], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg", "SVG", true);
+      deliver(new Blob([withBackground(figureFor(sol))], { type: "image/svg+xml" }), fileName(sol, slug(t("export.suffix.figure"))) + ".svg", "SVG", true);
       return;
     }
     if (S.exporting) return;

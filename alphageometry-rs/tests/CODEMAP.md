@@ -17,7 +17,7 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Engine: [../src/](../src/CODEMAP.md)
 - `aux_kinds.rs` — the aux candidate generator emits arc midpoints and centres of similitude where they apply.
 - `aux_rediscovery.rs` — delete a problem's given auxiliary points; the search must find replacements.
 - `universal.rs` — the MAX solver proves every `examples/olympiad` problem from its bare statement.
-- `human_proofs.rs` — the human-proof writer on the golden problems (`golden/human/`): recorded text and shape, every claim re-verified, the checker rejects corrupted proofs and false atoms, determinism, an expired deadline never lies, no failed check on the JGEX corpus.
+- `human_proofs.rs` — the human-proof writer on the golden problems (`golden/human/`): recorded text and shape, every claim re-verified, the checker rejects corrupted proofs and false atoms, determinism, an expired deadline never lies, no failed check on the JGEX corpus, every angle bisector theorem named internal or external as the figure reads it, no midline of a collinear triangle, no raw predicate name, and at most two blocks (`vecten_point`, E059-47) that restate the block they cite.
 - `human_theorems.rs` — every theorem of the human-proof library fires on its figure and not without its hypotheses.
 
 ## Notes

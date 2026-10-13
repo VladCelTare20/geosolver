@@ -65,6 +65,11 @@ fn print_shows_the_result_in_light_colours_without_controls() {
         print.contains(".proof-head { break-after: avoid; }"),
         "the PROOF heading stays with the proof, never alone at the foot of a page"
     );
+    assert!(
+        print.contains(".st-block > .label { break-after: avoid; }")
+            && print.contains(".st-goal { break-inside: avoid; }"),
+        "GIVEN/PROVE labels stay with their first fact, never alone at the foot of a page"
+    );
 }
 
 #[test]

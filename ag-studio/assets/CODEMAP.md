@@ -115,6 +115,10 @@ Up: [../../CODEMAP.md](../../CODEMAP.md) · Server: [../src/](../src/CODEMAP.md)
 - `landing.js` — when `showcase.json` has `view.human`, the case shows the human proof (`GS.renderHuman`, figure `svg_proof`) and the full derivation sits behind "Show the full derivation"; a chip opens it at its step.
 - `index.html` / `landing.html` skip link — inside the `<header>` landmark (axe `region`); `auth.html` — the form sits in a `div[role=tabpanel]` (`#form-panel`), not `<form role=tabpanel>`. `site.js:renderHuman` chain tables are `role=presentation` with `role=list` on the `tbody` that holds the `listitem` rows (axe `aria-required-children`/`-parent`). axe-core 4.10.2 reports no violations on the app (idle and Proof tab, light and dark), gate, sign-in and landing.
 
+- `app.css` — `.m-nb` (a name with its angle or triangle sign) is an inline block that stays whole but may break inside when wider than its line (`overflow-wrap: anywhere`), so a 24-character point name no longer pushes GIVEN/PROVE past a 320 px screen; `.editor-error` and its span wrap a long token; `.sr-only` is `user-select: none`, so selecting a proof and copying it pastes the glyphs, not the screen-reader wording ('is perpendicular to', 'In the full derivation:'); print keeps GIVEN/PROVE labels with their first fact (`.st-block > .label { break-after: avoid }`).
+- `app.js:withBackground` — Export > Figure (SVG) puts a white `<rect>` the size of the `viewBox` first, as the PNG report does, so the dark-ink figure is readable on a dark surface.
+- `site.js:applyTheme` also writes the `theme` cookie that the gate page reads (`gate.rs:themed`).
+
 ## Browser support
 - Baseline: Safari / iOS 15.4+, Chrome / Edge / Opera 100+ (incl. Android WebView), Samsung Internet 17+, Firefox 100+ / ESR 115. `tests/compat.rs` (part of `cargo test`) fails on CSS or JS newer than that without a fallback; `tests/compat-inventory.mjs` lists every feature against MDN's compat data.
 - The page scripts are ES5 syntax (they parse as ES5); keep them so, the inline guard included.

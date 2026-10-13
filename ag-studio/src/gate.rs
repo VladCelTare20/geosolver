@@ -312,6 +312,17 @@ fn render(lang: Lang, next: &str, ask_user: bool, problem: Option<Problem>) -> S
         .replace("{{next}}", &html_escape(next))
 }
 
+fn themed(html: String, headers: &HeaderMap) -> String {
+    match crate::auth::single_cookie(headers, "theme") {
+        Some(mode @ ("light" | "dark")) => html.replacen(
+            "<html lang=",
+            &format!("<html data-theme=\"{mode}\" lang="),
+            1,
+        ),
+        _ => html,
+    }
+}
+
 fn page_response(status: StatusCode, html: String) -> Response {
     (
         status,
@@ -355,7 +366,10 @@ pub async fn page(State(state): State<Shared>, uri: Uri, headers: HeaderMap) -> 
         .as_ref()
         .is_some_and(|b| b.has_user());
     let problem = (q.cookies.as_deref() == Some("0")).then_some(Problem::Cookies);
-    let mut resp = page_response(StatusCode::OK, render(lang, &next, ask_user, problem));
+    let mut resp = page_response(
+        StatusCode::OK,
+        themed(render(lang, &next, ask_user, problem), &headers),
+    );
     if let Some(l) = chosen {
         if let Ok(v) = HeaderValue::from_str(&lang_cookie_value(l, state.config.secure_cookies)) {
             resp.headers_mut().append(header::SET_COOKIE, v);
@@ -397,7 +411,7 @@ pub async fn submit(State(state): State<Shared>, req: Request<Body>) -> Response
     if state.password_guesses_exhausted(ip) {
         let mut resp = page_response(
             StatusCode::TOO_MANY_REQUESTS,
-            render(lang, &next, ask_user, Some(Problem::Rate)),
+            themed(render(lang, &next, ask_user, Some(Problem::Rate)), &headers),
         );
         resp.headers_mut()
             .insert(header::RETRY_AFTER, HeaderValue::from_static("60"));
@@ -408,19 +422,31 @@ pub async fn submit(State(state): State<Shared>, req: Request<Body>) -> Response
         Ok(_) => {
             return page_response(
                 StatusCode::BAD_REQUEST,
-                render(lang, &next, ask_user, Some(Problem::Empty)),
+                themed(
+                    render(lang, &next, ask_user, Some(Problem::Empty)),
+                    &headers,
+                ),
             )
         }
         Err(rejection) => {
             let status = rejection.status();
-            return page_response(status, render(lang, &next, ask_user, Some(Problem::Empty)));
+            return page_response(
+                status,
+                themed(
+                    render(lang, &next, ask_user, Some(Problem::Empty)),
+                    &headers,
+                ),
+            );
         }
     };
     if !basic.credentials_match(form.username.as_bytes(), form.password.as_bytes()) {
         state.count_wrong_password(ip);
         return page_response(
             StatusCode::UNAUTHORIZED,
-            render(lang, &next, ask_user, Some(Problem::Wrong)),
+            themed(
+                render(lang, &next, ask_user, Some(Problem::Wrong)),
+                &headers,
+            ),
         );
     }
     let mut resp = see_other(location_of(&next));
@@ -595,5 +621,26 @@ mod tests {
         );
         assert!(!ro.contains("aria-invalid"));
         assert!(!ro.contains("role=\"alert\""));
+    }
+    #[test]
+    fn the_gate_follows_the_theme_the_app_stored_in_its_cookie() {
+        let with = |cookie: &str| {
+            let mut h = HeaderMap::new();
+            h.insert(header::COOKIE, HeaderValue::from_str(cookie).unwrap());
+            themed(render(Lang::En, "/", false, None), &h)
+        };
+        assert!(with("theme=dark")
+            .starts_with("<!DOCTYPE html>\n<html data-theme=\"dark\" lang=\"en\">"));
+        assert!(with("theme=light; lang=ro").contains("<html data-theme=\"light\" lang=\"en\">"));
+        for ignored in [
+            "theme=",
+            "theme=sepia",
+            "theme=dark\"><script>",
+            "theme=dark; theme=light",
+        ] {
+            assert!(with(ignored).contains("<html lang=\"en\">"), "{ignored}");
+        }
+        let plain = themed(render(Lang::En, "/", false, None), &HeaderMap::new());
+        assert!(plain.contains("<html lang=\"en\">"));
     }
 }

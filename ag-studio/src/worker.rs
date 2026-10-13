@@ -470,6 +470,22 @@ fn cap(resource: Resource, soft: u64, hard: u64) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+pub fn open_files_soft_limit() -> Option<usize> {
+    let mut cur = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: a plain syscall filling a stack value.
+    let ok = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut cur) } == 0;
+    ok.then(|| usize::try_from(cur.rlim_cur).unwrap_or(usize::MAX))
+}
+
+#[cfg(not(unix))]
+pub fn open_files_soft_limit() -> Option<usize> {
+    None
+}
+
 /// `AGSTUDIO_WORKER_MEM_MB` (default 2048; 0 = no limit) in bytes.
 fn mem_limit_bytes() -> Option<u64> {
     let mb = std::env::var("AGSTUDIO_WORKER_MEM_MB")

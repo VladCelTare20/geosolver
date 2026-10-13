@@ -9,7 +9,7 @@
 
 use std::io::Write;
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     body::Body,
@@ -359,10 +359,12 @@ async fn serve_until(
             .draining
             .store(true, std::sync::atomic::Ordering::SeqCst);
     };
+    let max_connections = connection_cap(state.config.max_connections);
     let drained = accept_loop(
         listener,
         app_router(state.clone()),
         header_timeout,
+        max_connections,
         shutdown,
         drain,
     )
@@ -437,15 +439,26 @@ fn translate_banner(s: translate::Status, container: bool) -> TranslateBanner {
     }
 }
 
+fn connection_cap(configured: usize) -> usize {
+    if configured > 0 {
+        return configured;
+    }
+    (worker::open_files_soft_limit().unwrap_or(1024) / 2).clamp(64, 4096)
+}
+
 /// HTTP/1 connections with a header-read timeout; each request carries its
-/// peer as `ConnectInfo<SocketAddr>`.
+/// peer as `ConnectInfo<SocketAddr>`. At most `max_connections` are open at
+/// once; the next is closed as soon as it is accepted.
 async fn accept_loop(
     listener: tokio::net::TcpListener,
     app: Router,
     header_timeout: Duration,
+    max_connections: usize,
     shutdown: impl std::future::Future<Output = ()>,
     drain: Duration,
 ) -> anyhow::Result<usize> {
+    let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(max_connections));
+    let mut last_shed_log: Option<Instant> = None;
     let mut http = hyper::server::conn::http1::Builder::new();
     http.timer(hyper_util::rt::TokioTimer::new())
         .header_read_timeout(header_timeout);
@@ -467,6 +480,14 @@ async fn accept_loop(
                 continue;
             }
         };
+        let Ok(slot) = slots.clone().try_acquire_owned() else {
+            drop(stream);
+            if last_shed_log.is_none_or(|t| t.elapsed() > Duration::from_secs(10)) {
+                eprintln!("connection limit ({max_connections}) reached: closing new connections");
+                last_shed_log = Some(Instant::now());
+            }
+            continue;
+        };
         let conn = http.serve_connection(
             hyper_util::rt::TokioIo::new(stream),
             WithPeer {
@@ -476,6 +497,7 @@ async fn accept_loop(
         );
         let mut stop = stop_rx.clone();
         conns.spawn(async move {
+            let _slot = slot;
             tokio::pin!(conn);
             tokio::select! {
                 _ = conn.as_mut() => return,
@@ -532,6 +554,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for WithPeer
 fn app_router(state: Shared) -> Router {
     let body_limit = state.config.max_body_bytes;
     let request_timeout = state.config.request_timeout();
+    let gate_timeout = state.config.gate_timeout;
     Router::new()
         .route("/", get(index))
         .route("/app", get(app_page))
@@ -540,9 +563,18 @@ fn app_router(state: Shared) -> Router {
             "/gate",
             get(gate::page)
                 .post(gate::submit)
-                .layer(DefaultBodyLimit::max(GATE_BODY_LIMIT)),
+                .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(GATE_BODY_LIMIT))
+                .layer::<_, std::convert::Infallible>(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    gate_timeout,
+                )),
         )
-        .route("/gate/forget", post(gate::forget))
+        .route(
+            "/gate/forget",
+            post(gate::forget).layer::<_, std::convert::Infallible>(
+                TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, gate_timeout),
+            ),
+        )
         .route("/manifest.webmanifest", get(pwa::manifest))
         .route("/favicon.svg", get(pwa::favicon_svg))
         .route("/favicon.ico", get(pwa::favicon_ico))
@@ -1091,6 +1123,7 @@ struct Credentials {
 
 enum RegisterErr {
     Taken,
+    Full,
     Internal,
 }
 
@@ -1165,11 +1198,18 @@ async fn api_register(
         Err(e) => return e,
     };
     let secure = state.config.secure_cookies;
+    let max_accounts = state.config.max_accounts;
     let db = state.db.clone();
     let outcome = tokio::task::spawn_blocking(move || -> Result<(String, String), RegisterErr> {
         let hash = auth::hash_password(&req.password).map_err(|_| RegisterErr::Internal)?;
         drop(permit);
         let conn = db::lock(&db);
+        if max_accounts > 0
+            && db::count_users(&conn)
+                .is_ok_and(|n| n >= i64::try_from(max_accounts).unwrap_or(i64::MAX))
+        {
+            return Err(RegisterErr::Full);
+        }
         let uid = db::create_user(&conn, &username, &hash).map_err(|e| {
             if is_unique_violation(&e) {
                 RegisterErr::Taken
@@ -1189,6 +1229,11 @@ async fn api_register(
             StatusCode::CONFLICT,
             "user_taken",
             i18n::t(lang, "auth.user_taken"),
+        ),
+        Ok(Err(RegisterErr::Full)) => err_code(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "accounts_full",
+            i18n::t(lang, "auth.accounts_full"),
         ),
         Ok(Err(RegisterErr::Internal)) => {
             eprintln!("register failed: internal error hashing/creating the account");
@@ -1879,6 +1924,8 @@ fn method_str(m: engine::Method) -> &'static str {
     }
 }
 
+static DB_FULL_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Record a completed solve (proved or not) in the caller's history. Best-effort:
 /// a storage error here must never fail the solve response itself. Inputs past
 /// the request cap are never stored (the request check bounds `sol.input`'s
@@ -1908,9 +1955,19 @@ async fn save_history(
         o.remove("id");
     }
     let solution = Some(stored.to_string()).filter(|s| s.len() <= MAX_STORED_SOLUTION_BYTES);
+    let max_db_bytes = state.config.max_db_bytes;
     tokio::task::spawn_blocking(move || {
+        let conn = db::lock(&db);
+        let full = max_db_bytes > 0 && db::size_bytes(&conn).is_ok_and(|n| n > max_db_bytes);
+        if full && !DB_FULL_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            eprintln!(
+                "database is over AGSTUDIO_MAX_DB_MB: new history rows are stored without \
+                 their solution"
+            );
+        }
+        let solution = solution.filter(|_| !full);
         db::insert_history_full(
-            &db::lock(&db),
+            &conn,
             user_id,
             &db::NewHistory {
                 input: &input,
@@ -2211,12 +2268,22 @@ async fn api_translate(
         Err(e) => return e,
     };
     if let Some(ip) = ip.as_ref() {
-        if !state.ai_call_allowed(ip.0 .0) {
-            return err_code(
-                StatusCode::TOO_MANY_REQUESTS,
-                "daily",
-                i18n::t(lang, "translate.daily"),
-            );
+        match state.ai_call_allowed(ip.0 .0) {
+            security::AiAllowance::Allowed => {}
+            security::AiAllowance::NetworkSpent => {
+                return err_code(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "daily",
+                    i18n::t(lang, "translate.daily"),
+                )
+            }
+            security::AiAllowance::ServerSpent => {
+                return err_code(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "daily_server",
+                    i18n::t(lang, "translate.daily_server"),
+                )
+            }
         }
     }
     let permit = match heavy_permit(&state, &headers).await {
@@ -2342,12 +2409,22 @@ async fn api_humanize(
         Err(e) => return e,
     };
     if let Some(ip) = ip.as_ref() {
-        if !state.ai_call_allowed(ip.0 .0) {
-            return err_code(
-                StatusCode::TOO_MANY_REQUESTS,
-                "daily",
-                i18n::t(lang, "humanize.daily"),
-            );
+        match state.ai_call_allowed(ip.0 .0) {
+            security::AiAllowance::Allowed => {}
+            security::AiAllowance::NetworkSpent => {
+                return err_code(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "daily",
+                    i18n::t(lang, "humanize.daily"),
+                )
+            }
+            security::AiAllowance::ServerSpent => {
+                return err_code(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "daily_server",
+                    i18n::t(lang, "humanize.daily_server"),
+                )
+            }
         }
     }
     if !state.config.enable_translate || !translate::available() {
@@ -5211,6 +5288,64 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn idle_connections_beyond_the_cap_are_closed_and_free_their_slot_when_they_end() {
+            use tokio::io::AsyncReadExt;
+            let (state, _dir) = state_with(|c| c.max_connections = 3);
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(serve_on(listener, state));
+            let mut idle = Vec::new();
+            for _ in 0..3 {
+                idle.push(tokio::net::TcpStream::connect(addr).await.unwrap());
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let mut extra = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let mut buf = [0u8; 16];
+            let n = bounded(extra.read(&mut buf)).await;
+            assert!(
+                matches!(n, Ok(0) | Err(_)),
+                "the connection over the cap is closed at once: {n:?}"
+            );
+            drop(idle.pop());
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let reply = bounded(http_get(addr, "/healthz")).await;
+            assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+            server.abort();
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn a_gate_form_trickled_in_slowly_is_cut_off() {
+            use tokio::io::AsyncReadExt;
+            let (state, _dir) = state_with(|c| {
+                c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
+                c.gate_timeout = Duration::from_millis(400);
+            });
+            let listener = bind_test_port().await;
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(serve_on(listener, state));
+            let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let head = format!(
+                "POST /gate HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/x-www-form-urlencoded\r\n\
+                 Content-Length: 100\r\n\r\npassword=x",
+                addr.port()
+            );
+            sock.write_all(head.as_bytes()).await.unwrap();
+            let started = Instant::now();
+            let mut reply = String::new();
+            let read = bounded(sock.read_to_string(&mut reply)).await;
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "{:?}",
+                started.elapsed()
+            );
+            assert!(
+                reply.starts_with("HTTP/1.1 408") || read.is_err() || reply.is_empty(),
+                "{reply}"
+            );
+            server.abort();
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn a_shutdown_lets_the_solve_in_flight_finish_then_stops_accepting() {
             use tokio::io::AsyncReadExt;
             let (state, _dir) = state_with(|c| c.max_concurrent = 2);
@@ -5588,6 +5723,80 @@ mod tests {
         )
         .await;
         assert_eq!(st, StatusCode::NOT_FOUND, "another user's row is invisible");
+    }
+
+    #[tokio::test]
+    async fn a_full_database_keeps_history_rows_but_not_their_solution() {
+        let (state, _dir) = state_with(|c| c.max_db_bytes = 1);
+        let cookie = register_cookie(&state, "noether").await;
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/solve",
+            Some(&cookie),
+            serde_json::json!({"input": ORTHO_REFLECTION}),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK);
+        let (_, _, rows) = call(
+            &state,
+            "GET",
+            "/api/history",
+            Some(&cookie),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(rows[0]["has_solution"], false, "{rows}");
+        assert_eq!(rows[0]["input"], ORTHO_REFLECTION);
+    }
+
+    #[tokio::test]
+    async fn registration_closes_at_the_account_cap_and_says_why() {
+        let (state, _dir) = state_with(|c| c.max_accounts = 2);
+        for name in ["first", "second"] {
+            let (st, _, _) = call(
+                &state,
+                "POST",
+                "/api/auth/register",
+                None,
+                creds(name, "hunter2hunter"),
+            )
+            .await;
+            assert_eq!(st, StatusCode::OK, "{name}");
+        }
+        let (st, set, body) = call(
+            &state,
+            "POST",
+            "/api/auth/register",
+            None,
+            creds("third", "hunter2hunter"),
+        )
+        .await;
+        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["code"], "accounts_full");
+        assert_eq!(body["error"], i18n::t(i18n::Lang::En, "auth.accounts_full"));
+        assert!(set.is_none(), "no session is issued");
+        let (st, _, _) = call(
+            &state,
+            "POST",
+            "/api/auth/login",
+            None,
+            creds("first", "hunter2hunter"),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "existing accounts still sign in");
+        let (state, _dir) = state_with(|c| c.max_accounts = 0);
+        for name in ["alpha", "bravo", "charlie"] {
+            let (st, _, _) = call(
+                &state,
+                "POST",
+                "/api/auth/register",
+                None,
+                creds(name, "hunter2hunter"),
+            )
+            .await;
+            assert_eq!(st, StatusCode::OK, "0 = no limit");
+        }
     }
 
     #[tokio::test]
@@ -7148,6 +7357,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_spent_server_wide_ai_budget_says_so_instead_of_blaming_the_network() {
+        let (state, _dir) = state_with(|c| {
+            c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
+            c.guest_mode = true;
+            c.guest_ai = true;
+            c.guest_ai_per_day = 60;
+            c.ai_per_day_total = 1;
+            c.translate_per_min = 0;
+            c.enable_translate = false;
+        });
+        let cookie = gate_cookie(&state).await;
+        let hz = serde_json::json!({"problem": "p", "proof": "1. coll A B C"}).to_string();
+        let humanize = || build("POST", "/api/humanize", &[("cookie", &cookie)], Some(&hz));
+        let (st, _, _) = send(&state, humanize()).await;
+        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
+        for lang in [i18n::Lang::En, i18n::Lang::Ro] {
+            let accept = if lang == i18n::Lang::En { "en" } else { "ro" };
+            let req = build(
+                "POST",
+                "/api/humanize",
+                &[("cookie", &cookie), ("accept-language", accept)],
+                Some(&hz),
+            );
+            let (st, _, body) = send(&state, req).await;
+            assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "{body}");
+            let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(v["code"], "daily_server");
+            assert_eq!(v["error"], i18n::t(lang, "humanize.daily_server"));
+            assert!(!v["error"].as_str().unwrap().contains("network"));
+        }
+    }
+
+    #[tokio::test]
     async fn guest_ai_explanations_count_against_the_daily_budget() {
         let (state, _dir) = state_with(|c| {
             c.basic_auth = Some(security::BasicAuth::parse(&format!(":{GATE_PW}")).unwrap());
@@ -7237,17 +7479,18 @@ mod tests {
 
     #[test]
     fn the_guest_daily_translation_cap_counts_per_address() {
+        use security::AiAllowance::{Allowed, NetworkSpent};
         let (state, _dir) = ai_guest_state(true, false);
         let a: std::net::IpAddr = "203.0.113.5".parse().unwrap();
         for _ in 0..100 {
-            assert!(state.ai_call_allowed(a), "0 = no daily cap");
+            assert_eq!(state.ai_call_allowed(a), Allowed, "0 = no daily cap");
         }
         let (state, _dir) = state_with(|c| c.guest_ai_per_day = 2);
         let b: std::net::IpAddr = "203.0.113.6".parse().unwrap();
-        assert!(state.ai_call_allowed(a));
-        assert!(state.ai_call_allowed(a));
-        assert!(!state.ai_call_allowed(a));
-        assert!(state.ai_call_allowed(b));
+        assert_eq!(state.ai_call_allowed(a), Allowed);
+        assert_eq!(state.ai_call_allowed(a), Allowed);
+        assert_eq!(state.ai_call_allowed(a), NetworkSpent);
+        assert_eq!(state.ai_call_allowed(b), Allowed);
     }
 
     #[test]
@@ -7320,11 +7563,34 @@ mod tests {
 
     #[test]
     fn the_server_wide_daily_ai_cap_spans_every_address() {
-        let (state, _dir) = state_with(|c| c.ai_per_day_total = 3);
-        let calls: Vec<bool> = (1..=5)
+        use security::AiAllowance::{Allowed, ServerSpent};
+        let (state, _dir) = state_with(|c| {
+            c.ai_per_day_total = 3;
+            c.guest_ai_per_day = 4;
+        });
+        let calls: Vec<_> = (1..=5)
             .map(|i| state.ai_call_allowed(format!("198.51.100.{i}").parse().unwrap()))
             .collect();
-        assert_eq!(calls, [true, true, true, false, false]);
+        assert_eq!(calls, [Allowed, Allowed, Allowed, ServerSpent, ServerSpent]);
+        let one: std::net::IpAddr = "198.51.100.1".parse().unwrap();
+        for _ in 0..10 {
+            assert_eq!(state.ai_call_allowed(one), ServerSpent);
+        }
+        let (state, _dir) = state_with(|c| {
+            c.ai_per_day_total = 100;
+            c.guest_ai_per_day = 2;
+        });
+        let a: std::net::IpAddr = "203.0.113.9".parse().unwrap();
+        let spent: Vec<_> = (0..4).map(|_| state.ai_call_allowed(a)).collect();
+        assert_eq!(
+            spent,
+            [
+                Allowed,
+                Allowed,
+                security::AiAllowance::NetworkSpent,
+                security::AiAllowance::NetworkSpent
+            ]
+        );
     }
 
     fn jpeg_of(img: &image::RgbImage) -> Vec<u8> {

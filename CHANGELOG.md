@@ -11,10 +11,15 @@ reports its git commit (`agstudio --version`, `/api/status`).
   `.env.example` shipped it uncommented and the previous build accepted it),
   this build refuses to start. That password was published in this
   repository: set a new one before upgrading.
-- The previous release has no `agstudio backup`; back up by stopping the
-  service and copying `agstudio.db` (DEPLOY.md, "Upgrading from a release
-  without `agstudio backup`"). Route C: re-copy `deploy/agstudio.service`,
-  `systemctl daemon-reload`, and `chmod 600 /etc/agstudio.env`.
+- The previous release has no `agstudio backup`, and its data stays in
+  `agstudio.db-wal` even after a clean stop, so never copy `agstudio.db` alone
+  (a 4 KB main file beside a 100 KB+ WAL: the copy has no tables). Stop the
+  service, build the new release without starting it, and back up with the
+  NEW binary (`agstudio backup <dest> --db <path>`), or copy `agstudio.db`
+  together with its `-wal` and `-shm` files (DEPLOY.md, "Upgrading from a
+  release without `agstudio backup`"). Route C: re-copy
+  `deploy/agstudio.service`, `systemctl daemon-reload`, and
+  `chmod 600 /etc/agstudio.env`.
 - `AGSTUDIO_GUEST_AI_PER_DAY` now counts accounts too (per address), and
   `AGSTUDIO_AI_PER_DAY_TOTAL` caps the whole server; `/readyz` answers only
   `{"ready": bool}`.
@@ -43,6 +48,43 @@ reports its git commit (`agstudio --version`, `/api/status`).
 - A congruence is named by a criterion (SSS/SAS/ASA) only when the facts that
   criterion needs were stated before the congruence, never counting the
   congruence's own conclusion.
+
+### Final-attack fixes
+- Soundness: an angle-sum goal is also checked as written, on the undirected
+  angles in degrees with no reduction mod 180°. `angle(A,B,C) + angle(B,C,A) +
+  angle(C,A,B) = 360` (or 0, 540, 720), a parallelogram's opposite angles
+  differing by 180° and a quadrilateral summing to 720° were reported
+  "Proved"; they are refuted, and `ddar --geo` no longer prints "Proven" for a
+  goal its own figure contradicts.
+- Soundness: a proof of a betweenness, ray or arc-side statement about a free
+  point (`BD + DC = BC` for D on line BC or the foot of A, `angle(A,B,D) =
+  angle(A,B,C)`, `angle(A,B,C) = angle(A,D,C)` for D on the circle, an
+  orthocenter angle sum) is "for the configuration drawn only": the
+  configuration probe now evaluates the statement as written in right and
+  obtuse triangles and with free points on both sides, not the lowered
+  directed predicate. A 120-statement sweep against an independent oracle had
+  56 false statements proved with no caveat; it now has none.
+- Proofs: a converse bisector step is typeset ∡ when its undirected angles
+  differ; a directed constant is stated with the arms the proof text uses
+  (`aconst a b c d K` is the turn from `cd` to `ab`); the external
+  bisector theorem is named so; no midline of a collinear triangle; `distmeq`
+  hypotheses are written as the length equation; a block that only restates
+  the collinear or concyclic fact it cites is dropped.
+- Server: connections are capped (`AGSTUDIO_MAX_CONNECTIONS`, units get
+  `LimitNOFILE=65536`), `/gate` cuts a slow body after 10 s, new accounts stop
+  at `AGSTUDIO_MAX_ACCOUNTS` and history stops storing solutions past
+  `AGSTUDIO_MAX_DB_MB`, point names are at most 16 characters, an empty
+  `AGSTUDIO_GATE_KEY` is unset, the grammar temp file no longer accumulates,
+  and a shared password under 12 characters is flagged at startup.
+- NixOS module: each worker's memory cap follows `memoryMax` and
+  `maxConcurrent` (`workerMemoryMb` overrides), the funnel unit takes
+  `flock /run/tailscale-serve.lock` and clears the port with `serve off` on stop.
+- UI: the daily AI cap shows its own message (no "wait a minute"/Try again),
+  the server-wide cap no longer says "on this network", a long token in a
+  `.geo` error and long point names wrap, selecting and copying proof text
+  gives the visible text, the exported SVG has a white background, print keeps
+  the PROVE label with its statement, the gate page follows the app's theme,
+  and the no-AI wording is meant for visitors.
 
 ### Human proofs
 - Readability rounds 1 and 2 (merged from `wf/hp-final3`): concyclicity by a

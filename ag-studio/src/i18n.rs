@@ -102,6 +102,7 @@ fn en(key: &str) -> &'static str {
         "auth.pw_len" => "password must be 8–128 characters",
         "auth.user_taken" => "that username is already taken",
         "auth.create_fail" => "could not create the account",
+        "auth.accounts_full" => "New accounts are closed on this server. You can still solve as a guest.",
         "auth.bad_creds" => "invalid username or password",
         "auth.login_fail" => "login failed",
         "auth.not_signed_in" => "not signed in",
@@ -123,6 +124,7 @@ fn en(key: &str) -> &'static str {
         "gate.forget" => "Forget this device",
         "gate.lang" => "Language",
         "translate.daily" => "You have used today's AI translations on this network. Write the problem as a .geo program, or try again tomorrow.",
+        "translate.daily_server" => "This server's AI allowance for today is used up. Write the problem as a .geo program, or try again tomorrow.",
         // solve
         "solve.empty" => "The program is empty.",
         "solve.failed" => "The prover stopped unexpectedly. Try again; if it happens again, simplify the problem.",
@@ -146,6 +148,7 @@ fn en(key: &str) -> &'static str {
         "humanize.unavailable" => "AI explanations are not enabled on this server.",
         "humanize.failed" => "The explanation could not be written. Try again.",
         "humanize.daily" => "You have used today's AI explanations on this network. The proof above is complete; try again tomorrow for an AI explanation.",
+        "humanize.daily_server" => "This server's AI allowance for today is used up. The proof above is complete; try again tomorrow for an AI explanation.",
         // export
         "export.failed" => "The export failed. Try again.",
         // shared / security
@@ -585,6 +588,7 @@ fn ro(key: &str) -> &'static str {
         "auth.pw_len" => "parola trebuie să aibă între 8 și 128 de caractere",
         "auth.user_taken" => "acest nume de utilizator este deja folosit",
         "auth.create_fail" => "contul nu a putut fi creat",
+        "auth.accounts_full" => "Conturile noi sunt închise pe acest server. Poți rezolva în continuare ca vizitator.",
         "auth.bad_creds" => "nume de utilizator sau parolă incorecte",
         "auth.login_fail" => "autentificarea a eșuat",
         "auth.not_signed_in" => "neautentificat",
@@ -606,6 +610,7 @@ fn ro(key: &str) -> &'static str {
         "gate.forget" => "Uită acest dispozitiv",
         "gate.lang" => "Limba",
         "translate.daily" => "Ai folosit traducerile AI de azi din această rețea. Scrie problema ca program .geo sau încearcă din nou mâine.",
+        "translate.daily_server" => "Limita zilnică de AI a acestui server a fost folosită. Scrie problema ca program .geo sau încearcă din nou mâine.",
         // solve
         "solve.empty" => "Programul este gol.",
         "solve.failed" => "Motorul de demonstrare s-\u{2060}a oprit neașteptat. Încearcă din nou; dacă se repetă, simplifică problema.",
@@ -629,6 +634,7 @@ fn ro(key: &str) -> &'static str {
         "humanize.unavailable" => "Explicațiile AI nu sunt activate pe acest server.",
         "humanize.failed" => "Explicația nu a putut fi scrisă. Încearcă din nou.",
         "humanize.daily" => "Ai folosit explicațiile AI de azi din această rețea. Demonstrația de mai sus este completă; încearcă din nou mâine pentru o explicație AI.",
+        "humanize.daily_server" => "Limita zilnică de AI a acestui server a fost folosită. Demonstrația de mai sus este completă; încearcă din nou mâine pentru o explicație AI.",
         // export
         "export.failed" => "Exportul a eșuat. Încearcă din nou.",
         // shared / security
@@ -1429,6 +1435,9 @@ mod tests {
             "gate.lang",
             "translate.daily",
             "humanize.daily",
+            "translate.daily_server",
+            "humanize.daily_server",
+            "auth.accounts_full",
             "auth.sign_in_ai",
             "auth.sign_in_required",
         ] {

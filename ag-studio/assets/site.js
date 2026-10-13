@@ -1979,6 +1979,7 @@
     var root = document.documentElement;
     if (mode === "system") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", mode);
     try { if (mode === "system") localStorage.removeItem("theme"); else localStorage.setItem("theme", mode); } catch (e) {}
+    try { document.cookie = "theme=" + (mode === "system" ? "" : mode) + "; Path=/; SameSite=Lax; Max-Age=" + (mode === "system" ? 0 : 31536000) + (location.protocol === "https:" ? "; Secure" : ""); } catch (e) {}
     document.querySelectorAll("[data-theme-toggle]").forEach(paintThemeButton);
     document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
       var scheme = /dark/.test(m.getAttribute("media") || "") ? "dark" : "light";

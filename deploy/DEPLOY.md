@@ -13,7 +13,9 @@ Pick one route:
 - **B. Plain `docker run`** — behind your own proxy / Cloudflare Tunnel.
 - **C. Native binary + systemd** — no Docker; Caddy or nginx in front.
 - **D. NixOS module** — `nixosModules.default` of this flake, optionally on
-  the internet through Tailscale Funnel (how the reference instance runs).
+  the internet through Tailscale Funnel. Import the flake's module as shown;
+  a hand-copied service definition does not get its hardening (KillMode,
+  OOMPolicy, the daily backup timer, the worker memory cap).
 
 Everything is **secure by default**: the server *refuses to start* on a
 non-loopback interface unless you set `AGSTUDIO_BASIC_AUTH` (or explicitly opt
@@ -240,7 +242,14 @@ the unit in route C, generates a 128-bit shared password on first start
 (every minute), and writes a daily backup to `/var/backup/geosolver`
 (14 kept; `sudo geosolver-backup [dest]` takes one now). With `ai.package`
 set, `sudo geosolver-claude-token` installs a `claude setup-token` token and
-runs a self-test inside the service sandbox. Funnel is per port: everything
+runs a self-test inside the service sandbox. With `memoryMax` ("9G") and
+`maxConcurrent` set, each worker is capped at 90 % of the limit divided by the
+slots (at most 2048 MB; `workerMemoryMb` overrides), so the app's own
+overcommit warning stays quiet; the unit also gets `KillMode=mixed`,
+`TimeoutStopSec=90`, `OOMPolicy=continue` and `LimitNOFILE=65536`. The funnel
+unit takes `flock /run/tailscale-serve.lock` around every `tailscale
+funnel`/`serve` call and clears the port with `serve off` on stop, so it
+cannot race another unit that publishes on the same tailnet node. Funnel is per port: everything
 served on the funnel port is public, so give GeoSolver a port nothing else
 uses (`funnel.port`: 443, 8443 or 10000), and `systemctl stop
 geosolver-funnel` takes it off the internet while it keeps running on
@@ -316,10 +325,18 @@ paths.) Check it with `journalctl -u agstudio -n 20` and a sign-in.
    [Upgrading from a release without `agstudio backup`](#upgrading-from-a-release-without-agstudio-backup).
 2. Update: `git pull`, then
    `GEOSOLVER_REVISION=$(git rev-parse --short=12 HEAD) docker compose -f deploy/docker-compose.yml up -d --build`
-   (route C: rebuild, `install`, `systemctl restart agstudio`; route D: update
-   the flake input and `nixos-rebuild switch`).
+   (route C: rebuild, `install`, `systemctl restart agstudio`; route D: see
+   below).
 3. Check `/api/status` → `"version"` and `"revision"`, or
    `agstudio --version`.
+
+Route D: a flake input locks one commit of one branch or tag. If the input is
+`git+file:///path/to/geosolver?ref=<branch>`, the release you want must be on
+that branch: merge or fast-forward it there (or change `ref`), then
+`nix flake update geosolver` in the machine's flake, commit, and
+`nixos-rebuild build`, `test`, `switch`. Updating a lock that still names the
+old branch deploys nothing new. After the switch, `agstudio --version` must
+print the commit you released.
 
 The database records its schema version (`PRAGMA user_version`). An upgrade
 migrates it forward in place. Builds from this release on refuse to open a
@@ -479,6 +496,9 @@ the gate key. `down` without `-v`, `stop`, `restart` and `up --build` keep it.
 | `AGSTUDIO_DB` | `./agstudio.db` | SQLite file for accounts/sessions/history (`/data/agstudio.db` in the Docker image) |
 | `AGSTUDIO_SECURE_COOKIES` | off | session cookie becomes `__Host-sid` + `Secure`, and HSTS is sent (needs HTTPS) |
 | `AGSTUDIO_SHUTDOWN_GRACE_SECS` | 70 | on SIGTERM/SIGINT: stop accepting, let requests in flight finish for at most this long (default = solve deadline + worker grace + 5 s), checkpoint the DB, exit 0. Keep the service manager's stop timeout above it |
+| `AGSTUDIO_MAX_CONNECTIONS` | 0 = half the soft open-files limit (64–4096) | simultaneous client connections; one over the cap is closed at once, so an idle-connection flood cannot exhaust file descriptors and wedge `accept`. Give the service `LimitNOFILE=65536` |
+| `AGSTUDIO_MAX_ACCOUNTS` | 2000 | registered accounts; past it `/api/auth/register` answers 503 (guests and existing accounts are unaffected; 0 = no limit) |
+| `AGSTUDIO_MAX_DB_MB` | 4096 | database size at which new history rows are stored without their full solution (they reopen by re-solving) and a warning is logged once (0 = no limit) |
 | `AGSTUDIO_ACCESS_LOG` | on | one stdout line per request: UTC time, client IP, method, path (no query), status, milliseconds; `/healthz` and `/readyz` are not logged. `0` turns it off |
 | `AGSTUDIO_EXPORT_DIR` | `$XDG_DATA_HOME/geosolver/exports` (default `~/.local/share/geosolver/exports`) | MCP `export_report` writes only here (bare filenames, no overwrite unless asked) |
 | `AUX_MAX_RUNS`, `AUX_MAX_DEPTH` | server-safe | solver effort caps (set automatically; override to tune). They bound only the legacy fallback search; the default search runs until each solve's wall-clock limit |
