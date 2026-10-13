@@ -830,10 +830,16 @@ impl Typeset<'_> {
             let (name, trail) = core.split_at(core.len() - trail_len);
             if let Some(parts) = self.name_run(name) {
                 out.push_str(&escape_xml(&lead));
-                let set: String = parts
+                let sep = if parts.iter().all(|p| crate::figure::is_compact_name(p)) {
+                    ""
+                } else {
+                    "\u{2009}"
+                };
+                let set = parts
                     .iter()
                     .map(|p| crate::figure::name_markup(p))
-                    .collect();
+                    .collect::<Vec<_>>()
+                    .join(sep);
                 out.push_str(&format!("<tspan font-style=\"italic\">{set}</tspan>"));
                 out.push_str(&escape_xml(trail));
             } else {

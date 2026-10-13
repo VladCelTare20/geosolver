@@ -405,10 +405,20 @@ fn place_labels(specs: &[(Pt, String)], dots: &[Pt], els: &[El], k: f64) -> Vec<
     out
 }
 
+pub(crate) fn is_compact_name(name: &str) -> bool {
+    name.chars()
+        .next()
+        .is_some_and(|a| a.is_uppercase() || a == 'ω')
+        && name.chars().skip(1).enumerate().all(|(i, c)| {
+            matches!(c, '\u{2080}'..='\u{2089}' | '\u{2032}' | '\u{2033}' | '\'')
+                || (i == 0 && c.is_ascii_lowercase())
+        })
+}
+
 pub(crate) fn name_markup(name: &str) -> String {
     let mut cs = name.chars();
     match (cs.next(), cs.next()) {
-        (Some(a), Some(b)) if (a.is_uppercase() || a == 'ω') && b.is_ascii_lowercase() => {
+        (Some(a), Some(b)) if is_compact_name(name) && b.is_ascii_lowercase() => {
             let rest: String = cs.collect();
             format!(
                 r#"{}<tspan font-size="75%" baseline-shift="sub">{b}</tspan>{}"#,
@@ -1560,6 +1570,54 @@ mod tests {
                 .any(|l| l.contains("data-p=\"A M\"") || l.contains("data-p=\"M A\"")),
             "{s}"
         );
+    }
+
+    fn view_box(s: &str) -> (f64, f64, f64, f64) {
+        let vb = s
+            .split("viewBox=\"")
+            .nth(1)
+            .and_then(|r| r.split('"').next())
+            .expect("viewBox");
+        let v: Vec<f64> = vb.split(' ').map(|x| x.parse().unwrap()).collect();
+        (v[0], v[1], v[0] + v[2], v[1] + v[3])
+    }
+
+    fn labels_outside(s: &str, k: f64) -> Vec<String> {
+        use super::*;
+        let (x0, y0, x1, y1) = view_box(s);
+        s.lines()
+            .filter(|l| l.starts_with("<text") && l.contains("f-lbl"))
+            .filter_map(|l| {
+                let name = attr_of(l, "data-p")?;
+                let (x, y) = (num_attr(l, "x")?, num_attr(l, "y")? - LABEL_FS * k * 0.34);
+                let (hw, hh) = (label_width(name) * k / 2.0, LABEL_FS * k * 0.45);
+                (x - hw < x0 - 0.5 || x + hw > x1 + 0.5 || y - hh < y0 - 0.5 || y + hh > y1 + 0.5)
+                    .then(|| name.to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sixteen_character_names_stay_inside_the_frame() {
+        let src = "PointAlphaNumber PointBravoNumber PointCharlieNum1 = triangle\nPointDeltaNumber = orthocenter(PointAlphaNumber, PointBravoNumber, PointCharlieNum1)\nprove perp(PointAlphaNumber, PointDeltaNumber, PointBravoNumber, PointCharlieNum1)";
+        let s = svg(src);
+        assert_eq!(labels_outside(&s, 1.0), Vec::<String>::new(), "{s}");
+        let r = super::relabel(&s, 1.4);
+        assert_eq!(labels_outside(&r, 1.4), Vec::<String>::new(), "report: {r}");
+    }
+
+    #[test]
+    fn only_a_capital_and_one_lower_case_letter_get_a_subscript() {
+        assert!(super::name_markup("Ma").contains("baseline-shift"));
+        assert!(super::name_markup("Ha\u{2032}").contains("baseline-shift"));
+        for long in ["Alpha", "Orthocenter", "Mab", "AB"] {
+            assert!(
+                !super::name_markup(long).contains("<tspan"),
+                "{long} is one name, not a subscript"
+            );
+        }
+        assert!(super::is_compact_name("Ma") && super::is_compact_name("H\u{2081}"));
+        assert!(!super::is_compact_name("Alpha") && !super::is_compact_name("ALPHA"));
     }
 
     #[test]
