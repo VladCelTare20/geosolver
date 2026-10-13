@@ -285,10 +285,10 @@ fn touch_controls_reach_48px() {
         has(".step-meta .cites", "gap", "12px"),
         "cite hit areas must not overlap"
     );
-    assert!(has(".seg > button", "min-height", "42px"));
+    assert!(has(".seg > button", "min-height", "44px"));
     assert!(
         has(".seg > button::after", "inset", "-3px -1px"),
-        "42px segment + 3px each side"
+        "44px segment + 3px each side"
     );
     assert!(has(".lang-seg > button", "min-width", "48px"));
     assert!(has(":root", "--pan", "44px"));

@@ -1467,9 +1467,35 @@
     });
     $("hp-kbd").hidden = which !== "human";
     $("proof-kbd").hidden = which === "human";
+    fitProofTabs();
     if (which === "ai") loadAi(false);
     syncProofFigure();
   }
+  var TAB_MODES = ["", "is-cols", "is-stack"];
+  function tabsFit(el, btns) {
+    if (el.scrollWidth > el.clientWidth + 1) return false;
+    return btns.every(function (b) { return b.scrollWidth <= b.clientWidth + 1; });
+  }
+  function fitProofTabs() {
+    var el = $("proof-tabs");
+    if (el.hidden) return;
+    var btns = Array.prototype.slice.call(el.querySelectorAll("button")).filter(function (b) { return !b.hidden; });
+    for (var i = 0; i < TAB_MODES.length; i++) {
+      el.className = "seg" + (TAB_MODES[i] ? " " + TAB_MODES[i] : "");
+      if (i === TAB_MODES.length - 1 || tabsFit(el, btns)) break;
+    }
+  }
+  (function watchProofTabs() {
+    var head = $("proof-tabs").parentNode, last = 0;
+    function check() {
+      var w = head.clientWidth;
+      if (w !== last) { last = w; fitProofTabs(); }
+    }
+    if (window.ResizeObserver) new ResizeObserver(check).observe(head);
+    window.addEventListener("resize", check);
+    window.addEventListener("orientationchange", check);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitProofTabs);
+  })();
   function proofMode(sol) {
     return !!humanOf(sol) && currentProofTab() !== "steps";
   }
@@ -2179,16 +2205,36 @@
     announce(used.length ? t("fig.point", { p: name, steps: used.join(", ") }) : t("fig.point.none", { p: name }));
   };
 
-  var peek = { el: null, big: false, figSeen: true, lit: false, timer: 0, src: null };
+  var peek = { el: null, big: false, figSeen: true, srcSeen: true, lit: false, timer: 0, src: null, raf: 0, px: -1, py: -1 };
+  ["pointerdown", "pointermove"].forEach(function (n) {
+    document.addEventListener(n, function (e) { peek.px = e.clientX; peek.py = e.clientY; }, true);
+  });
   function noteLitSource(e) {
     var tg = e.target;
     if (!tg || !tg.closest || !tg.closest("#proof-area, #verdict")) return;
+    if (e.type === "pointerover" && ((e.clientX === peek.px && e.clientY === peek.py) || (e.pointerType === "mouse" && !matchMedia("(hover: hover)").matches))) return;
     peek.src = tg.closest(".hp-block, .step, li, [tabindex]") || tg;
+    peek.srcSeen = true;
   }
+  function litSourceOnScreen() {
+    var src = peek.src;
+    if (!src || !src.isConnected || !src.getBoundingClientRect) return true;
+    var r = src.getBoundingClientRect(), header = document.querySelector(".site-header"), hr = header ? header.getBoundingClientRect() : null;
+    var top = hr && getComputedStyle(header).position === "sticky" ? Math.max(0, hr.bottom) : 0;
+    return r.bottom > top && r.top < window.innerHeight;
+  }
+  window.addEventListener("scroll", function () {
+    if (!peek.lit || peek.raf) return;
+    peek.raf = requestAnimationFrame(function () {
+      peek.raf = 0;
+      var seen = litSourceOnScreen();
+      if (seen !== peek.srcSeen) { peek.srcSeen = seen; paintPeek(); }
+    });
+  }, { passive: true });
   document.addEventListener("pointerover", noteLitSource, true);
   document.addEventListener("focusin", noteLitSource, true);
   function peekWanted() {
-    return peek.lit && !peek.figSeen && !!viewer.svg && !viewer.isFull() && matchMedia("(max-width: 1023px)").matches && !document.body.classList.contains("drawer-open");
+    return peek.lit && !peek.figSeen && peek.srcSeen && !!viewer.svg && !viewer.isFull() && matchMedia("(max-width: 1023px)").matches && !document.body.classList.contains("drawer-open");
   }
   function paintPeek() {
     var el = peek.el;

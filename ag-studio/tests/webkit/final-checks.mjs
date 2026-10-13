@@ -6,6 +6,7 @@ const BASE = process.env.BASE || 'http://127.0.0.1:8787';
 const CAP_BASE = process.env.CAP_BASE || '';
 const PASSWORD = process.env.BASIC_PASSWORD || '';
 const SHOTS = process.env.SHOTS || '';
+const ONLY = process.env.ONLY || '';
 const ENGINES = (process.env.ENGINES || 'chromium,firefox,webkit').split(',');
 
 const failures = [];
@@ -292,7 +293,7 @@ async function phoneChecks(engine, profile) {
       while (hi < 30 && hit(b.right + hi + 1, cy)) hi++;
       return b.width + lo + hi;
     });
-    check(refs != null && refs >= 30, `${tag}: a step reference "(n)" can be hit ${Math.round(refs)} px wide`);
+    check(refs != null && refs >= 44, `${tag}: a step reference "(n)" can be hit ${Math.round(refs)} px wide`);
 
     }
     await ctx.close();
@@ -424,9 +425,298 @@ async function statusFailure(engine, profile) {
   }
 }
 
+const TAB_WIDTHS = [280, 300, 320, 340, 360, 375, 390, 400, 412, 430, 480];
+const TAB_SCALES = [100, 125, 150, 200];
+
+async function proofTabSweep(engine, profile) {
+  const browser = await profile.launch.launch();
+  try {
+    const ctx = await browser.newContext({ ...profile.options, viewport: { width: 390, height: 800 }, httpCredentials: PASSWORD ? { username: '', password: PASSWORD } : undefined });
+    const page = await ctx.newPage();
+    await enter(page, BASE);
+    await page.click('#tab-geo');
+    await page.evaluate(() => document.querySelector('[data-example-solve="ortho"]').click());
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 30000 });
+    await page.waitForSelector('#proof-tabs:not([hidden])', { timeout: 10000 });
+    await page.evaluate(() => {
+      const st = document.createElement('style');
+      st.id = 'sweep-scale';
+      document.head.appendChild(st);
+    });
+    const bad = [];
+    const tight = [];
+    let combos = 0;
+    for (const lang of ['en', 'ro']) {
+      await page.evaluate((l) => document.querySelector(`[data-lang-set="${l}"]`).click(), lang);
+      await page.waitForTimeout(250);
+      for (const scale of TAB_SCALES) {
+        await page.evaluate((s) => { document.getElementById('sweep-scale').textContent = `html{font-size:${s}% !important}`; }, scale);
+        for (const width of TAB_WIDTHS) {
+          await page.setViewportSize({ width, height: 800 });
+          await page.waitForTimeout(80);
+          for (const which of ['human', 'steps', 'ai']) {
+            await page.evaluate((w) => document.getElementById('ptab-' + w).click(), which);
+            await page.waitForTimeout(40);
+            combos++;
+            const m = await page.evaluate((want) => {
+              const tabs = document.getElementById('proof-tabs');
+              const tr = tabs.getBoundingClientRect();
+              const bs = [...tabs.querySelectorAll('button')].filter((b) => !b.hidden);
+              const rects = bs.map((b) => b.getBoundingClientRect());
+              const tops = new Set(rects.map((r) => Math.round(r.top)));
+              const inside = rects.every((r) => r.left >= tr.left - 0.5 && r.right <= tr.right + 0.5);
+              const noClip = bs.every((b) => b.scrollWidth <= b.clientWidth + 1);
+              const vw = Math.min(want, document.documentElement.clientWidth);
+              return {
+                page: document.documentElement.scrollWidth <= vw && document.body.scrollWidth <= vw,
+                onscreen: rects.every((r) => r.left >= -0.5 && r.right <= vw + 0.5),
+                inside, noClip,
+                rows: tops.size, n: bs.length,
+                h: Math.round(tr.height),
+              };
+            }, width);
+            const tag = `${lang} ${width}px ${scale}% [${which}]`;
+            const why = [!m.page && 'page-scroll', !m.onscreen && 'off-screen', !m.inside && 'outside-track', !m.noClip && 'clipped', m.rows !== 1 && m.rows !== m.n && 'orphan'].filter(Boolean);
+            if (why.length) bad.push(`${tag} ${why.join('+')} (rows ${m.rows}/${m.n})`);
+            if (width >= 400 && scale === 100 && m.rows !== 1) tight.push(`${tag} rows ${m.rows}`);
+          }
+        }
+        if (SHOTS && (scale === 150 || scale === 200)) {
+          await page.setViewportSize({ width: 320, height: 700 });
+          await page.waitForTimeout(100);
+          await page.locator('#proof-tabs').scrollIntoViewIfNeeded();
+          await page.screenshot({ path: `${SHOTS}/tabs-${engine}-${lang}-320-${scale}.png` });
+        }
+      }
+    }
+    check(!bad.length, `${engine}: the proof tabs never overflow, clip or orphan (${combos} combinations of 280..480 px x 100-200% x EN/RO x 3 tabs)${bad.length ? `: ${bad.length} bad, e.g. ` + bad.filter((x, i) => i % 3 === 0).slice(0, 12).join(' ; ') : ''}`);
+    check(!tight.length, `${engine}: from 400 px at normal text size the proof tabs share one row${tight.length ? ': ' + tight.slice(0, 6).join(' ; ') : ''}`);
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+const AS_DRAWN = 'A B C = triangle\nP = point: angle(P, B, A) = angle(P, C, A)\nprove cyclic(A, P, B, C)';
+
+async function lineBoxes(page, selector) {
+  return page.evaluate((sel) => {
+    const out = [];
+    document.querySelectorAll(sel).forEach((nb) => {
+      const rs = [];
+      const tw = document.createTreeWalker(nb, NodeFilter.SHOW_TEXT);
+      let n;
+      while ((n = tw.nextNode())) {
+        if (n.parentElement.closest('.sr-only')) continue;
+        const rg = document.createRange();
+        rg.selectNodeContents(n);
+        [...rg.getClientRects()].filter((r) => r.width > 0.5).forEach((r) => rs.push(r));
+      }
+      const lines = rs.some((a) => rs.some((c) => c.top >= a.bottom - 1));
+      if (lines) out.push(nb.textContent.trim().slice(0, 30));
+    });
+    return out;
+  }, selector);
+}
+
+async function atomChecks(engine, profile) {
+  const browser = await profile.launch.launch();
+  try {
+    const auth = PASSWORD ? { username: '', password: PASSWORD } : undefined;
+    for (const [w, h] of [[1280, 720], [820, 1180], [640, 900]]) {
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, httpCredentials: auth });
+      const page = await ctx.newPage();
+      await enter(page, BASE);
+      await page.click('#tab-geo');
+      await page.click('#examples-btn');
+      await page.click('[data-example="imo2023"]');
+      await page.click('#solve');
+      await page.waitForSelector('#verdict:not([hidden])', { timeout: 120000 });
+      await page.waitForSelector('#human .hp-chain', { timeout: 20000 });
+      for (const lang of ['en', 'ro']) {
+        await page.evaluate((l) => document.querySelector(`[data-lang-set="${l}"]`).click(), lang);
+        await page.waitForTimeout(500);
+        const split = await lineBoxes(page, '#human .m-nb');
+        check(split.length === 0, `${engine}: ${w}x${h} ${lang}: no angle name in the proof is split across lines (${split.length ? split.slice(0, 4).join(' | ') : 'none'})`);
+        const rows = await page.evaluate(() => {
+          const lhs = [...document.querySelectorAll('#human .hp-lhs')].filter((e) => e.textContent.trim());
+          return lhs.filter((e) => e.getClientRects().length && e.getBoundingClientRect().height > 1.9 * parseFloat(getComputedStyle(e).lineHeight)).map((e) => e.textContent.trim().slice(0, 20));
+        });
+        check(rows.length === 0, `${engine}: ${w}x${h} ${lang}: no left-hand side of a chain wraps (${rows.join(' | ') || 'none'})`);
+      }
+      await ctx.close();
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+async function figureChecks(engine, profile) {
+  const browser = await profile.launch.launch();
+  try {
+    const auth = PASSWORD ? { username: '', password: PASSWORD } : undefined;
+    const measure = (page) => page.evaluate(() => {
+      const vp = document.getElementById('fig-viewport').getBoundingClientRect();
+      const ls = [...document.querySelectorAll('#fig-viewport .f-lbl')].map((e) => ({ t: e.textContent, b: e.getBoundingClientRect() }));
+      const over = [];
+      for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) {
+        const a = ls[i].b, c = ls[j].b;
+        const ox = Math.min(a.right, c.right) - Math.max(a.left, c.left), oy = Math.min(a.bottom, c.bottom) - Math.max(a.top, c.top);
+        if (ox > 0 && oy > 0 && ox * oy > 0.2 * Math.min(a.width * a.height, c.width * c.height)) over.push(ls[i].t + '/' + ls[j].t);
+      }
+      const margin = ls.reduce((m, x) => Math.min(m, x.b.left - vp.left, vp.right - x.b.right, x.b.top - vp.top, vp.bottom - x.b.bottom), 1e9);
+      return { over, margin, n: ls.length };
+    });
+    let ctx = await browser.newContext({ viewport: { width: 568, height: 320 }, hasTouch: true, httpCredentials: auth });
+    let page = await ctx.newPage();
+    await enter(page, BASE);
+    await page.click('#tab-geo');
+    await page.click('#examples-btn');
+    await page.click('[data-example="imo2023"]');
+    await page.click('#solve');
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 120000 });
+    await page.waitForTimeout(900);
+    let m = await measure(page);
+    check(m.n > 10 && m.over.length === 0, `${engine}: 568x320 landscape, IMO 2023: no two figure labels overlap (${m.over.join(' ') || 'none'})`);
+    if (SHOTS) {
+      await page.locator('#fig-viewport').scrollIntoViewIfNeeded();
+      await page.locator('#fig-viewport').screenshot({ path: `${SHOTS}/final-imo-landscape-${engine}.png` });
+    }
+    await ctx.close();
+
+    ctx = await browser.newContext({ ...profile.options, httpCredentials: auth });
+    page = await ctx.newPage();
+    await enter(page, BASE);
+    const names = ['PointAlpha01', 'PointBravo02', 'PointCharl03', 'PointDelta04'];
+    await solveGeo(page, `${names[0]} ${names[1]} ${names[2]} = triangle\n${names[3]} = orthocenter(${names[0]}, ${names[1]}, ${names[2]})\nprove perp(${names[0]}, ${names[3]}, ${names[1]}, ${names[2]})`);
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 30000 });
+    await page.waitForTimeout(900);
+    m = await measure(page);
+    check(m.margin >= 4, `${engine}/${profile.name}: 12-character names keep at least 4 px between every label and the figure frame (${m.margin.toFixed(1)} px)`);
+    const wide = ['WWWWWWWWWWWW', 'MMMMMMMMMMMM', 'QQQQQQQQQQQQ', 'HHHHHHHHHHHH'];
+    await solveGeo(page, `${wide[0]} ${wide[1]} ${wide[2]} = triangle\n${wide[3]} = orthocenter(${wide[0]}, ${wide[1]}, ${wide[2]})\nprove perp(${wide[0]}, ${wide[3]}, ${wide[1]}, ${wide[2]})`);
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 30000 });
+    await page.waitForTimeout(900);
+    m = await measure(page);
+    check(m.margin >= 4, `${engine}/${profile.name}: the widest 12-character names keep at least 4 px to the frame (${m.margin.toFixed(1)} px)`);
+    await ctx.close();
+
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, httpCredentials: auth });
+    page = await ctx.newPage();
+    await enter(page, BASE);
+    for (const tab of ['describe', 'photo', 'geo']) {
+      await page.click(`#tab-${tab}`);
+      await page.waitForTimeout(150);
+      const bottom = await page.evaluate(() => Math.max(...[...document.querySelectorAll('#example-chips > *')].map((c) => c.getBoundingClientRect().bottom)));
+      check(bottom <= 716, `${engine}: at 1280x720 the example chips end inside the screen on the ${tab} tab (bottom ${Math.round(bottom)} of 720)`);
+    }
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+async function verdictChecks(engine, profile) {
+  const browser = await profile.launch.launch();
+  try {
+    const ctx = await browser.newContext({ ...profile.options, httpCredentials: PASSWORD ? { username: '', password: PASSWORD } : undefined });
+    const page = await ctx.newPage();
+    const tag = `${engine}/${profile.name}`;
+    await enter(page, BASE);
+    await solveGeo(page, AS_DRAWN);
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 60000 });
+    await page.waitForTimeout(500);
+    for (const lang of ['en', 'ro']) {
+      await page.evaluate((l) => document.querySelector(`[data-lang-set="${l}"]`).click(), lang);
+      await page.waitForTimeout(400);
+      const r = await page.evaluate(() => {
+        const note = document.querySelector('#verdict .verdict-meta > .meta-note');
+        if (!note) return null;
+        const q = note.getBoundingClientRect(), v = document.getElementById('verdict').getBoundingClientRect();
+        const prev = note.previousElementSibling ? note.previousElementSibling.getBoundingClientRect() : null;
+        const lh = parseFloat(getComputedStyle(note).lineHeight) || q.height;
+        return { left: q.left - v.left, width: q.width, vwidth: v.width, lines: Math.round(q.height / lh), below: prev ? q.top >= prev.bottom - 1 : true, text: note.textContent };
+      });
+      const phone = (profile.options.viewport || {}).width < 600;
+      check(r != null && r.below && (!phone || (r.left <= 24 && r.width >= r.vwidth - 56)), `${tag} ${lang}: the "as drawn" sentence sits on its own line across the card (${r ? `left ${Math.round(r.left)}, width ${Math.round(r.width)} of ${Math.round(r.vwidth)}, ${r.lines} line(s): ${r.text}` : 'missing'})`);
+      check(r != null && r.lines <= 2, `${tag} ${lang}: the "as drawn" sentence takes at most two lines (${r ? r.lines : 'missing'})`);
+    }
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+async function peekChecks(engine, profile) {
+  if (!coarse(profile)) return;
+  const browser = await profile.launch.launch();
+  try {
+    const ctx = await browser.newContext({ ...profile.options, httpCredentials: PASSWORD ? { username: '', password: PASSWORD } : undefined });
+    const page = await ctx.newPage();
+    const tag = `${engine}/${profile.name}`;
+    await enter(page, BASE);
+    await page.click('#tab-geo');
+    await page.evaluate(() => document.querySelector('[data-example-solve="ortho"]').click());
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 30000 });
+    await page.click('#ptab-steps');
+    await page.waitForTimeout(300);
+    const steps = page.locator('#steps .step');
+    const last = steps.nth((await steps.count()) - 1);
+    await last.scrollIntoViewIfNeeded();
+    await page.evaluate(() => scrollBy(0, 40));
+    await page.waitForTimeout(300);
+    const box = await last.boundingBox();
+    await page.touchscreen.tap(box.x + 30, Math.min(box.y + box.height / 2, 600));
+    await page.waitForTimeout(500);
+    const shown = await page.evaluate(() => { const p = document.getElementById('fig-peek'); return !!p && !p.hidden; });
+    check(shown, `${tag}: tapping a step far below the figure shows the step peek`);
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.waitForTimeout(600);
+    const gone = await page.evaluate(() => { const p = document.getElementById('fig-peek'); return !p || p.hidden; });
+    const solve = await page.evaluate(() => { const b = document.getElementById('solve').getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight; });
+    check(gone, `${tag}: scrolling back up to the Solve button and the verdict dismisses the peek (Solve on screen: ${solve})`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/final-peek-${engine}.png` });
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+async function targetChecks(engine, profile) {
+  if (!coarse(profile)) return;
+  const browser = await profile.launch.launch();
+  try {
+    const ctx = await browser.newContext({ ...profile.options, httpCredentials: PASSWORD ? { username: '', password: PASSWORD } : undefined });
+    const page = await ctx.newPage();
+    const tag = `${engine}/${profile.name}`;
+    await enter(page, BASE);
+    await page.click('#tab-geo');
+    await page.evaluate(() => document.querySelector('[data-example-solve="ortho"]').click());
+    await page.waitForSelector('#verdict:not([hidden])', { timeout: 30000 });
+    await page.waitForTimeout(500);
+    const small = await page.evaluate(() => {
+      const bad = [];
+      const nm = (e) => (e.id ? '#' + e.id : e.className ? '.' + String(e.className).split(' ')[0] : e.tagName) + '"' + e.textContent.trim().slice(0, 14) + '"';
+      document.querySelectorAll('.site-header .seg > button, .site-header [data-theme-toggle], #proof-tabs > button, .tabs > button, .facts li, .goal').forEach((e) => {
+        if (!e.getClientRects().length || e.closest('[hidden]')) return;
+        const r = e.getBoundingClientRect();
+        if (r.height < 43.5 || r.width < 43.5) bad.push(`${nm(e)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+      });
+      return bad;
+    });
+    check(small.length === 0, `${tag}: header buttons, tabs and fact rows are at least 44 px each way (${small.slice(0, 5).join(', ') || 'all'})`);
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
 for (const engine of ENGINES) {
   const profile = PROFILES[engine];
   if (!profile) continue;
+  if (ONLY && ONLY !== 'tabs' && ONLY !== 'fixes') continue;
+  if (ONLY === 'tabs') { await proofTabSweep(engine, profile); continue; }
+  if (ONLY === 'fixes') { await atomChecks(engine, profile); await figureChecks(engine, profile); await verdictChecks(engine, profile); await peekChecks(engine, profile); await targetChecks(engine, profile); continue; }
   await layoutChecks(engine, profile);
   await copyChecks(engine, profile);
   await gateTheme(engine, profile);
@@ -436,6 +726,12 @@ for (const engine of ENGINES) {
   await nameChecks(engine, profile);
   await deskChecks(engine, profile);
   await statusFailure(engine, profile);
+  await proofTabSweep(engine, profile);
+  await atomChecks(engine, profile);
+  await figureChecks(engine, profile);
+  await verdictChecks(engine, profile);
+  await peekChecks(engine, profile);
+  await targetChecks(engine, profile);
 }
 
 console.log(failures.length ? `\n${failures.length} FAILED` : '\nall ok');

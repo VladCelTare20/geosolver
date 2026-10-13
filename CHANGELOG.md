@@ -75,6 +75,19 @@ reports its git commit (`agstudio --version`, `/api/status`).
   auxiliary colour is teal (red goal and brown aux were 38 apart under
   deuteranopia), the favicon lightens on a dark tab strip, the verdict heading
   no longer breaks inside a word at 200 % text.
+- Proof tabs never overflow, clip or leave a lone second row at any width or
+  text size: one row when the labels fit, three equal columns when only
+  wrapped labels fit, a stack of three when they do not (checked 280-480 px x
+  100-200 % x English/Romanian). Names of an angle or segment are never split
+  across lines in a desktop chain (Romanian "∡SP / L =" in IMO 2023 step 7).
+- Phones: the step thumbnail is dismissed when the step it shows scrolls away
+  (it stayed over Solve and the verdict); the "as drawn" sentence spans the full
+  card width; header buttons, tabs and fact rows are 44 px tall and step
+  references are 44 px wide targets; figure labels are measured after the font
+  loads (a stale width put the widest 12-character names 1.7 px from the frame)
+  and two labels no longer overlap (A' over S on a landscape SE); the 1280x720
+  example chips end inside the screen; the gate card, the AI pill and the
+  full-screen figure fit a 180-240 px page at 125-200 % text.
 
 ### Final-attack fixes
 - Soundness: an angle-sum goal is also checked as written, on the undirected

@@ -1589,6 +1589,14 @@
       svg.insertBefore(c, firstLabel);
     });
     this.reset();
+    var me = this;
+    requestAnimationFrame(function () {
+      if (!document.fonts || !document.fonts.ready) return;
+      document.fonts.ready.then(function () {
+        if (me.svg !== svg || !remeasureLabels(svg)) return;
+        if (me.zoomed()) me.restyle(); else me.reset();
+      });
+    });
   };
   Viewer.prototype.zoomed = function () { return this.vb && this.base && this.vb.w < this.base.w * 0.999; };
   Viewer.prototype.apply = function () {
@@ -1619,6 +1627,16 @@
     }
     return el._wpf;
   }
+  function remeasureLabels(svg) {
+    var changed = false;
+    svg.querySelectorAll(".f-lbl").forEach(function (el) {
+      var old = el._wpf;
+      el._wpf = null;
+      var now = labelWpf(el);
+      if (old == null || Math.abs(now - old) > 0.02 * Math.max(old, 0.1)) changed = true;
+    });
+    return changed;
+  }
   /** The frame that holds the figure and every label at the size they are
    * shown at: the server's frame grown by the label scale, then by whatever
    * the (wider than reserved) labels still stick out. */
@@ -1628,13 +1646,13 @@
     for (var it = 0; it < 8; it++) {
       var s0 = Math.min(r.width / base.w, r.height / base.h);
       var k = Math.max(0.35, Math.min(4.5, labelPx(r) / s0 / 18));
-      var pad = Math.max(0, (k - 1) * 32);
+      var pad = Math.max(0, (k - 1) * 32), mg = 7 / s0;
       var x0 = b0.x - pad, y0 = b0.y - pad, x1 = b0.x + b0.w + pad, y1 = b0.y + b0.h + pad;
       labels.forEach(function (el) {
         var w = (labelWpf(el) + 0.15) * 18 * k, h = 18 * k * 0.9;
         var cx = +el.getAttribute("data-x") + +el.getAttribute("data-dx") * k, cy = +el.getAttribute("data-y") + +el.getAttribute("data-dy") * k;
-        x0 = Math.min(x0, cx - w / 2 - 4); x1 = Math.max(x1, cx + w / 2 + 4);
-        y0 = Math.min(y0, cy - h / 2 - 4); y1 = Math.max(y1, cy + h / 2 + 4);
+        x0 = Math.min(x0, cx - w / 2 - mg); x1 = Math.max(x1, cx + w / 2 + mg);
+        y0 = Math.min(y0, cy - h / 2 - mg); y1 = Math.max(y1, cy + h / 2 + mg);
       });
       var grown = { x: x0, y: y0, w: Math.min(x1 - x0, b0.w * 6), h: Math.min(y1 - y0, b0.h * 6) };
       if (grown.w < x1 - x0) grown.x = x0 + (x1 - x0 - grown.w) / 2;
@@ -1657,7 +1675,7 @@
       svg.querySelectorAll(".f-lbl").forEach(function (el, i) {
         var o = offsets[i], w = (labelWpf(el) + 0.15) * 18 * k, h = 18 * k * 0.9;
         var cx = +el.getAttribute("data-x") + o.dx, cy = +el.getAttribute("data-y") + o.dy;
-        var m = 3 / s;
+        var m = 5 / s;
         if (cx + w / 2 > fence.x + fence.w - m) o.dx -= cx + w / 2 - (fence.x + fence.w - m);
         if (cx - w / 2 < fence.x + m) o.dx += fence.x + m - (cx - w / 2);
         if (cy + h / 2 > fence.y + fence.h - m) o.dy -= cy + h / 2 - (fence.y + fence.h - m);
@@ -1750,7 +1768,8 @@
       var crowded = dots.some(function (d) { var dd = Math.hypot(d[0] - x, d[1] - y); return dd > 1e-6 && dd < 18 * k * 1.6; });
       function cost(cx, cy, ring) {
         var b = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], c = ring * 0.35;
-        placed.forEach(function (q) { var a = overlapArea(b, [q[0] - gap, q[1] - gap, q[2] + gap, q[3] + gap]); if (a > 0) c += 12 + a / (k * k) * 0.05; });
+        var clash = false;
+        placed.forEach(function (q) { var a = overlapArea(b, [q[0] - gap, q[1] - gap, q[2] + gap, q[3] + gap]); if (a > 0) { c += 40 + a / (k * k) * 0.05; clash = true; } });
         var own = Math.hypot(cx - x, cy - y);
         dots.forEach(function (d) {
           if (Math.hypot(d[0] - x, d[1] - y) < 1e-6) return;
@@ -1772,12 +1791,12 @@
         });
         var hard = c - ring * 0.35;
         segs.forEach(function (g) { if (g[4] <= 2 && segHitsBox(g[0], g[1], g[2], g[3], b)) c += g[4]; });
-        return { c: c, hard: hard, b: b, ext: ext, lead: L - ext > dotR + 3 / s ? [x, y, x + ux * (L - ext), y + uy * (L - ext)] : null };
+        return { c: c, hard: hard, clash: clash, b: b, ext: ext, lead: L - ext > dotR + 3 / s ? [x, y, x + ux * (L - ext), y + uy * (L - ext)] : null };
       }
       var best = cost(x + dx0 * k, y + dy0 * k, 0);
       best.dx = dx0 * k; best.dy = dy0 * k;
       if (best.hard > 0.01) {
-        var rings = crowded || leadOf[el.getAttribute("data-p")] ? 5 : 3, th0 = Math.atan2(dy0, dx0);
+        var rings = best.clash ? 8 : crowded || leadOf[el.getAttribute("data-p")] ? 5 : 3, th0 = Math.atan2(dy0, dx0);
         for (var ring = 0; ring < rings; ring++) {
           for (var j = 0; j < 16; j++) {
             var th = j * Math.PI / 8 + (ring % 2 ? Math.PI / 16 : 0), ux = Math.cos(th), uy = Math.sin(th);

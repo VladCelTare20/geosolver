@@ -19,8 +19,9 @@
 <link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/app.css">
 <style>
-  .gate-page { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: max(var(--s4), env(safe-area-inset-top)) max(var(--s4), env(safe-area-inset-right)) max(var(--s4), env(safe-area-inset-bottom)) max(var(--s4), env(safe-area-inset-left)); }
-  .gate-card { width: min(100%, 400px); padding: var(--s5); display: grid; gap: var(--s4); }
+  .gate-page { min-height: 100vh; min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: max(var(--s4), env(safe-area-inset-top)) max(var(--s4), env(safe-area-inset-right)) max(var(--s4), env(safe-area-inset-bottom)) max(var(--s4), env(safe-area-inset-left)); }
+  .gate-card { width: min(100%, 400px); min-width: 0; padding: var(--s5); display: grid; gap: var(--s4); }
+  .gate-card > *, .gate-form > * { min-width: 0; }
   .gate-mark { width: 40px; height: 40px; color: var(--accent); }
   .gate-card h1 { font-family: var(--font-math); font-size: var(--fs-25); font-weight: 600; letter-spacing: -0.005em; }
   .gate-card .sub { color: var(--text-2); margin-top: 4px; }
