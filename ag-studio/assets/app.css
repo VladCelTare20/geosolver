@@ -1023,7 +1023,7 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .hp-why-toggle, .hp-compute-toggle { position: relative; }
   .hp-why-toggle::after, .hp-compute-toggle::after { content: ""; position: absolute; inset: -14px -8px; }
   .hp-ref, .hp-step { position: relative; display: inline-block; padding-block: 10px; margin: -10px 4px; }
-  .hp-ref::after, .hp-step::after { content: ""; position: absolute; top: 0; bottom: 0; left: -13px; right: -13px; left: min(-13px, calc((100% - 44px) / 2)); right: min(-13px, calc((100% - 44px) / 2)); }
+  .hp-ref::after, .hp-step::after { content: ""; position: absolute; top: 0; bottom: 0; left: -14px; right: -14px; left: min(-14px, calc((100% - 46px) / 2)); right: min(-14px, calc((100% - 46px) / 2)); }
   .input { min-height: 48px; }
   .site-header .seg > button, .site-header .seg > a { min-height: 44px; }
   .site-header .btn-sm { min-height: var(--hdr-ctl); }
