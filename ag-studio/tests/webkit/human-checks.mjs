@@ -144,7 +144,7 @@ export async function humanRomanian(page, tag, check, shot) {
   await page.waitForTimeout(250);
   const ro = await page.evaluate(() => ({ text: document.getElementById('human').innerText, tab: document.getElementById('ptab-human').textContent.trim(), full: document.getElementById('ptab-steps').textContent.trim() }));
   const english = [' denotes ', ' are concyclic', ' are collinear', 'Claim ', 'Proof.', ' lies on ', 'Combining', 'We show', 'as required'].filter((w) => ro.text.includes(w));
-  check(ro.tab === 'Demonstrație' && ro.full === 'Derivarea completă' && /trebuie rotită|citite din figură/.test(ro.text) && !english.length,
+  check(ro.tab === 'Demonstrație' && ro.full === 'Derivarea completă' && /trebuie rotită|trebuia demonstrat|Arătăm|Se știe/.test(ro.text) && !english.length,
     `${tag}: RO human proof (tabs "${ro.tab}" | "${ro.full}"; English left: ${english.join(', ') || 'none'})`);
   if (shot) await shot(page, 'ro-human');
 }

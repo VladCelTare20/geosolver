@@ -32,6 +32,27 @@ reports its git commit (`agstudio --version`, `/api/status`).
 - A directed angle fact whose `∠` reading is false in the figure is shown as
   `∡` in GIVEN/PROVE, the legend and the reports.
 
+- The human proof says "XY bisects ∠PXQ" only when the figure has both angles
+  equal and inside ∠PXQ; an external bisector is "XY is the external bisector
+  of ∠PXQ" (EN and RO), and a conclusion that holds for the bisector's line but
+  not the ray is stated as the directed equality. `proof_audit` checks every
+  hypothesis wording, the goal wording and every GIVEN/PROVE angle statement
+  against the displayed figure.
+- `simtri`/`contri` goals on collinear triangles are refused (they were proved
+  by `0 = 0` angle conjuncts).
+- A congruence is named by a criterion (SSS/SAS/ASA) only when the facts that
+  criterion needs were stated before the congruence, never counting the
+  congruence's own conclusion.
+
+### Human proofs
+- Readability rounds 1 and 2 (merged from `wf/hp-final3`): concyclicity by a
+  named converse (Thales' converse for two right angles; the inscribed-angle
+  converse with its side condition), named identities (supplementary,
+  vertical and common angles, alternate and corresponding angles), reflection
+  and perpendicular-bisector citations, angle-bisector-theorem steps that
+  cite their bisector equality, similarity steps that name their corners, and
+  fewer restated hypotheses. See `docs/HUMAN_PROOFS.md` §13.12.
+
 ### Deployment
 - `agstudio backup <dest.db>`: a consistent, self-contained copy of the live
   database (`VACUUM INTO`, integrity-checked, never overwrites). The server

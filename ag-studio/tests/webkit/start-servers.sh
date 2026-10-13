@@ -26,7 +26,7 @@ start() {
   local name=$1 p=$2
   shift 2
   env AGSTUDIO_DB="$dir/$name.db" AGSTUDIO_CLAUDE_BIN="$here/fake-claude.sh" CLAUDE_CODE_OAUTH_TOKEN=dummy \
-    FAKE_CLAUDE_LOG="$log" AGSTUDIO_RATE_PER_MIN=0 AGSTUDIO_TRANSLATE_PER_MIN=0 AGSTUDIO_AUTH_PER_MIN=0 \
+    FAKE_CLAUDE_LOG="$log" AGSTUDIO_RATE_PER_MIN=0 AGSTUDIO_TRANSLATE_PER_MIN=0 AGSTUDIO_AUTH_PER_MIN=0 AGSTUDIO_GUEST_AI_PER_DAY=0 \
     "$@" "$bin" serve --port "$p" > "$dir/$name.log" 2>&1 &
   echo $! > "$dir/$name.pid"
 }
