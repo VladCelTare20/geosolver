@@ -869,9 +869,12 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
   .geo-tools .btn-txt { display: none; }
 }
 @media (max-width: 399px) {
-  #proof-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+  #proof-tabs { display: grid; grid-template-columns: repeat(3, minmax(min-content, 1fr)); width: 100%; }
   #proof-tabs > button { padding: 4px 2px; font-size: var(--fs-12); line-height: 1.2; white-space: normal; text-align: center; }
   .fig-frame:not(.is-full) .fig-tools { flex: 1 1 auto; justify-content: space-between; }
+}
+@media (max-width: 279px) {
+  #proof-tabs { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 339px) {
   .site-header.has-rail-toggle .wordmark { display: none; }
