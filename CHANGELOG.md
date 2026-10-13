@@ -49,6 +49,33 @@ reports its git commit (`agstudio --version`, `/api/status`).
   criterion needs were stated before the congruence, never counting the
   congruence's own conclusion.
 
+### UI polish
+- Phone proofs: a stacked equality chain no longer draws the angle sign over the
+  "=" or "−" (every "= ∠B" read as "≠ B", "90° − ∠HBC" as "90° ∠HBC"); the
+  hanging indent applies to the row only.
+- Point names longer than a capital and one lower-case letter are set whole
+  (`Orthocenter` was O, subscript r, "thocenter") and the points of a segment
+  or angle are kept apart (`Alpha Horth ⟂ Beta Gamma`) in GIVEN, PROVE, the
+  proof, copied text and the PDF/PNG; figure labels of long names no longer
+  clip at the frame edge (the frame grows to the labels' real width).
+- GIVEN no longer lists a length the program does not state
+  (`dist(B,D) = 2*dist(D,C)` produced "BD = 2"), and a ratio or sum is stated
+  once.
+- Menus (Examples, Export) open on screen on short laptops and landscape phones;
+  a compile error scrolls the editor to the marked token; a failed status call
+  ends in "Can't check AI · Retry" instead of "Checking AI…" forever; the
+  thumbnail hides less of the step it accompanies; tapping a figure point keeps
+  its highlight and has a 17 px target.
+- Layout: the example chips are on the first screen of a 1366×768 laptop, the
+  tablet figure is at most 560 px, the header no longer shows text through,
+  the proof tabs and the figure toolbar fill a 280–399 px row, the footer links
+  share a row, the verdict's as-drawn note is its own line, step references are
+  wider targets, 2.4K/4K screens get a larger page, the end-of-proof mark follows
+  the text, the reason column of a PNG/PDF chain clears wide angle rows, the
+  auxiliary colour is teal (red goal and brown aux were 38 apart under
+  deuteranopia), the favicon lightens on a dark tab strip, the verdict heading
+  no longer breaks inside a word at 200 % text.
+
 ### Final-attack fixes
 - Soundness: an angle-sum goal is also checked as written, on the undirected
   angles in degrees with no reduction mod 180°. `angle(A,B,C) + angle(B,C,A) +
