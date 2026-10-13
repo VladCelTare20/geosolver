@@ -1474,7 +1474,13 @@
   var TAB_MODES = ["", "is-cols", "is-stack"];
   function tabsFit(el, btns) {
     if (el.scrollWidth > el.clientWidth + 1) return false;
-    return btns.every(function (b) { return b.scrollWidth <= b.clientWidth + 1; });
+    return btns.every(function (b) {
+      if (b.scrollWidth > b.clientWidth + 1) return false;
+      var rg = document.createRange();
+      rg.selectNodeContents(b);
+      var tr = rg.getBoundingClientRect(), br = b.getBoundingClientRect();
+      return tr.left >= br.left - 0.5 && tr.right <= br.right + 0.5;
+    });
   }
   function fitProofTabs() {
     var el = $("proof-tabs");
@@ -2205,14 +2211,11 @@
     announce(used.length ? t("fig.point", { p: name, steps: used.join(", ") }) : t("fig.point.none", { p: name }));
   };
 
-  var peek = { el: null, big: false, figSeen: true, srcSeen: true, lit: false, timer: 0, src: null, raf: 0, px: -1, py: -1 };
-  ["pointerdown", "pointermove"].forEach(function (n) {
-    document.addEventListener(n, function (e) { peek.px = e.clientX; peek.py = e.clientY; }, true);
-  });
+  var peek = { el: null, big: false, figSeen: true, srcSeen: true, lit: false, timer: 0, src: null, raf: 0 };
   function noteLitSource(e) {
     var tg = e.target;
     if (!tg || !tg.closest || !tg.closest("#proof-area, #verdict")) return;
-    if (e.type === "pointerover" && ((e.clientX === peek.px && e.clientY === peek.py) || (e.pointerType === "mouse" && !matchMedia("(hover: hover)").matches))) return;
+    if (e.type === "pointerover" && (e.pointerType === "mouse" && !matchMedia("(hover: hover)").matches)) return;
     peek.src = tg.closest(".hp-block, .step, li, [tabindex]") || tg;
     peek.srcSeen = true;
   }

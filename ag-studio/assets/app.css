@@ -894,6 +894,19 @@ html.has-toast .fig-peek.at-bottom { bottom: calc(var(--toast-h, 0px) + var(--s3
 @media (max-width: 349px) {
   .geo-tools .btn-txt { display: none; }
 }
+@media (max-width: 359px) {
+  .btn, .example-chips .btn, .verdict-actions .btn span { overflow-wrap: anywhere; }
+  .btn { white-space: normal; text-align: center; line-height: 1.25; padding-block: 6px; }
+  p, h1, h2, h3, label, summary, li, .hint, .label, .field-label { overflow-wrap: anywhere; }
+  pre { max-width: 100%; overflow-x: auto; }
+  .shell > *, .card, .composer > * { min-width: 0; }
+  .geo-head .field-label { white-space: normal; }
+  .seg { max-width: 100%; }
+  .seg > button, .seg > a { white-space: normal; overflow-wrap: anywhere; text-align: center; }
+  .hp-nb { white-space: normal; }
+  .state-empty { grid-template-columns: minmax(0, 1fr); }
+  .state-empty h3 { overflow-wrap: anywhere; }
+}
 @media (max-width: 399px) {
   .fig-frame:not(.is-full) .fig-tools { flex: 1 1 auto; justify-content: space-between; }
 }

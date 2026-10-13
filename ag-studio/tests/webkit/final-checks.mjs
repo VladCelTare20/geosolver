@@ -465,7 +465,12 @@ async function proofTabSweep(engine, profile) {
               const rects = bs.map((b) => b.getBoundingClientRect());
               const tops = new Set(rects.map((r) => Math.round(r.top)));
               const inside = rects.every((r) => r.left >= tr.left - 0.5 && r.right <= tr.right + 0.5);
-              const noClip = bs.every((b) => b.scrollWidth <= b.clientWidth + 1);
+              const noClip = bs.every((b) => {
+                const rg = document.createRange();
+                rg.selectNodeContents(b);
+                const tx = rg.getBoundingClientRect(), bx = b.getBoundingClientRect();
+                return b.scrollWidth <= b.clientWidth + 1 && tx.left >= bx.left - 1 && tx.right <= bx.right + 1;
+              });
               const vw = Math.min(want, document.documentElement.clientWidth);
               return {
                 page: document.documentElement.scrollWidth <= vw && document.body.scrollWidth <= vw,
