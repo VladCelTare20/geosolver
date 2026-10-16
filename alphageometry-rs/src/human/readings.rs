@@ -12,6 +12,7 @@ struct Reading {
     lemma: Stmt,
     line: Option<Reason>,
     line_pts: Option<[PointId; 3]>,
+    extra_pts: Option<[PointId; 3]>,
     side: Reason,
 }
 
@@ -106,6 +107,7 @@ fn vertical(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Reading> 
             let line = line_reason(cx, &[a, v, b]);
             return Some(Reading {
                 line_pts: Some([a, v, b]),
+                extra_pts: None,
                 key: TheoremKey::VerticalAnglesConverse,
                 lemma: Stmt::EqAngle {
                     lhs: e1.clone(),
@@ -138,6 +140,7 @@ fn linear_pair(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Readin
         },
         line: None,
         line_pts: None,
+        extra_pts: None,
         side: side_label(AtomKey::OppositeSides, vec![x, y, v, w]),
     })
 }
@@ -178,6 +181,7 @@ fn same_arm(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Reading> 
             };
             return Some(Reading {
                 line_pts: (a != b).then_some([v, a, b]),
+                extra_pts: None,
                 key: TheoremKey::AngleConstruction,
                 lemma: Stmt::EqAngle {
                     lhs: e1.clone(),
@@ -287,6 +291,7 @@ fn parallel(
                 lemma,
                 line: None,
                 line_pts: None,
+                extra_pts: None,
                 side: side_label(side, vec![u, v, x, y]),
             });
         }
@@ -305,15 +310,19 @@ fn coll_reading(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Readi
         3 => three_reading(cx, e1, e2, pts),
         4 => pts.iter().find_map(|&p| {
             let rest: Vec<PointId> = pts.iter().copied().filter(|&q| q != p).collect();
-            let on_given = cx.lines.iter().any(|l| {
-                l.pts.contains(&p)
-                    && rest.iter().filter(|q| l.pts.contains(q)).count() >= 2
-                    && matches!(
-                        cx.class.get(l.fact as usize),
-                        Some(super::ctx::FactClass::Hyp | super::ctx::FactClass::HypReg)
-                    )
-            });
-            on_given.then(|| three_reading(cx, e1, e2, &rest)).flatten()
+            let line = cx.lines.iter().find(|l| {
+                l.pts.contains(&p) && rest.iter().filter(|q| l.pts.contains(q)).count() >= 2
+            })?;
+            let mut r = three_reading(cx, e1, e2, &rest)?;
+            let two: Vec<PointId> = rest
+                .iter()
+                .copied()
+                .filter(|q| line.pts.contains(q))
+                .collect();
+            if !given_line(cx, &[p, two[0], two[1]]) {
+                r.extra_pts = Some([p, two[0], two[1]]);
+            }
+            Some(r)
         }),
         _ => None,
     }
@@ -407,6 +416,14 @@ fn reading_block(cx: &Ctx, hp: &HumanProof, bi: usize) -> Option<HumanProof> {
             out.push(s.clone());
             continue;
         };
+        let mut extra = None;
+        if let Some(pts) = r.extra_pts {
+            extra = claim_line(cx, &hp.blocks[..bi], &pts);
+            if extra.is_none() {
+                out.push(s.clone());
+                continue;
+            }
+        }
         if r.line.is_none() {
             if let Some(pts) = r.line_pts {
                 r.line = claim_line(cx, &hp.blocks[..bi], &pts);
@@ -441,6 +458,7 @@ fn reading_block(cx: &Ctx, hp: &HumanProof, bi: usize) -> Option<HumanProof> {
             sentence: at,
         }];
         reasons.extend(r.line);
+        reasons.extend(extra);
         reasons.push(r.side);
         out.push(Sentence::Theorem {
             key: r.key,
