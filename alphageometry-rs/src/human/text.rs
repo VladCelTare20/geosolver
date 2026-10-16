@@ -862,6 +862,10 @@ pub fn theorem_name(k: TheoremKey) -> &'static str {
             "the converse of the exterior-angle theorem for cyclic quadrilaterals"
         }
         TheoremKey::ThalesConverse => "the converse of Thales' theorem",
+        TheoremKey::VerticalAnglesConverse => "the converse of the vertical angles theorem",
+        TheoremKey::LinearPairConverse => "the converse of the linear pair theorem",
+        TheoremKey::AlternateAnglesConverse => "the converse of the alternate angles theorem",
+        TheoremKey::CointeriorAnglesConverse => "the converse of the co-interior angles theorem",
     }
 }
 

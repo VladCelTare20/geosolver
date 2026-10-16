@@ -1350,6 +1350,19 @@ fn human_report(name: &str, k: usize, p: &Problem, aux: &[String], first: usize,
     if opts.human {
         println!("\n== human proof ({name}, conjunct {k}) ==");
         print!("{}", ddar::human::render_en(&trace, &hp, &infos));
+        if std::env::var_os("HP_LINT").is_some() {
+            if let Some(goal) = p.goal.as_ref() {
+                for v in ddar::human::lints(&trace, goal, &deps, &infos, &hp) {
+                    let step = hp
+                        .blocks
+                        .iter()
+                        .find(|b| b.id == v.block)
+                        .map(|b| b.step)
+                        .unwrap_or(0);
+                    println!("LINT\t{name}\t{k}\t{}\tstep {step}\t{}", v.rule, v.detail);
+                }
+            }
+        }
     }
     if opts.human_json {
         let closure = trace.closure(&deps);

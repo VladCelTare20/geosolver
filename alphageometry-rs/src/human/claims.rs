@@ -5683,6 +5683,56 @@ pub(crate) fn straight_display(
     None
 }
 
+fn right_transversal_forms(
+    cx: &Ctx,
+    l1: (PointId, PointId),
+    l2: (PointId, PointId),
+    st: &Stmt,
+) -> Vec<Target> {
+    let t = cx.t;
+    let (a, b, c, d) = (t.coord(l1.0), t.coord(l1.1), t.coord(l2.0), t.coord(l2.1));
+    let (r, q) = ((b.0 - a.0, b.1 - a.1), (d.0 - c.0, d.1 - c.1));
+    let den = r.0 * q.1 - r.1 * q.0;
+    if den.abs() < 1e-12 {
+        return Vec::new();
+    }
+    let s1 = ((c.0 - a.0) * q.1 - (c.1 - a.1) * q.0) / den;
+    let m = (a.0 + s1 * r.0, a.1 + s1 * r.1);
+    let toward = |x: PointId, u: PointId| {
+        let (px, pu) = (t.coord(x), t.coord(u));
+        (pu.0 - px.0) * (m.0 - px.0) + (pu.1 - px.1) * (m.1 - px.1) > 0.0
+    };
+    let (p1, p2) = (line_points(cx, l1), line_points(cx, l2));
+    let mut out = Vec::new();
+    for &x in &p1 {
+        for &y in &p2 {
+            if out.len() >= 3 {
+                return out;
+            }
+            if x == y || t.dist(x, y) < 1e-9 {
+                continue;
+            }
+            let u = p1.iter().copied().find(|&u| u != x && toward(x, u));
+            let v = p2.iter().copied().find(|&v| v != y && toward(y, v));
+            let (Some(u), Some(v)) = (u, v) else { continue };
+            out.extend(super::classify::angle_target(
+                cx,
+                Expr::Lin {
+                    terms: vec![
+                        (Rat::one(), plain_angle(u, x, y)),
+                        (Rat::one(), plain_angle(x, y, v)),
+                    ],
+                },
+                Expr::Const {
+                    degrees: Rat::from_int(90),
+                },
+                st.clone(),
+            ));
+        }
+    }
+    out
+}
+
 fn transversal_forms(
     cx: &Ctx,
     l1: (PointId, PointId),
@@ -5724,19 +5774,19 @@ pub(crate) fn drawn_forms(cx: &Ctx, target: &Target) -> Vec<Target> {
             v
         }
         Stmt::Para { l1, l2 } => transversal_forms(cx, *l1, *l2, st),
-        Stmt::Perp { l1, l2 } => common_point(cx, *l1, *l2)
-            .and_then(|(a, m, c)| {
-                super::classify::angle_target(
-                    cx,
-                    plain_angle(a, m, c),
-                    Expr::Const {
-                        degrees: Rat::from_int(90),
-                    },
-                    st.clone(),
-                )
-            })
+        Stmt::Perp { l1, l2 } => match common_point(cx, *l1, *l2) {
+            Some((a, m, c)) => super::classify::angle_target(
+                cx,
+                plain_angle(a, m, c),
+                Expr::Const {
+                    degrees: Rat::from_int(90),
+                },
+                st.clone(),
+            )
             .into_iter()
             .collect(),
+            None => right_transversal_forms(cx, *l1, *l2, st),
+        },
         Stmt::EqAngle { lhs, rhs } if lines(lhs) || lines(rhs) => {
             match (drawn_side(cx, lhs), drawn_side(cx, rhs)) {
                 (Some(l), Some(r)) => drawn_pair(cx, l, r, st).into_iter().collect(),

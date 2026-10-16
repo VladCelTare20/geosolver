@@ -12,6 +12,7 @@ pub mod expr;
 pub mod labels;
 pub mod library;
 pub mod model;
+pub mod readings;
 pub mod route;
 pub mod search;
 pub mod text;
@@ -917,6 +918,17 @@ pub fn verify(
 ) -> Vec<check::Violation> {
     let cx = Ctx::new(trace, goal, deps, aux, None);
     check::violations(&cx, hp)
+}
+
+pub fn lints(
+    trace: &EngineTrace,
+    goal: &Predicate,
+    deps: &[FactId],
+    aux: &[AuxInfo],
+    hp: &HumanProof,
+) -> Vec<check::Violation> {
+    let cx = Ctx::new(trace, goal, deps, aux, None);
+    check::chain_lints(&cx, hp)
 }
 
 pub fn repair(

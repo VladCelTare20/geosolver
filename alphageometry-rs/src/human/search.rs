@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const EXTRA_CAP: i64 = 2_000;
 pub const ROUTE_SLACK: i64 = 12;
+pub const DRAWN_SLACK: i64 = 30;
 pub const VIA_COST: i64 = 30;
 pub const UNDIRECTED_BONUS: i64 = 10;
 pub const MAX_FORMS: usize = 3;
@@ -661,7 +662,7 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
             let drawn = parts3
                 .iter()
                 .any(|p| p.route.as_ref().is_some_and(|r| r.undirected));
-            if alt <= best + ROUTE_SLACK || drawn {
+            if alt <= best + ROUTE_SLACK + if drawn { DRAWN_SLACK } else { 0 } {
                 best = alt.min(best);
                 out.improved += 1;
                 let n = w.nodes.get_mut(&f).unwrap();

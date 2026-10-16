@@ -170,6 +170,8 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     stage(cx, hp, 39);
     super::cyclic::converse_steps(cx, &mut ch, hp);
     stage(cx, hp, 40);
+    super::readings::line_readings(cx, &mut ch, hp);
+    stage(cx, hp, 41);
     if !check::violations_with(&mut ch, hp).is_empty() {
         if std::env::var_os("HP_DEBUG").is_some() {
             eprintln!("barem polish produced violations; keeping the unpolished proof");
@@ -473,12 +475,17 @@ pub(crate) fn negate_link(l: Link) -> Link {
     }
 }
 
+fn round_constant(c: &Rat) -> bool {
+    let k = c / &Rat::from_int(15);
+    k.is_integer() && !c.is_negative() && *c <= Rat::from_int(180) && !c.is_zero()
+}
+
 pub fn term_score(e: &Expr) -> Option<i64> {
     let ninety = Rat::from_int(90);
     let one_eighty = Rat::from_int(180);
     match e {
         Expr::Angle { .. } => Some(0),
-        Expr::Const { degrees } => (*degrees == ninety || *degrees == one_eighty).then_some(1),
+        Expr::Const { degrees } => round_constant(degrees).then_some(1),
         Expr::Lin { terms } => {
             if lin_terms(e) > 2 {
                 return None;
@@ -497,6 +504,8 @@ pub fn term_score(e: &Expr) -> Option<i64> {
                 0
             } else if konst == ninety || konst == one_eighty || konst == -&ninety {
                 1
+            } else if round_constant(&konst) {
+                2
             } else {
                 return None;
             };

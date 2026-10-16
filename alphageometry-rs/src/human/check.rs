@@ -339,6 +339,7 @@ pub fn establishes(cx: &Ctx, s: &Sentence, st: &Stmt) -> bool {
         {
             t2 == st
         }
+        Sentence::Theorem { key, stmt, .. } if key.is_line_converse() => stmt == st,
         Sentence::Computation { terms, .. } => {
             let (Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs }) = st else {
                 return false;
@@ -1183,7 +1184,9 @@ impl<'c, 'a> Checker<'c, 'a> {
                 for r in reasons {
                     self.reason_ok(blocks, cur, sidx, h, r)?;
                 }
-                if key.is_converse() {
+                if key.is_line_converse() {
+                    super::readings::line_converse_ok(self.cx, *key, stmt, reasons)?;
+                } else if key.is_converse() {
                     converse_ok(self.cx, *key, stmt, reasons)?;
                 } else if *key == TheoremKey::CircleMerge {
                     merge_ok(stmt, reasons)?;
@@ -1666,4 +1669,172 @@ fn uncite(hp: &mut HumanProof, demoted: &std::collections::BTreeSet<u16>) {
             }
         }
     });
+}
+
+pub const LINT_RULES: [(&str, &str); 8] = [
+    (
+        "L1",
+        "a row repeats the previous row and adds terms that cancel (zero insertion)",
+    ),
+    ("L2", "a row that changes nothing"),
+    ("L3", "a constant carried through directed rows"),
+    ("L4", "a row whose change is not the fact it cites"),
+    (
+        "L5",
+        "an angle-addition label on an identity over several vertices",
+    ),
+    ("L6", "several facts in one row"),
+    (
+        "L7",
+        "an angle sum or difference equated to 0° (or 180° identified with 0°)",
+    ),
+    ("L8", "a cited reason the row does not use"),
+];
+
+fn const_part(e: &Expr) -> Rat {
+    match e {
+        Expr::Const { degrees } => degrees.clone(),
+        Expr::Lin { terms } => terms
+            .iter()
+            .map(|(k, x)| &const_part(x) * k)
+            .fold(Rat::zero(), |a, b| &a + &b),
+        _ => Rat::zero(),
+    }
+}
+
+fn label_reason(r: &Reason) -> bool {
+    super::barem::is_coll_reason(r)
+        || matches!(r, Reason::Atom { key, .. }
+            if key.is_config_label() || key.is_identity_label() || key.is_cyclic_quad())
+}
+
+fn zero_const(e: &Expr) -> bool {
+    matches!(e, Expr::Const { degrees } if degrees.is_zero())
+}
+
+pub fn chain_lints(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
+    use super::barem::{identity_only, key_map, link_facts, opaque_link, term_infos};
+    let mut out = Vec::new();
+    if !hp.available {
+        return out;
+    }
+    for b in &hp.blocks {
+        if b.kind == BlockKind::Raw {
+            continue;
+        }
+        for s in &b.body {
+            let Sentence::Chain {
+                terms,
+                links,
+                directed,
+                ..
+            } = s
+            else {
+                continue;
+            };
+            if terms.len() != links.len() + 1
+                || !terms
+                    .first()
+                    .and_then(|e| eval(cx.t, e))
+                    .is_some_and(|x| x.0 == Table::Angle)
+            {
+                continue;
+            }
+            let mut bad = |rule: &'static str, detail: String| {
+                out.push(Violation {
+                    block: b.id,
+                    rule,
+                    detail,
+                })
+            };
+            let mut carried = 0usize;
+            for (k, l) in links.iter().enumerate() {
+                let (e1, e2) = (&terms[k], &terms[k + 1]);
+                let d = *directed && is_directed(e1) && is_directed(e2);
+                let row = k + 2;
+                if e1 == e2 {
+                    bad("L2", format!("row {row} repeats row {}", row - 1));
+                    continue;
+                }
+                let (Some(ia), Some(ib)) = (term_infos(cx, e1, d), term_infos(cx, e2, d)) else {
+                    continue;
+                };
+                let (ma, mb) = (key_map(&ia), key_map(&ib));
+                let (c1, c2) = (const_part(e1), const_part(e2));
+                let same_const = if d {
+                    (&(&c1 - &c2) / &Rat::from_int(180)).is_integer()
+                } else {
+                    c1 == c2
+                };
+                let identity = identity_only(l);
+                if !ma.is_empty()
+                    && ma.iter().all(|(x, v)| mb.get(x) == Some(v))
+                    && mb.len() > ma.len()
+                {
+                    bad(
+                        "L1",
+                        format!(
+                            "row {row} keeps every term of row {} and adds terms that cancel",
+                            row - 1
+                        ),
+                    );
+                }
+                if ma == mb && same_const && !identity && l.reasons.iter().any(|r| !label_reason(r))
+                {
+                    bad("L2", format!("row {row} changes nothing but cites a fact"));
+                }
+                if identity {
+                    if let [Reason::Atom {
+                        key: AtomKey::AngleAddition,
+                        args,
+                        ..
+                    }] = l.reasons.as_slice()
+                    {
+                        if args.is_empty() {
+                            bad(
+                                "L5",
+                                format!("row {row} is labelled angle addition but spans several vertices"),
+                            );
+                        }
+                    }
+                } else {
+                    let facts = link_facts(l);
+                    if facts > 1 {
+                        bad("L6", format!("row {row} cites {facts} facts"));
+                    } else if facts == 1 && opaque_link(cx, &hp.blocks, e1, e2, l, d).is_some() {
+                        bad(
+                            "L4",
+                            format!("row {row} changes more than the fact it cites"),
+                        );
+                    }
+                    for (i, r) in l.reasons.iter().enumerate() {
+                        let used = l
+                            .combination
+                            .iter()
+                            .any(|t| t.reason as usize == i && !t.coef.is_zero());
+                        if !used
+                            && !label_reason(r)
+                            && !matches!(r, Reason::Lemma { .. } | Reason::Atom { .. })
+                        {
+                            bad("L8", format!("row {row} cites a reason it does not use"));
+                        }
+                    }
+                }
+                let sum_terms = |m: &BTreeMap<String, Rat>| m.len() >= 2;
+                if (zero_const(e2) && sum_terms(&ma)) || (zero_const(e1) && sum_terms(&mb)) {
+                    bad("L7", format!("row {row} equates angles to 0°"));
+                }
+                if d && !c1.is_zero() && same_const && ma.len() >= 2 && mb.len() >= 2 {
+                    carried += 1;
+                }
+            }
+            if carried >= 2 {
+                bad(
+                    "L3",
+                    format!("a constant is carried through {carried} directed rows"),
+                );
+            }
+        }
+    }
+    out
 }
