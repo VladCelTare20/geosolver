@@ -21,6 +21,7 @@ mod present;
 #[cfg(test)]
 mod proof_audit;
 mod pwa;
+mod readings;
 mod render;
 mod security;
 mod spread;

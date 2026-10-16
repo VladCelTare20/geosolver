@@ -4392,7 +4392,8 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
         || sol.proved
             && proof.steps.iter().any(|st| {
                 st.fact.kind == "prose" && st.fact.args.iter().any(|a| a.contains("(as drawn)"))
-            });
+            })
+        || crate::readings::depends_on_configuration(sol);
     let refuted = sol.status == Status::Refuted;
     let goal_in_figure = if refuted {
         crate::spread::Goal::Fails
