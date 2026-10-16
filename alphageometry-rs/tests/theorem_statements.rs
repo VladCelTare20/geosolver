@@ -201,3 +201,105 @@ fn the_inscribed_angle_theorem_is_reported_circular() {
     let g = detect::guard(&c.problem);
     assert_eq!(g.unavoidable(), Some(Thm::InscribedAngle));
 }
+
+const FALSE_DDAR: &[(&str, &str)] = &[
+    (
+        "midline",
+        "A B C = triangle\nD = midpoint(A, B)\nE = on_line(A, C)\nprove para(D, E, B, C)",
+    ),
+    (
+        "orthocentre",
+        "A B C = triangle\nH = point: perp(A, H, B, C)\nprove perp(C, H, A, B)",
+    ),
+    (
+        "thales",
+        "A B = segment\nO = midpoint(A, B)\nC = free\nprove perp(C, A, C, B)",
+    ),
+    (
+        "menelaus",
+        "A B C = triangle\nD = on_line(B, C)\nE = on_line(C, A)\nF = on_line(A, B)\nprove dist(B, D)*dist(C, E)*dist(A, F) = dist(D, C)*dist(E, A)*dist(F, B)",
+    ),
+    (
+        "inscribed_converse",
+        "A B C = triangle\nD = free\nprove cyclic(A, B, C, D)",
+    ),
+];
+
+#[test]
+fn false_statements_stay_unproved_with_and_without_the_ban() {
+    for (key, src) in FALSE_DDAR {
+        let thm = Thm::by_key(key).unwrap();
+        let c = match compile(src) {
+            Ok(c) => c,
+            Err(e) => panic!("{key}: {}", e.message()),
+        };
+        assert_eq!(
+            c.goal_numerically_holds,
+            Some(false),
+            "{key}: the goal holds"
+        );
+        assert!(
+            !detect::guard(&c.problem).fired(),
+            "{key}: a false goal was detected"
+        );
+        for forbid in [Forbid::NONE, Forbid::closure_of(&[thm])] {
+            let mut p = c.problem.clone();
+            p.forbid = forbid;
+            let proved = ddar::runner::solve_problem(&p).unwrap_or(false);
+            assert!(
+                !proved,
+                "{key}: a false statement was proved (ban {forbid:?})"
+            );
+        }
+    }
+}
+
+#[test]
+fn false_metric_statements_stay_unproved_under_the_ban() {
+    use ddar::synthetic::{prove_euclidean, Outcome};
+    let cases: &[(&[Thm], &str, &str)] = &[
+        (
+            &[Thm::Pythagoras],
+            "B C = segment\nA = free",
+            "dist(A, B)^2 + dist(A, C)^2 = dist(B, C)^2",
+        ),
+        (
+            &[Thm::Pythagoras],
+            "B C = segment\nA = on_dia(B, C)",
+            "dist(A, B)^2 + dist(A, C)^2 = 2*dist(B, C)^2",
+        ),
+        (
+            &[Thm::Stewart],
+            "B = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = free",
+            "9*dist(A,D)^2 = 6*dist(A,B)^2 + 3*dist(A,C)^2 - dist(B,C)^2",
+        ),
+        (
+            &[Thm::Apollonius],
+            "A B C = triangle\nM = midpoint(B, C)",
+            "4*dist(A,M)^2 = 2*dist(A,B)^2 + 2*dist(A,C)^2 - 2*dist(B,C)^2",
+        ),
+        (
+            &[Thm::Apollonius],
+            "A B C = triangle\nM = on_line(B, C)",
+            "4*dist(A,M)^2 = 2*dist(A,B)^2 + 2*dist(A,C)^2 - dist(B,C)^2",
+        ),
+    ];
+    for (thms, cons, goal) in cases {
+        let forbid = Forbid::closure_of(thms);
+        let out = ddar::theory::with_forbid(forbid, || prove_euclidean(cons, goal));
+        if let Ok(Outcome::Proved(p)) = out {
+            panic!("{goal} was proved under the ban:\n{p}");
+        }
+        let ratio = ddar::theory::with_forbid(forbid, || ddar::ratio::prove_ratio(cons, goal));
+        assert!(
+            !matches!(ratio, Ok(Outcome::Proved(_))),
+            "{goal}: ratio prover"
+        );
+        let (res, _) =
+            ddar::metric::solve_until_guarded(cons, goal, ddar::metric::DEFAULT_SAMPLES, None);
+        assert!(
+            res.is_err(),
+            "{goal} was proved by the guarded metric solve"
+        );
+    }
+}
