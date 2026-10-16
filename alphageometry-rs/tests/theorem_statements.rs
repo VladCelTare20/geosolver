@@ -148,7 +148,7 @@ fn check_metric(thm: Thm, src: &str) -> Result<Verdict, String> {
     }
     match res {
         Ok(proof) => {
-            dump(&thm.key().to_string(), &proof);
+            dump(thm.key(), &proof);
             let hits = audit::text(forbid, &proof);
             if !hits.is_empty() {
                 return Err(format!("the proof names {hits:?}:\n{proof}"));
