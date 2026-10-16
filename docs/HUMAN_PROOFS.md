@@ -1162,3 +1162,9 @@ Steps and links rise because the hypotheses of theorems are now their own steps 
 - After polishing, a block whose only premise is an earlier block that already states the same collinear or concyclic point set is dropped (the earlier block becomes the conclusion when the dropped one was last). Two proofs keep such a block because their claim bookkeeping ties it to the fact it proves.
 - A directed constant `aconst a b c d K` is stated as the turn from `cd` to `ab`, in GIVEN, the legend and the derivation, the same way the proof text states it.
 - An external-bisector converse step is typeset with ∡ when its undirected angles differ in the figure; `proof_audit::statement_violations` now reads ∡ statements and every displayed step.
+
+### 13.14 Proofs never cite the theorem they prove (`wf/no-circular`)
+
+- The engine's theorem identities live in `alphageometry-rs/src/theory/` (`Thm`, with EN/RO names and `uses` edges). A problem's ban (`Problem.forbid`, `EngineTrace.forbid`, `Ctx.forbid`) is the stated theorem plus everything that uses it, transitively.
+- The writer never builds a banned atom (`atoms.rs:Builder::push`: a human `AtomKey` whose identity is banned, or an engine-sourced atom whose fact maps to one). `check.rs` adds rule I8 (`forbidden_violations`): a block citing a banned identity through an engine fact, an atom, a theorem key, a raw step, or an inscribed-angle atom/chain that concludes a circle (the converse) is a violation, so barem passes that would introduce one revert. `write` audits the finished proof structurally and by its rendered text; on any hit the proof is unavailable, and the app shows the raw derivation.
+- Golden human proofs are unchanged: the goldens solve with an empty ban. With a ban, the midline statement reads "△ABC ∼ △ADE (SAS) … so DE ∥ BC" and the nine-point circle is proved through midlines and the median to the hypotenuse.

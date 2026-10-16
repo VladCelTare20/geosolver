@@ -23,6 +23,7 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
   `MetricError::NoProof` / `status: "holds-numerically"`, `proved: false`. Each prover change needs
   a FALSE-statement regression test (`alphageometry-rs/tests/soundness.rs`).
 - Every solve reachable from outside has a wall-clock deadline (`solve_within`), and the web/MCP servers run it in a killable worker process (`worker::run`) that is SIGKILLed at deadline + grace, on client disconnect and on MCP cancel, and exits by itself within 100 ms if its server dies; the CLI's `--timeout`/`--budget` is enforced by a watchdog. No solve runs in-process in a server.
+- **A proof never cites the theorem it proves.** `theory::detect::guard` (DDAR) and `stated_theorems` (metric) find the library theorem a goal states; the solve then bans it and every theorem derived from it at every layer (engine rules, runner, human writer, metric provers) and audits the result independently, fail-closed. The product reports `theorem_avoided`; a statement of a built-in axiom is Not proven (circular). See `alphageometry-rs/src/theory/CODEMAP.md`.
 - **One search everywhere.** The product (`agstudio render`/`best`, `/api/solve`, MCP) and the corpus benchmark run the same aux pipeline, `aux_search::solve_max_until` (DDAR, full depth-1 sweep over the coincidence-ranked pool, randomised rollouts until the deadline); a capability measured with `ddar --corpus` is what the app delivers.
 - Panic output is muted only through `ddar::quiet_panic`; never swap the hook.
 - In `mcp` mode stdout is the protocol channel.
@@ -38,5 +39,5 @@ two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
 - `nix/module.nix` — the NixOS module (`services.geosolver`); evaluated by hand with a test configuration, not by `nix flake check`.
 - `.github/workflows/ci.yml` — tests, bench rows, MSRV, Docker build + smoke test, licence list check.
 - `.dockerignore` — an allowlist: the two crates, `corpus/`, the Cargo files and the licence files the image installs; anything new the Dockerfile copies must be added there.
-- `corpus/` — AlphaGeometry problem sets (data, not code).
+- `corpus/` — AlphaGeometry problem sets (data, not code); `corpus/theorem_statements/` holds one statement per library theorem (`<theorem key>.geo`), run by `alphageometry-rs/tests/theorem_statements.rs`.
 - `docs/HUMAN_PROOFS.md` — design of the deterministic human proof writer; engine side in `alphageometry-rs/src/human/` (status and data-model changes at the end of the spec), wired into ag-studio (`engine.rs`, `present.rs:human_view`, Proof tab, MCP, reports); goldens and the measurement prototype patch in `docs/human-proofs/`.

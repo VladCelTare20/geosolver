@@ -5,6 +5,31 @@ reports its git commit (`agstudio --version`, `/api/status`).
 
 ## Unreleased
 
+### Proofs never cite the theorem they prove
+- Asked to prove one of its own theorems (`D, E midpoints; prove DE ∥ BC` used
+  to read "DE is a midline of △ABC; hence DE ∥ BC"), the engine now detects
+  the statement and proves it without that theorem and without every theorem
+  derived from it: the midline theorem from SAS similarity, Pythagoras from
+  the leg theorem, Stewart and Apollonius from Pythagoras and collinear
+  segment squares, Menelaus from the law of sines, the Euler line, the
+  nine-point circle, Reim, Miquel and the Simson line from angle chasing.
+  One theory module (`ddar --theory`) gives every citable theorem an identity
+  and its derivation edges; engine rules, the runner, the human-proof writer
+  and the metric provers all respect the ban, and independent audits drop any
+  proof that still cites it (fail-closed).
+- The web verdict, PDF report, MCP text and CLI say "Proved without using …
+  or the theorems derived from it." (Romanian too), and `theorem_avoided`
+  lists them. A statement of a built-in foundation (the inscribed angle
+  theorem) is "Not proven: this statement is … itself; it was not derived
+  from anything simpler."
+- Detection fires on none of the 30 IMO problems and on 6 of the 231 JGEX
+  problems (two Reim, two orthocentre, Miquel, nine-point circle), all still
+  proved; it costs at most 0.042 s per problem.
+- The "Stewart's theorem" example states the theorem
+  (9·AD² = 6·AB² + 3·AC² − 2·BC² for BD:DC = 1:2) instead of a numeric
+  instance, and is proved from Pythagoras.
+- `corpus/theorem_statements/` has one statement per library theorem.
+
 ### Upgrading — action required
 - If your env file still has the old template's
   `AGSTUDIO_BASIC_AUTH=:CHANGE-ME-run-openssl-rand-hex-16` (the previous

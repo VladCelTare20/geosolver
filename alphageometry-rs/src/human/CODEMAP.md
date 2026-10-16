@@ -29,6 +29,7 @@ Presentation only: reads an `EngineTrace` (engine/export.rs) and the goal's fact
 - `view.rs` — JSON for ag-studio: statements as `{kind,args,points}`, reasons with closure step numbers.
 
 ## Notes
+- Theorem bans — `Ctx.forbid` comes from `EngineTrace.forbid` (the problem's ban). `atoms.rs:Builder::push` drops a human atom whose `AtomKey` maps to a banned identity and an engine-sourced atom whose fact does; `check.rs:forbidden_violations` (rule I8, appended to `violations_with`, so barem passes revert on it too) and the final audit in `mod.rs:write` (structural `theory::audit::human` plus the rendered text) make the writer return "unavailable" rather than print a citation of the banned theorem.
 - `claims.rs:Writer::certify` — obligations offer every algebraic form of a concyclic/collinear/similar fact; any one in the admissible span suffices. Concyclicity and collinearity are not linear consequences of their premises (only one inscribed form is), so a single fixed form would fail.
 - `claims.rs:Writer::cover` — a merged circle/line (≥5 / ≥4 points) is re-proved as a growing chain of 4-/3-point subsets each in the admissible span. `goal_obls` adds the goal fact's own obligations (label `merged`) when the goal is a subset of a merged fact: the last chain states the fact, then "Hence <goal>".
 - `classify.rs:centre_obligations` — a concyclic fact may be re-proved as equal distances from a figure point (IMO 2008 P1's six-point circle).

@@ -60,6 +60,18 @@ shown as *Not proven — holds numerically* (evidence, not a proof), or as
 `status`: `"proved"`, `"holds-numerically"`, `"refuted"` or `"not-proved"`,
 with `proved: true` only for `"proved"`.
 
+**A proof never cites the theorem it proves.** When the statement *is* one of
+the engine's theorems — the midline theorem, Pythagoras, Stewart, Menelaus,
+Ceva, the Simson line, the Euler line, the nine-point circle and 30-odd more —
+the engine detects it and proves it without that theorem and without every
+theorem derived from it (`ddar --theory` prints the dependency graph). The
+verdict then says *Proved without using the midline theorem or the theorems
+derived from it*, and the solve response lists them in `theorem_avoided`
+(`key`, `name_en`, `name_ro`). A statement that is a built-in foundation (the
+inscribed angle theorem) is reported *Not proven: this statement is the
+inscribed angle theorem itself; it was not derived from anything simpler*.
+Numeric exercises that merely *use* a theorem ("AM² = 27") still cite it.
+
 ### Human-style proofs
 
 A proved deductive result opens on the **Proof** tab: the proof written the way
