@@ -313,7 +313,7 @@ fn golden_examples_have_the_planned_shape() {
         "{t}"
     );
     assert!(
-        t.contains("= \u{2221}NOF + \u{2221}PRN    [NC \u{2225} OF, by (5)]"),
+        t.contains("= \u{2220}FON    [NC \u{2225} OF, by (5); alternate angles]"),
         "{t}"
     );
     assert!(t.contains("power of the point A"), "{t}");
@@ -322,7 +322,7 @@ fn golden_examples_have_the_planned_shape() {
         "{t}"
     );
     assert!(
-        t.contains("So P lies on the line BC, as required. \u{220e}"),
+        t.contains("Hence P lies on the line BC, as required. \u{220e}") && !t.contains("\u{2221}"),
         "{t}"
     );
 
@@ -333,20 +333,26 @@ fn golden_examples_have_the_planned_shape() {
         "{t}"
     );
     assert!(
-        t.contains("1. We show that NB = NC:") && t.contains("Hence NB = NC. (1)"),
+        t.contains("2. We show that NB = NC:") && t.contains("Hence NB = NC. (2)"),
         "NB = NC is used twice, so it is its own step:\n{t}"
     );
     assert!(!t.contains("NB = NC (inscribed angles"), "{t}");
-    assert!(t.contains("T, E lie on the same side of SO, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (3)"), "{t}");
+    assert!(t.contains("T, E lie on the same side of SO, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (5)"), "{t}");
     assert!(
-        t.contains("[X, T, B collinear: supplementary angles]")
-            && !t.contains("180\u{b0} \u{2212} \u{2220}OTB           [angle addition]"),
-        "supplementary angles on a line are named:\n{t}"
+        t.contains("T, P lie on the same side of ED, so by the converse of the inscribed angle theorem, T, P, E, D are concyclic. (8)"),
+        "the concyclicity that used directed angles now reads with ordinary angles:\n{t}"
     );
     assert!(
-        t.contains("[the tangent at E is \u{27c2} OE (tangent\u{2013}chord angle)]")
-            && !t.contains("central angle \u{2220}AOE = 2\u{2220}APE]"),
-        "a halved central angle in a directed chain reads as the tangent at E:\n{t}"
+        !t.lines().any(|l| l
+            .split('[')
+            .next()
+            .unwrap_or("")
+            .trim_end()
+            .ends_with("= 0\u{b0}"))
+            && t.lines()
+                .filter(|l| l.contains("\u{2221}") && !l.starts_with("\u{2221}(a, b)"))
+                .all(|l| l.contains("\u{2261}") || l.trim_start().starts_with('[')),
+        "0\u{b0} and 180\u{b0} are never identified by =; directed rows are congruences:\n{t}"
     );
     assert!(
         t.contains("[exterior angle of the cyclic quadrilateral"),
@@ -360,7 +366,7 @@ fn golden_examples_have_the_planned_shape() {
     assert!(t.contains("We show that XA = XP:"), "{t}");
     assert!(t.contains("\u{25b3}OAX \u{2245} \u{25b3}OPX"), "{t}");
     assert!(
-        t.contains("so \u{2221}BAX = \u{2221}XAC, as required. \u{220e}"),
+        t.contains("so \u{2221}BAX \u{2261} \u{2221}XAC (mod 180\u{b0}), as required. \u{220e}"),
         "X is on the bisector's line beyond A in this figure, so AX does not bisect \u{2220}BAC as a ray:\n{t}"
     );
     assert!(!t.contains("OA : OX = OP : OX"), "{t}");

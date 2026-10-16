@@ -1,3 +1,4 @@
+use super::barem::const_part;
 use super::cert::Basis;
 use super::ctx::{Ctx, FactClass};
 use super::expr::{eval, is_directed};
@@ -15,7 +16,7 @@ pub struct Checker<'c, 'a> {
     bases: BTreeMap<FactId, Vec<Basis>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
     pub block: u16,
     pub rule: &'static str,
@@ -1258,7 +1259,10 @@ impl<'c, 'a> Checker<'c, 'a> {
             });
             for (tb, row) in targets {
                 if !t.holds(tb, &row) && !t.holds(tb, &row.negated()) {
-                    return Err("block statement does not hold in the figure".into());
+                    return Err(format!(
+                        "block statement does not hold in the figure: {:?}",
+                        b.stmt
+                    ));
                 }
                 if !by_body && !self.proven(h, tb, &row) {
                     return Err(
@@ -1691,17 +1695,6 @@ pub const LINT_RULES: [(&str, &str); 8] = [
     ("L8", "a cited reason the row does not use"),
 ];
 
-fn const_part(e: &Expr) -> Rat {
-    match e {
-        Expr::Const { degrees } => degrees.clone(),
-        Expr::Lin { terms } => terms
-            .iter()
-            .map(|(k, x)| &const_part(x) * k)
-            .fold(Rat::zero(), |a, b| &a + &b),
-        _ => Rat::zero(),
-    }
-}
-
 fn label_reason(r: &Reason) -> bool {
     super::barem::is_coll_reason(r)
         || matches!(r, Reason::Atom { key, .. }
@@ -1748,6 +1741,10 @@ pub fn chain_lints(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
                 })
             };
             let mut carried = 0usize;
+            let end = terms
+                .last()
+                .map(super::barem::end_constant)
+                .unwrap_or_else(Rat::zero);
             for (k, l) in links.iter().enumerate() {
                 let (e1, e2) = (&terms[k], &terms[k + 1]);
                 let d = *directed && is_directed(e1) && is_directed(e2);
@@ -1767,10 +1764,7 @@ pub fn chain_lints(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
                     c1 == c2
                 };
                 let identity = identity_only(l);
-                if !ma.is_empty()
-                    && ma.iter().all(|(x, v)| mb.get(x) == Some(v))
-                    && mb.len() > ma.len()
-                {
+                if super::barem::zero_insertion(cx, e1, e2, d) {
                     bad(
                         "L1",
                         format!(
@@ -1784,18 +1778,25 @@ pub fn chain_lints(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
                     bad("L2", format!("row {row} changes nothing but cites a fact"));
                 }
                 if identity {
-                    if let [Reason::Atom {
-                        key: AtomKey::AngleAddition,
-                        args,
-                        ..
-                    }] = l.reasons.as_slice()
-                    {
-                        if args.is_empty() {
-                            bad(
-                                "L5",
-                                format!("row {row} is labelled angle addition but spans several vertices"),
-                            );
-                        }
+                    let label = super::barem::identity_label(cx, e1, e2, d);
+                    let honest = match l.reasons.as_slice() {
+                        [] => matches!(&label, Some((AtomKey::AngleAddition, a)) if a.len() == 1),
+                        [Reason::Atom {
+                            key: AtomKey::AngleAddition,
+                            args,
+                            ..
+                        }] => !args.is_empty(),
+                        [Reason::Atom {
+                            key: AtomKey::LineAngleAddition,
+                            ..
+                        }] => d,
+                        _ => true,
+                    };
+                    if !honest {
+                        bad(
+                            "L5",
+                            format!("row {row} is labelled angle addition but is not one angle split at one vertex"),
+                        );
                     }
                 } else {
                     let facts = link_facts(l);
@@ -1821,10 +1822,11 @@ pub fn chain_lints(cx: &Ctx, hp: &HumanProof) -> Vec<Violation> {
                     }
                 }
                 let sum_terms = |m: &BTreeMap<String, Rat>| m.len() >= 2;
-                if (zero_const(e2) && sum_terms(&ma)) || (zero_const(e1) && sum_terms(&mb)) {
+                if !d && ((zero_const(e2) && sum_terms(&ma)) || (zero_const(e1) && sum_terms(&mb)))
+                {
                     bad("L7", format!("row {row} equates angles to 0°"));
                 }
-                if d && !c1.is_zero() && same_const && ma.len() >= 2 && mb.len() >= 2 {
+                if super::barem::carried_row(cx, e1, e2, d, &end) {
                     carried += 1;
                 }
             }

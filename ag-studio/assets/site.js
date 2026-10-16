@@ -961,7 +961,7 @@
           text2 = notes2.length ? fillKey("hp.apply_with", { thm: thm, reasons: notes2.join("; "), stmt: rest }) : fillKey("hp.apply", { thm: thm, stmt: rest });
         } else {
           var st2 = soStmt(s.stmt, goal);
-          var withKey = ["inscribed_converse", "opposite_angles_converse", "exterior_angle_converse", "thales_converse", "vertical_angles_converse", "linear_pair_converse", "alternate_angles_converse", "cointerior_angles_converse"].indexOf(s.key) >= 0 ? "hp.theorem_with.converse" : s.key === "circle_merge" ? "hp.theorem_with.circle_merge" : "hp.theorem_with";
+          var withKey = ["inscribed_converse", "opposite_angles_converse", "exterior_angle_converse", "thales_converse", "vertical_angles_converse", "linear_pair_converse", "alternate_angles_converse", "cointerior_angles_converse", "corresponding_angles_converse", "angle_construction"].indexOf(s.key) >= 0 ? "hp.theorem_with.converse" : s.key === "circle_merge" ? "hp.theorem_with.circle_merge" : "hp.theorem_with";
           text2 = notes2.length ? fillKey(withKey, { thm: thm, reasons: joinList(notes2), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
         }
         parts.push({ text: cap(text2), light: register(s.reasons) });
@@ -989,7 +989,7 @@
       else if (first.kind === "chain" && first.then) st = stmtHtml(first.then, "s");
       else if ((b.body || []).length === 1 && (b.stmt.kind === "eqangle" || b.stmt.kind === "eq")) {
         var ts = first.terms || [];
-        st = SP(math(ts[0] || "")) + " = " + SP(math(ts[ts.length - 1] || ""));
+        st = eqJoin([ts[0] || "", ts[ts.length - 1] || ""], [SP(math(ts[0] || "")), SP(math(ts[ts.length - 1] || ""))]);
       } else st = stmtHtml(b.stmt, "s");
       return fillKey("hp.we_show", { stmt: st });
     }

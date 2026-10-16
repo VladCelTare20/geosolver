@@ -490,6 +490,7 @@ closed_keys!(AtomKey, eng::AtomKey, {
     SineSupplement => "sine_supplement",
     SineComplement => "sine_complement",
     AngleAddition => "angle_addition",
+    LineAngleAddition => "line_angle_addition",
     AngleSum => "angle_sum",
     ExteriorAngle => "exterior_angle",
     Supplementary => "supplementary",
@@ -555,6 +556,8 @@ closed_keys!(TheoremKey, eng::TheoremKey, {
     LinearPairConverse => "linear_pair_converse",
     AlternateAnglesConverse => "alternate_angles_converse",
     CointeriorAnglesConverse => "cointerior_angles_converse",
+    CorrespondingAnglesConverse => "corresponding_angles_converse",
+    AngleConstruction => "angle_construction",
 });
 
 impl TheoremKey {
@@ -2545,7 +2548,9 @@ impl Cx<'_> {
                         | TheoremKey::VerticalAnglesConverse
                         | TheoremKey::LinearPairConverse
                         | TheoremKey::AlternateAnglesConverse
-                        | TheoremKey::CointeriorAnglesConverse => "hp.theorem_with.converse",
+                        | TheoremKey::CointeriorAnglesConverse
+                        | TheoremKey::CorrespondingAnglesConverse
+                        | TheoremKey::AngleConstruction => "hp.theorem_with.converse",
                         TheoremKey::CircleMerge => "hp.theorem_with.circle_merge",
                         _ => "hp.theorem_with",
                     };
@@ -2679,11 +2684,10 @@ impl Cx<'_> {
                 }
                 | Sentence::Computation { terms, .. },
             ) if b.body.len() == 1 && matches!(b.stmt.kind.as_str(), "eqangle" | "eq") => {
-                format!(
-                    "{} = {}",
+                eq_join(&[
                     terms.first().cloned().unwrap_or_default(),
-                    terms.last().cloned().unwrap_or_default()
-                )
+                    terms.last().cloned().unwrap_or_default(),
+                ])
             }
             _ => self.stmt(&b.stmt, Ctx::Statement),
         };

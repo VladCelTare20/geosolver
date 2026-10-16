@@ -752,6 +752,7 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::CongruentAsa => format!("△{} ≅ △{} (ASA)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::CongruentRhs => format!("△{} ≅ △{} (RHS)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::AngleAddition => "angle addition".to_string(),
+        AtomKey::LineAngleAddition => "addition of angles between lines".to_string(),
         AtomKey::AngleSum => format!("angle sum in △{}", n.pts(&a[0..3])),
         AtomKey::ExteriorAngle => format!("exterior angle of △{}", n.pts(&a[0..3])),
         AtomKey::Supplementary => format!("{}, {}, {} collinear: supplementary angles", n.get(a[1]), n.get(a[0]), n.get(a[2])),
@@ -888,6 +889,10 @@ pub fn theorem_name(k: TheoremKey) -> &'static str {
         TheoremKey::LinearPairConverse => "the converse of the linear pair theorem",
         TheoremKey::AlternateAnglesConverse => "the converse of the alternate angles theorem",
         TheoremKey::CointeriorAnglesConverse => "the converse of the co-interior angles theorem",
+        TheoremKey::CorrespondingAnglesConverse => {
+            "the converse of the corresponding angles theorem"
+        }
+        TheoremKey::AngleConstruction => "the angle construction axiom",
     }
 }
 
@@ -1299,10 +1304,10 @@ fn render_inner(
                     if matches!(b.stmt, Stmt::EqAngle { .. } | Stmt::Eq { .. })
                         && b.body.len() == 1 =>
                 {
-                    format!(
-                        "{} = {}",
-                        expr(&n, &terms[0]),
-                        expr(&n, terms.last().unwrap())
+                    let ends = [&terms[0], terms.last().unwrap()];
+                    eq_join(
+                        &ends.map(|e| expr(&n, e)),
+                        ends.iter().any(|e| directed_expr(e)),
                     )
                 }
                 _ => stmt(&n, &b.stmt),

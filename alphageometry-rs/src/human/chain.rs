@@ -13,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 pub type Group = Vec<(usize, Rat)>;
 
+pub const ZERO_STEP: i64 = 40;
+
 #[derive(Clone, Debug)]
 pub struct Path {
     pub split: usize,
@@ -673,6 +675,13 @@ pub fn order_items_mode(
                 continue;
             }
             if let Some(c) = c1 {
+                let inserted = table == Table::Angle
+                    && !classes(&node).is_empty()
+                    && !items[k]
+                        .2
+                        .terms
+                        .iter()
+                        .any(|(v, _)| *v != ANGLE_UNIT && !node.get(*v).is_zero());
                 push(
                     &mut states,
                     &mut done,
@@ -680,7 +689,7 @@ pub fn order_items_mode(
                     &mut heap,
                     m2,
                     nx,
-                    g + 10 + c,
+                    g + 10 + c + if inserted { ZERO_STEP } else { 0 },
                     (u, vec![k]),
                 );
                 continue;

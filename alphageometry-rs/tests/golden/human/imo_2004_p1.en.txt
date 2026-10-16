@@ -1,5 +1,3 @@
-∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ); such directed angles do not depend on how the figure is drawn.
-They are used only in step 8, where the figure-angle form would depend on the configuration.
 Let ω₁ be the circle through B, M, R, P.
 Let ω₂ be the circle through C, N, R, P.
 Let F be the foot of the perpendicular from B to AR.
@@ -21,11 +19,9 @@ Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and R, A, F, 
 ∠NFR = ∠NOR, A lies on the segment FR and F, O lie on the same side of NR, so by the converse of the inscribed angle theorem, R, N, F, O are concyclic. (6)
 7. AB·AM = AC·AN (power of the point A with respect to the circle (BMCN)). A has the same power with respect to the circles ω₁ and ω₂, so A lies on their radical axis, the line PR; hence R, A, F, P are collinear. (7)
 8. We show that P lies on the line BC:
-    ∡PCB = ∡PCN + ∡NCO    [angle addition]
-         = ∡PCN + ∡ONC    [OC = ON: triangle OCN is isosceles]
-         = ∡ONC + ∡PRN    [inscribed angles in ω₂]
-         = ∡NOF + ∡PRN    [NC ∥ OF, by (5)]
-         = ∡NRF + ∡PRN    [R, N, F, O concyclic, by (6)]
-         = ∡PRF           [angle addition]
-         = 0°             [R, A, F, P collinear, by (7)]
-So P lies on the line BC, as required. ∎
+    ∠OCN = ∠CNO    [OC = ON: triangle OCN is isosceles]
+         = ∠FON    [NC ∥ OF, by (5); alternate angles]
+         = ∠FRN    [R, N, F, O concyclic, by (6)]
+         = ∠PRN    [R, A, F, P collinear, by (7)]
+         = ∠PCN    [inscribed angles in ω₂]
+∠OCN = ∠PCN and O, P lie on the same side of CN, so by the angle construction axiom, B, P, O, C are collinear. Hence P lies on the line BC, as required. ∎

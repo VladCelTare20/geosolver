@@ -11,6 +11,7 @@ struct Reading {
     key: TheoremKey,
     lemma: Stmt,
     line: Option<Reason>,
+    line_pts: Option<[PointId; 3]>,
     side: Reason,
 }
 
@@ -104,6 +105,7 @@ fn vertical(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Reading> 
             }
             let line = line_reason(cx, &[a, v, b]);
             return Some(Reading {
+                line_pts: Some([a, v, b]),
                 key: TheoremKey::VerticalAnglesConverse,
                 lemma: Stmt::EqAngle {
                     lhs: e1.clone(),
@@ -135,18 +137,84 @@ fn linear_pair(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Readin
             rhs: e2.clone(),
         },
         line: None,
+        line_pts: None,
         side: side_label(AtomKey::OppositeSides, vec![x, y, v, w]),
     })
 }
 
-fn free_ray(t: (PointId, PointId, PointId), other: PointId) -> Option<PointId> {
-    if t.0 == other {
-        Some(t.2)
-    } else if t.2 == other {
-        Some(t.0)
+fn same_ray(cx: &Ctx, v: PointId, a: PointId, p: PointId) -> bool {
+    let (o, x, y) = (cx.t.coord(v), cx.t.coord(a), cx.t.coord(p));
+    a != v
+        && p != v
+        && (a == p
+            || (near_line(cx, v, a, p)
+                && (x.0 - o.0) * (y.0 - o.0) + (x.1 - o.1) * (y.1 - o.1) > 0.0))
+}
+
+fn same_arm(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Reading> {
+    let (p1, v, p2) = plain(e1)?;
+    let (q1, w, q2) = plain(e2)?;
+    if v != w || !pts.contains(&v) {
+        return None;
+    }
+    let rest: Vec<PointId> = pts.iter().copied().filter(|&p| p != v).collect();
+    let [x, y] = rest[..] else { return None };
+    for (xa, a) in [(p1, p2), (p2, p1)] {
+        for (yb, b) in [(q1, q2), (q2, q1)] {
+            let ends = (xa == x && yb == y) || (xa == y && yb == x);
+            if !ends || pts.contains(&a) || pts.contains(&b) {
+                continue;
+            }
+            if !same_ray(cx, v, a, b) || (a != b && !same_line(cx, (v, a), (v, b))) {
+                continue;
+            }
+            if near_line(cx, v, a, xa) || sides(cx.t, xa, yb, v, a) != Some(true) {
+                continue;
+            }
+            let line = if a == b {
+                None
+            } else {
+                line_reason(cx, &[v, a, b])
+            };
+            return Some(Reading {
+                line_pts: (a != b).then_some([v, a, b]),
+                key: TheoremKey::AngleConstruction,
+                lemma: Stmt::EqAngle {
+                    lhs: e1.clone(),
+                    rhs: e2.clone(),
+                },
+                line,
+                side: side_label(AtomKey::SameSide, vec![xa, yb, v, a]),
+            });
+        }
+    }
+    None
+}
+
+fn toward(cx: &Ctx, v: PointId, a: PointId, other: PointId) -> Option<bool> {
+    if !same_line(cx, (v, a), (v, other)) {
+        return None;
+    }
+    if same_ray(cx, v, a, other) {
+        Some(true)
+    } else if opposite_ray(cx, v, a, other) {
+        Some(false)
     } else {
         None
     }
+}
+
+fn arms(cx: &Ctx, t: (PointId, PointId, PointId), other: PointId) -> Vec<(PointId, bool)> {
+    let mut out = Vec::new();
+    for (free, along) in [(t.0, t.2), (t.2, t.0)] {
+        if free == other || near_line(cx, t.1, other, free) {
+            continue;
+        }
+        if let Some(s) = toward(cx, t.1, along, other) {
+            out.push((free, s));
+        }
+    }
+    out
 }
 
 fn parallel(
@@ -157,7 +225,7 @@ fn parallel(
     l2: (PointId, PointId),
 ) -> Option<Reading> {
     let t1 = plain(e1)?;
-    let (alternate, t2) = match (plain(e2), e2) {
+    let (equal, t2) = match (plain(e2), e2) {
         (Some(t), _) => (true, t),
         (None, Expr::Lin { terms }) => match terms.as_slice() {
             [(k1, c), (k2, a)] if k1.is_one() && *k2 == Rat::from_int(-1) && is_180(c) => {
@@ -171,52 +239,84 @@ fn parallel(
     if x == y {
         return None;
     }
-    let u = free_ray(t1, y)?;
-    let v = free_ray(t2, x)?;
     let on = |a: (PointId, PointId), l: (PointId, PointId)| same_line(cx, a, l);
-    let fits = (on((u, x), l1) && on((y, v), l2)) || (on((u, x), l2) && on((y, v), l1));
-    if !fits || u == v {
-        return None;
+    for (u, s1) in arms(cx, t1, y) {
+        for (v, s2) in arms(cx, t2, x) {
+            let fits = (on((u, x), l1) && on((y, v), l2)) || (on((u, x), l2) && on((y, v), l1));
+            if !fits || u == v {
+                continue;
+            }
+            let key = match (equal, s1, s2) {
+                (true, true, true) | (true, false, false) => TheoremKey::AlternateAnglesConverse,
+                (true, _, _) => TheoremKey::CorrespondingAnglesConverse,
+                (false, true, true) => TheoremKey::CointeriorAnglesConverse,
+                _ => continue,
+            };
+            let opposite = key == TheoremKey::AlternateAnglesConverse;
+            if sides(cx.t, u, v, x, y) != Some(!opposite) {
+                continue;
+            }
+            let lemma = if equal {
+                Stmt::EqAngle {
+                    lhs: e1.clone(),
+                    rhs: e2.clone(),
+                }
+            } else {
+                let second = Expr::Angle {
+                    a: t2.0,
+                    b: t2.1,
+                    c: t2.2,
+                    directed: false,
+                };
+                Stmt::Eq {
+                    lhs: Expr::Lin {
+                        terms: vec![(Rat::one(), e1.clone()), (Rat::one(), second)],
+                    },
+                    rhs: Expr::Const {
+                        degrees: Rat::from_int(180),
+                    },
+                }
+            };
+            let side = if opposite {
+                AtomKey::OppositeSides
+            } else {
+                AtomKey::SameSide
+            };
+            return Some(Reading {
+                key,
+                lemma,
+                line: None,
+                line_pts: None,
+                side: side_label(side, vec![u, v, x, y]),
+            });
+        }
     }
-    let same = sides(cx.t, u, v, x, y)?;
-    if same == alternate {
-        return None;
+    None
+}
+
+fn three_reading(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Reading> {
+    vertical(cx, e1, e2, pts)
+        .or_else(|| same_arm(cx, e1, e2, pts))
+        .or_else(|| linear_pair(cx, e1, e2, pts))
+}
+
+fn coll_reading(cx: &Ctx, e1: &Expr, e2: &Expr, pts: &[PointId]) -> Option<Reading> {
+    match pts.len() {
+        3 => three_reading(cx, e1, e2, pts),
+        4 => pts.iter().find_map(|&p| {
+            let rest: Vec<PointId> = pts.iter().copied().filter(|&q| q != p).collect();
+            let on_given = cx.lines.iter().any(|l| {
+                l.pts.contains(&p)
+                    && rest.iter().filter(|q| l.pts.contains(q)).count() >= 2
+                    && matches!(
+                        cx.class.get(l.fact as usize),
+                        Some(super::ctx::FactClass::Hyp | super::ctx::FactClass::HypReg)
+                    )
+            });
+            on_given.then(|| three_reading(cx, e1, e2, &rest)).flatten()
+        }),
+        _ => None,
     }
-    let second = Expr::Angle {
-        a: x,
-        b: y,
-        c: v,
-        directed: false,
-    };
-    let (key, lemma, side) = if alternate {
-        (
-            TheoremKey::AlternateAnglesConverse,
-            Stmt::EqAngle {
-                lhs: e1.clone(),
-                rhs: e2.clone(),
-            },
-            AtomKey::OppositeSides,
-        )
-    } else {
-        (
-            TheoremKey::CointeriorAnglesConverse,
-            Stmt::Eq {
-                lhs: Expr::Lin {
-                    terms: vec![(Rat::one(), e1.clone()), (Rat::one(), second)],
-                },
-                rhs: Expr::Const {
-                    degrees: Rat::from_int(180),
-                },
-            },
-            AtomKey::SameSide,
-        )
-    };
-    Some(Reading {
-        key,
-        lemma,
-        line: None,
-        side: side_label(side, vec![u, v, x, y]),
-    })
 }
 
 fn reading(cx: &Ctx, s: &Sentence) -> Option<(Reading, Stmt)> {
@@ -241,9 +341,7 @@ fn reading(cx: &Ctx, s: &Sentence) -> Option<(Reading, Stmt)> {
     }
     let (e1, e2) = (&terms[0], terms.last()?);
     let r = match st {
-        Stmt::Coll { pts } if pts.len() == 3 => {
-            vertical(cx, e1, e2, pts).or_else(|| linear_pair(cx, e1, e2, pts))
-        }
+        Stmt::Coll { pts } => coll_reading(cx, e1, e2, pts),
         Stmt::Para { l1, l2 } => parallel(cx, e1, e2, *l1, *l2),
         _ => None,
     }?;
@@ -262,6 +360,41 @@ fn reading(cx: &Ctx, s: &Sentence) -> Option<(Reading, Stmt)> {
     Some((r, st.clone()))
 }
 
+fn given_line(cx: &Ctx, pts: &[PointId]) -> bool {
+    cx.lines.iter().any(|l| {
+        pts.iter().all(|p| l.pts.contains(p))
+            && matches!(
+                cx.class.get(l.fact as usize),
+                Some(super::ctx::FactClass::Hyp | super::ctx::FactClass::HypReg)
+            )
+    })
+}
+
+fn claim_line(cx: &Ctx, earlier: &[Block], pts: &[PointId]) -> Option<Reason> {
+    for l in cx
+        .lines
+        .iter()
+        .filter(|l| pts.iter().all(|p| l.pts.contains(p)))
+    {
+        let shown = cx.displayable(l.fact);
+        for b in earlier {
+            let BlockKind::Claim(n) = b.kind else {
+                continue;
+            };
+            for f in [l.fact, shown] {
+                if b.engine_facts.contains(&f) {
+                    return Some(Reason::Claim {
+                        n,
+                        block: b.id,
+                        fact: f,
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
 fn reading_block(cx: &Ctx, hp: &HumanProof, bi: usize) -> Option<HumanProof> {
     let b = &hp.blocks[bi];
     let id = b.id;
@@ -270,10 +403,22 @@ fn reading_block(cx: &Ctx, hp: &HumanProof, bi: usize) -> Option<HumanProof> {
     let mut any = false;
     for s in &b.body {
         map.push(out.len() as u16);
-        let Some((r, st)) = reading(cx, s) else {
+        let Some((mut r, st)) = reading(cx, s) else {
             out.push(s.clone());
             continue;
         };
+        if r.line.is_none() {
+            if let Some(pts) = r.line_pts {
+                r.line = claim_line(cx, &hp.blocks[..bi], &pts);
+                if r.line.is_none() && !given_line(cx, &pts) {
+                    if debug() {
+                        eprintln!("readings: no citable line for {pts:?}");
+                    }
+                    out.push(s.clone());
+                    continue;
+                }
+            }
+        }
         let Sentence::Chain {
             terms,
             links,
@@ -379,24 +524,20 @@ pub fn line_converse_ok(
         })
     };
     let r = match (key, stmt, ls) {
-        (TheoremKey::VerticalAnglesConverse, Stmt::Coll { pts }, Stmt::EqAngle { lhs, rhs })
-            if pts.len() == 3 =>
-        {
-            vertical(cx, lhs, rhs, pts)
-                .ok_or("the angles are not vertical angles at a point of a line, as drawn")?
-        }
-        (TheoremKey::LinearPairConverse, Stmt::Coll { pts }, Stmt::Eq { lhs, rhs })
-            if pts.len() == 3 =>
-        {
-            linear_pair(cx, lhs, rhs, pts)
-                .ok_or("the two angles are not adjacent angles on opposite sides summing to 180°")?
-        }
         (
-            TheoremKey::AlternateAnglesConverse,
+            TheoremKey::VerticalAnglesConverse
+            | TheoremKey::AngleConstruction
+            | TheoremKey::LinearPairConverse,
+            Stmt::Coll { pts },
+            Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs },
+        ) => coll_reading(cx, lhs, rhs, pts)
+            .ok_or("the angle relation does not place the points on one line, as drawn")?,
+        (
+            TheoremKey::AlternateAnglesConverse | TheoremKey::CorrespondingAnglesConverse,
             Stmt::Para { l1, l2 },
             Stmt::EqAngle { lhs, rhs },
         ) => parallel(cx, lhs, rhs, *l1, *l2)
-            .ok_or("not alternate angles on a transversal, as drawn")?,
+            .ok_or("not alternate or corresponding angles on a transversal, as drawn")?,
         (TheoremKey::CointeriorAnglesConverse, Stmt::Para { l1, l2 }, Stmt::Eq { lhs, rhs }) => {
             let Expr::Lin { terms } = lhs else {
                 return Err("co-interior angles: a sum of two angles".into());
