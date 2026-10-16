@@ -395,13 +395,38 @@ Stages, first success wins:
 4. **Pooled.** "Angle chasing with ⟨reasons⟩ gives ⟨statement⟩." The reasons are the certificate's support after collapsing: atoms on one circle become "inscribed angles in Ω"; central-angle pairs on one circle become the inscribed atom they sum to; claims become "(Claim k)". The UI offers "show the computation", which displays the exact combination Σ λᵢ·(atomᵢ) as an aligned sum (§7.2). This is convention 3 of §2, and it is never unverified.
 
 **Coefficients.**
-- If every λ is an integer, the chain is written in directed angles ∡ (mod 180°). Integer multiples are valid mod π.
+- If every λ is an integer, the chain can be written in directed angles ∡ (mod 180°), since integer multiples are valid mod π; it is shown that way only when no ordinary-angle (as drawn) derivation is found, and then as a congruence (§6.6.5).
 - If a ½ is needed (central angle halved, bisector of a directed angle), the halving link is written in undirected ∠, with values as drawn: "∠MCN = ½∠MON = ∠RON". This matches what the engine verified, because its integer offsets were fixed from the same figure (§3.3). The block is then marked `as_drawn: true`, and the UI and report already have wording for that (`present.rs:as_drawn`).
 
 **6.6.4 Ratio and trig computations.**
 - Ratio targets are rendered as product chains (`AH/(2·OM) = … = 1`) or as equalities of lengths.
 - Trig rows (`Formula`) carry sine variables. They are named from the engine's own row text: `|sin ∠(AC,AB)|` → `sin∠BAC`, and `|sin(x + 90°)|` → `cos x`. Absolute values are dropped when every angle is an interior angle of the figure.
 - Consecutive links touching the same triangle are grouped into one displayed equality, labelled by the triangle and rule ("law of sines in △BOMₐ"). Golden: [orthocenter–vertex distance](human-proofs/orthocenter-vertex-distance.md), 42 raw steps → one 9-line computation.
+
+**6.6.5 Chain rows: one fact per row, and 0° ≠ 180°.**
+
+**Principle: 0° and 180° are different angles, and a displayed proof never identifies them.** A figure angle ∠XYZ is an ordinary angle between rays, in [0°, 180°]; ∠XYZ = 0° says Z lies on the ray YX, ∠XYZ = 180° says Y lies between X and Z. A directed angle ∡ is an angle between lines, defined modulo 180°, so for ∡ the two values are the same class.
+
+- Every ∠ row is exact in the drawn figure (the checker evaluates it with exact constants).
+- A ∡ equality is always printed as a congruence: `∡A ≡ ∡B (mod 180°)` in a single sentence, `≡` on every row of a chain with `(mod 180°)` on its last row, the same in claim headers ("We show that ∡X ≡ ∡Y + 90° (mod 180°)"). Directed angles are the last resort: the writer tries ordinary angles first (`search.rs:route_target` puts the as-drawn forms from `claims.rs:drawn_forms` first), and the preface says they are angles between lines taken modulo 180° and lists the steps that use them.
+- A sum of two right angles is 90° + 90° = 180°, never "= 0°". An ∠ sum or difference is equated to 0° only when it is a genuine 0° angle (Thebault t5 step 27: ∠KLX = 0°, so K and X are on one ray from L).
+- Collinearity and parallelism from ordinary angles always go through a named theorem with the side condition read from the figure (`readings.rs`): the converse of the vertical angles theorem (∠BZX = ∠AZY, X and Y on opposite sides of AB through Z), the angle construction axiom (∠XHB = ∠YHB, X and Y on one side of HB, so the rays HX and HY coincide), the converse of the linear pair theorem (∠AVX + ∠XVB = 180° with A, B on opposite sides of VX), and the converses of the alternate, corresponding and co-interior angles theorems for parallels. A chain of parallels/perpendiculars only is one sentence ("AH ⟂ BC and HK ⟂ BC, so A, H, K are collinear").
+- A proof whose displayed readings or side conditions depend on the configuration is labelled "Proved as drawn" (ag-studio `readings.rs:depends_on_configuration` evaluates them on other valid figures from `spread::alternatives`).
+
+Rows. Each row of a chain substitutes one cited fact (or is a named identity: angle addition at one vertex, angle sum or exterior angle of a named triangle, supplementary or vertical angles, "addition of angles between lines" in a directed chain). `check.rs:chain_lints` names what a row must not do:
+
+| rule | a row must not | gate |
+|---|---|---|
+| L1 | keep every term of the previous row and only add terms that cancel (zero insertion), consuming no displayed constant | 0 |
+| L2 | change nothing | 0 |
+| L3 | carry a directed constant through two or more rows that the chain does not end with | 0 |
+| L4 | change more than its single fact (an opaque row) | reported |
+| L5 | be labelled "angle addition" unless it splits one angle at one vertex | 0 |
+| L6 | cite several facts | reported |
+| L7 | equate a sum of ordinary angles to 0° | 0 |
+| L8 | cite a reason it does not use | reported |
+
+The fixes behind these rules are structural, not textual: the route search's reverse graph now expands an empty node over every atom (it used to see only two-term atoms, so the optimal three-link Simson route was cut), `barem.rs:unzero_chain` re-orders a chain's links (a DP over link subsets, with short merged runs as a fallback) when a row inserts zeros or carries a constant, an identity row gets the label `identity_label` computes from its two ends or none, and `line_chain` turns a straight-angle chain of line facts into one sentence.
 
 ### 6.7 Setup and auxiliary points
 

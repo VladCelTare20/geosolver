@@ -365,6 +365,7 @@ pub struct Writer<'c, 'a> {
     >,
     pub extra: Vec<u32>,
     pub route_spent: std::sync::atomic::AtomicUsize,
+    pub drawn_spent: std::sync::atomic::AtomicUsize,
 }
 
 pub fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &Ctx) -> u32 {
@@ -403,6 +404,7 @@ impl<'c, 'a> Writer<'c, 'a> {
             span_cache: std::sync::Mutex::new(BTreeMap::new()),
             extra,
             route_spent: std::sync::atomic::AtomicUsize::new(0),
+            drawn_spent: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 

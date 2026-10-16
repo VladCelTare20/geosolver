@@ -4648,8 +4648,8 @@ pub mod tests {
             "the point such that ABC",
             "the midpoint of arc BC of Ω",
             "antipode of A on Ω",
-            "[∡DEG = ∡DFG]",
-            "∡ABX = ∡XCA, by (1)",
+            "[∡DEG ≡ ∡DFG (mod 180°)]",
+            "∡ABX ≡ ∡XCA (mod 180°), by (1)",
             "QD = QE = QF = QG",
             "radii of Ω",
             "HA = HB = HC",
@@ -4665,7 +4665,7 @@ pub mod tests {
             "[CM ∥ AB; corresponding angles]",
             "∠BFA = 90° and ∠BNA = 90°, so by the converse of Thales' theorem, F, N, B, A are concyclic.",
             "Common side AB, so △ABM ≅ △ABE",
-            "D, E, F, G on ω₁, so ∡EDF = ∡EGF.",
+            "D, E, F, G on ω₁, so ∡EDF ≡ ∡EGF (mod 180°).",
             "[D, E, K collinear: supplementary angles]",
             "[vertical angles at E]",
             "[exterior angle of the cyclic quadrilateral EDFG]",
@@ -4681,7 +4681,7 @@ pub mod tests {
             assert!(en.contains(want), "{want:?} missing from\n{en}");
         }
         let ro = text(&h, &view, Lang::Ro);
-        for want in ["teorema sinusurilor în △ABC", "K este simetricul lui H față de BC", "H se află pe segmentul KA", "(unghiuri alterne)", "unghiuri corespondente", "reciproca proprietății unghiului înscris în semicerc", "Latura comună AB", "∡ABX = ∡XCA, din (1)", "deci, din reciproca teoremei unghiului înscris, punctele D, E, F, G sunt conciclice", "cercurile au trei puncte comune, deci coincid", "unghiuri opuse la vârf în E", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
+        for want in ["teorema sinusurilor în △ABC", "K este simetricul lui H față de BC", "H se află pe segmentul KA", "(unghiuri alterne)", "unghiuri corespondente", "reciproca proprietății unghiului înscris în semicerc", "Latura comună AB", "∡ABX ≡ ∡XCA (mod 180°), din (1)", "deci, din reciproca teoremei unghiului înscris, punctele D, E, F, G sunt conciclice", "cercurile au trei puncte comune, deci coincid", "unghiuri opuse la vârf în E", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
             assert!(ro.contains(want), "{want:?} missing from\n{ro}");
         }
         let path = dir().join("synthetic-wording.json");

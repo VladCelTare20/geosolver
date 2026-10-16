@@ -447,12 +447,17 @@ fn route_target(
         .chain(std::iter::once(t).chain(t.alts.iter()).take(MAX_FORMS))
         .collect();
     for (fi, form) in forms.into_iter().enumerate() {
+        let only_drawn = fi < ndrawn;
+        let spent = if only_drawn {
+            &w.drawn_spent
+        } else {
+            &w.route_spent
+        };
         if !matches!(form.table, Table::Angle | Table::Ratio)
-            || w.route_spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET
+            || spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET
         {
             continue;
         }
-        let only_drawn = fi < ndrawn;
         let mut form = form.clone();
         form.alts.clear();
         let splits = route_splits(w, &mut form);
@@ -477,7 +482,7 @@ fn route_target(
                 &usplits,
                 route::UNDIRECTED_BUDGET,
                 cap.saturating_add(UNDIRECTED_BONUS),
-                &w.route_spent,
+                spent,
                 weights,
             ) {
                 p.weight -= UNDIRECTED_BONUS;
@@ -567,9 +572,10 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
         }
         if f == GOAL {
             let cap = route::TOTAL_BUDGET - route::GOAL_RESERVE;
-            if w.route_spent.load(std::sync::atomic::Ordering::Relaxed) > cap {
-                w.route_spent
-                    .store(cap, std::sync::atomic::Ordering::Relaxed);
+            for spent in [&w.route_spent, &w.drawn_spent] {
+                if spent.load(std::sync::atomic::Ordering::Relaxed) > cap {
+                    spent.store(cap, std::sync::atomic::Ordering::Relaxed);
+                }
             }
         }
         let node = w.nodes[&f].clone();

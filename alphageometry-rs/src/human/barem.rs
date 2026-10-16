@@ -196,9 +196,18 @@ fn same_point_set(a: &Stmt, b: &Stmt) -> bool {
         v.dedup();
         v
     };
+    let lines = |l1: &(PointId, PointId), l2: &(PointId, PointId)| {
+        let mut v = vec![sorted(&[l1.0, l1.1]), sorted(&[l2.0, l2.1])];
+        v.sort();
+        v
+    };
     match (a, b) {
         (Stmt::Coll { pts: x }, Stmt::Coll { pts: y })
         | (Stmt::Cyclic { pts: x }, Stmt::Cyclic { pts: y }) => sorted(x) == sorted(y),
+        (Stmt::Para { l1: a1, l2: a2 }, Stmt::Para { l1: b1, l2: b2 })
+        | (Stmt::Perp { l1: a1, l2: a2 }, Stmt::Perp { l1: b1, l2: b2 }) => {
+            lines(a1, a2) == lines(b1, b2)
+        }
         _ => false,
     }
 }

@@ -118,9 +118,14 @@ fn side(fig: &Problem, names: &[String], args: &[u32]) -> Option<bool> {
     (a.abs() > 1e-9 * scale && b.abs() > 1e-9 * scale).then_some(a.signum() == b.signum())
 }
 
-fn between(fig: &Problem, names: &[String], v: u32, a: u32, b: u32) -> Option<bool> {
-    let (pv, pa, pb) = (xy(fig, names, v)?, xy(fig, names, a)?, xy(fig, names, b)?);
-    Some((pa.0 - pv.0) * (pb.0 - pv.0) + (pa.1 - pv.1) * (pb.1 - pv.1) < 0.0)
+fn on_segment(fig: &Problem, names: &[String], v: u32, inner: u32, outer: u32) -> Option<bool> {
+    let (pv, pi, po) = (
+        xy(fig, names, v)?,
+        xy(fig, names, inner)?,
+        xy(fig, names, outer)?,
+    );
+    let (a, b) = ((pi.0 - pv.0, pi.1 - pv.1), (po.0 - pv.0, po.1 - pv.1));
+    Some(a.0 * b.0 + a.1 * b.1 > 0.0 && a.0.hypot(a.1) < b.0.hypot(b.1))
 }
 
 pub fn violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec<String> {
@@ -185,9 +190,11 @@ pub fn violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec<Strin
     }
     for (key, args) in labels {
         let ok = match key {
-            AtomKey::SameSide => side(fig, names, args).map(|s| s),
+            AtomKey::SameSide => side(fig, names, args),
             AtomKey::OppositeSides => side(fig, names, args).map(|s| !s),
-            AtomKey::OnSegment if args.len() == 3 => between(fig, names, args[0], args[1], args[2]),
+            AtomKey::OnSegment if args.len() == 3 => {
+                on_segment(fig, names, args[0], args[1], args[2])
+            }
             _ => None,
         };
         if ok == Some(false) {

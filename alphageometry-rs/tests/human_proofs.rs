@@ -209,7 +209,7 @@ fn golden_examples_have_the_planned_shape() {
     );
     assert!(t.contains("= 1 / 2      [AG = 2\u{b7}GM, by (1)]"), "{t}");
     assert!(!t.contains("\u{25b3}ABG \u{223c} \u{25b3}MNG"), "{t}");
-    assert!(t.contains("\u{25b3}AHG \u{223c} \u{25b3}MOG, by (6), so \u{2220}AGH = \u{2220}MGO; as A, G, M are collinear") && t.contains("so O, G, H lie on one line, as required. \u{220e}"), "{t}");
+    assert!(t.contains("\u{25b3}AHG \u{223c} \u{25b3}MOG, by (6) and A, G, M are collinear, so \u{2220}AGH = \u{2220}MGO. \u{2220}AGH = \u{2220}MGO and H, O lie on opposite sides of AM, so by the converse of the vertical angles theorem, O, G, H lie on one line, as required. \u{220e}"), "{t}");
     assert!(!t.contains("counter-clockwise"), "no directed angles:\n{t}");
 
     let (_, hp, t) = get("orthocenter_vertex_distance");

@@ -49,6 +49,30 @@ reports its git commit (`agstudio --version`, `/api/status`).
   criterion needs were stated before the congruence, never counting the
   congruence's own conclusion.
 
+### Proofs: angle chains (0° and 180° are different)
+- Displayed proofs use ordinary angles ∠ wherever a derivation exists and never
+  identify 0° with 180°. The Simson line now reads ∠BZX = ∠BPX = 90° − ∠PBC =
+  90° − ∠PAY = ∠APY = ∠AZY, then "X, Y lie on opposite sides of BA, so by the
+  converse of the vertical angles theorem, X, Y, Z are collinear" (it used to
+  open with "∡XZY = ∡BXP + ∡XZY + 90°" and end "= 0°").
+- A collinearity or parallelism from ordinary angles is always a named theorem
+  with its side condition: the converse of the vertical angles, linear pair,
+  alternate, corresponding or co-interior angles theorem, or the angle
+  construction axiom (EN and RO).
+- Directed angles ∡ are a last resort, explained as angles between lines
+  modulo 180°, and every directed equality is written `≡ … (mod 180°)` (rows,
+  sentences and step headers; engine text, server and browser). Over the 384
+  replayed corpus, example and app proofs: proofs using ∡ 168 → 85, rows
+  "= 0°" 64 → 1 (a genuine 0° angle), directed equalities written with "="
+  955 → 0.
+- Chain rows: no row repeats the previous one with cancelling terms added, no
+  directed constant is carried along, an identity is labelled only with what
+  it is ("addition of angles between lines" in a directed chain). Lints
+  L1/L2/L3/L5/L7 are 0 on every proof (before: 15/0/15/64/0), checked by
+  `tests/human_chain_rows.rs` and the ag-studio audit.
+- A proof whose shown angle readings or side conditions fail in another valid
+  figure is labelled "Proved as drawn".
+
 ### UI polish
 - Phone proofs: a stacked equality chain no longer draws the angle sign over the
   "=" or "−" (every "= ∠B" read as "≠ B", "90° − ∠HBC" as "90° ∠HBC"); the

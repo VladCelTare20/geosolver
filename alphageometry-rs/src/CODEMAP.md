@@ -89,5 +89,5 @@ Up: [../../CODEMAP.md](../../CODEMAP.md)
 ## Subfolders
 - [engine/](engine/CODEMAP.md) — classical closure rules (squared lengths, Menelaus/Ceva, bisector concurrency, triangle equality) and the trig rows of the DDAR closure (law of sines, multiple-angle products, converse; `--trig`, fallback by default).
 - [human/](human/CODEMAP.md) — the deterministic human-style proof writer, its checker and data model.
-- `bin/` — `ddar.rs`, the engine CLI (`--help` lists modes); `--human` / `--human-json` print the human proof, `--human-stats <file>` (corpus) writes the writer's metrics per proof.
+- `bin/` — `ddar.rs`, the engine CLI (`--help` lists modes); `--human` / `--human-json` print the human proof, `--human-stats <file>` (corpus) writes the writer's metrics per proof. `HP_SAVE=<dir>` (with `--human`) saves every solved conjunct as one line `name, k, first aux point, aux descriptions (U+001F separated), low-level problem`; `--human-replay <dir> --human` re-runs only the writer on those lines (384 proofs in about 9 s), and `HP_LINT=1` adds `LINT name k rule step detail` lines (`human::lints`).
 - [ratio/](ratio/CODEMAP.md) — the trigonometric layer of the metric ratio prover.

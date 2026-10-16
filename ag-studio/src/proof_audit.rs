@@ -374,11 +374,35 @@ pub fn angle_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec
 
 pub fn text_violations(text: &str) -> Vec<String> {
     let mut bad = Vec::new();
-    for line in text.lines() {
+    let lines: Vec<&str> = text.lines().collect();
+    let row = |l: &str| {
+        let t = l.trim_start();
+        t.starts_with('\u{2261}') || t.starts_with('=')
+    };
+    for (i, line) in lines.iter().enumerate() {
         if line.starts_with("\u{2221}(a, b)") {
             continue;
         }
-        for seg in line.split(['[', ']', ';', ',']) {
+        let mut end = i;
+        while end + 1 < lines.len() && row(lines[end + 1]) {
+            end += 1;
+        }
+        let closed = lines[i..=end].iter().any(|l| l.contains("(mod 180\u{b0})"));
+        let mut clauses = line.to_string();
+        for word in [
+            " so ",
+            " and ",
+            " Hence ",
+            ". ",
+            " \u{219}i ",
+            " deci ",
+            " Deci ",
+            " we get ",
+            " ob\u{21b}inem ",
+        ] {
+            clauses = clauses.replace(word, ",");
+        }
+        for seg in clauses.split(['[', ']', ';', ',', '(', ')', ':', '\u{21d2}']) {
             if seg.contains('\u{25b3}') {
                 continue;
             }
@@ -386,7 +410,7 @@ pub fn text_violations(text: &str) -> Vec<String> {
             if directed && seg.contains(" = ") {
                 bad.push(format!("a directed angle is equated with =: {line}"));
             }
-            if seg.contains('\u{2261}') && !line.contains("(mod 180\u{b0})") {
+            if seg.contains('\u{2261}') && !closed {
                 bad.push(format!("a congruence without its modulus: {line}"));
             }
         }
@@ -768,7 +792,7 @@ mod tests {
             (
                 "arc_midpoint_bisector",
                 include_str!("../../alphageometry-rs/examples/named/arc_midpoint_bisector.geo"),
-                "\u{2221}BAM = \u{2221}MAC",
+                "\u{2221}BAM \u{2261} \u{2221}MAC (mod 180\u{b0})",
             ),
             (
                 "incenter_excenter_cyclic",

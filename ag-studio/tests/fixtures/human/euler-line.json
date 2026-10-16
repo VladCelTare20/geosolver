@@ -1530,7 +1530,13 @@
                 ]
               }
             ],
-            "then": {
+            "then": null,
+            "directed": false
+          },
+          {
+            "kind": "theorem",
+            "key": "vertical_angles_converse",
+            "stmt": {
               "kind": "coll",
               "args": [
                 "O",
@@ -1543,7 +1549,50 @@
                 "H"
               ]
             },
-            "directed": false
+            "reasons": [
+              {
+                "kind": "eqangle",
+                "args": [
+                  "∠AGH",
+                  "∠MGO"
+                ],
+                "points": [
+                  "A",
+                  "O",
+                  "M",
+                  "G",
+                  "H"
+                ],
+                "step": null,
+                "block": 7,
+                "because": [],
+                "lemma": true,
+                "sentence": 0
+              },
+              {
+                "kind": "atom",
+                "key": "opposite_sides",
+                "args": [
+                  "H",
+                  "O",
+                  "A",
+                  "M"
+                ],
+                "stmt": {
+                  "kind": "formula",
+                  "args": [
+                    ""
+                  ],
+                  "points": [
+                    "A",
+                    "O",
+                    "M",
+                    "H"
+                  ]
+                },
+                "from": []
+              }
+            ]
           }
         ],
         "engine_steps": [
@@ -1586,17 +1635,17 @@
       "derived": 17,
       "blocks": 7,
       "claims": 1,
-      "sentences": 11,
+      "sentences": 12,
       "chain_links": 11,
       "chains": 5,
       "pure_chains": 5,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 246,
+      "words_en": 251,
       "lines_en": 21,
-      "citations": 18,
+      "citations": 20,
       "aux_shown": 0,
-      "human_cost": 67,
+      "human_cost": 70,
       "reproved": 3,
       "silent": 9,
       "pruned": 5,
@@ -1605,7 +1654,7 @@
       "fallback_facts": 0,
       "check_violations": 0,
       "similar_steps": 2,
-      "theorem_steps": 5,
+      "theorem_steps": 7,
       "steps": 7,
       "multi_fact_links": 0,
       "undirected_chains": 4,

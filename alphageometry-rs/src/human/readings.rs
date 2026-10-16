@@ -329,7 +329,7 @@ fn reading(cx: &Ctx, s: &Sentence) -> Option<(Reading, Stmt)> {
     else {
         return None;
     };
-    if links.len() < 2 || (*directed && terms.iter().any(is_directed)) {
+    if links.is_empty() || (*directed && terms.iter().any(is_directed)) {
         return None;
     }
     if !terms
