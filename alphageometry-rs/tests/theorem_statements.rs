@@ -38,6 +38,12 @@ fn split_metric(src: &str) -> (String, String) {
     (cons.join("\n"), goal)
 }
 
+fn dump(key: &str, text: &str) {
+    if let Some(dir) = std::env::var_os("THEOREM_PROOFS_OUT") {
+        let _ = std::fs::write(PathBuf::from(dir).join(format!("{key}.txt")), text);
+    }
+}
+
 enum Verdict {
     Proved(String),
     Circular,
@@ -122,6 +128,7 @@ fn check_ddar(key: &str, thm: Thm, problem: &mut Problem) -> Result<Verdict, Str
     if !hits.is_empty() {
         return Err(format!("the human proof names {hits:?}:\n{text}"));
     }
+    dump(key, &text);
     let first = text
         .lines()
         .find(|l| l.trim_start().starts_with("1."))
@@ -141,6 +148,7 @@ fn check_metric(thm: Thm, src: &str) -> Result<Verdict, String> {
     }
     match res {
         Ok(proof) => {
+            dump(&thm.key().to_string(), &proof);
             let hits = audit::text(forbid, &proof);
             if !hits.is_empty() {
                 return Err(format!("the proof names {hits:?}:\n{proof}"));
