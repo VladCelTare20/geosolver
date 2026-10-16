@@ -64,6 +64,7 @@ pub(crate) fn candidate_rat(v: f64) -> Option<Rat> {
 pub(crate) struct Certifier {
     built_for: (usize, usize),
     closure: Option<Option<Ddar>>,
+    pub(crate) forbid: crate::theory::Forbid,
 }
 
 impl Certifier {
@@ -115,6 +116,7 @@ impl Certifier {
             let built = crate::quiet_panic::quiet(|| {
                 catch_unwind(AssertUnwindSafe(|| {
                     let mut d = Ddar::new_tracked(&points);
+                    d.set_forbid(self.forbid);
                     for (i, p) in preds.iter().enumerate() {
                         if i < hyps {
                             d.force_pred(p);

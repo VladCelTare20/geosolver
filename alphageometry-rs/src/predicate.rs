@@ -33,6 +33,7 @@ pub struct Problem {
     pub points: Vec<Point>,
     pub preds: Vec<Predicate>,
     pub goal: Option<Predicate>,
+    pub forbid: crate::theory::Forbid,
 }
 
 /// A predicate whose point arguments are still names (pre-resolution).
@@ -184,6 +185,7 @@ impl Problem {
             points,
             preds,
             goal,
+            forbid: Default::default(),
         })
     }
 

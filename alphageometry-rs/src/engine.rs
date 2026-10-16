@@ -66,6 +66,15 @@ enum Tangent {
 }
 
 type Triple = (PointId, PointId, PointId);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Criterion {
+    Aa,
+    Sas,
+    Sss,
+    Ssa,
+}
+
 type Centre = (PointId, bool, Vec<FactId>);
 
 /// The main logical engine.
@@ -113,6 +122,7 @@ pub struct Ddar {
 
     classics: classics::Done,
     rules_off: u8,
+    forbid: crate::theory::Forbid,
     trig: trig::TrigState,
 }
 
@@ -371,6 +381,7 @@ impl Ddar {
             log: ProofLog::new(),
             classics: classics::Done::default(),
             rules_off: classics::env_disabled_mask(),
+            forbid: crate::theory::Forbid::NONE,
             trig: trig::TrigState::default(),
         }
     }
@@ -1033,6 +1044,14 @@ impl Ddar {
         }
     }
 
+    pub fn set_forbid(&mut self, forbid: crate::theory::Forbid) {
+        self.forbid = forbid;
+    }
+
+    pub fn forbid(&self) -> crate::theory::Forbid {
+        self.forbid
+    }
+
     /// Run the fixpoint loop until no new fact is derived.
     pub fn deduction_closure(&mut self) {
         self.deduction_closure_until(None);
@@ -1151,6 +1170,9 @@ impl Ddar {
     /// detection).
     fn search_similitude(&mut self) -> bool {
         let mut changed = false;
+        if self.forbid.has(crate::theory::Thm::Homothety) {
+            return false;
+        }
         // Circles with a symbolic centre and a radius representative: the live
         // DB circles, plus the transient "small" (two-point) centred circles
         // from this pass — a circle named by a single `cong` is enough to have
@@ -1259,7 +1281,8 @@ impl Ddar {
                         }
                         let mut prem2 = prem.clone();
                         prem2.extend(self.deps_of_angle_expr(z, p, z, q));
-                        let fact = self.log.add(
+                        let fact = self.log.add_as(
+                            crate::theory::Thm::Homothety,
                             Reason::Theorem(
                                 "homothety at a centre of similitude",
                                 vec![z, p, q, o1, o2],
@@ -1279,6 +1302,9 @@ impl Ddar {
             }
         }
 
+        if self.forbid.has(crate::theory::Thm::Monge) {
+            return changed;
+        }
         // (b) Monge–d'Alembert on circle triples.
         for i in 0..circs.len() {
             for j in (i + 1)..circs.len() {
@@ -1309,7 +1335,8 @@ impl Ddar {
                                 let mut prem = p1.clone();
                                 prem.extend_from_slice(p2);
                                 prem.extend_from_slice(p3);
-                                let fact = self.log.add(
+                                let fact = self.log.add_as(
+                                    crate::theory::Thm::Monge,
                                     Reason::Theorem("Monge–d'Alembert", vec![z1, z2, z3]),
                                     prem,
                                 );
@@ -1344,6 +1371,9 @@ impl Ddar {
     /// proved, and then equal powers say nothing about X.
     fn search_radical_axis(&mut self) -> bool {
         let mut changed = false;
+        if self.forbid.has(crate::theory::Thm::RadicalAxis) {
+            return false;
+        }
         let dbg = std::env::var_os("RADAX_DEBUG").is_some_and(|v| !v.is_empty());
         let circs: Vec<(Vec<PointId>, Option<FactId>, NumCircle)> = self
             .live_circles
@@ -1472,9 +1502,11 @@ impl Ddar {
                             self.name(v)
                         );
                     }
-                    let fact = self
-                        .log
-                        .add(Reason::Theorem("radical axis", vec![x, u, v]), prem);
+                    let fact = self.log.add_as(
+                        crate::theory::Thm::RadicalAxis,
+                        Reason::Theorem("radical axis", vec![x, u, v]),
+                        prem,
+                    );
                     self.force_collinear(&[x, u, v], vec![fact]);
                     changed = true;
                 }
@@ -1532,12 +1564,28 @@ impl Ddar {
                             if angle_holds == ratio_holds {
                                 continue; // nothing new in either direction
                             }
+                            let thm = {
+                                use crate::theory::Thm;
+                                let inside = (self.coord(b) - self.coord(x))
+                                    .dot(self.coord(c) - self.coord(x))
+                                    < 0.0;
+                                match (angle_holds, inside) {
+                                    (true, true) => Thm::BisectorThm,
+                                    (true, false) => Thm::ExtBisectorThm,
+                                    (false, true) => Thm::BisectorConverse,
+                                    (false, false) => Thm::ExtBisectorConverse,
+                                }
+                            };
+                            if self.forbid.has(thm) {
+                                continue;
+                            }
                             let mut prem: Vec<FactId> = line_fact.into_iter().collect();
                             if angle_holds {
                                 // r12: bisector ⇒ ratio.
                                 prem.extend(self.deps_of_angle_expr(a, b, a, x));
                                 prem.extend(self.deps_of_angle_expr(a, x, a, c));
-                                let fact = self.log.add(
+                                let fact = self.log.add_as(
+                                    thm,
                                     Reason::Theorem("angle bisector theorem", vec![a, x, b, c]),
                                     prem,
                                 );
@@ -1551,7 +1599,8 @@ impl Ddar {
                                 // r11: ratio ⇒ bisector.
                                 prem.extend(self.deps_of_ratio_expr(x, c, x, b));
                                 prem.extend(self.deps_of_ratio_expr(a, c, a, b));
-                                let fact = self.log.add(
+                                let fact = self.log.add_as(
+                                    thm,
                                     Reason::Theorem(
                                         "angle bisector theorem (converse)",
                                         vec![a, x, b, c],
@@ -1579,6 +1628,9 @@ impl Ddar {
     /// not a point of the figure — otherwise similar triangles cover it.
     fn search_intercept_theorem(&mut self) -> bool {
         let mut changed = false;
+        if self.forbid.has(crate::theory::Thm::Intercept) {
+            return false;
+        }
         let live = self.live_lines.clone();
         for i in 0..live.len() {
             for j in (i + 1)..live.len() {
@@ -1673,7 +1725,8 @@ impl Ddar {
                                 let mut prem = line_facts.clone();
                                 prem.extend(self.deps_of_angle_expr(a, b, m, n));
                                 prem.extend(self.deps_of_angle_expr(m, n, d, cc));
-                                let fact = self.log.add(
+                                let fact = self.log.add_as(
+                                    crate::theory::Thm::Intercept,
                                     Reason::Theorem(
                                         "intercept theorem (parallel rungs)",
                                         vec![a, b, m, n, d, cc],
@@ -1695,10 +1748,46 @@ impl Ddar {
         changed
     }
 
-    fn force_similar(&mut self, t1: Triple, t2: Triple) -> bool {
+    fn similarity_thm(&self, t1: Triple, t2: Triple, crit: Criterion) -> crate::theory::Thm {
+        use crate::theory::Thm;
+        let mut s1 = [t1.0, t1.1, t1.2];
+        let mut s2 = [t2.0, t2.1, t2.2];
+        s1.sort_unstable();
+        s2.sort_unstable();
+        if s1 == s2 {
+            return if crit == Criterion::Aa {
+                Thm::IsoscelesConverse
+            } else {
+                Thm::Isosceles
+            };
+        }
+        let ratio = self.raw_dist_mul(t1.0, t1.1).div(&self.raw_dist_mul(t2.0, t2.1));
+        let congruent = self.dmul.simplify(&ratio).is_one();
+        match (crit, congruent) {
+            (Criterion::Aa, false) => Thm::SimilarityAa,
+            (Criterion::Aa, true) => Thm::CongruentAsa,
+            (Criterion::Sas, false) => Thm::SimilaritySas,
+            (Criterion::Sas, true) => Thm::CongruentSas,
+            (Criterion::Sss, false) => Thm::SimilaritySss,
+            (Criterion::Sss, true) => Thm::CongruentSss,
+            (Criterion::Ssa, false) => Thm::SimilaritySsa,
+            (Criterion::Ssa, true) => Thm::CongruentRhs,
+        }
+    }
+
+    fn force_similar(&mut self, t1: Triple, t2: Triple, crit: Criterion) -> bool {
         if self.known_similar.contains(&(t1, t2)) {
             return false;
         }
+        let tag = if self.forbid.is_empty() {
+            None
+        } else {
+            let thm = self.similarity_thm(t1, t2, crit);
+            if self.forbid.has(thm) {
+                return false;
+            }
+            Some(thm)
+        };
         let (a, b, c) = t1;
         let (x, y, z) = t2;
         let syms = [
@@ -1726,7 +1815,12 @@ impl Ddar {
             prem.extend(self.deps_of_angle_expr(p, q, r, s));
             prem.extend(self.deps_of_ratio_expr(p, q, r, s));
         }
-        let fact = self.log.add(Reason::SimilarTriangles(t1, t2), prem);
+        let fact = match tag {
+            Some(thm) => self
+                .log
+                .add_as(thm, Reason::SimilarTriangles(t1, t2), prem),
+            None => self.log.add(Reason::SimilarTriangles(t1, t2), prem),
+        };
 
         let ratio = |s: &Self, p: PointId, q: PointId, r: PointId, t: PointId| {
             s.raw_dist_mul(r, t).div(&s.raw_dist_mul(p, q))
@@ -1806,7 +1900,7 @@ impl Ddar {
                 dist[a as usize * n + b as usize] = distance(self.coord(a), self.coord(b));
             }
         }
-        let mut similar_pairs: Vec<(Triple, Triple)> = Vec::new();
+        let mut similar_pairs: Vec<(Triple, Triple, Criterion)> = Vec::new();
 
         for &((a, b, c), orient) in &triangles {
             let t = (a, b, c);
@@ -1814,18 +1908,18 @@ impl Ddar {
             let (g1, g2) = (ids.ang_key(a, b, c), ids.ang_key(c, b, a));
 
             if let Some(t0) = find_or_put(&mut sss, ids, (r1, r2), (t, 0), sss_exact) {
-                similar_pairs.push((t0, t));
+                similar_pairs.push((t0, t, Criterion::Sss));
             }
 
             if let Some(t0) = find_or_put(&mut aa, ids, (g1, g2), (t, 0), aa_exact) {
-                similar_pairs.push((t0, t));
+                similar_pairs.push((t0, t, Criterion::Aa));
             } else {
                 let neg_key = (ids.ang_key(a, c, b), ids.ang_key(c, a, b));
                 put(&mut aa, ids, neg_key, (t, 1), aa_exact);
             }
 
             if let Some(t0) = find_or_put(&mut sas, ids, (g1, r1, orient), (t, 0), sas_exact) {
-                similar_pairs.push((t0, t));
+                similar_pairs.push((t0, t, Criterion::Sas));
             } else {
                 let neg_key = (ids.ang_key(a, c, b), r1, -orient);
                 put(&mut sas, ids, neg_key, (t, 1), sas_exact);
@@ -1841,7 +1935,7 @@ impl Ddar {
                     }
                     let key = (ang, rat, cur_orient);
                     if let Some(t0) = find_or_put(&mut ssa, ids, key, (u, 0), ssa_exact) {
-                        similar_pairs.push((t0, u));
+                        similar_pairs.push((t0, u, Criterion::Ssa));
                     } else {
                         let neg_key = (ids.ang_key(a1, c1, b1), rat, -cur_orient);
                         put(&mut ssa, ids, neg_key, (u, 1), ssa_exact);
@@ -1851,8 +1945,8 @@ impl Ddar {
         }
 
         let mut changed = false;
-        for (t1, t2) in similar_pairs {
-            changed = self.force_similar(t1, t2) || changed;
+        for (t1, t2, crit) in similar_pairs {
+            changed = self.force_similar(t1, t2, crit) || changed;
         }
         changed
     }
@@ -1909,7 +2003,10 @@ impl Ddar {
                         may_fire |= e.0 >= 1;
                     }
                 }
-                if !may_fire || self.row_already_concyclic(a, b, &row_keys, &counts) {
+                if !may_fire
+                    || self.forbid.has(crate::theory::Thm::InscribedConverse)
+                    || self.row_already_concyclic(a, b, &row_keys, &counts)
+                {
                     continue;
                 }
                 row.clear();
@@ -1949,7 +2046,12 @@ impl Ddar {
                             }
                             prem
                         };
-                        changed = self.force_concyclic_with(&pts, &centers, premises) || changed;
+                        changed = self.force_concyclic_tagged(
+                            &pts,
+                            &centers,
+                            premises,
+                            Some(crate::theory::Thm::InscribedConverse),
+                        ) || changed;
                     }
                 }
             }
@@ -2318,6 +2420,9 @@ impl Ddar {
     fn transfer_dist_arc_mul(&mut self) -> bool {
         type Pair = (PointId, PointId);
         let mut changed = false;
+        if self.forbid.has(crate::theory::Thm::ArcChord) {
+            return false;
+        }
         for cid in self.live_circles.clone() {
             let circle = self.circles[cid].clone();
             if circle.points.len() <= 3 {
@@ -2341,7 +2446,11 @@ impl Ddar {
                         prem.extend(self.angle.simplify_deps(&arc_src).1);
                         prem.extend(self.dmul.simplify_deps(&dist2).1);
                         prem.extend(dist_deps.iter().copied());
-                        let fact = self.log.add(Reason::TransferArcChord(pair2, (a, b)), prem);
+                        let fact = self.log.add_as(
+                            crate::theory::Thm::ArcChord,
+                            Reason::TransferArcChord(pair2, (a, b)),
+                            prem,
+                        );
                         changed = self.dmul.force_one(&dist.div(&dist2), Some(fact)) || changed;
                     } else {
                         arc_to_src.insert(arc_val.clone(), (dist.clone(), arc.clone(), (a, b)));
@@ -2352,7 +2461,11 @@ impl Ddar {
                         prem.extend(self.dmul.simplify_deps(&dist_src).1);
                         prem.extend(self.angle.simplify_deps(&arc2).1);
                         prem.extend(arc_deps.iter().copied());
-                        let fact = self.log.add(Reason::TransferArcChord(pair2, (a, b)), prem);
+                        let fact = self.log.add_as(
+                            crate::theory::Thm::ArcChord,
+                            Reason::TransferArcChord(pair2, (a, b)),
+                            prem,
+                        );
                         changed = self.angle.force_zero(&arc.sub(&arc2), Some(fact)) || changed;
                     } else {
                         dist_to_src.insert(dist_val.clone(), (arc.clone(), dist.clone(), (a, b)));
@@ -2507,14 +2620,15 @@ impl Ddar {
         centers_in: &[PointId],
         premises: Vec<FactId>,
     ) -> bool {
-        self.force_concyclic_with(points_in, centers_in, |_| premises)
+        self.force_concyclic_tagged(points_in, centers_in, |_| premises, None)
     }
 
-    fn force_concyclic_with(
+    fn force_concyclic_tagged(
         &mut self,
         points_in: &[PointId],
         centers_in: &[PointId],
         premises: impl FnOnce(&Ddar) -> Vec<FactId>,
+        tag: Option<crate::theory::Thm>,
     ) -> bool {
         let mut stack: Vec<PointId> = points_in.to_vec();
         let mut points: Vec<PointId> = Vec::new();
@@ -2621,7 +2735,10 @@ impl Ddar {
         for &cid in &circ_ids {
             prem.extend(self.circles[cid].fact);
         }
-        let fact = self.log.add(Reason::Concyclic(points.clone()), prem);
+        let fact = match tag {
+            Some(thm) => self.log.add_as(thm, Reason::Concyclic(points.clone()), prem),
+            None => self.log.add(Reason::Concyclic(points.clone()), prem),
+        };
 
         let main_circle = FormalCircle {
             defining_points: Some(defining_points),

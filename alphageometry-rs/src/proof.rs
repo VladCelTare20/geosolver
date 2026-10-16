@@ -62,6 +62,7 @@ pub enum Reason {
 pub struct Fact {
     pub reason: Reason,
     pub premises: Vec<FactId>,
+    pub thm: Option<crate::theory::Thm>,
 }
 
 /// Append-only log of facts derived during the closure.
@@ -75,11 +76,33 @@ impl ProofLog {
         ProofLog::default()
     }
 
-    pub fn add(&mut self, reason: Reason, mut premises: Vec<FactId>) -> FactId {
+    pub fn add(&mut self, reason: Reason, premises: Vec<FactId>) -> FactId {
+        self.push(reason, premises, None)
+    }
+
+    pub fn add_as(
+        &mut self,
+        thm: crate::theory::Thm,
+        reason: Reason,
+        premises: Vec<FactId>,
+    ) -> FactId {
+        self.push(reason, premises, Some(thm))
+    }
+
+    fn push(
+        &mut self,
+        reason: Reason,
+        mut premises: Vec<FactId>,
+        thm: Option<crate::theory::Thm>,
+    ) -> FactId {
         premises.sort_unstable();
         premises.dedup();
         let id = self.facts.len() as FactId;
-        self.facts.push(Fact { reason, premises });
+        self.facts.push(Fact {
+            reason,
+            premises,
+            thm,
+        });
         id
     }
 

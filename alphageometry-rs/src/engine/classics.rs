@@ -2,6 +2,7 @@ use super::Ddar;
 use crate::numerics::{direction_of, NumLine, Vec2, ATOM};
 use crate::predicate::PointId;
 use crate::proof::{FactId, Reason};
+use crate::theory::Thm;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::OnceLock;
 
@@ -255,7 +256,7 @@ impl Ddar {
     /// Lines `ls = [BC, CA, AB, t]`, points `[A, B, C, D=t∩BC, E=t∩CA, F=t∩AB]`:
     /// the four Menelaus relations of the complete quadrilateral.
     fn menelaus_quadrilateral(&mut self, ls: [usize; 4], [a, b, c, d, e, f]: [PointId; 6]) -> bool {
-        if !self.all_distinct(&[a, b, c, d, e, f]) {
+        if self.forbid.has(Thm::Menelaus) || !self.all_distinct(&[a, b, c, d, e, f]) {
             return false;
         }
         let instances = [
@@ -282,7 +283,8 @@ impl Ddar {
             if self.dmul.simplify(&rel).is_one() {
                 continue;
             }
-            let fact = self.log.add(
+            let fact = self.log.add_as(
+                Thm::Menelaus,
                 Reason::Theorem("Menelaus' theorem", inst.to_vec()),
                 line_facts.clone(),
             );
@@ -342,12 +344,16 @@ impl Ddar {
     }
 
     fn menelaus_converse(&mut self, sides: [usize; 3], inst: [PointId; 6]) -> bool {
+        if self.forbid.has(Thm::MenelausConverse) {
+            return false;
+        }
         let Some(mut prem) = self.product_deps_if_one(inst) else {
             return false;
         };
         prem.extend(sides.iter().filter_map(|&l| self.lines[l].fact));
         let [_, _, _, d, e, f] = inst;
-        let fact = self.log.add(
+        let fact = self.log.add_as(
+            Thm::MenelausConverse,
             Reason::Theorem("Menelaus' theorem (converse)", inst.to_vec()),
             prem,
         );
@@ -357,6 +363,9 @@ impl Ddar {
     /// Cevians `AD, BE, CF`; when two of them meet at a figure point `P` and
     /// the third does not yet pass through it symbolically.
     fn ceva_converse(&mut self, sides: [usize; 3], inst: [PointId; 6]) -> bool {
+        if self.forbid.has(Thm::CevaConverse) {
+            return false;
+        }
         let [a, b, c, d, e, f] = inst;
         let cevians = [(a, d), (b, e), (c, f)];
         let mut changed = false;
@@ -389,7 +398,8 @@ impl Ddar {
             prem.extend(sides.iter().filter_map(|&l| self.lines[l].fact));
             prem.extend(self.lines[l1].fact);
             prem.extend(self.lines[l2].fact);
-            let fact = self.log.add(
+            let fact = self.log.add_as(
+                Thm::CevaConverse,
                 Reason::Theorem("Ceva's theorem (converse)", vec![a, b, c, d, e, f, p]),
                 prem,
             );
@@ -406,6 +416,9 @@ impl Ddar {
     #[inline(never)]
     pub(super) fn search_bisector_concurrency(&mut self) -> bool {
         const TOL: f64 = 1e-9;
+        if self.forbid.has(Thm::Incentre) {
+            return false;
+        }
         let active = self.active.clone();
         let mut found: FxHashMap<(PointId, [PointId; 3]), u8> = FxHashMap::default();
         let mut phi: Vec<(f64, PointId)> = Vec::with_capacity(active.len());
@@ -485,7 +498,8 @@ impl Ddar {
                 prem.extend(self.deps_of_angle_expr(u, o[0], u, i));
                 prem.extend(self.deps_of_angle_expr(u, i, u, o[1]));
             }
-            let fact = self.log.add(
+            let fact = self.log.add_as(
+                Thm::Incentre,
                 Reason::Theorem(
                     "angle bisectors concur (incentre/excentre)",
                     vec![i, tri[0], tri[1], tri[2]],
@@ -514,6 +528,9 @@ impl Ddar {
     /// collinear in the line table) and which point is the middle one.
     #[inline(never)]
     pub(super) fn search_triangle_equality(&mut self) -> bool {
+        if self.forbid.has(Thm::TriangleEquality) {
+            return false;
+        }
         let active = self.active.clone();
         let mut cands: Vec<[PointId; 3]> = Vec::new();
         for (i, &a) in active.iter().enumerate() {
@@ -554,7 +571,8 @@ impl Ddar {
             if !r.is_zero() {
                 continue;
             }
-            let fact = self.log.add(
+            let fact = self.log.add_as(
+                Thm::TriangleEquality,
                 Reason::Theorem("equality case of the triangle inequality", vec![x, m, y]),
                 deps,
             );

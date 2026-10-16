@@ -12,6 +12,7 @@ pub fn solve(problem_str: &str) -> Result<bool, String> {
 /// closure, and report whether the goal holds.
 pub fn solve_problem(problem: &Problem) -> Result<bool, String> {
     let mut ddar = Ddar::new(&problem.points);
+    ddar.set_forbid(problem.forbid);
     for pred in &problem.preds {
         ddar.force_pred(pred);
     }
@@ -42,6 +43,7 @@ fn trig_fallback(ddar: &mut Ddar, goal: &crate::predicate::Predicate) -> bool {
 /// Solve with proof provenance; on success returns the rendered numbered proof.
 pub fn solve_problem_with_proof(problem: &Problem) -> Result<Option<String>, String> {
     let mut ddar = Ddar::new_tracked(&problem.points);
+    ddar.set_forbid(problem.forbid);
     for pred in &problem.preds {
         ddar.force_pred(pred);
     }
@@ -70,6 +72,7 @@ pub fn solve_conjunction_with_proof(
         return Err("problem has no goal".to_string());
     }
     let mut ddar = Ddar::new_tracked(&problem.points);
+    ddar.set_forbid(problem.forbid);
     for pred in &problem.preds {
         ddar.force_pred(pred);
     }
@@ -93,6 +96,7 @@ pub fn solve_problem_with_trace(
     problem: &Problem,
 ) -> Result<Option<(String, crate::human::EngineTrace, Vec<crate::proof::FactId>)>, String> {
     let mut ddar = Ddar::new_tracked(&problem.points);
+    ddar.set_forbid(problem.forbid);
     for pred in &problem.preds {
         ddar.force_pred(pred);
     }

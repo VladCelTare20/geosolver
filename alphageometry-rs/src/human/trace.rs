@@ -50,6 +50,7 @@ pub struct EngineTrace {
     pub primes: Vec<(u64, VarId)>,
     pub sines: Vec<SineVar>,
     pub sine_canon_memo: std::sync::OnceLock<rustc_hash::FxHashMap<VarId, VarId>>,
+    pub forbid: crate::theory::Forbid,
 }
 
 impl EngineTrace {

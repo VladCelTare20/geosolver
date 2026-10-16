@@ -1579,6 +1579,7 @@ fn build_translation(s: Sampled, seed: u64, attempts: u32) -> Translation {
             points,
             preds,
             goal: goals.first().cloned(),
+            forbid: Default::default(),
         },
         goals,
         goal_holds: s.goal_holds,

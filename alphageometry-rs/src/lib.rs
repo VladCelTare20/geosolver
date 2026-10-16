@@ -58,6 +58,7 @@ pub mod rational;
 pub mod runner;
 pub mod svg;
 pub mod synthetic;
+pub mod theory;
 
 pub use engine::Ddar;
 pub use predicate::{Predicate, Problem};

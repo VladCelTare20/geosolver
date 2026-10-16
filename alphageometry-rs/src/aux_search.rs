@@ -387,6 +387,7 @@ impl WarmBase {
     pub fn with_slots(problem: &Problem, slots: usize) -> Option<WarmBase> {
         let goal = problem.goal.clone()?;
         let mut base = crate::Ddar::new_with_slack(&problem.points, slots.max(1));
+        base.set_forbid(problem.forbid);
         for p in &problem.preds {
             base.force_pred(p);
         }
@@ -2067,6 +2068,7 @@ pub fn strip_point(problem: &Problem, name: &str) -> Problem {
         points: new_points,
         preds: problem.preds.iter().filter_map(remap).collect(),
         goal: problem.goal.as_ref().and_then(remap),
+        forbid: problem.forbid,
     }
 }
 

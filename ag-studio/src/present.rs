@@ -4030,6 +4030,7 @@ fn build_with(sol: &Solution, draw: bool, respread: bool) -> View {
         points: vec![],
         preds: vec![],
         goal: None,
+        forbid: Default::default(),
     };
     let fig = fig_problem.unwrap_or_else(|| empty.clone());
     let introduced = match (&sol.proof, sol.method) {
@@ -5545,6 +5546,7 @@ mod tests {
             points: vec![],
             preds: vec![],
             goal: None,
+            forbid: Default::default(),
         });
         assert_eq!(
             pretty_metric("dist(A, B) ^ 2 + dist(A,C)^2 = dist(B,C)^2", &names),
@@ -6352,6 +6354,7 @@ mod tests {
             points: vec![],
             preds: vec![],
             goal: None,
+            forbid: Default::default(),
         };
         let names = Names::build(&empty);
         let at: HashMap<String, Pt> = [
@@ -6418,6 +6421,7 @@ mod tests {
             points: vec![],
             preds: vec![],
             goal: None,
+            forbid: Default::default(),
         });
         let mut a = aux_view("X = excenter(A,B,C)", &names, &[]);
         resolve_branch(&mut a, &at);

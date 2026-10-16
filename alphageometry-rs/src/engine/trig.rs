@@ -208,6 +208,9 @@ impl Ddar {
 
     /// Add `row = 1` unless it fails numerically (release-mode guard).
     fn trig_force(&mut self, row: &DistMul, reason: Reason, prem: Vec<FactId>) -> bool {
+        if !self.forbid.is_empty() && self.forbid.any(&crate::theory::of_reason(&reason)) {
+            return false;
+        }
         let terms = row.0.len().max(1) as f64;
         if (self.dmul.value_of(row) - 1.0).abs() > 1e-9 * terms {
             self.trig.rejected += 1;
@@ -633,6 +636,9 @@ impl Ddar {
         classes: &[[Class; 3]],
         angles: &FxHashMap<(VarId, VarId), (Angle, Vec<FactId>)>,
     ) -> bool {
+        if self.forbid.has(crate::theory::Thm::SinesConverse) {
+            return false;
+        }
         let corners = Self::corners_by_class(tris, classes);
         let mut pool: Vec<(f64, Class)> = corners
             .keys()

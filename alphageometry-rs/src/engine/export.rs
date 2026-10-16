@@ -114,6 +114,7 @@ impl Ddar {
             primes,
             sines,
             sine_canon_memo: Default::default(),
+            forbid: self.forbid,
         }
     }
 }

@@ -3169,6 +3169,7 @@ fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
                     points: scene.points,
                     preds: scene.preds,
                     goal,
+                    forbid: Default::default(),
                 };
                 // Validate: DDAR must be able to process it without a numeric
                 // panic (guards against an imprecise sampled figure).
@@ -3267,6 +3268,7 @@ fn goal_fails_in_another_figure(stmts: &[Stmt], after_seed: u64) -> bool {
             points: scene.points,
             preds: scene.preds,
             goal: None,
+            forbid: Default::default(),
         };
         if source == Some(false) || numeric_holds(&problem, &goal) == Some(false) {
             return true;

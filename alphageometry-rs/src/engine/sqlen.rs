@@ -5,6 +5,7 @@ use crate::lincomb::LinComb;
 use crate::predicate::PointId;
 use crate::proof::{FactId, Reason};
 use crate::rational::Rat;
+use crate::theory::Thm;
 use rustc_hash::FxHashMap;
 
 type Seg = (PointId, PointId);
@@ -47,6 +48,7 @@ impl Ddar {
     fn sq_force_new(
         &mut self,
         eq: &DistSq,
+        thm: Thm,
         reason: Reason,
         prem: impl FnOnce(&Ddar) -> Vec<FactId>,
     ) -> bool {
@@ -54,7 +56,7 @@ impl Ddar {
             return false;
         }
         let prem = prem(self);
-        let fact = self.log.add(reason, prem);
+        let fact = self.log.add_as(thm, reason, prem);
         self.dsq.force_zero(eq, Some(fact))
     }
 
@@ -93,6 +95,9 @@ impl Ddar {
 
     #[inline(never)]
     fn sq_from_perpendicular_lines(&mut self) -> bool {
+        if self.forbid.has(Thm::Pythagoras) {
+            return false;
+        }
         let live = self.live_lines.clone();
         let mut by_dir: FxHashMap<&Angle, Vec<usize>> = FxHashMap::default();
         let half = self.angle.const_ratio(1, 2);
@@ -139,6 +144,7 @@ impl Ddar {
                     };
                     changed |= self.sq_force_new(
                         &eq,
+                        Thm::Pythagoras,
                         Reason::Theorem(
                             "perpendicular ⇒ squared lengths (Pythagoras)",
                             vec![a0, b, c0, d],
@@ -184,6 +190,7 @@ impl Ddar {
             };
             changed |= self.sq_force_new(
                 &eq,
+                Thm::SegmentArithmetic,
                 Reason::Theorem("squares of proportional lengths", vec![a0, b0, a, b]),
                 |s| s.deps_of_ratio_expr(a0, b0, a, b),
             );
@@ -193,6 +200,9 @@ impl Ddar {
 
     #[inline(never)]
     fn sq_from_stewart(&mut self) -> bool {
+        if self.forbid.has(Thm::Stewart) {
+            return false;
+        }
         let lines: Vec<usize> = self
             .live_lines
             .iter()
@@ -227,6 +237,14 @@ impl Ddar {
                         };
                         let one_minus_t = &Rat::one() - &t;
                         let tt = &t * &one_minus_t;
+                        let thm = if t == Rat::new(1, 2) {
+                            Thm::Apollonius
+                        } else {
+                            Thm::Stewart
+                        };
+                        if self.forbid.has(thm) {
+                            continue;
+                        }
                         for &a in &active {
                             if pts.contains(&a) || !self.all_distinct_pts(&[a, b, c, d]) {
                                 continue;
@@ -244,6 +262,7 @@ impl Ddar {
                             };
                             changed |= self.sq_force_new(
                                 &eq,
+                                thm,
                                 Reason::Theorem("Stewart's theorem", vec![a, b, d, c]),
                                 |s| {
                                     let mut p = s.deps_of_ratio_expr(b, c, b, d);
@@ -329,7 +348,8 @@ impl Ddar {
                 continue;
             };
             let prem = self.dsq.simplify_deps(&eq).1;
-            let fact = self.log.add(
+            let fact = self.log.add_as(
+                Thm::SegmentArithmetic,
                 Reason::Theorem("lengths from squared lengths", vec![a0, b0, a, b]),
                 prem,
             );
@@ -344,6 +364,9 @@ impl Ddar {
     #[inline(never)]
     fn sq_derive_perps(&mut self) -> bool {
         const TOL: f64 = 1e-9;
+        if self.forbid.has(Thm::PythagorasConverse) {
+            return false;
+        }
         let half = self.angle.const_ratio(1, 2);
         let mut lines: Vec<(f64, usize)> = self
             .live_lines
@@ -408,7 +431,8 @@ impl Ddar {
                 continue;
             }
             let rel = self.raw_dir(a, b).sub(&self.raw_dir(c, d)).sub(&half);
-            let fact = self.log.add(
+            let fact = self.log.add_as(
+                Thm::PythagorasConverse,
                 Reason::Theorem("perpendicular from squared lengths", vec![a, b, c, d]),
                 prem,
             );
