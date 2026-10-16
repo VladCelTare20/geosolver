@@ -154,6 +154,9 @@ impl Figure {
     /// `ln ca − ln sin b = ln ab − ln sin c`. Unconditional on a proper
     /// triangle, so no premises; headline, so it never stands alone.
     fn gather_law_of_sines(&mut self, tris: &[[PointId; 3]]) {
+        if self.forbid.has(Thm::LawOfSines) {
+            return;
+        }
         for &[a, b, c] in tris {
             for (x, y, z) in [(a, b, c), (b, c, a)] {
                 let (sx, sy) = (sin_key(x, y, z), sin_key(y, z, x));
@@ -174,6 +177,7 @@ impl Figure {
                 );
                 let r = self.push_row(text, e, vec![], true, false);
                 self.steps[r].tag = Some(Tag::Los([a, b, c], (x, y, z)));
+                self.steps[r].thm = Some(Thm::LawOfSines);
             }
         }
     }
@@ -327,6 +331,9 @@ impl Figure {
     /// `XY = 2·OX·sin∠XZY` for a chord `XY` seen from `Z` on a circle with
     /// centre `O`, pending the two equal radii.
     fn gather_extended_sines(&mut self) {
+        if self.forbid.has(Thm::ExtLawOfSines) {
+            return;
+        }
         for (o, set) in self.circles.clone() {
             let on: Vec<PointId> = set.iter().copied().collect();
             for (i, &x) in on.iter().enumerate() {
@@ -357,7 +364,8 @@ impl Figure {
                             pred("cong", &[o, x, o, y]),
                             pred("cong", &[o, x, o, z]),
                         ]];
-                        self.push_row(text, e, alts, true, false);
+                        let r = self.push_row(text, e, alts, true, false);
+                        self.steps[r].thm = Some(Thm::ExtLawOfSines);
                     }
                 }
             }

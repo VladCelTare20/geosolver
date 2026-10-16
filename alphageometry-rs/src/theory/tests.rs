@@ -48,14 +48,20 @@ fn axioms_have_no_uses_and_theorems_have_one_with_a_reason() {
         match i.kind {
             Kind::Calculus | Kind::Axiom => assert!(i.uses.is_empty(), "{t:?}"),
             Kind::Theorem => {
-                assert!(!i.uses.is_empty(), "{t:?} is a theorem derived from nothing");
+                assert!(
+                    !i.uses.is_empty(),
+                    "{t:?} is a theorem derived from nothing"
+                );
                 for (u, why) in i.uses {
                     assert!(!why.is_empty(), "{t:?} uses {u:?} without a reason");
                 }
             }
         }
         if !i.avoidable {
-            assert!(i.kind != Kind::Theorem, "{t:?}: only foundations are built in");
+            assert!(
+                i.kind != Kind::Theorem,
+                "{t:?}: only foundations are built in"
+            );
         }
     }
 }
@@ -76,12 +82,24 @@ fn forbidden_sets_contain_the_theorem_and_everything_derived_from_it() {
     assert!(!f.has(Thm::GeometricMean));
     assert!(!f.has(Thm::SimilarityAa));
     let m = Forbid::closure_of(&[Thm::Menelaus]);
-    for t in [Thm::Ceva, Thm::CevaConverse, Thm::MenelausConverse, Thm::Monge] {
+    for t in [
+        Thm::Ceva,
+        Thm::CevaConverse,
+        Thm::MenelausConverse,
+        Thm::Monge,
+    ] {
         assert!(m.has(t), "{t:?}");
     }
     assert!(!m.has(Thm::Intercept));
     let s = Forbid::closure_of(&[Thm::SimilarityAa]);
-    for t in [Thm::Intercept, Thm::Menelaus, Thm::Ceva, Thm::BisectorThm, Thm::GeometricMean, Thm::Pythagoras] {
+    for t in [
+        Thm::Intercept,
+        Thm::Menelaus,
+        Thm::Ceva,
+        Thm::BisectorThm,
+        Thm::GeometricMean,
+        Thm::Pythagoras,
+    ] {
         assert!(s.has(t), "{t:?}");
     }
     for t in ALL {
@@ -131,7 +149,12 @@ fn string_after(part: &str) -> Option<String> {
 fn every_named_engine_rule_has_a_theorem_identity() {
     let mut names: Vec<String> = Vec::new();
     for src in engine_sources() {
-        for marker in ["Reason::Theorem(", "Reason::Formula(", ".reason(", "const EQUAL_SINES: &str ="] {
+        for marker in [
+            "Reason::Theorem(",
+            "Reason::Formula(",
+            ".reason(",
+            "const EQUAL_SINES: &str =",
+        ] {
             for part in src.split(marker).skip(1) {
                 if let Some(n) = string_after(part) {
                     names.push(n);
@@ -148,7 +171,8 @@ fn every_named_engine_rule_has_a_theorem_identity() {
         }
         for line in src.lines() {
             let l = line.trim();
-            if (l.starts_with("\"double-angle formula\"") || l.starts_with("\"triple-angle formula\""))
+            if (l.starts_with("\"double-angle formula\"")
+                || l.starts_with("\"triple-angle formula\""))
                 && l.ends_with(',')
             {
                 names.push(l.trim_end_matches(',').trim_matches('"').to_string());
@@ -159,7 +183,10 @@ fn every_named_engine_rule_has_a_theorem_identity() {
     names.dedup();
     assert!(names.len() >= 20, "{names:?}");
     for n in &names {
-        assert!(of_name(n).is_some(), "the engine names {n:?} but theory has no identity for it");
+        assert!(
+            of_name(n).is_some(),
+            "the engine names {n:?} but theory has no identity for it"
+        );
     }
     for (n, ts) in ENGINE_NAMES {
         assert!(!ts.is_empty(), "{n}");

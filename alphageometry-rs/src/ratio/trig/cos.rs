@@ -77,24 +77,26 @@ impl Figure {
                         e.add(sorted(vec![xy, xy]), -Rat::one());
                         e.add(sorted(vec![xz, xz]), -Rat::one());
                         e.add(sorted(vec![xy, xz, ck]), Rat::from_int(2));
-                        out.push(BaseRow {
-                            eq: e,
-                            text: format!(
-                                "Law of cosines in △{}{}{}: {}² = {}² + {}² − 2·{}·{}·{}",
-                                self.nm(a),
-                                self.nm(b),
-                                self.nm(c),
-                                self.seg(y, z),
-                                self.seg(x, y),
-                                self.seg(x, z),
-                                self.seg(x, y),
-                                self.seg(x, z),
-                                self.factor_text(ck)
-                            ),
-                            pending: None,
-                            headline: true,
-                            support: false,
-                        });
+                        if !self.forbid.has(Thm::LawOfCosines) {
+                            out.push(BaseRow {
+                                eq: e,
+                                text: format!(
+                                    "Law of cosines in △{}{}{}: {}² = {}² + {}² − 2·{}·{}·{}",
+                                    self.nm(a),
+                                    self.nm(b),
+                                    self.nm(c),
+                                    self.seg(y, z),
+                                    self.seg(x, y),
+                                    self.seg(x, z),
+                                    self.seg(x, y),
+                                    self.seg(x, z),
+                                    self.factor_text(ck)
+                                ),
+                                pending: None,
+                                headline: true,
+                                support: false,
+                            });
+                        }
                         let mut e = PEq::default();
                         e.add(vec![sk, sk], Rat::one());
                         e.add(vec![ck, ck], Rat::one());

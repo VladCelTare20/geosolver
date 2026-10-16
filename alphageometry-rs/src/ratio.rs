@@ -37,6 +37,7 @@ use crate::numerics::{intersect_ll, NumCircle, NumLine, Vec2};
 use crate::predicate::{PointId, Predicate};
 use crate::rational::Rat;
 use crate::synthetic::{equal_radius_circles, rat_of, Outcome};
+use crate::theory::{Forbid, Thm};
 
 mod trig;
 
@@ -191,6 +192,8 @@ struct Step {
     support: bool,
     lead: bool,
     tag: Option<trig::Tag>,
+    thm: Option<Thm>,
+    given: bool,
 }
 
 struct Figure {
@@ -227,6 +230,7 @@ struct Figure {
     /// Certification results of trig rows by step index, and DDAR checks spent.
     trig_cache: BTreeMap<usize, Option<Vec<crate::proof::FactId>>>,
     trig_checks: usize,
+    forbid: Forbid,
 }
 
 impl Figure {
@@ -271,8 +275,42 @@ impl Figure {
             support: false,
             lead: false,
             tag: None,
+            thm: None,
+            given: false,
         });
         self.steps.len() - 1
+    }
+
+    fn push_given(&mut self, text: String, eq: LEq) -> usize {
+        let i = self.push(text, Some(eq), vec![], false);
+        self.steps[i].given = true;
+        i
+    }
+
+    fn stated_theorems(&self, goal: &LEq) -> Vec<Thm> {
+        let symbolic = |e: &LEq| e.primes.values().all(Rat::is_zero);
+        if !symbolic(goal) {
+            return Vec::new();
+        }
+        let given: BTreeSet<usize> = (0..self.steps.len())
+            .filter(|&i| self.steps[i].given && self.steps[i].eq.as_ref().is_some_and(symbolic))
+            .collect();
+        if self.prove_with(goal, &given).is_some() {
+            return Vec::new();
+        }
+        let mut out: Vec<Thm> = Vec::new();
+        for (i, st) in self.steps.iter().enumerate() {
+            let Some(t) = st.thm else { continue };
+            if st.eq.is_none() || out.contains(&t) || !crate::theory::detectable(t) {
+                continue;
+            }
+            let mut allowed = given.clone();
+            allowed.insert(i);
+            if self.prove_with(goal, &allowed).is_some() {
+                out.push(t);
+            }
+        }
+        out
     }
 
     // -- symbolic predicate queries ----------------------------------------
@@ -314,6 +352,7 @@ impl Figure {
             pending: Vec::new(),
             trig_cache: BTreeMap::new(),
             trig_checks: 0,
+            forbid: crate::theory::current(),
         };
         for p in &fig.preds {
             let pts = &p.points;
@@ -453,7 +492,7 @@ impl Figure {
     /// numerically similar in all instances. Contributes `pq/uv = qr/vw` and
     /// `qr/vw = rp/wu`.
     fn emit_similar(&mut self, t1: [PointId; 3], t2: [PointId; 3], reason: &str, prem: Vec<usize>) {
-        if !self.similar_in_all(t1, t2) {
+        if self.forbid.has(Thm::SimilarityAa) || !self.similar_in_all(t1, t2) {
             return;
         }
         let [p, q, r] = t1;
@@ -504,7 +543,16 @@ impl Figure {
     /// *useful lemma* for a larger goal; the anti-circularity guard blocks it
     /// from standing alone as a proof of the very theorem it names (then the
     /// elementary derivation is used instead).
-    fn cite(&mut self, num: &[(PointId, PointId)], den: &[(PointId, PointId)], text: String) {
+    fn cite(
+        &mut self,
+        thm: Thm,
+        num: &[(PointId, PointId)],
+        den: &[(PointId, PointId)],
+        text: String,
+    ) {
+        if self.forbid.has(thm) {
+            return;
+        }
         let mut eq = LEq::default();
         for &(a, b) in num {
             eq.add_term(latom(a, b), Rat::one());
@@ -515,7 +563,8 @@ impl Figure {
         if eq.is_zero() {
             return;
         }
-        self.push(text, Some(eq), vec![], true);
+        let i = self.push(text, Some(eq), vec![], true);
+        self.steps[i].thm = Some(thm);
     }
 
     // === elementary supports ==============================================
@@ -532,11 +581,9 @@ impl Figure {
             if eq.is_zero() {
                 continue;
             }
-            self.push(
+            self.push_given(
                 format!("|{}| = |{}| (given).", self.seg(a, b), self.seg(x, y)),
-                Some(eq),
-                vec![],
-                false,
+                eq,
             );
         }
     }
@@ -551,12 +598,7 @@ impl Figure {
             for (p, e) in primes {
                 eq.add_prime(p, -e);
             }
-            self.push(
-                format!("|{}| = {} (given).", self.seg(a, b), v),
-                Some(eq),
-                vec![],
-                false,
-            );
+            self.push_given(format!("|{}| = {} (given).", self.seg(a, b), v), eq);
         }
     }
 
@@ -588,6 +630,7 @@ impl Figure {
                         // Citable geometric-mean relations first (preferred as a
                         // short lemma); the similar-triangle derivation follows.
                         self.cite(
+                            Thm::GeometricMean,
                             &[(c, h), (c, h)],
                             &[(a, h), (h, b)],
                             format!(
@@ -602,6 +645,7 @@ impl Figure {
                             ),
                         );
                         self.cite(
+                            Thm::GeometricMean,
                             &[(c, a), (c, a)],
                             &[(a, h), (a, b)],
                             format!(
@@ -677,6 +721,7 @@ impl Figure {
                             continue;
                         }
                         self.cite(
+                            Thm::PowerOfPoint,
                             &[(p, a), (p, b)],
                             &[(p, c), (p, d)],
                             format!(
@@ -756,6 +801,7 @@ impl Figure {
                                 continue;
                             }
                             self.cite(
+                                Thm::TangentSecant,
                                 &[(p, t), (p, t)],
                                 &[(p, a), (p, b)],
                                 format!(
@@ -831,6 +877,7 @@ impl Figure {
                                 e = self.nm(e),
                             );
                             self.cite(
+                                Thm::Intercept,
                                 &[(a, d), (a, c)],
                                 &[(a, e), (a, b)],
                                 format!(
@@ -892,6 +939,7 @@ impl Figure {
         }
         for (a, b, c, d, why) in found {
             self.cite(
+                Thm::BisectorThm,
                 &[(b, d), (a, c)],
                 &[(d, c), (a, b)],
                 format!(
@@ -985,6 +1033,7 @@ impl Figure {
                 continue; // transversal: D, E, F collinear
             }
             self.cite(
+                Thm::Menelaus,
                 &[(b, d), (c, e), (a, f)],
                 &[(d, c), (e, a), (f, b)],
                 format!(
@@ -1557,7 +1606,7 @@ impl Figure {
     /// step is only a candidate: [`Figure::prove_products`] keeps it only if the
     /// DDAR closure derives the two angle equalities, and prints that derivation.
     fn psim(&mut self, t1: [PointId; 3], t2: [PointId; 3]) {
-        if !self.similar_in_all(t1, t2) {
+        if self.forbid.has(Thm::SimilarityAa) || !self.similar_in_all(t1, t2) {
             return;
         }
         let Some(angles) = self.similarity_angles(t1, t2) else {
@@ -1623,6 +1672,9 @@ impl Figure {
     /// every bisector the figure suggests; it is used only once DDAR derives
     /// `D` on `BC` and `∠BAD = ∠DAC`.
     fn gather_bisector_products(&mut self) {
+        if self.forbid.has(Thm::BisectorThm) {
+            return;
+        }
         let n = self.names.len() as PointId;
         for a in 0..n {
             crate::budget::check();
@@ -2206,6 +2258,7 @@ impl Figure {
             pending: Vec::new(),
             trig_cache: BTreeMap::new(),
             trig_checks: 0,
+            forbid: self.forbid,
         }
     }
     fn add_fact(&mut self, f: &AuxFact) {
@@ -2633,6 +2686,28 @@ fn sampled_instances_for(
 
 /// Attempt a classical Euclidean proof of a **multiplicative** length goal.
 pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
+    prove_ratio_guarded(cons_src, goal).map(|(o, _)| o)
+}
+
+pub fn prove_ratio_guarded(cons_src: &str, goal: &str) -> Result<(Outcome, Vec<Thm>), String> {
+    match prove_ratio_pass(cons_src, goal, true)? {
+        RatioPass::Done(o) => Ok((o, Vec::new())),
+        RatioPass::States(detected) => {
+            let forbid = crate::theory::current().union(Forbid::closure_of(&detected));
+            match crate::theory::with_forbid(forbid, || prove_ratio_pass(cons_src, goal, false))? {
+                RatioPass::Done(o) => Ok((o, detected)),
+                RatioPass::States(_) => Ok((Outcome::Unhandled(String::new()), detected)),
+            }
+        }
+    }
+}
+
+enum RatioPass {
+    Done(Outcome),
+    States(Vec<Thm>),
+}
+
+fn prove_ratio_pass(cons_src: &str, goal: &str, detect: bool) -> Result<RatioPass, String> {
     let (lhs, rhs) = crate::metric::parse_equation(goal)?;
     let (sampled, insts) = sampled_instances_for(cons_src, Some([&lhs, &rhs]))?;
 
@@ -2659,7 +2734,7 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
         }
     }
     for (text, eq) in hyp_steps {
-        fig.push(text, Some(eq), vec![], false);
+        fig.push_given(text, eq);
     }
 
     let goal_val = eval_numeric(&lhs, &fig).unwrap_or(f64::NAN);
@@ -2669,9 +2744,17 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     if let (Some(l), Some(r)) = (llower(&lhs, &fig), llower(&rhs, &fig)) {
         let mut goal_eq = l;
         goal_eq.sub_scaled(&r, &Rat::one());
+        if detect {
+            let stated = fig.stated_theorems(&goal_eq);
+            if !stated.is_empty() {
+                return Ok(RatioPass::States(stated));
+            }
+        }
         if let Some(used) = fig.prove(&goal_eq) {
             if !used.is_empty() {
-                return Ok(Outcome::Proved(fig.render(&used, goal, goal_val)));
+                return Ok(RatioPass::Done(Outcome::Proved(
+                    fig.render(&used, goal, goal_val),
+                )));
             }
         }
         mono_goal = Some(goal_eq);
@@ -2685,10 +2768,10 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let mut fig = Figure::gather(&sampled, insts.clone());
     let relevant: Vec<PointId> = (0..fig.names.len() as PointId).collect();
     if let Some(proof) = fig.prove_products(&lhs, &rhs, goal, &relevant, &[], true) {
-        return Ok(Outcome::Proved(proof));
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
     if let Some(proof) = fig.aux_search(&lhs, &rhs, goal) {
-        return Ok(Outcome::Proved(proof));
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
 
     // 3. Trigonometry, only once every trig-free stage has failed.
@@ -2697,31 +2780,33 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
     let goal_pts = goal_points(&lhs, &rhs, &s1_fig);
     if let Some(goal_eq) = &mono_goal {
         if let Some(used) = s1_fig.prove_trig_log(goal_eq, &pts, &goal_pts) {
-            return Ok(Outcome::Proved(s1_fig.render(&used, goal, goal_val)));
+            return Ok(RatioPass::Done(Outcome::Proved(
+                s1_fig.render(&used, goal, goal_val),
+            )));
         }
     }
     //    S5: products with T2 cofactors, T4 powers and T3 log bridges.
     let mut fig = Figure::gather(&sampled, insts);
     let all: Vec<PointId> = (0..fig.names.len() as PointId).collect();
     if let Some(proof) = fig.prove_products_trig(&lhs, &rhs, goal, &pts, &all, &[]) {
-        return Ok(Outcome::Proved(proof));
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
     //    S6: the same after one circle second meet or perpendicular foot.
     if let Some(proof) = fig.aux_search_trig(&lhs, &rhs, goal, &pts) {
-        return Ok(Outcome::Proved(proof));
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
     //    S7: sine-area rows over the goal multiplied by a non-zero sine.
     if let Some(proof) = fig.prove_by_areas(&lhs, &rhs, goal, &pts) {
-        return Ok(Outcome::Proved(proof));
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
     //    S8: a cosine goal over the law-of-cosines rows.
     if let Some(proof) = fig.prove_by_cosines(&lhs, &rhs, goal, &pts) {
-        return Ok(Outcome::Proved(proof));
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
 
-    Ok(Outcome::Unhandled(
+    Ok(RatioPass::Done(Outcome::Unhandled(
         "no chain of the known ratio theorems reaches the goal".to_string(),
-    ))
+    )))
 }
 
 #[cfg(test)]

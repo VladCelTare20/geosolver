@@ -497,6 +497,39 @@ pub fn solve_until(
     n: usize,
     deadline: Option<std::time::Instant>,
 ) -> Result<String, MetricError> {
+    solve_until_guarded(cons_src, goal, n, deadline).0
+}
+
+pub fn solve_until_guarded(
+    cons_src: &str,
+    goal: &str,
+    n: usize,
+    deadline: Option<std::time::Instant>,
+) -> (Result<String, MetricError>, Vec<crate::theory::Thm>) {
+    let mut stated: Vec<crate::theory::Thm> = Vec::new();
+    let r = solve_guarded_inner(cons_src, goal, n, deadline, &mut stated);
+    (r, stated)
+}
+
+fn audited(stated: &[crate::theory::Thm], proof: String) -> Result<String, String> {
+    let forbid = crate::theory::current().union(crate::theory::Forbid::closure_of(stated));
+    let hits = crate::theory::audit::text(forbid, &proof);
+    match hits.first() {
+        None => Ok(proof),
+        Some(t) => Err(format!(
+            "the derivation found cites {}, which this proof may not use",
+            t.name_en()
+        )),
+    }
+}
+
+fn solve_guarded_inner(
+    cons_src: &str,
+    goal: &str,
+    n: usize,
+    deadline: Option<std::time::Instant>,
+    stated: &mut Vec<crate::theory::Thm>,
+) -> Result<String, MetricError> {
     use crate::synthetic::Outcome;
     if let Ok((l, r)) = drawn_sides(cons_src, goal) {
         if !sides_agree(l, r) {
@@ -511,26 +544,65 @@ pub fn solve_until(
         }
     }
     let euclid = crate::budget::within(deadline, || {
-        crate::synthetic::prove_euclidean(cons_src, goal)
+        crate::synthetic::prove_euclidean_guarded(cons_src, goal)
     });
     let reason = match euclid {
-        Some(Ok(Outcome::Proved(proof))) => return checked_proof(cons_src, goal, proof),
-        Some(Ok(Outcome::Unhandled(reason))) => Some(reason),
+        Some(Ok((Outcome::Proved(proof), found))) => {
+            stated.extend(found);
+            match audited(stated, proof) {
+                Ok(proof) => return checked_proof(cons_src, goal, proof),
+                Err(why) => Some(why),
+            }
+        }
+        Some(Ok((Outcome::Unhandled(reason), found))) => {
+            stated.extend(found);
+            Some(reason)
+        }
         Some(Err(e)) => return Err(e.into()),
         None => None,
     };
     let Some(reason) = reason else {
         return Err(after_time_limit(cons_src, goal, n));
     };
-    let reason = match crate::budget::within(deadline, || crate::ratio::prove_ratio(cons_src, goal))
-    {
-        Some(Ok(Outcome::Proved(proof))) => return checked_proof(cons_src, goal, proof),
-        Some(Ok(Outcome::Unhandled(ratio_reason))) => format!("{reason}; {ratio_reason}"),
+    let forbid = crate::theory::current().union(crate::theory::Forbid::closure_of(stated));
+    let ratio = crate::theory::with_forbid(forbid, || {
+        crate::budget::within(deadline, || {
+            crate::ratio::prove_ratio_guarded(cons_src, goal)
+        })
+    });
+    let reason = match ratio {
+        Some(Ok((Outcome::Proved(proof), found))) => {
+            for t in found {
+                if !stated.contains(&t) {
+                    stated.push(t);
+                }
+            }
+            match audited(stated, proof) {
+                Ok(proof) => return checked_proof(cons_src, goal, proof),
+                Err(why) => join_reasons(&reason, &why),
+            }
+        }
+        Some(Ok((Outcome::Unhandled(ratio_reason), found))) => {
+            for t in found {
+                if !stated.contains(&t) {
+                    stated.push(t);
+                }
+            }
+            join_reasons(&reason, &ratio_reason)
+        }
         Some(Err(e)) => return Err(e.into()),
         None => return Err(after_time_limit(cons_src, goal, n)),
     };
     let evidence = check_numerically(cons_src, goal, n)?;
     Err(MetricError::NoProof { reason, evidence })
+}
+
+fn join_reasons(a: &str, b: &str) -> String {
+    match (a.is_empty(), b.is_empty()) {
+        (true, _) => b.to_string(),
+        (_, true) => a.to_string(),
+        _ => format!("{a}; {b}"),
+    }
 }
 
 /// Backstop for the theorem provers: a derivation is only accepted if the goal

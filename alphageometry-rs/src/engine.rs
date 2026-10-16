@@ -1765,7 +1765,9 @@ impl Ddar {
                 Thm::Isosceles
             };
         }
-        let ratio = self.raw_dist_mul(t1.0, t1.1).div(&self.raw_dist_mul(t2.0, t2.1));
+        let ratio = self
+            .raw_dist_mul(t1.0, t1.1)
+            .div(&self.raw_dist_mul(t2.0, t2.1));
         let congruent = self.dmul.simplify(&ratio).is_one();
         match (crit, congruent) {
             (Criterion::Aa, false) => Thm::SimilarityAa,
@@ -1820,9 +1822,7 @@ impl Ddar {
             prem.extend(self.deps_of_ratio_expr(p, q, r, s));
         }
         let fact = match tag {
-            Some(thm) => self
-                .log
-                .add_as(thm, Reason::SimilarTriangles(t1, t2), prem),
+            Some(thm) => self.log.add_as(thm, Reason::SimilarTriangles(t1, t2), prem),
             None => self.log.add(Reason::SimilarTriangles(t1, t2), prem),
         };
 
@@ -2740,7 +2740,9 @@ impl Ddar {
             prem.extend(self.circles[cid].fact);
         }
         let fact = match tag {
-            Some(thm) => self.log.add_as(thm, Reason::Concyclic(points.clone()), prem),
+            Some(thm) => self
+                .log
+                .add_as(thm, Reason::Concyclic(points.clone()), prem),
             None => self.log.add(Reason::Concyclic(points.clone()), prem),
         };
 

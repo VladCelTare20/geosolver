@@ -60,11 +60,20 @@ pub(crate) fn candidate_rat(v: f64) -> Option<Rat> {
 /// A lazily built DDAR closure over a figure whose points and facts only grow.
 /// It is rebuilt whenever the point or fact count has changed since the last
 /// build, so callers never have to invalidate it by hand.
-#[derive(Default)]
 pub(crate) struct Certifier {
     built_for: (usize, usize),
     closure: Option<Option<Ddar>>,
     pub(crate) forbid: crate::theory::Forbid,
+}
+
+impl Default for Certifier {
+    fn default() -> Certifier {
+        Certifier {
+            built_for: (0, 0),
+            closure: None,
+            forbid: crate::theory::current(),
+        }
+    }
 }
 
 impl Certifier {

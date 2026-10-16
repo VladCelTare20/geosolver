@@ -200,7 +200,10 @@ impl<'t> Given<'t> {
     }
 
     fn on_circle(&self, v: &[PointId]) -> bool {
-        self.circles.iter().any(|c| v.iter().all(|p| c.0.contains(p))) || self.centre_of(v).is_some()
+        self.circles
+            .iter()
+            .any(|c| v.iter().all(|p| c.0.contains(p)))
+            || self.centre_of(v).is_some()
     }
 
     fn instance_rows(&self, spec: &Spec) -> Vec<(Table, LinComb)> {
@@ -259,9 +262,18 @@ impl<'t> Given<'t> {
         }
     }
 
-    fn holds_all(&self, alt: &[(Table, LinComb)], extra: Option<&[(Table, LinComb)]>, flat: bool) -> bool {
+    fn holds_all(
+        &self,
+        alt: &[(Table, LinComb)],
+        extra: Option<&[(Table, LinComb)]>,
+        flat: bool,
+    ) -> bool {
         let t = self.t;
-        let mut e = if flat { self.flat.clone() } else { self.all.clone() };
+        let mut e = if flat {
+            self.flat.clone()
+        } else {
+            self.all.clone()
+        };
         if let Some(rows) = extra {
             for (tb, r) in rows {
                 e[tb.idx()].insert(&canon(t, *tb, r));
@@ -339,7 +351,8 @@ fn midpoints(g: &Given, pts: &[PointId]) -> Vec<(PointId, PointId, PointId)> {
                         && theorems::distinct(g.t, a, b)
                         && pts.contains(&m)
                         && g.cong(m, a, m, b)
-                        && (g.t.dist(m, a) - g.t.dist(m, b)).abs() < 1e-9 * g.t.dist(a, b).max(1e-12)
+                        && (g.t.dist(m, a) - g.t.dist(m, b)).abs()
+                            < 1e-9 * g.t.dist(a, b).max(1e-12)
                     {
                         out.push((m, a, b));
                     }
@@ -433,7 +446,13 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                             two.mul_assign_scalar(&Rat::from_int(2));
                             (Table::Angle, r.ex(&x - &two))
                         });
-                        push(out, Thm::CentralAngle, vec![o, p, q, z], vec![], vec![central]);
+                        push(
+                            out,
+                            Thm::CentralAngle,
+                            vec![o, p, q, z],
+                            vec![],
+                            vec![central],
+                        );
                     }
                 }
             }
@@ -475,10 +494,15 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                     if cx.late() {
                         return;
                     }
-                    if a >= b || [a, b].contains(&c) || [a, b, c].contains(&h) || t.orient(a, b, c) == 0 {
+                    if a >= b
+                        || [a, b].contains(&c)
+                        || [a, b, c].contains(&h)
+                        || t.orient(a, b, c) == 0
+                    {
                         continue;
                     }
-                    let (Some(ha), Some(hb)) = (r.perp((h, a), (b, c)), r.perp((h, b), (a, c))) else {
+                    let (Some(ha), Some(hb)) = (r.perp((h, a), (b, c)), r.perp((h, b), (a, c)))
+                    else {
                         continue;
                     };
                     if !g.direct(Table::Angle, &ha) || !g.direct(Table::Angle, &hb) {
@@ -527,10 +551,15 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
         for &a in pts {
             for &b in pts {
                 for &c in pts {
-                    if a >= b || [a, b].contains(&c) || [a, b, c].contains(&i) || t.orient(a, b, c) == 0 {
+                    if a >= b
+                        || [a, b].contains(&c)
+                        || [a, b, c].contains(&i)
+                        || t.orient(a, b, c) == 0
+                    {
                         continue;
                     }
-                    let (Some(ba), Some(bb)) = (r.bisects(a, b, c, i), r.bisects(b, a, c, i)) else {
+                    let (Some(ba), Some(bb)) = (r.bisects(a, b, c, i), r.bisects(b, a, c, i))
+                    else {
                         continue;
                     };
                     if !g.direct(Table::Angle, &ba) || !g.direct(Table::Angle, &bb) {
@@ -587,7 +616,9 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                         if [a, b, c, ma, mb, mc].contains(&o) {
                             continue;
                         }
-                        let (Some(p1), Some(p2)) = (r.perp((o, mv), (w, u)), r.perp((o, mw), (u, v))) else {
+                        let (Some(p1), Some(p2)) =
+                            (r.perp((o, mv), (w, u)), r.perp((o, mw), (u, v)))
+                        else {
                             continue;
                         };
                         if g.direct(Table::Angle, &p1) && g.direct(Table::Angle, &p2) {
@@ -611,7 +642,8 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                         (c, a, b, mc, ma, mb),
                     ] {
                         let foot = g.on_line(&[s1, f, s2])
-                            && r.perp((v, f), (s1, s2)).is_some_and(|z| g.direct(Table::Angle, &z));
+                            && r.perp((v, f), (s1, s2))
+                                .is_some_and(|z| g.direct(Table::Angle, &z));
                         if foot {
                             push(
                                 out,
@@ -645,7 +677,13 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                                 .cong(x, p, x, c)
                                 .zip(r.cong(x, d, x, q))
                                 .map(|(u, v)| (Table::Ratio, &u - &v));
-                            push(out, Thm::PowerOfPoint, vec![x, p, q, c, d], vec![], vec![row]);
+                            push(
+                                out,
+                                Thm::PowerOfPoint,
+                                vec![x, p, q, c, d],
+                                vec![],
+                                vec![row],
+                            );
                         }
                     }
                 }
@@ -659,7 +697,10 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                         }
                         for &c in pts {
                             for &d in pts {
-                                if c >= d || [x, p, q, u, v].contains(&c) || [x, p, q, u, v].contains(&d) {
+                                if c >= d
+                                    || [x, p, q, u, v].contains(&c)
+                                    || [x, p, q, u, v].contains(&d)
+                                {
                                     continue;
                                 }
                                 if g.on_line(&[x, c, d]) && g.on_circle(&[u, v, c, d]) {
@@ -707,7 +748,13 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                         let row = r.ang(p, z, y).and_then(|a| {
                             Some((Table::Angle, r.ex(&(&t.dir(p, y)? - &t.dir(p, x)?) - &a)))
                         });
-                        push(out, Thm::TangentChord, vec![p, x, y, z, o], vec![], vec![row]);
+                        push(
+                            out,
+                            Thm::TangentChord,
+                            vec![p, x, y, z, o],
+                            vec![],
+                            vec![row],
+                        );
                     }
                 }
             }
@@ -760,7 +807,14 @@ fn triangle_specs(cx: &Ctx, goal_pts: &[PointId], out: &mut Vec<(Thm, Vec<PointI
             if s1 == s2 {
                 continue;
             }
-            let perms: [[usize; 3]; 6] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+            let perms: [[usize; 3]; 6] = [
+                [0, 1, 2],
+                [0, 2, 1],
+                [1, 0, 2],
+                [1, 2, 0],
+                [2, 0, 1],
+                [2, 1, 0],
+            ];
             for pm in perms {
                 let u = [t2[pm[0]], t2[pm[1]], t2[pm[2]]];
                 let Some(congruent) = similar(t, *t1, u) else {
@@ -769,11 +823,12 @@ fn triangle_specs(cx: &Ctx, goal_pts: &[PointId], out: &mut Vec<(Thm, Vec<PointI
                 let [p, q, c] = *t1;
                 let [x, y, z] = u;
                 let same = t.orient(p, q, c) == t.orient(x, y, z);
-                let corner = |a: PointId, v: PointId, b: PointId, aa: PointId, vv: PointId, bb: PointId| {
-                    let l = r.ang(a, v, b)?;
-                    let m = r.ang(aa, vv, bb)?;
-                    Some(r.ex(if same { &l - &m } else { &l + &m }))
-                };
+                let corner =
+                    |a: PointId, v: PointId, b: PointId, aa: PointId, vv: PointId, bb: PointId| {
+                        let l = r.ang(a, v, b)?;
+                        let m = r.ang(aa, vv, bb)?;
+                        Some(r.ex(if same { &l - &m } else { &l + &m }))
+                    };
                 let (Some(a0), Some(a1), Some(a2)) = (
                     corner(q, p, c, y, x, z),
                     corner(p, q, c, x, y, z),
@@ -781,9 +836,10 @@ fn triangle_specs(cx: &Ctx, goal_pts: &[PointId], out: &mut Vec<(Thm, Vec<PointI
                 ) else {
                     continue;
                 };
-                let rat = |a: PointId, b: PointId, cc: PointId, aa: PointId, bb: PointId, c2: PointId| {
-                    Some(&(&t.dm(a, b)? - &t.dm(a, cc)?) - &(&t.dm(aa, bb)? - &t.dm(aa, c2)?))
-                };
+                let rat =
+                    |a: PointId, b: PointId, cc: PointId, aa: PointId, bb: PointId, c2: PointId| {
+                        Some(&(&t.dm(a, b)? - &t.dm(a, cc)?) - &(&t.dm(aa, bb)? - &t.dm(aa, c2)?))
+                    };
                 let (Some(r0), Some(r1), Some(r2)) = (
                     rat(p, q, c, x, y, z),
                     rat(q, p, c, y, x, z),
@@ -813,7 +869,12 @@ fn triangle_specs(cx: &Ctx, goal_pts: &[PointId], out: &mut Vec<(Thm, Vec<PointI
                 let n_rat = ratios.iter().filter(|a| have(a)).count();
                 let sas = (0..3).any(|k| have(&angles[k]) && have(&ratios[k]));
                 if congruent {
-                    for key in [AtomKey::CongruentSss, AtomKey::CongruentSas, AtomKey::CongruentAsa, AtomKey::CongruentRhs] {
+                    for key in [
+                        AtomKey::CongruentSss,
+                        AtomKey::CongruentSas,
+                        AtomKey::CongruentAsa,
+                        AtomKey::CongruentRhs,
+                    ] {
                         for k in 0..3 {
                             let rot = |v: &[PointId; 3]| [v[k], v[(k + 1) % 3], v[(k + 2) % 3]];
                             let (aa, bb) = (rot(t1), rot(&u));
@@ -873,7 +934,9 @@ pub fn goal_theorems(problem: &Problem, deadline: Instant) -> Vec<Detection> {
         return Vec::new();
     }
     let g = Given::new(&t);
-    let any = |extra: Option<&[(Table, LinComb)]>, flat: bool| alts.iter().any(|a| g.holds_all(a, extra, flat));
+    let any = |extra: Option<&[(Table, LinComb)]>, flat: bool| {
+        alts.iter().any(|a| g.holds_all(a, extra, flat))
+    };
     let from = |rows: &[(Table, LinComb)]| alts.iter().any(|a| g.follows(a, rows));
     if let Stmt::Cyclic { pts } = &stmt {
         if g.on_circle(pts) {

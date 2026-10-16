@@ -40,6 +40,7 @@ use crate::metric::MExpr;
 use crate::numerics::Vec2;
 use crate::predicate::{PointId, Predicate};
 use crate::rational::Rat;
+use crate::theory::{Forbid, Thm};
 
 /// A squared-length unknown `|ab|²`, keyed by the unordered pair.
 type Atom = (PointId, PointId);
@@ -111,6 +112,7 @@ struct Step {
     /// For a fact derived by the DDAR closure, the closure facts it rests on;
     /// the proof prints their derivation once, ahead of the steps.
     derived: Option<Vec<crate::proof::FactId>>,
+    thm: Option<Thm>,
 }
 
 /// A named entry of the theorem library (for the catalogue / `--theorems`).
@@ -532,6 +534,7 @@ struct Figure {
     /// For a midpoint fact derived by DDAR (not given), the step holding its
     /// derivation.
     mid_src: BTreeMap<(PointId, PointId, PointId), usize>,
+    forbid: Forbid,
 }
 
 pub(crate) fn rat_of(v: f64) -> Option<Rat> {
@@ -960,8 +963,15 @@ impl Figure {
             premises,
             headline: false,
             derived: None,
+            thm: None,
         });
         self.steps.len() - 1
+    }
+
+    fn push_thm(&mut self, thm: Thm, text: String, eq: Option<Eq>, premises: Vec<usize>) -> usize {
+        let i = self.push_step(text, eq, premises);
+        self.steps[i].thm = Some(thm);
+        i
     }
 
     /// Like [`push_step`] but marks the step a *compound named theorem*, so a
@@ -991,6 +1001,7 @@ impl Figure {
             hyps: fig.preds.len(),
             cert: RefCell::new(Certifier::default()),
             mid_src: BTreeMap::new(),
+            forbid: crate::theory::current(),
         };
 
         // Predicates.
@@ -1128,6 +1139,275 @@ impl Figure {
         self.rule_stewart();
         self.rule_parallelogram();
         self.rule_british_flag();
+        if !self.forbid.is_empty() {
+            self.rule_leg();
+            self.rule_line_squares();
+        }
+    }
+
+    fn rule_leg(&mut self) {
+        if self.forbid.has(Thm::GeometricMean) {
+            return;
+        }
+        let n = self.coords.len() as PointId;
+        let mut done: BTreeSet<(PointId, PointId, PointId, PointId)> = BTreeSet::new();
+        for ([a, b, c, d], src) in self.perps.clone() {
+            let Some((v, x, y)) = shared_vertex(a, b, c, d) else {
+                continue;
+            };
+            if x == y {
+                continue;
+            }
+            for h in 0..n {
+                crate::budget::check();
+                if [v, x, y].contains(&h) || !self.between_strict(x, h, y) {
+                    continue;
+                }
+                let (vh, xy) = (self.coord(h) - self.coord(v), self.coord(y) - self.coord(x));
+                if vh.dot(xy).abs() > 1e-9 * (1.0 + vh.norm() * xy.norm()) {
+                    continue;
+                }
+                if !done.insert((v, x.min(y), x.max(y), h)) {
+                    continue;
+                }
+                let Some(deps) =
+                    self.certify(&[pred("coll", &[x, h, y]), pred("perp", &[v, h, x, y])])
+                else {
+                    continue;
+                };
+                let mut prem = self.aux_prem(&[v, x, y, h]);
+                if src != usize::MAX {
+                    prem.push(src);
+                }
+                let foot = self.push_derived(
+                    format!(
+                        "{} lies on {} and {} ⟂ {} (derived from the hypotheses).",
+                        self.nm(h),
+                        self.seg(x, y),
+                        self.seg(v, h),
+                        self.seg(x, y)
+                    ),
+                    deps,
+                    prem,
+                );
+                for (p, q) in [(x, y), (y, x)] {
+                    let mut eq = Eq::default();
+                    eq.add_term(atom(v, p), one());
+                    eq.add_term(atom(p, h), Rat::new(-1, 2));
+                    eq.add_term(atom(p, q), Rat::new(-1, 2));
+                    eq.add_term(atom(h, q), Rat::new(1, 2));
+                    let text = format!(
+                        "In right triangle {p}{v}{q} (right angle at {v}) the altitude {vh} gives \
+                         △{p}{h}{v} ∼ △{p}{v}{q} (common angle at {p}, right angles at {h} and {v}), \
+                         so {vp2} = {ph}·{pq} (leg theorem); as {h} lies between {p} and {q}, \
+                         {ph}·{pq} = ½·({ph2} + {pq2} − {hq2}).",
+                        p = self.nm(p),
+                        v = self.nm(v),
+                        q = self.nm(q),
+                        h = self.nm(h),
+                        vh = self.seg(v, h),
+                        vp2 = self.sq(v, p),
+                        ph = self.seg(p, h),
+                        pq = self.seg(p, q),
+                        ph2 = self.sq(p, h),
+                        pq2 = self.sq(p, q),
+                        hq2 = self.sq(h, q),
+                    );
+                    self.push_thm(Thm::GeometricMean, text, Some(eq), vec![foot]);
+                }
+            }
+        }
+    }
+
+    fn between_strict(&self, x: PointId, h: PointId, y: PointId) -> bool {
+        let (vx, vh, vy) = (self.coord(x), self.coord(h), self.coord(y));
+        (vh - vx).dot(vy - vh) > 0.0 && self.numerically_collinear(x, h, y)
+    }
+
+    fn lines(&self) -> Vec<Vec<PointId>> {
+        let mut out = self.colls.clone();
+        for &(m, a, b) in &self.midpoints {
+            match out.iter_mut().find(|l| l.contains(&a) && l.contains(&b)) {
+                Some(l) => {
+                    if !l.contains(&m) {
+                        l.push(m);
+                    }
+                }
+                None => out.push(vec![a, m, b]),
+            }
+        }
+        out
+    }
+
+    fn line_ratio(
+        &self,
+        b: PointId,
+        d: PointId,
+        c: PointId,
+    ) -> Option<(Rat, String, Vec<crate::proof::FactId>, Vec<usize>)> {
+        for (x, y) in [(b, c), (c, b)] {
+            if self.midpoints.contains(&(d, x, y)) {
+                let why = format!("{} is the midpoint of {}", self.nm(d), self.seg(b, c));
+                return Some((Rat::new(1, 2), why, Vec::new(), self.mid_prem(d, x, y)));
+            }
+        }
+        self.symbolic_ratio(b, d, c)
+            .map(|(t, why, deps)| (t, why, deps, Vec::new()))
+    }
+
+    fn rule_line_squares(&mut self) {
+        let n = self.coords.len() as PointId;
+        let mut done: BTreeSet<(PointId, PointId, PointId, PointId)> = BTreeSet::new();
+        let lines = self.lines();
+        for set in lines.clone() {
+            for i in 0..set.len() {
+                for j in 0..set.len() {
+                    for k in 0..set.len() {
+                        if i == j || j == k || i == k {
+                            continue;
+                        }
+                        let (b, d, c) = (set[i], set[j], set[k]);
+                        if b >= c
+                            || (self.coord(d) - self.coord(b)).dot(self.coord(c) - self.coord(d))
+                                <= 0.0
+                        {
+                            continue;
+                        }
+                        let Some((t, why, derivation, mid)) = self.line_ratio(b, d, c) else {
+                            continue;
+                        };
+                        for h in 0..n {
+                            crate::budget::check();
+                            if [b, d, c].contains(&h)
+                                || !lines
+                                    .iter()
+                                    .any(|l| l.contains(&b) && l.contains(&c) && l.contains(&h))
+                                || !done.insert((b, d, c, h))
+                            {
+                                continue;
+                            }
+                            let one_minus_t = &one() - &t;
+                            let mut eq = Eq::default();
+                            eq.add_term(atom(d, h), one());
+                            eq.add_term(atom(b, h), -(&one_minus_t));
+                            eq.add_term(atom(c, h), -(&t));
+                            eq.add_term(atom(b, c), &t * &one_minus_t);
+                            let mut prem = self.aux_prem(&[b, d, c, h]);
+                            prem.extend(mid.iter().copied());
+                            if !derivation.is_empty() {
+                                let step = self.push_derived(
+                                    format!("{why}."),
+                                    derivation.clone(),
+                                    vec![],
+                                );
+                                prem.push(step);
+                            }
+                            let text = format!(
+                                "{why}, and {h} lies on the line {bc} too, so along that line \
+                                 {dh2} = {om}·{bh2} + {tt}·{ch2} − {tomt}·{bc2} (lengths of \
+                                 collinear segments).",
+                                h = self.nm(h),
+                                bc = self.seg(b, c),
+                                dh2 = self.sq(d, h),
+                                om = one_minus_t,
+                                bh2 = self.sq(b, h),
+                                tt = t,
+                                ch2 = self.sq(c, h),
+                                tomt = &t * &one_minus_t,
+                                bc2 = self.sq(b, c),
+                            );
+                            self.push_thm(Thm::SegmentArithmetic, text, Some(eq), prem);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn add_feet(&mut self, goal_pts: &[PointId]) {
+        const NAMES: [&str; 6] = ["H", "K", "L", "T", "U", "W"];
+        let mut jobs: Vec<(PointId, PointId, PointId)> = Vec::new();
+        if self.forbid.has(Thm::Pythagoras) {
+            for &v in goal_pts {
+                for &x in goal_pts {
+                    for &y in goal_pts {
+                        if v == x || v == y || x >= y {
+                            continue;
+                        }
+                        let (dx, dy) =
+                            (self.coord(x) - self.coord(v), self.coord(y) - self.coord(v));
+                        let (lx, ly) = (dx.norm(), dy.norm());
+                        if lx > 1e-9 && ly > 1e-9 && dx.dot(dy).abs() <= 1e-9 * lx * ly {
+                            jobs.push((v, x, y));
+                        }
+                    }
+                }
+            }
+        }
+        if self.forbid.any(&[
+            Thm::Stewart,
+            Thm::Apollonius,
+            Thm::ParallelogramLaw,
+            Thm::BritishFlag,
+        ]) {
+            for set in self.lines() {
+                if set.len() < 3 {
+                    continue;
+                }
+                let mut ends = (set[0], set[1]);
+                for (i, &p) in set.iter().enumerate() {
+                    for &q in &set[i + 1..] {
+                        if self.d2(p, q) > self.d2(ends.0, ends.1) {
+                            ends = (p, q);
+                        }
+                    }
+                }
+                for &a in goal_pts {
+                    if !set.contains(&a) && !self.numerically_collinear(a, ends.0, ends.1) {
+                        jobs.push((a, ends.0, ends.1));
+                    }
+                }
+            }
+        }
+        for (v, x, y) in jobs {
+            let (px, dir) = (self.coord(x), self.coord(y) - self.coord(x));
+            let t = (self.coord(v) - px).dot(dir) / dir.dot(dir).max(1e-18);
+            let foot = px + dir * t;
+            if !foot.x.is_finite()
+                || !foot.y.is_finite()
+                || self.coords.iter().any(|q| (*q - foot).norm() < 1e-6)
+            {
+                continue;
+            }
+            let Some(name) = NAMES
+                .iter()
+                .map(|s| s.to_string())
+                .chain((1..).map(|i| format!("H{i}")))
+                .find(|nm| !self.names.contains(nm))
+            else {
+                continue;
+            };
+            let id = self.coords.len() as PointId;
+            self.names.push(name.clone());
+            self.coords.push(foot);
+            let text = format!(
+                "Let {name} be the foot of the perpendicular from {} to {}.",
+                self.nm(v),
+                self.seg(x, y)
+            );
+            let st = self.push_step(text, None, vec![]);
+            self.aux_intro.insert(id, st);
+            match self
+                .colls
+                .iter_mut()
+                .find(|l| l.contains(&x) && l.contains(&y))
+            {
+                Some(l) => l.push(id),
+                None => self.colls.push(vec![x, y, id]),
+            }
+            self.preds.push(pred("coll", &[x, y, id]));
+            self.preds.push(pred("perp", &[v, id, x, y]));
+        }
     }
 
     fn rule_absolute_length(&mut self) {
@@ -1199,6 +1479,9 @@ impl Figure {
     /// The perpendicular from the centre O to a chord AB passes through its
     /// midpoint M, so OM ⟂ AB — a derived right angle at M.
     fn rule_perpendicular_from_centre(&mut self) {
+        if self.forbid.has(Thm::PerpFromCentre) {
+            return;
+        }
         let circles: Vec<(PointId, BTreeSet<PointId>)> = self
             .circles
             .iter()
@@ -1216,7 +1499,7 @@ impl Figure {
                         self.nm(*o)
                     );
                     let prem = self.mid_prem(m, a, b);
-                    let s = self.push_step(text, None, prem);
+                    let s = self.push_thm(Thm::PerpFromCentre, text, None, prem);
                     // right angle at M between O and A (and O and B)
                     self.perps.push(([*o, m, a, b], s));
                 }
@@ -1226,6 +1509,9 @@ impl Figure {
 
     /// Thales: a point C on a circle sees a diameter PQ at a right angle.
     fn rule_thales(&mut self) {
+        if self.forbid.has(Thm::Thales) {
+            return;
+        }
         // A diameter is a chord whose midpoint is the centre.
         let diameters: Vec<(PointId, PointId, PointId, BTreeSet<PointId>)> = self
             .midpoints
@@ -1249,7 +1535,7 @@ impl Figure {
                         self.nm(cc),
                         self.nm(q)
                     );
-                    let s = self.push_step(text, None, prem);
+                    let s = self.push_thm(Thm::Thales, text, None, prem);
                     self.perps.push(([cc, p, cc, q], s));
                 }
             }
@@ -1258,6 +1544,9 @@ impl Figure {
 
     /// Pythagoras on every right angle at a shared vertex.
     fn rule_pythagoras(&mut self) {
+        if self.forbid.has(Thm::Pythagoras) {
+            return;
+        }
         for ([a, b, c, d], src) in self.perps.clone() {
             // find the shared vertex of segments ab and cd
             let Some((v, x, y)) = shared_vertex(a, b, c, d) else {
@@ -1289,12 +1578,15 @@ impl Figure {
                 self.sq(v, y),
                 via
             );
-            self.push_step(text, Some(eq), prem);
+            self.push_thm(Thm::Pythagoras, text, Some(eq), prem);
         }
     }
 
     /// Apollonius: for the median AM to side BC, AB² + AC² = 2AM² + 2BM².
     fn rule_median(&mut self) {
+        if self.forbid.has(Thm::Apollonius) {
+            return;
+        }
         let n = self.coords.len() as PointId;
         for (m, b, c) in self.midpoints.clone() {
             for a in 0..n {
@@ -1321,7 +1613,7 @@ impl Figure {
                 );
                 let mut prem = self.mid_prem(m, b, c);
                 prem.extend(self.aux_prem(&[a]));
-                self.push_step(text, Some(eq), prem);
+                self.push_thm(Thm::Apollonius, text, Some(eq), prem);
             }
         }
     }
@@ -1453,6 +1745,9 @@ impl Figure {
     /// to an arbitrary cevian. The ratio comes from given lengths
     /// (`symbolic_ratio`); the figure only says that `D` lies between `B`, `C`.
     fn rule_stewart(&mut self) {
+        if self.forbid.has(Thm::Stewart) {
+            return;
+        }
         let n = self.coords.len() as PointId;
         // Interior division points (b, d, c) with d strictly between b and c,
         // taken from the collinear sets (symbolic evidence that d ∈ line bc).
@@ -1534,7 +1829,8 @@ impl Figure {
                     tomt = &t * &one_minus_t,
                     bc2 = self.sq(b, c),
                 );
-                self.push_headline(text, Some(eq), prem);
+                let i = self.push_headline(text, Some(eq), prem);
+                self.steps[i].thm = Some(Thm::Stewart);
             }
         }
     }
@@ -1542,6 +1838,9 @@ impl Figure {
     /// Parallelogram law. If `ABCD` is a parallelogram (both pairs of opposite
     /// sides parallel), then `AC² + BD² = 2·AB² + 2·BC²`.
     fn rule_parallelogram(&mut self) {
+        if self.forbid.has(Thm::ParallelogramLaw) {
+            return;
+        }
         for [a, b, c, d] in self.find_parallelograms() {
             let mut eq = Eq::default();
             eq.add_term(atom(a, c), one()); // AC²
@@ -1557,13 +1856,17 @@ impl Figure {
                 ab2 = self.sq(a, b),
                 bc2 = self.sq(b, c),
             );
-            self.push_headline(text, Some(eq), vec![]);
+            let i = self.push_headline(text, Some(eq), vec![]);
+            self.steps[i].thm = Some(Thm::ParallelogramLaw);
         }
     }
 
     /// The British flag theorem. For a rectangle `ABCD` and *any* point `P`,
     /// `PA² + PC² = PB² + PD²` (the two sums over opposite corners are equal).
     fn rule_british_flag(&mut self) {
+        if self.forbid.has(Thm::BritishFlag) {
+            return;
+        }
         let n = self.coords.len() as PointId;
         for [a, b, c, d] in self.find_rectangles() {
             for p in 0..n {
@@ -1588,7 +1891,8 @@ impl Figure {
                     pb2 = self.sq(p, b),
                     pd2 = self.sq(p, d),
                 );
-                self.push_headline(text, Some(eq), vec![]);
+                let i = self.push_headline(text, Some(eq), vec![]);
+                self.steps[i].thm = Some(Thm::BritishFlag);
             }
         }
     }
@@ -1655,6 +1959,9 @@ impl Figure {
     /// the figure. This is the elementary step behind the perpendicular-chords
     /// result.
     fn rule_parallel_chords(&mut self) {
+        if self.forbid.has(Thm::ParallelChords) {
+            return;
+        }
         let paras = self.paras.clone();
         let mut jobs: Vec<(Atom, Atom, usize, [PointId; 4])> = Vec::new();
         for ([w, x, y, z], src) in paras {
@@ -1698,7 +2005,7 @@ impl Figure {
                 self.sq(e2.0, e2.1),
             );
             let prem = if src == usize::MAX { vec![] } else { vec![src] };
-            self.push_step(text, Some(eq), prem);
+            self.push_thm(Thm::ParallelChords, text, Some(eq), prem);
         }
     }
 
@@ -2083,6 +2390,63 @@ pub(crate) fn collect_points(e: &MExpr, out: &mut BTreeSet<String>) {
 /// of the relevant circle points) and derives the result from elementary
 /// theorems rather than citing a high-level theorem that would *be* the goal.
 pub fn prove_euclidean(cons_src: &str, goal: &str) -> Result<Outcome, String> {
+    prove_euclidean_guarded(cons_src, goal).map(|(o, _)| o)
+}
+
+pub fn prove_euclidean_guarded(cons_src: &str, goal: &str) -> Result<(Outcome, Vec<Thm>), String> {
+    match prove_euclidean_pass(cons_src, goal, true)? {
+        Pass::Done(o) => Ok((o, Vec::new())),
+        Pass::States(detected) => {
+            let forbid = crate::theory::current().union(Forbid::closure_of(&detected));
+            let o =
+                crate::theory::with_forbid(forbid, || prove_euclidean_pass(cons_src, goal, false))?;
+            match o {
+                Pass::Done(o) => Ok((o, detected)),
+                Pass::States(_) => Ok((Outcome::Unhandled(String::new()), detected)),
+            }
+        }
+    }
+}
+
+enum Pass {
+    Done(Outcome),
+    States(Vec<Thm>),
+}
+
+impl Figure {
+    fn stated_theorems(&self, goal: &Eq) -> Vec<Thm> {
+        if !goal.constant.is_zero() {
+            return Vec::new();
+        }
+        let given: BTreeSet<usize> = (0..self.steps.len())
+            .filter(|&i| {
+                let s = &self.steps[i];
+                s.thm.is_none()
+                    && s.derived.is_none()
+                    && s.premises.is_empty()
+                    && s.eq.as_ref().is_some_and(|e| e.constant.is_zero())
+            })
+            .collect();
+        if self.prove_with(goal, &given).is_some() {
+            return Vec::new();
+        }
+        let mut out: Vec<Thm> = Vec::new();
+        for (i, s) in self.steps.iter().enumerate() {
+            let Some(t) = s.thm else { continue };
+            if s.eq.is_none() || out.contains(&t) || !crate::theory::detectable(t) {
+                continue;
+            }
+            let mut allowed = given.clone();
+            allowed.insert(i);
+            if self.prove_with(goal, &allowed).is_some() {
+                out.push(t);
+            }
+        }
+        out
+    }
+}
+
+fn prove_euclidean_pass(cons_src: &str, goal: &str, detect: bool) -> Result<Pass, String> {
     let (lhs, rhs) = crate::metric::parse_equation(goal)?;
     let mut names: BTreeSet<String> = BTreeSet::new();
     collect_points(&lhs, &mut names);
@@ -2113,6 +2477,9 @@ pub fn prove_euclidean(cons_src: &str, goal: &str) -> Result<Outcome, String> {
                 }
             }
             fig.add_segment_intersections(&pairs, true);
+            if !fig.forbid.is_empty() {
+                fig.add_feet(&goal_pts);
+            }
             let mut pts = goal_pts;
             pts.extend(fig.aux_intro.keys().copied());
             pts.sort_unstable();
@@ -2143,24 +2510,32 @@ pub fn prove_euclidean(cons_src: &str, goal: &str) -> Result<Outcome, String> {
         }
 
         let (Some(l), Some(r)) = (lower(&lhs, &fig), lower(&rhs, &fig)) else {
-            return Ok(Outcome::Unhandled(
+            return Ok(Pass::Done(Outcome::Unhandled(
                 "the goal is not a linear relation among squared lengths (needs the ratio layer)"
                     .to_string(),
-            ));
+            )));
         };
         let mut goal_eq = l.clone();
         goal_eq.sub_scaled(&r, &one());
         let goal_val = eval_numeric(&lhs, &fig).unwrap_or(f64::NAN);
 
+        if detect && !use_aux {
+            let stated = fig.stated_theorems(&goal_eq);
+            if !stated.is_empty() {
+                return Ok(Pass::States(stated));
+            }
+        }
         if let Some(used) = fig.prove(&goal_eq) {
             if !used.is_empty() {
-                return Ok(Outcome::Proved(fig.render(&used, goal, goal_val)));
+                return Ok(Pass::Done(Outcome::Proved(
+                    fig.render(&used, goal, goal_val),
+                )));
             }
         }
     }
-    Ok(Outcome::Unhandled(
+    Ok(Pass::Done(Outcome::Unhandled(
         "no chain of the known theorems reaches the goal".to_string(),
-    ))
+    )))
 }
 
 /// Numerically evaluate a (linear-in-squared-length) expression for display.

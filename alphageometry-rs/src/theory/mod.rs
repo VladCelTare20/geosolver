@@ -71,6 +71,7 @@ pub enum Thm {
     NinePointCircle,
     ExtLawOfSines,
     SinesConverse,
+    LawOfCosines,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -789,9 +790,19 @@ pub const INFO: &[Info] = &[
         uses: &[(LawOfSines, "the ratio sin t / sin(π − p − t) is monotone")],
         cited_by: "engine \"law of sines, converse\"; TheoremKey::SinesConverse",
     },
+    Info {
+        thm: LawOfCosines,
+        key: "law_of_cosines",
+        en: "the law of cosines",
+        ro: "teorema cosinusului",
+        kind: Theorem,
+        avoidable: true,
+        uses: &[(Pythagoras, "the altitude splits the triangle into two right triangles")],
+        cited_by: "ratio prover cosine rows (T7)",
+    },
 ];
 
-pub const ALL: [Thm; 65] = [
+pub const ALL: [Thm; 66] = [
     AngleCalculus,
     SegmentArithmetic,
     CircleDefinition,
@@ -857,6 +868,7 @@ pub const ALL: [Thm; 65] = [
     NinePointCircle,
     ExtLawOfSines,
     SinesConverse,
+    LawOfCosines,
 ];
 
 impl Thm {
@@ -940,6 +952,39 @@ impl Forbid {
     pub fn unavoidable(self) -> Option<Thm> {
         self.iter().find(|t| !t.avoidable())
     }
+}
+
+thread_local! {
+    static CURRENT: std::cell::Cell<Forbid> = const { std::cell::Cell::new(Forbid::NONE) };
+}
+
+pub fn current() -> Forbid {
+    CURRENT.with(|c| c.get())
+}
+
+pub fn with_forbid<R>(forbid: Forbid, body: impl FnOnce() -> R) -> R {
+    struct Restore(Forbid);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CURRENT.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(CURRENT.with(|c| c.replace(forbid)));
+    body()
+}
+
+pub fn names_en(ts: &[Thm]) -> String {
+    ts.iter()
+        .map(|t| t.name_en())
+        .collect::<Vec<_>>()
+        .join(" and ")
+}
+
+pub fn names_ro(ts: &[Thm]) -> String {
+    ts.iter()
+        .map(|t| t.name_ro())
+        .collect::<Vec<_>>()
+        .join(" și ")
 }
 
 pub fn descendants(t: Thm) -> Vec<Thm> {
@@ -1048,21 +1093,33 @@ pub const ENGINE_NAMES: &[(&str, &[Thm])] = &[
     ("Monge–d'Alembert", &[Monge]),
     ("homothety at a centre of similitude", &[Homothety]),
     ("angle bisector theorem", &[BisectorThm, ExtBisectorThm]),
-    ("angle bisector theorem (converse)", &[BisectorConverse, ExtBisectorConverse]),
+    (
+        "angle bisector theorem (converse)",
+        &[BisectorConverse, ExtBisectorConverse],
+    ),
     ("intercept theorem (parallel rungs)", &[Intercept]),
     ("Menelaus' theorem", &[Menelaus]),
     ("Menelaus' theorem (converse)", &[MenelausConverse]),
     ("Ceva's theorem (converse)", &[CevaConverse]),
     ("angle bisectors concur (incentre/excentre)", &[Incentre]),
-    ("equality case of the triangle inequality", &[TriangleEquality]),
-    ("perpendicular ⇒ squared lengths (Pythagoras)", &[Pythagoras]),
+    (
+        "equality case of the triangle inequality",
+        &[TriangleEquality],
+    ),
+    (
+        "perpendicular ⇒ squared lengths (Pythagoras)",
+        &[Pythagoras],
+    ),
     ("perpendicular from squared lengths", &[PythagorasConverse]),
     ("squares of proportional lengths", &[SegmentArithmetic]),
     ("lengths from squared lengths", &[SegmentArithmetic]),
     ("Stewart's theorem", &[Stewart]),
     ("law of sines", &[LawOfSines]),
     ("law of sines, converse", &[SinesConverse]),
-    ("equal or supplementary angles have equal sines", &[TrigIdentities]),
+    (
+        "equal or supplementary angles have equal sines",
+        &[TrigIdentities],
+    ),
     ("double-angle formula", &[TrigIdentities]),
     ("triple-angle formula", &[TrigIdentities]),
     ("sine of 30°", &[TrigIdentities]),
@@ -1150,7 +1207,11 @@ pub fn graph_text() -> String {
         out.push_str(&format!(
             "{:<28} [{kind}{}] {}\n",
             i.key,
-            if i.avoidable { "" } else { ", built into the closure" },
+            if i.avoidable {
+                ""
+            } else {
+                ", built into the closure"
+            },
             i.en
         ));
         for (u, why) in i.uses {

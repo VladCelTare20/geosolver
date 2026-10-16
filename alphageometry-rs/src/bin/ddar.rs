@@ -520,10 +520,23 @@ fn metric_solve(src: &str) {
         fail("--metric needs a `prove <equation>` line, e.g. `prove dist(A,C)^2 + dist(B,D)^2 = 144`")
     });
     let start = Instant::now();
-    match metric::solve(&cons.join("\n"), &goal, metric::DEFAULT_SAMPLES) {
-        Ok(report) => println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64()),
+    let (result, stated) =
+        metric::solve_until_guarded(&cons.join("\n"), &goal, metric::DEFAULT_SAMPLES, None);
+    let names = ddar::theory::names_en(&stated);
+    match result {
+        Ok(report) => {
+            println!("{report}\n  ({:.3}s)", start.elapsed().as_secs_f64());
+            if !stated.is_empty() {
+                println!("Proved without using {names} or the theorems derived from it.");
+            }
+        }
         Err(e @ (metric::MetricError::Refuted(_) | metric::MetricError::NoProof { .. })) => {
             println!("{}\n  ({:.3}s)", e.report(), start.elapsed().as_secs_f64());
+            if !stated.is_empty() && !matches!(e, metric::MetricError::Refuted(_)) {
+                println!(
+                    "This statement is {names} itself; it was not derived from anything simpler."
+                );
+            }
             std::process::exit(1);
         }
         Err(e) => fail(e.message()),
@@ -548,7 +561,12 @@ fn theory(arg: Option<&String>) {
             .iter()
             .map(|&p| compiled.problem.point_name(p))
             .collect();
-        println!("states {} ({}) at {}", d.thm.name_en(), d.thm.key(), names.join(" "));
+        println!(
+            "states {} ({}) at {}",
+            d.thm.name_en(),
+            d.thm.key(),
+            names.join(" ")
+        );
     }
     println!("forbidden: {}", ddar::theory::render(g.forbid));
 }
@@ -572,7 +590,11 @@ fn theory_corpus(file: Option<&String>, opts: &Opts) {
             fired += 1;
             println!(
                 "{name}\t{}\t{secs:.3}s",
-                g.detected.iter().map(|t| t.key()).collect::<Vec<_>>().join(",")
+                g.detected
+                    .iter()
+                    .map(|t| t.key())
+                    .collect::<Vec<_>>()
+                    .join(",")
             );
         }
     }

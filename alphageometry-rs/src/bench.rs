@@ -364,7 +364,11 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
         if !avoided.is_empty() {
             out.detail = format!(
                 "avoided: {}",
-                avoided.iter().map(|t| t.key()).collect::<Vec<_>>().join(",")
+                avoided
+                    .iter()
+                    .map(|t| t.key())
+                    .collect::<Vec<_>>()
+                    .join(",")
             );
         }
         let o = finish(out);
