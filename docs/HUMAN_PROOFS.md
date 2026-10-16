@@ -1187,3 +1187,32 @@ Steps and links rise because the hypotheses of theorems are now their own steps 
 - After polishing, a block whose only premise is an earlier block that already states the same collinear or concyclic point set is dropped (the earlier block becomes the conclusion when the dropped one was last). Two proofs keep such a block because their claim bookkeeping ties it to the fact it proves.
 - A directed constant `aconst a b c d K` is stated as the turn from `cd` to `ab`, in GIVEN, the legend and the derivation, the same way the proof text states it.
 - An external-bisector converse step is typeset with ∡ when its undirected angles differ in the figure; `proof_audit::statement_violations` now reads ∡ statements and every displayed step.
+
+### 13.14 Angle chains: 0° ≠ 180° (`wf/angle-chains`)
+
+The owner's report: the Simson proof's angle work "all looks wrong (for proving X, Y, Z collinear)". It opened with `∡XZY = ∡BXP + ∡XZY + 90°` (the goal angle kept, zeros inserted) and ended `= 0°` for a sum of two right angles. Rules and mechanics are in §6.6.5.
+
+Root causes:
+- `route.rs` expanded an empty (constant) node only over two-term atoms, so the reverse half of the bidirectional search could not leave a constant end and the stopping rule cut the optimal Simson route (118 vs 145).
+- The chain ordering (`order_items_mode`, `split_links`) charged nothing for a step that inserts cancelling terms.
+- `identity_label` gave a generic "angle addition" to any multi-vertex identity.
+- Collinear and parallel targets were never routed as drawn (`undirected_chain` refused 0°-valued ends and `route_drawn` ran only for doubled chains), so they stayed directed with "= 0°", and an ordinary-angle chain could end "So X, Y, Z are collinear" with no side condition.
+
+Measured on the 384 replayed proofs (270 IMO/JGEX conjuncts, 108 named/geo examples, 6 app examples), BEFORE = release writer with the final lint definitions:
+
+| | before | after |
+|---|---|---|
+| proofs using ∡ (IMO / JGEX / geo / app) | 168 (20 / 105 / 41 / 2) | 85 (9 / 53 / 22 / 1) |
+| rows "= 0°" | 64 | 1 (Thebault t5 step 27, ∠KLX = 0°) |
+| directed equalities written with "=" | 955 | 0 |
+| rows "= 180°" / "≡ 0° (mod 180°)" | 2 / 0 | 16 / 13 |
+| L1 / L2 / L3 / L5 / L7 rows | 15 / 0 / 15 / 64 / 0 | 0 / 0 / 0 / 0 / 0 |
+| L4 / L6 / L8 rows (reported) | 606 / 81 / 60 | 580 / 47 / 40 |
+| ∠ chains ending a line fact with no theorem | 9 | 0 (one directed ≡ 0° chain and one false positive remain in the count) |
+
+Gates: IMO 30/30 (solved set identical to the release), JGEX 231/231, 0 checker violations, `--fuzz-false` 253 cases 0 UNSOUND. Writer time (paired, five alternating rounds, 30 IMO conjuncts): median 36 → 38 ms, total 1592 → 1758 ms, p95 137 → 173 ms (+26 %, over the +10 % target): the as-drawn routes are searched in the undirected graph, whose expansions cost about twice the directed ones.
+
+"Proved as drawn" is now computed from the shown readings (ag-studio `readings.rs:depends_on_configuration`): 29 of 31 IMO proofs, 119 of 223 JGEX proofs and 5 of 7 app examples shown by the audit carry it; the release computed none from the readings.
+
+Still directed (last resort, 85 proofs): IMO 2000 P6, 2002 P2a, 2008 P6, 2011 P6, 2015 P3, 2016 P1, 2018 P1, 2019 P6, 2020 P1, the app's IMO 2023 example, 53 JGEX and 22 named proofs.
+
