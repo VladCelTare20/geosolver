@@ -2453,7 +2453,11 @@ fn prove_euclidean_pass(cons_src: &str, goal: &str, detect: bool) -> Result<Pass
     collect_points(&rhs, &mut names);
     let sampled = crate::geo::build_sampled_figure(cons_src)?.without_idle_points(&names);
 
-    for use_aux in [false, true] {
+    let banned = !crate::theory::current().is_empty();
+    for (use_aux, feet) in [(false, false), (true, false), (true, true)] {
+        if feet && !banned {
+            break;
+        }
         let mut fig = Figure::gather(&sampled);
         if use_aux {
             let mut relevant: BTreeSet<PointId> = names.iter().filter_map(|n| fig.pt(n)).collect();
@@ -2477,7 +2481,7 @@ fn prove_euclidean_pass(cons_src: &str, goal: &str, detect: bool) -> Result<Pass
                 }
             }
             fig.add_segment_intersections(&pairs, true);
-            if !fig.forbid.is_empty() {
+            if feet {
                 fig.add_feet(&goal_pts);
             }
             let mut pts = goal_pts;

@@ -5480,7 +5480,7 @@ mod tests {
 
     #[test]
     fn named_theorem_steps_state_what_they_derive() {
-        let (_, v) = view("A B C = triangle\nI = incenter(A, B, C)\nD = meet(line(A, I), line(B, C))\nprove eqratio(D, B, D, C, A, B, A, C)");
+        let (_, v) = view("A B C = triangle\nI = incenter(A, B, C)\nD = meet(line(A, I), line(B, C))\nF = meet(perp_line(A, line(A, I)), line(B, C))\nprove eqratio(D, B, D, C, F, B, F, C)");
         let bis: Vec<&Step> = v
             .proof
             .steps
@@ -5491,7 +5491,13 @@ mod tests {
         for s in bis {
             assert_eq!(s.fact.kind, "eqratio", "{s:?}");
             assert_eq!(s.fact.args.len(), 4, "{s:?}");
-            assert_eq!(s.rule_name_ro.as_deref(), Some("teorema bisectoarei"));
+            assert!(
+                matches!(
+                    s.rule_name_ro.as_deref(),
+                    Some("teorema bisectoarei" | "teorema bisectoarei exterioare")
+                ),
+                "{s:?}"
+            );
         }
         assert_eq!(
             theorem_fact(

@@ -3398,7 +3398,7 @@ mod tests {
         assert_eq!(rows[0]["title"], "second"); // newest first
         assert_eq!(rows[1]["title"], "first");
         assert_eq!(rows[0]["proved"], true);
-        assert_eq!(rows[0]["method"], "ddar");
+        assert_eq!(rows[0]["method"], "aux-search");
         assert_eq!(rows[0]["status"], "proved");
         // Reopening from history must restore the exact multi-line .geo program
         // (newlines, indentation, everything) the user originally submitted.
