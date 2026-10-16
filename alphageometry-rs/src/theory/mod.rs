@@ -104,7 +104,7 @@ pub const INFO: &[Info] = &[
         kind: Calculus,
         avoidable: false,
         uses: &[],
-        cited_by: "the angle table; Reason::Collinear; atoms Parallel, AngleAddition, AngleSum, ExteriorAngle, Supplementary, VerticalAngles, CommonAngle, AlternateAngles, CorrespondingAngles; TheoremKey::Collinear",
+        cited_by: "the angle table; Reason::Collinear; atoms Parallel, AngleAddition, AngleSum, ExteriorAngle, Supplementary, VerticalAngles, CommonAngle, AlternateAngles, CorrespondingAngles, LineAngleAddition; TheoremKey::Collinear and the angle converses (vertical, linear pair, alternate, co-interior, corresponding, angle construction)",
     },
     Info {
         thm: SegmentArithmetic,
@@ -1009,7 +1009,8 @@ pub fn of_atom(key: AtomKey) -> &'static [Thm] {
         | K::VerticalAngles
         | K::CommonAngle
         | K::AlternateAngles
-        | K::CorrespondingAngles => &[AngleCalculus],
+        | K::CorrespondingAngles
+        | K::LineAngleAddition => &[AngleCalculus],
         K::Radii => &[CircleDefinition],
         K::Isosceles => &[Isosceles],
         K::CentralAngle => &[CentralAngle],
@@ -1078,7 +1079,13 @@ pub fn of_theorem_key(key: TheoremKey) -> &'static [Thm] {
         T::PointMerge | T::TangentMerge | T::CircleMerge => &[CircleDefinition],
         T::Congruence => &[CongruentSss, CongruentSas, CongruentAsa, CongruentRhs],
         T::Similarity => &[SimilarityAa, SimilaritySas, SimilaritySss, SimilaritySsa],
-        T::Collinear => &[AngleCalculus],
+        T::Collinear
+        | T::VerticalAnglesConverse
+        | T::LinearPairConverse
+        | T::AlternateAnglesConverse
+        | T::CointeriorAnglesConverse
+        | T::CorrespondingAnglesConverse
+        | T::AngleConstruction => &[AngleCalculus],
         T::Concyclic
         | T::InscribedConverse
         | T::OppositeAnglesConverse
