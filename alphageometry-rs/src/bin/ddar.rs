@@ -58,6 +58,8 @@ Modes:
   --geo-show <prog|file>  compile and print the low-level form
   --constructions         list the high-level language vocabulary
   --theorems              list the classical-theorem proof library
+  --theory [<prog|file>]  print the theorem identities and what each is derived
+                          from; with a .geo program, the theorems it states
   --aux \"<problem>\"       solve a low-level problem with the aux search
   --explore               report which bundled aux points are load-bearing
   --batch [dir]           run the universal solver on every problem in dir
@@ -125,6 +127,7 @@ const MODES: &[&str] = &[
     "--batch",
     "--max",
     "--theorems",
+    "--theory",
     "--corpus",
     "--corpus-one",
     "--corpus-check",
@@ -288,6 +291,7 @@ fn main() {
         Some("--bench") => bench(&opts),
         Some("--constructions") => list_constructions(&opts),
         Some("--theorems") => list_theorems(),
+        Some("--theory") => theory(positional.first()),
         Some("--metric") => metric_solve(&read_program(positional.first())),
         Some("--geo") => run_geo(&read_program(positional.first()), false, false, &opts),
         Some("--geo-show") => run_geo(&read_program(positional.first()), true, false, &opts),
@@ -523,8 +527,70 @@ fn metric_solve(src: &str) {
     }
 }
 
+fn theory(arg: Option<&String>) {
+    let Some(arg) = arg else {
+        print!("{}", ddar::theory::graph_text());
+        return;
+    };
+    let src = read_program(Some(arg));
+    let compiled = geo::compile(&src).unwrap_or_else(|e| fail(e.message()));
+    let g = ddar::theory::detect::guard(&compiled.problem);
+    if !g.fired() {
+        println!("The statement is not one of the library's theorems.");
+        return;
+    }
+    for d in &g.instances {
+        let names: Vec<&str> = d
+            .args
+            .iter()
+            .map(|&p| compiled.problem.point_name(p))
+            .collect();
+        println!("states {} ({}) at {}", d.thm.name_en(), d.thm.key(), names.join(" "));
+    }
+    println!("forbidden: {}", ddar::theory::render(g.forbid));
+}
+
+fn theorem_names(g: &ddar::theory::detect::Guard) -> String {
+    let v: Vec<&str> = g.detected.iter().map(|t| t.name_en()).collect();
+    v.join(" and ")
+}
+
+fn apply_guard(problem: &mut Problem) -> Option<ddar::theory::detect::Guard> {
+    let g = ddar::theory::detect::guard(problem);
+    if !g.fired() {
+        return None;
+    }
+    problem.forbid = g.forbid;
+    if let Some(t) = g.unavoidable() {
+        println!(
+            "Not proven (circular): this statement is {} itself; it was not derived from anything simpler.",
+            t.name_en()
+        );
+        std::process::exit(1);
+    }
+    Some(g)
+}
+
+fn avoided_note(g: &Option<ddar::theory::detect::Guard>) {
+    if let Some(g) = g {
+        println!(
+            "Proved without using {} or the theorems derived from it.",
+            theorem_names(g)
+        );
+    }
+}
+
+fn circular_note(g: &Option<ddar::theory::detect::Guard>) {
+    if let Some(g) = g {
+        println!(
+            "This statement is {} itself; it was not derived from anything simpler.",
+            theorem_names(g)
+        );
+    }
+}
+
 fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
-    let compiled = match geo::compile(src) {
+    let mut compiled = match geo::compile(src) {
         Ok(c) => c,
         Err(e) if e.is_metric_goal() && !show_only => {
             println!("Metric goal (not a DDAR predicate) — using the metric prover.");
@@ -557,12 +623,14 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
 
     write_svg_if_requested(&compiled.problem, opts);
 
+    let guard = apply_guard(&mut compiled.problem);
     let start = Instant::now();
     let want_human = opts.human || opts.human_json;
     if opts.proof || want_human {
         match solve_problem_with_proof(&compiled.problem) {
             Ok(Some(report)) => {
                 println!("Proven :-)  ({:.3}s)\n", start.elapsed().as_secs_f64());
+                avoided_note(&guard);
                 if opts.proof {
                     println!("{report}");
                 }
@@ -581,8 +649,15 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
             Ok(None) => {}
             Err(e) => fail(&e),
         }
-    } else if solve_problem(&compiled.problem).unwrap_or_else(|e| fail(&e)) {
+    } else if if guard.is_some() {
+        solve_problem_with_proof(&compiled.problem)
+            .unwrap_or_else(|e| fail(&e))
+            .is_some()
+    } else {
+        solve_problem(&compiled.problem).unwrap_or_else(|e| fail(&e))
+    } {
         println!("Proven :-)  ({:.3}s)", start.elapsed().as_secs_f64());
+        avoided_note(&guard);
         return;
     }
 
@@ -601,6 +676,7 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
             for c in &proof.constructions {
                 println!("  + {} = {}", c.name, c.desc);
             }
+            avoided_note(&guard);
             if opts.proof {
                 print_aux_proof(&compiled.problem, &proof);
             }
@@ -620,6 +696,7 @@ fn run_geo(src: &str, show_only: bool, verbose: bool, opts: &Opts) {
                 stats.runs,
                 start.elapsed().as_secs_f64()
             );
+            circular_note(&guard);
             std::process::exit(1);
         }
     }

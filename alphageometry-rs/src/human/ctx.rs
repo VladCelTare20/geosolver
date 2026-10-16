@@ -89,6 +89,7 @@ pub struct Ctx<'a> {
     pub deadline: Option<Instant>,
     pub hyp_pred: FxHashMap<FactId, Predicate>,
     pub library: bool,
+    pub forbid: crate::theory::Forbid,
     store: Mutex<Vec<Option<super::cert::Echelon>>>,
     src_memo: Mutex<FxHashMap<FactId, BTreeSet<FactId>>>,
 }
@@ -174,6 +175,7 @@ impl<'a> Ctx<'a> {
             deadline,
             hyp_pred,
             library: true,
+            forbid: t.forbid,
             store: Mutex::new(vec![None, None, None, None]),
             src_memo: Mutex::new(FxHashMap::default()),
         };

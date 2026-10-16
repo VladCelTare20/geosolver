@@ -55,7 +55,8 @@ pub fn solve_problem_with_proof(problem: &Problem) -> Result<Option<String>, Str
     if ddar.check_pred_deps(goal).is_none() {
         trig_fallback(&mut ddar, goal);
     }
-    Ok(ddar.check_pred_deps(goal).map(|deps| {
+    let deps = ddar.check_pred_deps(goal);
+    Ok(audited(&ddar, deps).map(|deps| {
         let text = ddar.render_pred(goal);
         ddar.proof_report(&deps, &text)
     }))
@@ -82,7 +83,8 @@ pub fn solve_conjunction_with_proof(
         if ddar.check_pred_deps(goal).is_none() {
             trig_fallback(&mut ddar, goal);
         }
-        match ddar.check_pred_deps(goal) {
+        let found = ddar.check_pred_deps(goal);
+        match audited(&ddar, found) {
             Some(d) => deps.extend(d),
             None => return Ok(None),
         }
@@ -108,10 +110,18 @@ pub fn solve_problem_with_trace(
     if ddar.check_pred_deps(goal).is_none() {
         trig_fallback(&mut ddar, goal);
     }
-    Ok(ddar.check_pred_deps(goal).map(|deps| {
+    let deps = ddar.check_pred_deps(goal);
+    Ok(audited(&ddar, deps).map(|deps| {
         let text = ddar.render_pred(goal);
         (ddar.proof_report(&deps, &text), ddar.trace(), deps)
     }))
+}
+
+fn audited(
+    ddar: &Ddar,
+    deps: Option<Vec<crate::proof::FactId>>,
+) -> Option<Vec<crate::proof::FactId>> {
+    deps.filter(|d| ddar.forbidden_steps(d).is_empty())
 }
 
 /// A parsed entry from the bundled `problems.tsv` dataset.

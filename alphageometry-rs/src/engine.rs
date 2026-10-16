@@ -1048,6 +1048,10 @@ impl Ddar {
         self.forbid = forbid;
     }
 
+    pub fn forbidden_steps(&self, deps: &[FactId]) -> Vec<(FactId, crate::theory::Thm)> {
+        crate::theory::audit::raw_log(&self.log, deps, self.forbid)
+    }
+
     pub fn forbid(&self) -> crate::theory::Forbid {
         self.forbid
     }

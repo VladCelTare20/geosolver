@@ -166,6 +166,20 @@ impl<'c, 'a> Builder<'c, 'a> {
         tmpl: FactId,
         avail: FactId,
     ) {
+        if !self.cx.forbid.is_empty() {
+            let banned = match src {
+                AtomSrc::Human(key) => self.cx.forbid.atom(key),
+                AtomSrc::Hyp(f) | AtomSrc::Glue(f) | AtomSrc::Line(f) | AtomSrc::Engine(f) => self
+                    .cx
+                    .t
+                    .facts
+                    .get(f as usize)
+                    .is_some_and(|fact| self.cx.forbid.any(&crate::theory::of_fact(fact))),
+            };
+            if banned {
+                return;
+            }
+        }
         for (k, (table, row)) in rows.into_iter().enumerate() {
             if row.is_zero() {
                 continue;

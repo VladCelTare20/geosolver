@@ -1540,6 +1540,7 @@ pub fn violations_with(ch: &mut Checker, hp: &HumanProof) -> Vec<Violation> {
             detail: "the last block does not prove the goal".into(),
         });
     }
+    out.extend(forbidden_violations(cx.t, hp));
     out
 }
 
@@ -1666,4 +1667,18 @@ fn uncite(hp: &mut HumanProof, demoted: &std::collections::BTreeSet<u16>) {
             }
         }
     });
+}
+
+pub fn forbidden_violations(t: &EngineTrace, hp: &HumanProof) -> Vec<Violation> {
+    if t.forbid.is_empty() {
+        return Vec::new();
+    }
+    crate::theory::audit::human(t, hp)
+        .into_iter()
+        .map(|(block, thm, what)| Violation {
+            block,
+            rule: "I8",
+            detail: format!("{what} cites {}, which this proof may not use", thm.key()),
+        })
+        .collect()
 }

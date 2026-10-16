@@ -253,6 +253,15 @@ pub fn write(
         (None, Some(b)) => b,
         (None, None) => unavailable(raw_steps),
     };
+    if hp.available && !trace.forbid.is_empty() {
+        let structural = crate::theory::audit::human(trace, &hp);
+        let named = crate::theory::audit::text(trace.forbid, &render_en(trace, &hp, aux));
+        if !structural.is_empty() || !named.is_empty() {
+            let mut u = unavailable(raw_steps);
+            u.metrics.check_violations = structural.len() + named.len();
+            hp = u;
+        }
+    }
     hp.metrics.micros = start.elapsed().as_micros() as u64;
     hp
 }
