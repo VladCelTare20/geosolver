@@ -295,6 +295,18 @@ fn goal_alts(t: &EngineTrace, s: &Stmt) -> Option<Vec<Vec<(Table, LinComb)>>> {
     }
 }
 
+fn distmeq_alts(t: &EngineTrace, p: &crate::Predicate) -> Option<Vec<Vec<(Table, LinComb)>>> {
+    let k = p.constants.len().checked_sub(1)?;
+    if k == 0 || p.points.len() != 2 * k || !p.constants[k].is_one() {
+        return None;
+    }
+    let mut row = LinComb::zero();
+    for (i, c) in p.constants[..k].iter().enumerate() {
+        row.iadd_mul(&t.dm(p.points[2 * i], p.points[2 * i + 1])?, c);
+    }
+    (!row.is_zero()).then(|| vec![vec![(Table::Ratio, row)]])
+}
+
 struct Rows<'t>(&'t EngineTrace);
 
 impl Rows<'_> {
@@ -415,24 +427,27 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
     for &o in pts {
         for &p in pts {
             for &q in pts {
-                if p >= q || o == p || o == q || t.orient(o, p, q) == 0 || !g.cong(o, p, o, q) {
+                if p >= q || o == p || o == q || !g.cong(o, p, o, q) {
                     continue;
                 }
-                push(
-                    out,
-                    Thm::Isosceles,
-                    vec![o, p, q],
-                    vec![Some(tri(o, p, q))],
-                    vec![r
-                        .ang(o, p, q)
-                        .zip(r.ang(p, q, o))
-                        .map(|(x, y)| (Table::Angle, r.ex(&x - &y)))],
-                );
+                let flat = t.orient(o, p, q) == 0;
+                if !flat {
+                    push(
+                        out,
+                        Thm::Isosceles,
+                        vec![o, p, q],
+                        vec![Some(tri(o, p, q))],
+                        vec![r
+                            .ang(o, p, q)
+                            .zip(r.ang(p, q, o))
+                            .map(|(x, y)| (Table::Angle, r.ex(&x - &y)))],
+                    );
+                }
                 for &z in pts {
                     if [o, p, q].contains(&z) || !g.cong(o, p, o, z) {
                         continue;
                     }
-                    if g.on_line(&[p, o, q]) {
+                    if flat && g.on_line(&[p, o, q]) {
                         push(
                             out,
                             Thm::Thales,
@@ -440,7 +455,7 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                             vec![],
                             vec![r.perp((z, p), (z, q)).map(|x| (Table::Angle, x))],
                         );
-                    } else {
+                    } else if !flat {
                         let central = r.ang(p, o, q).zip(r.ang(p, z, q)).map(|(x, y)| {
                             let mut two = y;
                             two.mul_assign_scalar(&Rat::from_int(2));
@@ -572,6 +587,81 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                         vec![],
                         vec![r.bisects(c, a, b, i).map(|z| (Table::Angle, z))],
                     );
+                }
+            }
+        }
+    }
+    let on_side = |v: PointId, w: PointId, skip: &[PointId]| -> Vec<PointId> {
+        let mut found: Vec<PointId> = g
+            .lines
+            .iter()
+            .filter(|l| l.contains(&v) && l.contains(&w))
+            .flat_map(|l| l.iter().copied())
+            .filter(|x| !skip.contains(x) && pts.contains(x))
+            .collect();
+        found.sort_unstable();
+        found.dedup();
+        found
+    };
+    for (ia, &a) in pts.iter().enumerate() {
+        for (ib, &b) in pts.iter().enumerate().skip(ia + 1) {
+            for &c in &pts[ib + 1..] {
+                if cx.late() {
+                    return;
+                }
+                if t.orient(a, b, c) == 0 {
+                    continue;
+                }
+                let tri3 = [a, b, c];
+                for d in on_side(b, c, &tri3) {
+                    for e in on_side(c, a, &tri3) {
+                        for f in on_side(a, b, &tri3) {
+                            if d == e || e == f || d == f {
+                                continue;
+                            }
+                            let row = (|| {
+                                let num = &(&t.dm(b, d)? + &t.dm(c, e)?) + &t.dm(a, f)?;
+                                let den = &(&t.dm(d, c)? + &t.dm(e, a)?) + &t.dm(f, b)?;
+                                Some((Table::Ratio, &num - &den))
+                            })();
+                            let lines = [
+                                Some(Hyp::Line(vec![b, d, c])),
+                                Some(Hyp::Line(vec![c, e, a])),
+                                Some(Hyp::Line(vec![a, f, b])),
+                            ];
+                            if g.on_line(&[d, e, f]) {
+                                let mut hyps = lines.to_vec();
+                                hyps.push(Some(Hyp::Line(vec![d, e, f])));
+                                push(
+                                    out,
+                                    Thm::Menelaus,
+                                    vec![a, b, c, d, e, f],
+                                    hyps,
+                                    vec![row.clone()],
+                                );
+                                continue;
+                            }
+                            for &q in pts {
+                                if [a, b, c, d, e, f].contains(&q) {
+                                    continue;
+                                }
+                                if g.on_line(&[a, d, q]) && g.on_line(&[b, e, q]) && g.on_line(&[c, f, q]) {
+                                    let mut hyps = lines.to_vec();
+                                    hyps.push(Some(Hyp::Line(vec![a, d, q])));
+                                    hyps.push(Some(Hyp::Line(vec![b, e, q])));
+                                    hyps.push(Some(Hyp::Line(vec![c, f, q])));
+                                    push(
+                                        out,
+                                        Thm::Ceva,
+                                        vec![a, b, c, d, e, f, q],
+                                        hyps,
+                                        vec![row.clone()],
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -923,7 +1013,12 @@ pub fn goal_theorems(problem: &Problem, deadline: Instant) -> Vec<Detection> {
         .map(|&p| t.subst.get(p as usize).copied().unwrap_or(p))
         .collect();
     let stmt = crate::human::classify::pred_stmt(&gpred);
-    let Some(alts) = goal_alts(&t, &stmt) else {
+    let alts = if gpred.name == "distmeq" {
+        distmeq_alts(&t, &gpred)
+    } else {
+        goal_alts(&t, &stmt)
+    };
+    let Some(alts) = alts else {
         return Vec::new();
     };
     let alts: Vec<Vec<(Table, LinComb)>> = alts
