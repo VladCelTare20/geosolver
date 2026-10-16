@@ -1,0 +1,33 @@
+Fie M mijlocul segmentului BC. Fie N mijlocul segmentului AC.
+
+Ideea: este suficient să arătăm că △AHG ∼ △MOG.
+
+1. G este centrul de greutate al triunghiului ABC ⇒ AG : GM = 2. (1)
+
+2. OA = OC și NA = NC ⇒ ON este mediatoarea segmentului AC ⇒ ON ⟂ AC. (2)
+
+3. OB = OC și MB = MC ⇒ OM este mediatoarea segmentului BC ⇒ OM ⟂ BC. (3)
+
+4. AH ⟂ BC și OM ⟂ BC, din (3) ⇒ AH ∥ OM. (4)
+
+5. Arătăm că △AHB ∼ △MON:
+
+∠BAH = 90° − ∠B    [AH ⟂ BC]
+     = 90° − ∠NMC    [MN este linie mijlocie în △CBA]
+     = ∠NMO    [OM ⟂ BC, din (3)]
+
+∠HBA = 90° − ∠A    [BH ⟂ AC]
+     = 90° − ∠CNM    [MN este linie mijlocie în △CBA]
+     = ∠ONM    [ON ⟂ AC, din (2)]
+
+Deci △AHB ∼ △MON (UU). (5)
+
+6. AH ∥ OM, din (4) ⇒ ∠GAH = ∠OMG (unghiuri alterne).
+
+MG / AG = 1 / 2    [AG : GM = 2, din (1)]
+        = MN / AB    [MN este linie mijlocie în △CBA]
+        = OM / AH    [△AHB ∼ △MON, din (5)]
+
+Deci △AHG ∼ △MOG (LUL). (6)
+
+7. △AHG ∼ △MOG, din (6) și A, G, M coliniare ⇒ ∠AGH = ∠MGO. ∠AGH = ∠MGO și H, O sunt de o parte și de alta a dreptei AM, deci, din reciproca teoremei unghiurilor opuse la vârf, punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎

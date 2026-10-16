@@ -1,0 +1,8 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(C,A)^2 * dist(H,B) = dist(C,B)^2 * dist(A,H)
+
+  1. By the geometric-mean (altitude) relation in right triangle ACB, CH² = AH·HB.
+  2. By the geometric-mean (leg) relation in right triangle ACB, CA² = AH·AB.
+  3. ∠AHC = 90° = ∠ACB and ∠HAC = ∠CAB (shared at A) — so triangles △ACH and △ABC are similar (AA), giving AC:AB = CH:BC = HA:CA.
+
+  Combining the proportions above gives dist(C,A)^2 * dist(H,B) = dist(C,B)^2 * dist(A,H)  (= 0.0383). ∎

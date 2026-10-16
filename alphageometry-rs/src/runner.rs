@@ -12,19 +12,38 @@ pub fn solve(problem_str: &str) -> Result<bool, String> {
 /// closure, and report whether the goal holds.
 pub fn solve_problem(problem: &Problem) -> Result<bool, String> {
     let mut ddar = Ddar::new(&problem.points);
+    ddar.set_forbid(problem.forbid);
     for pred in &problem.preds {
         ddar.force_pred(pred);
     }
     ddar.deduction_closure();
     match &problem.goal {
-        Some(goal) => Ok(ddar.check_pred(goal)),
+        Some(goal) => {
+            if ddar.check_pred(goal) {
+                return Ok(true);
+            }
+            Ok(trig_fallback(&mut ddar, goal) && ddar.check_pred(goal))
+        }
         None => Err("problem has no goal".to_string()),
     }
+}
+
+/// `--trig fallback`: a length goal left unproved at the trig-free fixpoint
+/// gets the law-of-sines rows and the same monotone closure continues.
+fn trig_fallback(ddar: &mut Ddar, goal: &crate::predicate::Predicate) -> bool {
+    use crate::engine::trig::{eligible_goal, mode, TrigMode};
+    if mode() != TrigMode::Fallback || !eligible_goal(&goal.name) {
+        return false;
+    }
+    ddar.enable_trig();
+    ddar.deduction_closure();
+    true
 }
 
 /// Solve with proof provenance; on success returns the rendered numbered proof.
 pub fn solve_problem_with_proof(problem: &Problem) -> Result<Option<String>, String> {
     let mut ddar = Ddar::new_tracked(&problem.points);
+    ddar.set_forbid(problem.forbid);
     for pred in &problem.preds {
         ddar.force_pred(pred);
     }
@@ -33,10 +52,76 @@ pub fn solve_problem_with_proof(problem: &Problem) -> Result<Option<String>, Str
         .goal
         .as_ref()
         .ok_or_else(|| "problem has no goal".to_string())?;
-    Ok(ddar.check_pred_deps(goal).map(|deps| {
+    if ddar.check_pred_deps(goal).is_none() {
+        trig_fallback(&mut ddar, goal);
+    }
+    let deps = ddar.check_pred_deps(goal);
+    Ok(audited(&ddar, deps).map(|deps| {
         let text = ddar.render_pred(goal);
         ddar.proof_report(&deps, &text)
     }))
+}
+
+/// Prove every predicate of `goals` in one closure of `problem` (its own goal
+/// is ignored) and render one numbered proof of them all, headed `goal_text`.
+pub fn solve_conjunction_with_proof(
+    problem: &Problem,
+    goals: &[crate::predicate::Predicate],
+    goal_text: &str,
+) -> Result<Option<String>, String> {
+    if goals.is_empty() {
+        return Err("problem has no goal".to_string());
+    }
+    let mut ddar = Ddar::new_tracked(&problem.points);
+    ddar.set_forbid(problem.forbid);
+    for pred in &problem.preds {
+        ddar.force_pred(pred);
+    }
+    ddar.deduction_closure();
+    let mut deps = Vec::new();
+    for goal in goals {
+        if ddar.check_pred_deps(goal).is_none() {
+            trig_fallback(&mut ddar, goal);
+        }
+        let found = ddar.check_pred_deps(goal);
+        match audited(&ddar, found) {
+            Some(d) => deps.extend(d),
+            None => return Ok(None),
+        }
+    }
+    deps.sort_unstable();
+    deps.dedup();
+    Ok(Some(ddar.proof_report(&deps, goal_text)))
+}
+
+pub fn solve_problem_with_trace(
+    problem: &Problem,
+) -> Result<Option<(String, crate::human::EngineTrace, Vec<crate::proof::FactId>)>, String> {
+    let mut ddar = Ddar::new_tracked(&problem.points);
+    ddar.set_forbid(problem.forbid);
+    for pred in &problem.preds {
+        ddar.force_pred(pred);
+    }
+    ddar.deduction_closure();
+    let goal = problem
+        .goal
+        .as_ref()
+        .ok_or_else(|| "problem has no goal".to_string())?;
+    if ddar.check_pred_deps(goal).is_none() {
+        trig_fallback(&mut ddar, goal);
+    }
+    let deps = ddar.check_pred_deps(goal);
+    Ok(audited(&ddar, deps).map(|deps| {
+        let text = ddar.render_pred(goal);
+        (ddar.proof_report(&deps, &text), ddar.trace(), deps)
+    }))
+}
+
+fn audited(
+    ddar: &Ddar,
+    deps: Option<Vec<crate::proof::FactId>>,
+) -> Option<Vec<crate::proof::FactId>> {
+    deps.filter(|d| ddar.forbidden_steps(d).is_empty())
 }
 
 /// A parsed entry from the bundled `problems.tsv` dataset.

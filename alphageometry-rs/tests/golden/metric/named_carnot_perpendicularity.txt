@@ -1,0 +1,27 @@
+EUCLIDEAN PROOF
+  Goal:  dist(B, Fa) ^ 2 + dist(C, Fb) ^ 2 + dist(A, Fc) ^ 2 = dist(Fa, C) ^ 2 + dist(Fb, A) ^ 2 + dist(Fc, B) ^ 2
+
+  1. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. assumption: coll B C Fa
+       ↳ 002. collinear: B Fa C [001]
+       ↳ 003. assumption: perp P Fa B C
+       ↳ 004. assumption: coll C A Fb
+       ↳ 005. collinear: A Fb C [004]
+       ↳ 006. assumption: perp P Fb C A
+       ↳ 007. assumption: coll A B Fc
+       ↳ 008. collinear: A B Fc [007]
+       ↳ 009. assumption: perp P Fc A B
+  2. ∠BFaP = 90° (derived from the hypotheses).  [from 1]
+  3. ∠CFaP = 90° (derived from the hypotheses).  [from 1]
+  4. ∠AFbP = 90° (derived from the hypotheses).  [from 1]
+  5. ∠CFbP = 90° (derived from the hypotheses).  [from 1]
+  6. ∠AFcP = 90° (derived from the hypotheses).  [from 1]
+  7. ∠BFcP = 90° (derived from the hypotheses).  [from 1]
+  8. In right triangle BFaP (right angle at Fa), by the Pythagorean theorem BP² = FaB² + FaP².  [from 2]
+  9. In right triangle CFaP (right angle at Fa), by the Pythagorean theorem CP² = FaC² + FaP².  [from 3]
+  10. In right triangle AFbP (right angle at Fb), by the Pythagorean theorem AP² = FbA² + FbP².  [from 4]
+  11. In right triangle CFbP (right angle at Fb), by the Pythagorean theorem CP² = FbC² + FbP².  [from 5]
+  12. In right triangle AFcP (right angle at Fc), by the Pythagorean theorem AP² = FcA² + FcP².  [from 6]
+  13. In right triangle BFcP (right angle at Fc), by the Pythagorean theorem BP² = FcB² + FcP².  [from 7]
+
+  Combining the equations above gives dist(B, Fa) ^ 2 + dist(C, Fb) ^ 2 + dist(A, Fc) ^ 2 = dist(Fa, C) ^ 2 + dist(Fb, A) ^ 2 + dist(Fc, B) ^ 2  (= 2.3993). ∎

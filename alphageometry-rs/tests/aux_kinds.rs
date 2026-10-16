@@ -32,12 +32,16 @@ fn arc_midpoint_and_similitude_candidates() {
     );
     // The internal centre divides O Q in ratio r1:r2 = 1:0.5, i.e. at x = 2.
     assert!(
-        simil.iter().any(|c| (c.coord.x - 2.0).abs() < 1e-9 && c.coord.y.abs() < 1e-9),
+        simil
+            .iter()
+            .any(|c| (c.coord.x - 2.0).abs() < 1e-9 && c.coord.y.abs() < 1e-9),
         "internal similitude centre not at the expected coordinate"
     );
     // The external centre: (Q·r1 − O·r2)/(r1 − r2) = (3·1 − 0·0.5)/0.5 = 6.
     assert!(
-        simil.iter().any(|c| (c.coord.x - 6.0).abs() < 1e-9 && c.coord.y.abs() < 1e-9),
+        simil
+            .iter()
+            .any(|c| (c.coord.x - 6.0).abs() < 1e-9 && c.coord.y.abs() < 1e-9),
         "external similitude centre not at the expected coordinate"
     );
 }

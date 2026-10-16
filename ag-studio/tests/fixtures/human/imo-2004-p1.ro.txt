@@ -1,0 +1,40 @@
+∡(a, b) este unghiul orientat dintre dreptele a și b: unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b, măsurat modulo 180°; ∡XYZ înseamnă ∡(YX, YZ). Sunt unghiuri între drepte, nu unghiuri obișnuite: 0° și 180° sunt același unghi orientat, de aceea egalitățile lor se scriu ≡ … (mod 180°). Le folosim doar la pasul 8, unde nu am găsit o deducție cu unghiuri obișnuite. Fie ω₂ cercul (CNR); P se află pe ω₂. Fie F piciorul perpendicularei din B pe AR.
+
+Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conciclice și punctele A, R, P, F sunt coliniare.
+
+1. BC este diametru ⇒ ∠BNC = 90°. (1)
+
+2. Arătăm că punctele F, N, B, A sunt conciclice:
+
+∠BFA = 90°    [BF ⟂ AR]
+     = ∠BNA    [∠BNC = 90°, din (1)]
+
+∠BFA = 90° și ∠BNA = 90°, deci, din reciproca proprietății unghiului înscris în semicerc, punctele F, N, B, A sunt conciclice. (2)
+
+3. AR este bisectoarea ∠BAC ⇒ ∠FAC = ∠BAF. F, N, B, A conciclice, din (2) ⇒ FN = BF (unghiurile înscrise egale sau suplementare subîntind coarde egale). (3)
+
+4. OB = ON și, din (3), FB = FN ⇒ OF este mediatoarea segmentului BN ⇒ OF ⟂ BN. (4)
+
+5. NC ⟂ NB, din (1) și OF ⟂ NB, din (4) ⇒ NC ∥ OF. (5)
+
+6. Arătăm că punctele R, N, F, O sunt conciclice:
+
+∠NFA = ∠NBM    [F, N, B, A conciclice, din (2)]
+     = ½·∠NOM    [unghiul la centru ∠MON = 2∠MBN]
+     = ∠NOR    [OR este bisectoarea ∠MON]
+
+∠NFR = ∠NOR, R se află pe segmentul FA și F, O sunt de aceeași parte a dreptei NR, deci, din reciproca teoremei unghiului înscris, punctele R, N, F, O sunt conciclice. (6)
+
+7. AB·AM = AC·AN (puterea punctului A față de (BMCN)). Puterea lui A față de cercurile (PRMB) și ω₂ este aceeași ⇒ A se află pe axa lor radicală, dreapta PR ⇒ punctele A, R, P, F sunt coliniare. (7)
+
+8. Arătăm că punctul P se află pe dreapta BC:
+
+∡BCP ≡ ∡NCP + ∡OCN    [adunarea unghiurilor]
+     ≡ ∡NCP + ∡CNO    [OC = ON]
+     ≡ ∡NCP + ∡FON    [NC ∥ OF, din (5)]
+     ≡ ∡NCP + ∡FRN    [R, N, F, O conciclice, din (6)]
+     ≡ ∡NRP + ∡FRN    [unghiuri înscrise în ω₂]
+     ≡ ∡ARP    [adunarea unghiurilor]
+     ≡ 0° (mod 180°)    [A, R, P, F coliniare, din (7)]
+
+Deci punctele B, O, P, C sunt coliniare. Deci punctul P se află pe dreapta BC, ceea ce trebuia demonstrat. ∎

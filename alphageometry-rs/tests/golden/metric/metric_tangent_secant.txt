@@ -1,0 +1,6 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(P,T1)^2 = dist(P,A)*dist(P,S)
+
+  1. PT1 is tangent at T1 and PAS is a secant: ∠T1PA = ∠SPT1 (shared at P) and ∠PT1A = ∠T1SA (tangent–chord = inscribed angle) — so triangles △PT1A and △PST1 are similar (AA), giving PT1:PS = T1A:ST1 = AP:T1P.
+
+  Combining the proportions above gives dist(P,T1)^2 = dist(P,A)*dist(P,S)  (= 0.0042). ∎

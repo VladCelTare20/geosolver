@@ -1,0 +1,43 @@
+# geosolver — olympiad geometry prover: DDAR engine + web app, MCP server and CLI
+
+A photographed or described geometry problem becomes a `.geo` program (via the
+local `claude` CLI), the Rust DDAR engine proves it or refutes it numerically,
+and the proof plus figure come back as a page, PDF or PNG. Cargo workspace of
+two crates; `flake.nix` packages both binaries (`agstudio`, `ddar`).
+
+## Commands
+- `cargo build --release -p ag-studio` — the `agstudio` binary
+- `RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6` — all tests (~640; the thread caps keep it inside the shared box's budget). Run them in release: debug builds skip the ag-studio tests that must find a proof within a time budget (FALSE-statement tests always run)
+- `cargo run --release -p alphageometry-rs --bin ddar -- --bench` — must stay 26/26
+- `ddar --corpus corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 --out r.tsv` — honest solve rate on the AG1 corpora (DDAR + aux search, hard per-problem deadline); `--corpus-check` translates only. Keep jobs × threads ≤ 12 on the shared box. `AUX_VERBOSE=1` prints the aux pool and rollout progress; `AUX_LEGACY=1` runs the old aux search.
+- `nix build .#geosolver` (no tests), `nix flake check` (the test suite), `nix develop`; `nixosModules.default` is `nix/module.nix`
+- `agstudio backup <dest.db>` — consistent copy of the server database; `agstudio doctor` — tests the AI sign-in with one tiny model call; `agstudio --version` — version and commit
+- `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` — both clean; CI and CONTRIBUTING expect it
+
+## Invariants
+- **Never report a false statement as proved.** Goals DDAR cannot express are a
+  `CompileError::MetricGoal`, never a placeholder; any NaN/refutation is
+  `proved: false`.
+- **Strictly Euclidean.** `proved` means a theorem-citing proof (DDAR, or
+  `metric::solve` → `Ok`). A goal that only holds in sampled figures is
+  `MetricError::NoProof` / `status: "holds-numerically"`, `proved: false`. Each prover change needs
+  a FALSE-statement regression test (`alphageometry-rs/tests/soundness.rs`).
+- Every solve reachable from outside has a wall-clock deadline (`solve_within`), and the web/MCP servers run it in a killable worker process (`worker::run`) that is SIGKILLed at deadline + grace, on client disconnect and on MCP cancel, and exits by itself within 100 ms if its server dies; the CLI's `--timeout`/`--budget` is enforced by a watchdog. No solve runs in-process in a server.
+- **A proof never cites the theorem it proves.** `theory::detect::guard` (DDAR) and `stated_theorems` (metric) find the library theorem a goal states; the solve then bans it and every theorem derived from it at every layer (engine rules, runner, human writer, metric provers) and audits the result independently, fail-closed. The product reports `theorem_avoided`; a statement of a built-in axiom is Not proven (circular). See `alphageometry-rs/src/theory/CODEMAP.md`.
+- **One search everywhere.** The product (`agstudio render`/`best`, `/api/solve`, MCP) and the corpus benchmark run the same aux pipeline, `aux_search::solve_max_until` (DDAR, full depth-1 sweep over the coincidence-ranked pool, randomised rollouts until the deadline); a capability measured with `ddar --corpus` is what the app delivers.
+- Panic output is muted only through `ddar::quiet_panic`; never swap the hook.
+- In `mcp` mode stdout is the protocol channel.
+- State is one SQLite file (`AGSTUDIO_DB`); deploy files put it on a volume.
+
+## Subfolders
+- [alphageometry-rs/src/](alphageometry-rs/src/CODEMAP.md) — the engine.
+- [ag-studio/src/](ag-studio/src/CODEMAP.md) — the product binary.
+- [ag-studio/assets/](ag-studio/assets/CODEMAP.md) — the web pages (app, landing, sign-in), design system, fonts.
+- [ag-studio/tests/](ag-studio/tests/CODEMAP.md) — binary integration tests, source-level CSS/compat invariants, and the browser suites (iPhone, Android, desktop/iPad, compat, human-proof shots).
+- [alphageometry-rs/tests/](alphageometry-rs/tests/CODEMAP.md) — engine integration tests: soundness regressions, fuzz, corpora, examples, human proofs.
+- `deploy/` — compose + nginx (`nginx.conf`, ACME webroot, `certbot-deploy-hook.sh`), host proxies (`Caddyfile`, `nginx-host.conf`), the systemd unit and its AI drop-in `agstudio-ai.conf`, `build-linux.sh`, `third-party-licenses.sh`; `DEPLOY.md` is the operator guide and mirrors the env table in `ag-studio/src/security.rs`. `Dockerfile` (root) has the `runtime` (default) and `ai` targets.
+- `nix/module.nix` — the NixOS module (`services.geosolver`); evaluated by hand with a test configuration, not by `nix flake check`.
+- `.github/workflows/ci.yml` — tests, bench rows, MSRV, Docker build + smoke test, licence list check.
+- `.dockerignore` — an allowlist: the two crates, `corpus/`, the Cargo files and the licence files the image installs; anything new the Dockerfile copies must be added there.
+- `corpus/` — AlphaGeometry problem sets (data, not code); `corpus/theorem_statements/` holds one statement per library theorem (`<theorem key>.geo`), run by `alphageometry-rs/tests/theorem_statements.rs`.
+- `docs/HUMAN_PROOFS.md` — design of the deterministic human proof writer; engine side in `alphageometry-rs/src/human/` (status and data-model changes at the end of the spec), wired into ag-studio (`engine.rs`, `present.rs:human_view`, Proof tab, MCP, reports); goldens and the measurement prototype patch in `docs/human-proofs/`.

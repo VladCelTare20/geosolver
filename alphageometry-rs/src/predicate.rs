@@ -33,6 +33,7 @@ pub struct Problem {
     pub points: Vec<Point>,
     pub preds: Vec<Predicate>,
     pub goal: Option<Predicate>,
+    pub forbid: crate::theory::Forbid,
 }
 
 /// A predicate whose point arguments are still names (pre-resolution).
@@ -54,7 +55,10 @@ fn parse_constant(tok: &str) -> Result<Rat, String> {
         let den: i64 = den
             .parse()
             .map_err(|_| format!("bad pi denominator in '{tok}'"))?;
-        return Ok(Rat::new(num * 180, den));
+        if den == 0 {
+            return Err(format!("zero denominator in '{tok}'"));
+        }
+        return Ok(&Rat::new(num, den) * &Rat::from_int(180));
     }
     if let Some((num, den)) = tok.split_once('/') {
         let num: i64 = num
@@ -63,6 +67,9 @@ fn parse_constant(tok: &str) -> Result<Rat, String> {
         let den: i64 = den
             .parse()
             .map_err(|_| format!("bad denominator in '{tok}'"))?;
+        if den == 0 {
+            return Err(format!("zero denominator in '{tok}'"));
+        }
         return Ok(Rat::new(num, den));
     }
     Err(format!("unrecognized constant '{tok}'"))
@@ -178,6 +185,7 @@ impl Problem {
             points,
             preds,
             goal,
+            forbid: Default::default(),
         })
     }
 

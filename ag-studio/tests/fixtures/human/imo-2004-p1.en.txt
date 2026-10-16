@@ -1,0 +1,40 @@
+∡(a, b) is the directed angle between the lines a and b: the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These are angles between lines, not ordinary angles: 0° and 180° are the same directed angle, so their equalities are written ≡ … (mod 180°). They are used only in step 8, where no derivation with ordinary angles was found. Let ω₂ be the circle (CNR); P lies on ω₂. Let F be the foot of the perpendicular from B to AR.
+
+Plan: it suffices to show that NC ∥ OF, R, N, F, O are concyclic and A, R, P, F are collinear.
+
+1. BC is a diameter, so ∠BNC = 90°. (1)
+
+2. We show that F, N, B, A are concyclic:
+
+∠BFA = 90°    [BF ⟂ AR]
+     = ∠BNA    [∠BNC = 90°, by (1)]
+
+∠BFA = 90° and ∠BNA = 90°, so by the converse of Thales' theorem, F, N, B, A are concyclic. (2)
+
+3. AR bisects ∠BAC, so ∠FAC = ∠BAF. F, N, B, A concyclic, by (2), so FN = BF (equal or supplementary inscribed angles stand on equal chords). (3)
+
+4. OB = ON and, by (3), FB = FN, so OF is the perpendicular bisector of BN; hence OF ⟂ BN. (4)
+
+5. NC ⟂ NB, by (1) and OF ⟂ NB, by (4), so NC ∥ OF. (5)
+
+6. We show that R, N, F, O are concyclic:
+
+∠NFA = ∠NBM    [F, N, B, A concyclic, by (2)]
+     = ½·∠NOM    [central angle ∠MON = 2∠MBN]
+     = ∠NOR    [OR bisects ∠MON]
+
+∠NFR = ∠NOR, R lies on the segment FA and F, O lie on the same side of NR, so by the converse of the inscribed angle theorem, R, N, F, O are concyclic. (6)
+
+7. AB·AM = AC·AN (power of the point A with respect to (BMCN)). A has the same power with respect to the circles (PRMB) and ω₂, so A lies on their radical axis, the line PR; hence A, R, P, F are collinear. (7)
+
+8. We show that P lies on the line BC:
+
+∡BCP ≡ ∡NCP + ∡OCN    [angle addition]
+     ≡ ∡NCP + ∡CNO    [OC = ON]
+     ≡ ∡NCP + ∡FON    [NC ∥ OF, by (5)]
+     ≡ ∡NCP + ∡FRN    [R, N, F, O concyclic, by (6)]
+     ≡ ∡NRP + ∡FRN    [inscribed angles in ω₂]
+     ≡ ∡ARP    [angle addition]
+     ≡ 0° (mod 180°)    [A, R, P, F collinear, by (7)]
+
+So B, O, P, C are collinear. Hence P lies on the line BC, as required. ∎

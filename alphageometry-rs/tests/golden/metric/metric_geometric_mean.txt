@@ -1,0 +1,7 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(C,H)^2 = dist(A,H)*dist(H,B)
+
+  1. ∠AHC = 90° = ∠ACB and ∠HAC = ∠CAB (shared at A) — so triangles △ACH and △ABC are similar (AA), giving AC:AB = CH:BC = HA:CA.
+  2. ∠BHC = 90° = ∠BCA and ∠HBC = ∠CBA (shared at B) — so triangles △BCH and △BAC are similar (AA), giving BC:BA = CH:AC = HB:CB.
+
+  Combining the proportions above gives dist(C,H)^2 = dist(A,H)*dist(H,B)  (= 0.0714). ∎

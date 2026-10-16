@@ -1,0 +1,733 @@
+use crate::predicate::PointId;
+use crate::proof::FactId;
+use crate::rational::Rat;
+use serde::{Serialize, Serializer};
+
+impl Serialize for Rat {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
+    }
+}
+
+pub type Line = (PointId, PointId);
+pub type Tri = (PointId, PointId, PointId);
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct HumanProof {
+    pub version: u16,
+    pub available: bool,
+    pub setup: Vec<SetupLine>,
+    pub blocks: Vec<Block>,
+    pub as_drawn: bool,
+    pub plan: Vec<u16>,
+    pub goal: Option<GoalWords>,
+    #[serde(skip)]
+    pub main: Option<Tri>,
+    pub metrics: Metrics,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GoalWords {
+    OnLine { p: PointId, line: Line },
+    Collinear { pts: Vec<PointId> },
+    Concyclic { pts: Vec<PointId> },
+    Bisects { line: Line, angle: Tri },
+    Stmt,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SetupLine {
+    DirectedAngles,
+    DirectedSteps {
+        steps: Vec<u16>,
+    },
+    FigureAngles,
+    Circle {
+        name: String,
+        through: Vec<PointId>,
+        centre: Option<PointId>,
+        diameter: Option<Line>,
+    },
+    Aux {
+        point: PointId,
+        aux_index: usize,
+        wording: Option<super::aux::AuxWording>,
+    },
+    Helper {
+        point: PointId,
+        meaning: HelperMeaning,
+    },
+    Notation {
+        triangle: Tri,
+        circumcentre: Option<PointId>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HelperMeaning {
+    Midpoint { of: Line },
+    Reflection { of: PointId, line: Line },
+    Perp { through: PointId, to: Line },
+    Para { through: PointId, to: Line },
+    Point,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Block {
+    pub id: u16,
+    pub kind: BlockKind,
+    pub stmt: Stmt,
+    pub body: Vec<Sentence>,
+    pub engine_facts: Vec<FactId>,
+    pub points: Vec<PointId>,
+    pub objects: Vec<ObjRef>,
+    pub step: u16,
+    pub tag: bool,
+    #[serde(skip)]
+    pub horizon: FactId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "n", rename_all = "snake_case")]
+pub enum BlockKind {
+    Claim(u16),
+    Step,
+    Conclusion,
+    Raw,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObjRef {
+    Circle { through: Vec<PointId> },
+    Line { through: Vec<PointId> },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Sentence {
+    Chain {
+        terms: Vec<Expr>,
+        links: Vec<Link>,
+        then: Option<Stmt>,
+        directed: bool,
+    },
+    Because {
+        stmt: Stmt,
+        reasons: Vec<Reason>,
+        combination: Vec<Term>,
+    },
+    Pooled {
+        stmt: Stmt,
+        reasons: Vec<Reason>,
+        combination: Vec<Term>,
+    },
+    Theorem {
+        key: TheoremKey,
+        stmt: Stmt,
+        reasons: Vec<Reason>,
+    },
+    Computation {
+        comp: CompKind,
+        terms: Vec<Expr>,
+        links: Vec<Link>,
+    },
+    Raw {
+        engine_fact: FactId,
+        cites: Vec<FactId>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompKind {
+    Ratio,
+    Length,
+    Trig,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Link {
+    pub reasons: Vec<Reason>,
+    pub combination: Vec<Term>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Term {
+    pub reason: u16,
+    pub row: u16,
+    pub coef: Rat,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Reason {
+    Hyp {
+        stmt: Stmt,
+        fact: FactId,
+    },
+    Claim {
+        n: u16,
+        block: u16,
+        fact: FactId,
+    },
+    Atom {
+        key: AtomKey,
+        stmt: Stmt,
+        args: Vec<PointId>,
+        from: Vec<u16>,
+    },
+    Fact {
+        stmt: Stmt,
+        fact: FactId,
+        block: Option<u16>,
+        because: Vec<Reason>,
+    },
+    Engine {
+        fact: FactId,
+    },
+    Lemma {
+        stmt: Stmt,
+        block: u16,
+        sentence: u16,
+    },
+}
+
+pub const PENDING_BLOCK: u16 = u16::MAX;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AtomKey {
+    Inscribed,
+    Thales,
+    TangentChord,
+    PerpBisector,
+    Parallel,
+    Radii,
+    Isosceles,
+    CentralAngle,
+    PowerOfPoint,
+    Midline,
+    Orthocentre,
+    EqualTangents,
+    TangentSecant,
+    PowerConverse,
+    Intercept,
+    InterceptConverse,
+    BisectorRatio,
+    ExtBisectorRatio,
+    BisectorConverse,
+    ExtBisectorConverse,
+    Menelaus,
+    MenelausConverse,
+    Ceva,
+    CevaConverse,
+    MidlineConverse,
+    Centroid,
+    Pythagoras,
+    PythagorasConverse,
+    IsoscelesConverse,
+    PerpBisectorLocus,
+    MedianHypotenuse,
+    Simson,
+    Miquel,
+    Reim,
+    LawOfSines,
+    ExtLawOfSines,
+    CongruentSss,
+    CongruentSas,
+    CongruentAsa,
+    CongruentRhs,
+    SineSupplement,
+    SineComplement,
+    AngleAddition,
+    LineAngleAddition,
+    AngleSum,
+    ExteriorAngle,
+    Supplementary,
+    VerticalAngles,
+    SameSide,
+    OppositeSides,
+    CyclicOpposite,
+    CyclicExterior,
+    RadiusChord,
+    CommonAngle,
+    OnSegment,
+    Reflection,
+    AlternateAngles,
+    CorrespondingAngles,
+    CommonSide,
+}
+
+impl AtomKey {
+    pub const ALL: [AtomKey; 59] = [
+        AtomKey::Inscribed,
+        AtomKey::Thales,
+        AtomKey::TangentChord,
+        AtomKey::PerpBisector,
+        AtomKey::Parallel,
+        AtomKey::Radii,
+        AtomKey::Isosceles,
+        AtomKey::CentralAngle,
+        AtomKey::PowerOfPoint,
+        AtomKey::Midline,
+        AtomKey::Orthocentre,
+        AtomKey::EqualTangents,
+        AtomKey::TangentSecant,
+        AtomKey::PowerConverse,
+        AtomKey::Intercept,
+        AtomKey::InterceptConverse,
+        AtomKey::BisectorRatio,
+        AtomKey::ExtBisectorRatio,
+        AtomKey::BisectorConverse,
+        AtomKey::ExtBisectorConverse,
+        AtomKey::Menelaus,
+        AtomKey::MenelausConverse,
+        AtomKey::Ceva,
+        AtomKey::CevaConverse,
+        AtomKey::MidlineConverse,
+        AtomKey::Centroid,
+        AtomKey::Pythagoras,
+        AtomKey::PythagorasConverse,
+        AtomKey::IsoscelesConverse,
+        AtomKey::PerpBisectorLocus,
+        AtomKey::MedianHypotenuse,
+        AtomKey::Simson,
+        AtomKey::Miquel,
+        AtomKey::Reim,
+        AtomKey::LawOfSines,
+        AtomKey::ExtLawOfSines,
+        AtomKey::CongruentSss,
+        AtomKey::CongruentSas,
+        AtomKey::CongruentAsa,
+        AtomKey::CongruentRhs,
+        AtomKey::SineSupplement,
+        AtomKey::SineComplement,
+        AtomKey::AngleAddition,
+        AtomKey::LineAngleAddition,
+        AtomKey::AngleSum,
+        AtomKey::ExteriorAngle,
+        AtomKey::Supplementary,
+        AtomKey::VerticalAngles,
+        AtomKey::SameSide,
+        AtomKey::OppositeSides,
+        AtomKey::CyclicOpposite,
+        AtomKey::CyclicExterior,
+        AtomKey::RadiusChord,
+        AtomKey::CommonAngle,
+        AtomKey::OnSegment,
+        AtomKey::Reflection,
+        AtomKey::AlternateAngles,
+        AtomKey::CorrespondingAngles,
+        AtomKey::CommonSide,
+    ];
+    pub fn is_identity_label(self) -> bool {
+        matches!(
+            self,
+            AtomKey::AngleAddition
+                | AtomKey::LineAngleAddition
+                | AtomKey::AngleSum
+                | AtomKey::ExteriorAngle
+                | AtomKey::Supplementary
+                | AtomKey::VerticalAngles
+                | AtomKey::CommonAngle
+        )
+    }
+    pub fn is_config_label(self) -> bool {
+        matches!(
+            self,
+            AtomKey::SameSide
+                | AtomKey::OppositeSides
+                | AtomKey::OnSegment
+                | AtomKey::AlternateAngles
+                | AtomKey::CorrespondingAngles
+                | AtomKey::CommonSide
+        )
+    }
+    pub fn is_cyclic_quad(self) -> bool {
+        matches!(self, AtomKey::CyclicOpposite | AtomKey::CyclicExterior)
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AtomKey::Inscribed => "inscribed",
+            AtomKey::Thales => "thales",
+            AtomKey::TangentChord => "tangent_chord",
+            AtomKey::PerpBisector => "perp_bisector",
+            AtomKey::Parallel => "parallel",
+            AtomKey::Radii => "radii",
+            AtomKey::Isosceles => "isosceles",
+            AtomKey::CentralAngle => "central_angle",
+            AtomKey::PowerOfPoint => "power_of_point",
+            AtomKey::Midline => "midline",
+            AtomKey::Orthocentre => "orthocentre",
+            AtomKey::EqualTangents => "equal_tangents",
+            AtomKey::TangentSecant => "tangent_secant",
+            AtomKey::PowerConverse => "power_converse",
+            AtomKey::Intercept => "intercept",
+            AtomKey::InterceptConverse => "intercept_converse",
+            AtomKey::BisectorRatio => "bisector_ratio",
+            AtomKey::ExtBisectorRatio => "ext_bisector_ratio",
+            AtomKey::BisectorConverse => "bisector_converse",
+            AtomKey::ExtBisectorConverse => "ext_bisector_converse",
+            AtomKey::Menelaus => "menelaus",
+            AtomKey::MenelausConverse => "menelaus_converse",
+            AtomKey::Ceva => "ceva",
+            AtomKey::CevaConverse => "ceva_converse",
+            AtomKey::MidlineConverse => "midline_converse",
+            AtomKey::Centroid => "centroid",
+            AtomKey::Pythagoras => "pythagoras",
+            AtomKey::PythagorasConverse => "pythagoras_converse",
+            AtomKey::IsoscelesConverse => "isosceles_converse",
+            AtomKey::PerpBisectorLocus => "perp_bisector_locus",
+            AtomKey::MedianHypotenuse => "median_hypotenuse",
+            AtomKey::Simson => "simson",
+            AtomKey::Miquel => "miquel",
+            AtomKey::Reim => "reim",
+            AtomKey::LawOfSines => "law_of_sines",
+            AtomKey::ExtLawOfSines => "ext_law_of_sines",
+            AtomKey::CongruentSss => "congruent_sss",
+            AtomKey::CongruentSas => "congruent_sas",
+            AtomKey::CongruentAsa => "congruent_asa",
+            AtomKey::CongruentRhs => "congruent_rhs",
+            AtomKey::SineSupplement => "sine_supplement",
+            AtomKey::SineComplement => "sine_complement",
+            AtomKey::AngleAddition => "angle_addition",
+            AtomKey::LineAngleAddition => "line_angle_addition",
+            AtomKey::AngleSum => "angle_sum",
+            AtomKey::ExteriorAngle => "exterior_angle",
+            AtomKey::Supplementary => "supplementary",
+            AtomKey::VerticalAngles => "vertical_angles",
+            AtomKey::SameSide => "same_side",
+            AtomKey::OppositeSides => "opposite_sides",
+            AtomKey::CyclicOpposite => "cyclic_opposite",
+            AtomKey::CyclicExterior => "cyclic_exterior",
+            AtomKey::RadiusChord => "radius_chord",
+            AtomKey::CommonAngle => "common_angle",
+            AtomKey::OnSegment => "on_segment",
+            AtomKey::Reflection => "reflection",
+            AtomKey::AlternateAngles => "alternate_angles",
+            AtomKey::CorrespondingAngles => "corresponding_angles",
+            AtomKey::CommonSide => "common_side",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TheoremKey {
+    RadicalAxis,
+    ArcChord,
+    AngleBisectorThm,
+    AngleBisectorThmConverse,
+    Intercept,
+    Homothety,
+    Monge,
+    Menelaus,
+    MenelausConverse,
+    CevaConverse,
+    BisectorConcurrency,
+    TriangleEquality,
+    Pythagoras,
+    PerpFromSquares,
+    SquaresOfRatio,
+    Stewart,
+    LengthsFromSquares,
+    LawOfSines,
+    EqualSines,
+    DoubleAngle,
+    TripleAngle,
+    SineConst,
+    SinesConverse,
+    PointMerge,
+    TangentMerge,
+    Congruence,
+    Similarity,
+    Collinear,
+    Concyclic,
+    Other,
+    InscribedConverse,
+    OppositeAnglesConverse,
+    CircleMerge,
+    ExteriorAngleConverse,
+    ThalesConverse,
+    ExtAngleBisectorThm,
+    ExtAngleBisectorThmConverse,
+    VerticalAnglesConverse,
+    LinearPairConverse,
+    AlternateAnglesConverse,
+    CointeriorAnglesConverse,
+    CorrespondingAnglesConverse,
+    AngleConstruction,
+}
+
+impl TheoremKey {
+    pub const ALL: [TheoremKey; 43] = [
+        TheoremKey::RadicalAxis,
+        TheoremKey::ArcChord,
+        TheoremKey::AngleBisectorThm,
+        TheoremKey::AngleBisectorThmConverse,
+        TheoremKey::Intercept,
+        TheoremKey::Homothety,
+        TheoremKey::Monge,
+        TheoremKey::Menelaus,
+        TheoremKey::MenelausConverse,
+        TheoremKey::CevaConverse,
+        TheoremKey::BisectorConcurrency,
+        TheoremKey::TriangleEquality,
+        TheoremKey::Pythagoras,
+        TheoremKey::PerpFromSquares,
+        TheoremKey::SquaresOfRatio,
+        TheoremKey::Stewart,
+        TheoremKey::LengthsFromSquares,
+        TheoremKey::LawOfSines,
+        TheoremKey::EqualSines,
+        TheoremKey::DoubleAngle,
+        TheoremKey::TripleAngle,
+        TheoremKey::SineConst,
+        TheoremKey::SinesConverse,
+        TheoremKey::PointMerge,
+        TheoremKey::TangentMerge,
+        TheoremKey::Congruence,
+        TheoremKey::Similarity,
+        TheoremKey::Collinear,
+        TheoremKey::Concyclic,
+        TheoremKey::Other,
+        TheoremKey::InscribedConverse,
+        TheoremKey::OppositeAnglesConverse,
+        TheoremKey::CircleMerge,
+        TheoremKey::ExteriorAngleConverse,
+        TheoremKey::ThalesConverse,
+        TheoremKey::ExtAngleBisectorThm,
+        TheoremKey::ExtAngleBisectorThmConverse,
+        TheoremKey::VerticalAnglesConverse,
+        TheoremKey::LinearPairConverse,
+        TheoremKey::AlternateAnglesConverse,
+        TheoremKey::CointeriorAnglesConverse,
+        TheoremKey::CorrespondingAnglesConverse,
+        TheoremKey::AngleConstruction,
+    ];
+    pub fn is_converse(self) -> bool {
+        matches!(
+            self,
+            TheoremKey::InscribedConverse
+                | TheoremKey::OppositeAnglesConverse
+                | TheoremKey::ExteriorAngleConverse
+                | TheoremKey::ThalesConverse
+        ) || self.is_line_converse()
+    }
+    pub fn is_line_converse(self) -> bool {
+        matches!(
+            self,
+            TheoremKey::VerticalAnglesConverse
+                | TheoremKey::LinearPairConverse
+                | TheoremKey::AlternateAnglesConverse
+                | TheoremKey::CointeriorAnglesConverse
+                | TheoremKey::CorrespondingAnglesConverse
+                | TheoremKey::AngleConstruction
+        )
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TheoremKey::RadicalAxis => "radical_axis",
+            TheoremKey::ArcChord => "arc_chord",
+            TheoremKey::AngleBisectorThm => "angle_bisector_thm",
+            TheoremKey::AngleBisectorThmConverse => "angle_bisector_thm_converse",
+            TheoremKey::ExtAngleBisectorThm => "ext_angle_bisector_thm",
+            TheoremKey::ExtAngleBisectorThmConverse => "ext_angle_bisector_thm_converse",
+            TheoremKey::Intercept => "intercept",
+            TheoremKey::Homothety => "homothety",
+            TheoremKey::Monge => "monge",
+            TheoremKey::Menelaus => "menelaus",
+            TheoremKey::MenelausConverse => "menelaus_converse",
+            TheoremKey::CevaConverse => "ceva_converse",
+            TheoremKey::BisectorConcurrency => "bisector_concurrency",
+            TheoremKey::TriangleEquality => "triangle_equality",
+            TheoremKey::Pythagoras => "pythagoras",
+            TheoremKey::PerpFromSquares => "perp_from_squares",
+            TheoremKey::SquaresOfRatio => "squares_of_ratio",
+            TheoremKey::Stewart => "stewart",
+            TheoremKey::LengthsFromSquares => "lengths_from_squares",
+            TheoremKey::LawOfSines => "law_of_sines",
+            TheoremKey::EqualSines => "equal_sines",
+            TheoremKey::DoubleAngle => "double_angle",
+            TheoremKey::TripleAngle => "triple_angle",
+            TheoremKey::SineConst => "sine_const",
+            TheoremKey::SinesConverse => "sines_converse",
+            TheoremKey::PointMerge => "point_merge",
+            TheoremKey::TangentMerge => "tangent_merge",
+            TheoremKey::Congruence => "congruence",
+            TheoremKey::Similarity => "similarity",
+            TheoremKey::Collinear => "collinear",
+            TheoremKey::Concyclic => "concyclic",
+            TheoremKey::Other => "other",
+            TheoremKey::InscribedConverse => "inscribed_converse",
+            TheoremKey::OppositeAnglesConverse => "opposite_angles_converse",
+            TheoremKey::CircleMerge => "circle_merge",
+            TheoremKey::ExteriorAngleConverse => "exterior_angle_converse",
+            TheoremKey::ThalesConverse => "thales_converse",
+            TheoremKey::VerticalAnglesConverse => "vertical_angles_converse",
+            TheoremKey::LinearPairConverse => "linear_pair_converse",
+            TheoremKey::AlternateAnglesConverse => "alternate_angles_converse",
+            TheoremKey::CointeriorAnglesConverse => "cointerior_angles_converse",
+            TheoremKey::CorrespondingAnglesConverse => "corresponding_angles_converse",
+            TheoremKey::AngleConstruction => "angle_construction",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Stmt {
+    Coll {
+        pts: Vec<PointId>,
+    },
+    Cyclic {
+        pts: Vec<PointId>,
+    },
+    Perp {
+        l1: Line,
+        l2: Line,
+    },
+    Para {
+        l1: Line,
+        l2: Line,
+    },
+    EqAngle {
+        lhs: Expr,
+        rhs: Expr,
+    },
+    AngleConst {
+        angle: Expr,
+        degrees: Rat,
+    },
+    Cong {
+        s1: Line,
+        s2: Line,
+    },
+    EqRatio {
+        segs: Vec<Line>,
+    },
+    RatioConst {
+        s1: Line,
+        s2: Line,
+        value: Rat,
+    },
+    Sim {
+        t1: Tri,
+        t2: Tri,
+        opposite: bool,
+    },
+    Congruent {
+        t1: Tri,
+        t2: Tri,
+        opposite: bool,
+    },
+    OnCircle {
+        p: PointId,
+        circle: Vec<PointId>,
+    },
+    Tangent {
+        p: PointId,
+        line: Line,
+        circle: Vec<PointId>,
+    },
+    RadicalAxis {
+        x: PointId,
+        u: PointId,
+        v: PointId,
+    },
+    Coincide {
+        a: PointId,
+        b: PointId,
+    },
+    Formula {
+        text: String,
+        pts: Vec<PointId>,
+    },
+    Eq {
+        lhs: Expr,
+        rhs: Expr,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Expr {
+    Angle {
+        a: PointId,
+        b: PointId,
+        c: PointId,
+        directed: bool,
+    },
+    LineAngle {
+        l1: Line,
+        l2: Line,
+        directed: bool,
+    },
+    Const {
+        degrees: Rat,
+    },
+    Lin {
+        terms: Vec<(Rat, Expr)>,
+    },
+    Seg {
+        a: PointId,
+        b: PointId,
+    },
+    Sq {
+        a: PointId,
+        b: PointId,
+    },
+    Prod {
+        factors: Vec<(Expr, i32)>,
+    },
+    Sin {
+        angle: Box<Expr>,
+    },
+    Cos {
+        angle: Box<Expr>,
+    },
+    Num {
+        value: Rat,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Metrics {
+    pub raw_steps: usize,
+    pub derived: usize,
+    pub blocks: usize,
+    pub claims: usize,
+    pub sentences: usize,
+    pub chain_links: usize,
+    pub chains: usize,
+    pub pure_chains: usize,
+    pub pooled: usize,
+    pub fallback_blocks: usize,
+    pub words_en: usize,
+    pub lines_en: usize,
+    pub citations: usize,
+    pub aux_shown: usize,
+    pub human_cost: usize,
+    pub reproved: usize,
+    pub silent: usize,
+    pub pruned: usize,
+    pub represented: usize,
+    pub theorem: usize,
+    pub fallback_facts: usize,
+    pub check_violations: usize,
+    pub similar_steps: usize,
+    pub theorem_steps: usize,
+    pub library: bool,
+    pub steps: usize,
+    pub multi_fact_links: usize,
+    pub undirected_chains: usize,
+    pub directed_chains: usize,
+    #[serde(skip)]
+    pub timed_out: bool,
+    #[serde(skip)]
+    pub micros: u64,
+}

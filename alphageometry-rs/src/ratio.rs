@@ -19,15 +19,27 @@
 //! remaining classics (Menelaus, Ceva, the angle-bisector ratio) are cited as
 //! lemmas — legitimate when they are a *step*, and blocked by the
 //! anti-circularity guard when they would *be* the goal.
+//!
+//! Every fact a step rests on is derived, never measured. The figure's
+//! coordinates only *propose* candidates (which triangles look similar, which
+//! lines look parallel) and read configuration (order, orientation); a
+//! candidate is used only once its angle facts are derived from the hypotheses
+//! by the DDAR closure ([`crate::engine`]), and that derivation is printed with
+//! the step.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::geo::AlgFigure;
+use crate::certify::{derivation_block, pred, with_refs, Certifier};
+use crate::geo::SampledFigure;
 use crate::metric::MExpr;
 use crate::numerics::{intersect_ll, NumCircle, NumLine, Vec2};
-use crate::predicate::PointId;
+use crate::predicate::{PointId, Predicate};
 use crate::rational::Rat;
-use crate::synthetic::{rat_of, Outcome};
+use crate::synthetic::{equal_radius_circles, rat_of, Outcome};
+use crate::theory::{Forbid, Thm};
+
+mod trig;
 
 /// A log-length unknown `ln|ab|`, keyed by the unordered pair.
 type LAtom = (PointId, PointId);
@@ -40,6 +52,33 @@ fn latom(a: PointId, b: PointId) -> LAtom {
     }
 }
 
+/// A log unknown: `Sin(v, p, q)` is `ln|sin ∠pvq|` (`p < q`), `Len(a, b)` is
+/// `ln|ab|` (`a < b`). Sines sort first, so elimination pivots them out first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum LKey {
+    Sin(PointId, PointId, PointId),
+    Len(PointId, PointId),
+    /// `[abc]` (`a < b < c`), the unsigned area; a product factor only.
+    Area(PointId, PointId, PointId),
+    /// `cos ∠pvq` (`p < q`), signed; a product factor only, never a log atom.
+    Cos(PointId, PointId, PointId),
+}
+
+impl LKey {
+    fn len(self) -> Option<LAtom> {
+        match self {
+            LKey::Len(a, b) => Some((a, b)),
+            _ => None,
+        }
+    }
+}
+
+impl From<LAtom> for LKey {
+    fn from(a: LAtom) -> LKey {
+        LKey::Len(a.0, a.1)
+    }
+}
+
 // ===========================================================================
 // Linear equations over log-lengths (constant carried as Σ eₚ·ln p)
 // ===========================================================================
@@ -47,7 +86,7 @@ fn latom(a: PointId, b: PointId) -> LAtom {
 /// `Σ coeff·ln|atom| + Σ eₚ·ln(p) = 0`.
 #[derive(Clone, Debug, Default)]
 struct LEq {
-    terms: BTreeMap<LAtom, Rat>,
+    terms: BTreeMap<LKey, Rat>,
     primes: BTreeMap<i64, Rat>,
 }
 
@@ -55,7 +94,8 @@ impl LEq {
     fn is_zero(&self) -> bool {
         self.terms.values().all(Rat::is_zero) && self.primes.values().all(Rat::is_zero)
     }
-    fn add_term(&mut self, a: LAtom, c: Rat) {
+    fn add_term(&mut self, a: impl Into<LKey>, c: Rat) {
+        let a = a.into();
         let cur = self.terms.get(&a).cloned().unwrap_or_else(Rat::zero);
         let s = &cur + &c;
         if s.is_zero() {
@@ -82,8 +122,11 @@ impl LEq {
             self.add_prime(*p, -&(c * factor));
         }
     }
-    fn first_atom(&self) -> Option<LAtom> {
-        self.terms.iter().find(|(_, c)| !c.is_zero()).map(|(a, _)| *a)
+    fn first_atom(&self) -> Option<LKey> {
+        self.terms
+            .iter()
+            .find(|(_, c)| !c.is_zero())
+            .map(|(a, _)| *a)
     }
 }
 
@@ -115,9 +158,9 @@ fn factor(mut n: u64) -> Vec<(i64, i64)> {
     let mut out = Vec::new();
     let mut d = 2u64;
     while d * d <= n {
-        if n % d == 0 {
+        if n.is_multiple_of(d) {
             let mut e = 0;
-            while n % d == 0 {
+            while n.is_multiple_of(d) {
                 n /= d;
                 e += 1;
             }
@@ -142,6 +185,15 @@ struct Step {
     /// A compound named result cited directly (Menelaus, Ceva, the
     /// angle-bisector ratio). A lone citation equal to the goal is circular.
     headline: bool,
+    /// Alternative premise sets; the row is usable only once DDAR derives one.
+    alts: Vec<Vec<Predicate>>,
+    /// Bookkeeping (a congruence, an equal or known sine): does not count as
+    /// a second reason next to a lone headline.
+    support: bool,
+    lead: bool,
+    tag: Option<trig::Tag>,
+    thm: Option<Thm>,
+    given: bool,
 }
 
 struct Figure {
@@ -165,6 +217,20 @@ struct Figure {
     /// per drop (never merged) so the solver behaves identically to distinct
     /// auxiliary points.
     drop_group: usize,
+    /// The construction's hypothesis predicates plus the defining facts of every
+    /// auxiliary point added since — exactly what the DDAR certifier may use.
+    preds: Vec<Predicate>,
+    /// How many of `preds` are the problem's hypotheses.
+    hyps: usize,
+    /// The DDAR closure over `preds`, rebuilt when points or facts are added.
+    ddar: RefCell<Certifier>,
+    /// Candidate steps of the product engine awaiting DDAR certification:
+    /// `(intro step, facts it needs, is it a named-theorem citation)`.
+    pending: Vec<(usize, Vec<Predicate>, bool)>,
+    /// Certification results of trig rows by step index, and DDAR checks spent.
+    trig_cache: BTreeMap<usize, Option<Vec<crate::proof::FactId>>>,
+    trig_checks: usize,
+    forbid: Forbid,
 }
 
 impl Figure {
@@ -193,14 +259,58 @@ impl Figure {
         (u.dot(v) / d).clamp(-1.0, 1.0).acos()
     }
 
-    fn push(&mut self, text: String, eq: Option<LEq>, premises: Vec<usize>, headline: bool) -> usize {
+    fn push(
+        &mut self,
+        text: String,
+        eq: Option<LEq>,
+        premises: Vec<usize>,
+        headline: bool,
+    ) -> usize {
         self.steps.push(Step {
             text,
             eq,
             premises,
             headline,
+            alts: Vec::new(),
+            support: false,
+            lead: false,
+            tag: None,
+            thm: None,
+            given: false,
         });
         self.steps.len() - 1
+    }
+
+    fn push_given(&mut self, text: String, eq: LEq) -> usize {
+        let i = self.push(text, Some(eq), vec![], false);
+        self.steps[i].given = true;
+        i
+    }
+
+    fn stated_theorems(&self, goal: &LEq) -> Vec<Thm> {
+        let symbolic = |e: &LEq| e.primes.values().all(Rat::is_zero);
+        if !symbolic(goal) {
+            return Vec::new();
+        }
+        let given: BTreeSet<usize> = (0..self.steps.len())
+            .filter(|&i| self.steps[i].given && self.steps[i].eq.as_ref().is_some_and(symbolic))
+            .collect();
+        if self.prove_with(goal, &given).is_some() {
+            return Vec::new();
+        }
+        let mut out: Vec<Thm> = Vec::new();
+        for (i, st) in self.steps.iter().enumerate() {
+            let Some(t) = st.thm else { continue };
+            if st.eq.is_none() || out.contains(&t) || !crate::theory::detectable(t) {
+                continue;
+            }
+            let mut allowed = given.clone();
+            allowed.insert(i);
+            if self.prove_with(goal, &allowed).is_some() {
+                out.push(t);
+            }
+        }
+        out
     }
 
     // -- symbolic predicate queries ----------------------------------------
@@ -222,7 +332,7 @@ impl Figure {
 
     // ----------------------------------------------------------------------
 
-    fn gather(fig: &AlgFigure, insts: Vec<Vec<Vec2>>) -> Figure {
+    fn gather(fig: &SampledFigure, insts: Vec<Vec<Vec2>>) -> Figure {
         let mut f = Figure {
             names: fig.names.clone(),
             insts,
@@ -236,6 +346,13 @@ impl Figure {
             steps: Vec::new(),
             psteps: Vec::new(),
             drop_group: 0,
+            preds: fig.preds.clone(),
+            hyps: fig.preds.len(),
+            ddar: RefCell::new(Certifier::default()),
+            pending: Vec::new(),
+            trig_cache: BTreeMap::new(),
+            trig_checks: 0,
+            forbid: crate::theory::current(),
         };
         for p in &fig.preds {
             let pts = &p.points;
@@ -261,26 +378,12 @@ impl Figure {
         f
     }
 
-    /// Circles with a known centre (from `cong(o,·,o,·)`), and the concyclic
-    /// point-sets they induce (added to `concyclic` for power-of-a-point).
+    /// Circles whose equal radii follow from the hypotheses (see
+    /// [`equal_radius_circles`]), and the concyclic point-sets they induce
+    /// (added to `concyclic` for power-of-a-point). The figure is only a
+    /// consistency guard.
     fn detect_circles(&mut self) {
-        let n = self.names.len();
-        let mut on: Vec<BTreeSet<PointId>> = vec![BTreeSet::new(); n];
-        for c in &self.congs {
-            if c[0] == c[2] && c[1] != c[3] {
-                on[c[0] as usize].insert(c[1]);
-                on[c[0] as usize].insert(c[3]);
-            }
-            if c[1] == c[3] && c[0] != c[2] {
-                on[c[1] as usize].insert(c[0]);
-                on[c[1] as usize].insert(c[2]);
-            }
-        }
-        for o in 0..n as PointId {
-            let set = &on[o as usize];
-            if set.len() < 3 {
-                continue;
-            }
+        for (o, set) in equal_radius_circles(self.names.len(), &self.congs, &self.abs_len) {
             let pts: Vec<PointId> = set.iter().copied().collect();
             let r2 = self.dist(0, o, pts[0]).powi(2);
             if pts
@@ -293,6 +396,73 @@ impl Figure {
                 }
             }
         }
+    }
+
+    /// Does the figure show `p` strictly between `x` and `y` (a configuration
+    /// fact, read from every instance)?
+    fn between(&self, x: PointId, p: PointId, y: PointId) -> bool {
+        (0..self.insts.len()).all(|i| {
+            let (vx, vp, vy) = (
+                self.insts[i][x as usize],
+                self.insts[i][p as usize],
+                self.insts[i][y as usize],
+            );
+            (vp - vx).dot(vy - vp) > 0.0
+        })
+    }
+
+    /// How the angles `∠xPx'` and `∠yPy'` at a common vertex relate when the
+    /// lines `xy` and `x'y'` cross at `P`: vertical angles if `P` lies between
+    /// `x` and `y`, otherwise the same angle.
+    fn angle_at(&self, x: PointId, p: PointId, y: PointId) -> &'static str {
+        if self.between(x, p, y) {
+            "vertical angles"
+        } else {
+            "the same angle"
+        }
+    }
+
+    // -- DDAR certification -------------------------------------------------
+
+    /// Derive every predicate in `goals` with the DDAR closure over the
+    /// hypotheses (and auxiliary facts) of this figure. Returns the numbered
+    /// derivation, or `None` if any goal is not derivable.
+    fn certify(&self, goals: &[Predicate]) -> Option<Vec<String>> {
+        self.ddar
+            .borrow_mut()
+            .derive(&self.names, &self.insts[0], &self.preds, self.hyps, goals)
+    }
+
+    /// The directed-angle facts that make `t1 = (p,q,r) ~ t2 = (u,v,w)` (by
+    /// position) similar, given their orientations in the figure: the angles
+    /// at `p`/`u` and at `q`/`v` are equal.
+    fn similarity_angles(&self, t1: [PointId; 3], t2: [PointId; 3]) -> Option<[Predicate; 2]> {
+        let orient = |t: [PointId; 3], i: usize| {
+            let (a, b, c) = (
+                self.insts[i][t[0] as usize],
+                self.insts[i][t[1] as usize],
+                self.insts[i][t[2] as usize],
+            );
+            let (u, v) = (b - a, c - a);
+            (u.x * v.y - u.y * v.x).signum()
+        };
+        let same = orient(t1, 0) == orient(t2, 0);
+        if (0..self.insts.len()).any(|i| (orient(t1, i) == orient(t2, i)) != same) {
+            return None;
+        }
+        let [p, q, r] = t1;
+        let [u, v, w] = t2;
+        Some(if same {
+            [
+                pred("eqangle", &[p, r, p, q, u, w, u, v]),
+                pred("eqangle", &[q, r, q, p, v, w, v, u]),
+            ]
+        } else {
+            [
+                pred("eqangle", &[p, r, p, q, u, v, u, w]),
+                pred("eqangle", &[q, r, q, p, v, u, v, w]),
+            ]
+        })
     }
 
     /// Are the two triangles similar (equal angles at corresponding vertices) in
@@ -322,15 +492,19 @@ impl Figure {
     /// numerically similar in all instances. Contributes `pq/uv = qr/vw` and
     /// `qr/vw = rp/wu`.
     fn emit_similar(&mut self, t1: [PointId; 3], t2: [PointId; 3], reason: &str, prem: Vec<usize>) {
-        if !self.similar_in_all(t1, t2) {
+        if self.forbid.has(Thm::SimilarityAa) || !self.similar_in_all(t1, t2) {
             return;
         }
         let [p, q, r] = t1;
         let [u, v, w] = t2;
+        let (reason, derivation) = match reason.split_once('\n') {
+            Some((head, rest)) => (head, format!("\n{rest}")),
+            None => (reason, String::new()),
+        };
         let intro = self.push(
             format!(
                 "{reason} — so triangles {} and {} are similar (AA), giving \
-                 {}:{} = {}:{} = {}:{}.",
+                 {}:{} = {}:{} = {}:{}.{derivation}",
                 tri(self, t1),
                 tri(self, t2),
                 self.seg(p, q),
@@ -369,7 +543,16 @@ impl Figure {
     /// *useful lemma* for a larger goal; the anti-circularity guard blocks it
     /// from standing alone as a proof of the very theorem it names (then the
     /// elementary derivation is used instead).
-    fn cite(&mut self, num: &[(PointId, PointId)], den: &[(PointId, PointId)], text: String) {
+    fn cite(
+        &mut self,
+        thm: Thm,
+        num: &[(PointId, PointId)],
+        den: &[(PointId, PointId)],
+        text: String,
+    ) {
+        if self.forbid.has(thm) {
+            return;
+        }
         let mut eq = LEq::default();
         for &(a, b) in num {
             eq.add_term(latom(a, b), Rat::one());
@@ -380,7 +563,8 @@ impl Figure {
         if eq.is_zero() {
             return;
         }
-        self.push(text, Some(eq), vec![], true);
+        let i = self.push(text, Some(eq), vec![], true);
+        self.steps[i].thm = Some(thm);
     }
 
     // === elementary supports ==============================================
@@ -397,33 +581,24 @@ impl Figure {
             if eq.is_zero() {
                 continue;
             }
-            self.push(
-                format!(
-                    "|{}| = |{}| (given).",
-                    self.seg(a, b),
-                    self.seg(x, y)
-                ),
-                Some(eq),
-                vec![],
-                false,
+            self.push_given(
+                format!("|{}| = |{}| (given).", self.seg(a, b), self.seg(x, y)),
+                eq,
             );
         }
     }
 
     fn emit_absolute(&mut self) {
         for (a, b, v) in self.abs_len.clone() {
-            let Some(primes) = ln_primes(&v) else { continue };
+            let Some(primes) = ln_primes(&v) else {
+                continue;
+            };
             let mut eq = LEq::default();
             eq.add_term(latom(a, b), Rat::one());
             for (p, e) in primes {
                 eq.add_prime(p, -e);
             }
-            self.push(
-                format!("|{}| = {} (given).", self.seg(a, b), v),
-                Some(eq),
-                vec![],
-                false,
-            );
+            self.push_given(format!("|{}| = {} (given).", self.seg(a, b), v), eq);
         }
     }
 
@@ -436,6 +611,7 @@ impl Figure {
     fn derive_geometric_mean(&mut self) {
         let n = self.names.len() as PointId;
         for c in 0..n {
+            crate::budget::check();
             for a in 0..n {
                 for b in 0..n {
                     if a >= b || a == c || b == c {
@@ -454,6 +630,7 @@ impl Figure {
                         // Citable geometric-mean relations first (preferred as a
                         // short lemma); the similar-triangle derivation follows.
                         self.cite(
+                            Thm::GeometricMean,
                             &[(c, h), (c, h)],
                             &[(a, h), (h, b)],
                             format!(
@@ -468,6 +645,7 @@ impl Figure {
                             ),
                         );
                         self.cite(
+                            Thm::GeometricMean,
                             &[(c, a), (c, a)],
                             &[(a, h), (a, b)],
                             format!(
@@ -522,6 +700,7 @@ impl Figure {
             let pts: Vec<PointId> = set.iter().copied().collect();
             let n = self.names.len() as PointId;
             for p in 0..n {
+                crate::budget::check();
                 if set.contains(&p) {
                     continue; // P on the circle → degenerate power
                 }
@@ -542,6 +721,7 @@ impl Figure {
                             continue;
                         }
                         self.cite(
+                            Thm::PowerOfPoint,
                             &[(p, a), (p, b)],
                             &[(p, c), (p, d)],
                             format!(
@@ -562,10 +742,20 @@ impl Figure {
                                     break;
                                 }
                                 if self.similar_in_all([aa, p, cc], [dd, p, bb]) {
+                                    let inside = self.between(a, p, b);
+                                    let at_p = if inside {
+                                        "vertical angles"
+                                    } else {
+                                        "the same angle"
+                                    };
+                                    let at_chord = if inside {
+                                        "inscribed angles on the same arc"
+                                    } else {
+                                        "an exterior angle of a cyclic quadrilateral equals the interior opposite angle"
+                                    };
                                     let reason = format!(
                                         "{a}, {b}, {c}, {d} are concyclic: ∠{aa}{p}{cc} = ∠{dd}{p}{bb} \
-                                         (vertical angles) and ∠{cc}{aa}{bb} = ∠{cc}{dd}{bb} \
-                                         (inscribed on chord {cc}{bb})",
+                                         ({at_p}) and ∠{p}{aa}{cc} = ∠{p}{dd}{bb} ({at_chord})",
                                         a = self.nm(a),
                                         b = self.nm(b),
                                         c = self.nm(c),
@@ -597,6 +787,7 @@ impl Figure {
             let n = self.names.len() as PointId;
             for &t in &pts {
                 for p in 0..n {
+                    crate::budget::check();
                     if on.contains(&p) || p == o {
                         continue;
                     }
@@ -610,6 +801,7 @@ impl Figure {
                                 continue;
                             }
                             self.cite(
+                                Thm::TangentSecant,
                                 &[(p, t), (p, t)],
                                 &[(p, a), (p, b)],
                                 format!(
@@ -652,6 +844,7 @@ impl Figure {
     fn derive_thales(&mut self) {
         let n = self.names.len() as PointId;
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in 0..n {
                     if a == b || a == c || b == c {
@@ -668,9 +861,13 @@ impl Figure {
                             {
                                 continue;
                             }
+                            let Some(why) = self.certify(&[pred("para", &[d, e, b, c])]) else {
+                                continue;
+                            };
                             let reason = format!(
-                                "{de} ∥ {bc}, so ∠{a}{d}{e} = ∠{a}{b}{c} and ∠{a}{e}{d} = ∠{a}{c}{b} \
-                                 (corresponding angles)",
+                                "{de} ∥ {bc} (derived below), so ∠{a}{d}{e} = ∠{a}{b}{c} and \
+                                 ∠{a}{e}{d} = ∠{a}{c}{b} (corresponding angles){}",
+                                derivation_block(&why),
                                 de = self.seg(d, e),
                                 bc = self.seg(b, c),
                                 a = self.nm(a),
@@ -680,6 +877,7 @@ impl Figure {
                                 e = self.nm(e),
                             );
                             self.cite(
+                                Thm::Intercept,
                                 &[(a, d), (a, c)],
                                 &[(a, e), (a, b)],
                                 format!(
@@ -710,7 +908,9 @@ impl Figure {
     /// `BB′:CC′ = AB:AC`; hence `BD:DC = AB:AC`.
     fn derive_bisector(&mut self) {
         let n = self.names.len() as PointId;
+        let mut found: Vec<(PointId, PointId, PointId, PointId, Vec<String>)> = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in 0..n {
                 for c in (b + 1)..n {
                     if a == b || a == c {
@@ -720,75 +920,81 @@ impl Figure {
                         if [a, b, c].contains(&d) || !self.coll(b, d, c) {
                             continue;
                         }
-                        let bisects = (0..self.insts.len()).all(|i| {
+                        let looks_bisected = (0..self.insts.len()).all(|i| {
                             let x = self.angle(i, b, a, d);
                             let y = self.angle(i, d, a, c);
-                            let inside = (self.insts[i][d as usize] - self.insts[i][b as usize])
-                                .dot(self.insts[i][c as usize] - self.insts[i][d as usize])
-                                > 0.0;
-                            x.is_finite() && y.is_finite() && (x - y).abs() < 1e-6 && x > 1e-4 && inside
+                            x.is_finite() && y.is_finite() && (x - y).abs() < 1e-6 && x > 1e-4
                         });
-                        if !bisects {
+                        if !looks_bisected || !self.between(b, d, c) {
                             continue;
                         }
-                        self.cite(
-                            &[(b, d), (a, c)],
-                            &[(d, c), (a, b)],
-                            format!(
-                                "By the angle-bisector theorem ({ad} bisects ∠{b}{a}{c}), \
-                                 {bd}·{ac} = {dc}·{ab}.",
-                                ad = self.seg(a, d),
-                                a = self.nm(a),
-                                b = self.nm(b),
-                                c = self.nm(c),
-                                bd = self.seg(b, d),
-                                ac = self.seg(a, c),
-                                dc = self.seg(d, c),
-                                ab = self.seg(a, b),
-                            ),
-                        );
-                        self.drop_group += 1;
-                        let fb = self.add_perp_foot(b, a, d);
-                        let fc = self.add_perp_foot(c, a, d);
-                        let intro = self.push(
-                            format!(
-                                "{ad} bisects ∠{b}{a}{c}. Drop perpendiculars from {b}, {c} onto \
-                                 the bisector {ad}, with feet {fb}, {fc}.",
-                                ad = self.seg(a, d),
-                                a = self.nm(a),
-                                b = self.nm(b),
-                                c = self.nm(c),
-                                fb = self.nm(fb),
-                                fc = self.nm(fc),
-                            ),
-                            None,
-                            vec![],
-                            false,
-                        );
-                        let r1 = format!(
-                            "∠{b}{d}{fb} = ∠{c}{d}{fc} (vertical angles at {d}) and the right \
-                             angles at {fb}, {fc}",
-                            b = self.nm(b),
-                            c = self.nm(c),
-                            d = self.nm(d),
-                            fb = self.nm(fb),
-                            fc = self.nm(fc),
-                        );
-                        self.emit_similar([b, d, fb], [c, d, fc], &r1, vec![intro]);
-                        let r2 = format!(
-                            "∠{b}{a}{fb} = ∠{c}{a}{fc} (since {a}{d} bisects ∠{b}{a}{c}) and the \
-                             right angles at {fb}, {fc}",
-                            a = self.nm(a),
-                            b = self.nm(b),
-                            c = self.nm(c),
-                            d = self.nm(d),
-                            fb = self.nm(fb),
-                            fc = self.nm(fc),
-                        );
-                        self.emit_similar([a, b, fb], [a, c, fc], &r2, vec![intro]);
+                        let Some(why) = self.certify(&[pred("eqangle", &[a, b, a, d, a, d, a, c])])
+                        else {
+                            continue;
+                        };
+                        found.push((a, b, c, d, why));
                     }
                 }
             }
+        }
+        for (a, b, c, d, why) in found {
+            self.cite(
+                Thm::BisectorThm,
+                &[(b, d), (a, c)],
+                &[(d, c), (a, b)],
+                format!(
+                    "By the angle-bisector theorem ({ad} bisects ∠{b}{a}{c}), \
+                     {bd}·{ac} = {dc}·{ab}.",
+                    ad = self.seg(a, d),
+                    a = self.nm(a),
+                    b = self.nm(b),
+                    c = self.nm(c),
+                    bd = self.seg(b, d),
+                    ac = self.seg(a, c),
+                    dc = self.seg(d, c),
+                    ab = self.seg(a, b),
+                ),
+            );
+            self.drop_group += 1;
+            let fb = self.add_perp_foot(b, a, d);
+            let fc = self.add_perp_foot(c, a, d);
+            let intro = self.push(
+                format!(
+                    "{ad} bisects ∠{b}{a}{c} (derived below). Drop perpendiculars from {b}, {c} \
+                     onto the bisector {ad}, with feet {fb}, {fc}.{}",
+                    derivation_block(&why),
+                    ad = self.seg(a, d),
+                    a = self.nm(a),
+                    b = self.nm(b),
+                    c = self.nm(c),
+                    fb = self.nm(fb),
+                    fc = self.nm(fc),
+                ),
+                None,
+                vec![],
+                false,
+            );
+            let r1 = format!(
+                "∠{b}{d}{fb} = ∠{c}{d}{fc} ({rel} at {d}) and the right angles at {fb}, {fc}",
+                rel = self.angle_at(b, d, c),
+                b = self.nm(b),
+                c = self.nm(c),
+                d = self.nm(d),
+                fb = self.nm(fb),
+                fc = self.nm(fc),
+            );
+            self.emit_similar([b, d, fb], [c, d, fc], &r1, vec![intro]);
+            let r2 = format!(
+                "∠{b}{a}{fb} = ∠{c}{a}{fc} (since {a}{d} bisects ∠{b}{a}{c}) and the \
+                 right angles at {fb}, {fc}",
+                a = self.nm(a),
+                b = self.nm(b),
+                c = self.nm(c),
+                d = self.nm(d),
+                fb = self.nm(fb),
+                fc = self.nm(fc),
+            );
+            self.emit_similar([a, b, fb], [a, c, fc], &r2, vec![intro]);
         }
     }
 
@@ -799,11 +1005,18 @@ impl Figure {
         let name = format!("{}{}", self.nm(a), subscript(self.drop_group));
         let id = self.names.len() as PointId;
         self.names.push(name);
+        let mut fresh = true;
         for inst in &mut self.insts {
             let (pa, p1, p2) = (inst[a as usize], inst[l1 as usize], inst[l2 as usize]);
             let dir = p2 - p1;
             let t = (pa - p1).dot(dir) / dir.dot(dir).max(1e-18);
-            inst.push(p1 + dir * t);
+            let foot = p1 + dir * t;
+            fresh &= inst.iter().all(|q| (*q - foot).norm() > 1e-6);
+            inst.push(foot);
+        }
+        if fresh {
+            self.preds.push(pred("coll", &[l1, l2, id]));
+            self.preds.push(pred("perp", &[a, id, l1, l2]));
         }
         id
     }
@@ -820,6 +1033,7 @@ impl Figure {
                 continue; // transversal: D, E, F collinear
             }
             self.cite(
+                Thm::Menelaus,
                 &[(b, d), (c, e), (a, f)],
                 &[(d, c), (e, a), (f, b)],
                 format!(
@@ -863,17 +1077,19 @@ impl Figure {
                 vec![],
                 false,
             );
-            let vertical = |f: &Figure, x: PointId, p: PointId, fx: PointId, y: PointId, fy: PointId| {
-                format!(
-                    "∠{x}{p}{fx} = ∠{y}{p}{fy} (vertical angles at {p}) and the right angles at \
+            let vertical =
+                |f: &Figure, x: PointId, p: PointId, fx: PointId, y: PointId, fy: PointId| {
+                    format!(
+                        "∠{x}{p}{fx} = ∠{y}{p}{fy} ({rel} at {p}) and the right angles at \
                      {fx}, {fy}",
-                    x = f.nm(x),
-                    p = f.nm(p),
-                    fx = f.nm(fx),
-                    y = f.nm(y),
-                    fy = f.nm(fy),
-                )
-            };
+                        rel = f.angle_at(x, p, y),
+                        x = f.nm(x),
+                        p = f.nm(p),
+                        fx = f.nm(fx),
+                        y = f.nm(y),
+                        fy = f.nm(fy),
+                    )
+                };
             let rd = vertical(self, b, d, fb, c, fc);
             self.emit_similar([b, d, fb], [c, d, fc], &rd, vec![intro]);
             let re = vertical(self, c, e, fc, a, fa);
@@ -885,12 +1101,11 @@ impl Figure {
 
     /// Triangles `ABC` with side-points `D∈BC, E∈CA, F∈AB` (all collinearities
     /// asserted), the common shape of Menelaus and Ceva.
-    fn side_cevian_triples(
-        &self,
-    ) -> Vec<(PointId, PointId, PointId, PointId, PointId, PointId)> {
+    fn side_cevian_triples(&self) -> Vec<(PointId, PointId, PointId, PointId, PointId, PointId)> {
         let n = self.names.len() as PointId;
         let mut out = Vec::new();
         for a in 0..n {
+            crate::budget::check();
             for b in (a + 1)..n {
                 for c in (b + 1)..n {
                     if self.numerically_collinear(a, b, c) {
@@ -948,7 +1163,7 @@ impl Figure {
     // === solving ===========================================================
 
     fn prove_with(&self, goal: &LEq, allowed: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
-        let mut rows: Vec<(LEq, LAtom, BTreeSet<usize>)> = Vec::new();
+        let mut rows: Vec<(LEq, LKey, BTreeSet<usize>)> = Vec::new();
         for (i, step) in self.steps.iter().enumerate() {
             if !allowed.contains(&i) {
                 continue;
@@ -976,8 +1191,11 @@ impl Figure {
         // If a lone headline citation carries the proof, retry without headlines
         // to force an elementary derivation (anti-circularity).
         if used.len() == 1 && self.steps[*used.iter().next().unwrap()].headline {
-            let elementary: BTreeSet<usize> =
-                all.iter().copied().filter(|&i| !self.steps[i].headline).collect();
+            let elementary: BTreeSet<usize> = all
+                .iter()
+                .copied()
+                .filter(|&i| !self.steps[i].headline)
+                .collect();
             used = self.prove_with(goal, &elementary)?;
         }
         // Greedy minimisation.
@@ -1012,28 +1230,54 @@ impl Figure {
         }
         // Drop the pure-equation steps that carry no prose (their justification is
         // the similar-triangle intro they cite); keep intros and cited lemmas.
-        let order: Vec<usize> = keep.iter().copied().filter(|&i| !self.steps[i].text.is_empty()).collect();
-        let number: BTreeMap<usize, usize> =
-            order.iter().enumerate().map(|(k, &i)| (i, k + 1)).collect();
+        let mut order: Vec<usize> = keep
+            .iter()
+            .copied()
+            .filter(|&i| !self.steps[i].text.is_empty())
+            .collect();
+        order.sort_by_key(|&i| (!self.steps[i].lead, i));
+        let trig = keep.iter().any(|&i| {
+            self.steps[i]
+                .eq
+                .as_ref()
+                .is_some_and(|e| e.terms.keys().any(|k| matches!(k, LKey::Sin(..))))
+        });
+        let groups = self.display_groups(&order);
+        let number: BTreeMap<usize, usize> = groups
+            .iter()
+            .enumerate()
+            .flat_map(|(k, (members, _))| members.iter().map(move |&i| (i, k + 1)))
+            .collect();
 
         let mut out = String::new();
         out.push_str("EUCLIDEAN PROOF (ratios)\n");
         out.push_str(&format!("  Goal:  {goal_text}\n\n"));
-        for (k, &i) in order.iter().enumerate() {
-            let cites: Vec<String> = self.steps[i]
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|k| k.to_string()))
-                .collect();
+        for (k, (members, text)) in groups.iter().enumerate() {
+            let mut cites: Vec<usize> = Vec::new();
+            for &i in members {
+                for p in &self.steps[i].premises {
+                    if let Some(&n) = number.get(p) {
+                        if n != k + 1 && !cites.contains(&n) {
+                            cites.push(n);
+                        }
+                    }
+                }
+            }
+            let cites: Vec<String> = cites.iter().map(|n| n.to_string()).collect();
             let refs = if cites.is_empty() {
                 String::new()
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}{}\n", k + 1, self.steps[i].text, refs));
+            out.push_str(&format!("  {}. {}\n", k + 1, with_refs(text, &refs)));
         }
         out.push_str(&format!(
-            "\n  Combining the proportions above gives {goal_text}  (= {}). ∎\n",
+            "\n  {} gives {goal_text}  (= {}). ∎\n",
+            if trig {
+                "Multiplying the sine relations above"
+            } else {
+                "Combining the proportions above"
+            },
             crate::synthetic::pretty_len(goal_val)
         ));
         out
@@ -1054,7 +1298,7 @@ fn subscript(n: usize) -> String {
         .collect()
 }
 
-fn reduce(eq: &mut LEq, rows: &[(LEq, LAtom, BTreeSet<usize>)], deps: &mut BTreeSet<usize>) {
+fn reduce(eq: &mut LEq, rows: &[(LEq, LKey, BTreeSet<usize>)], deps: &mut BTreeSet<usize>) {
     for (req, pivot, rdeps) in rows {
         if let Some(c) = eq.terms.get(pivot).cloned() {
             if c.is_zero() {
@@ -1112,6 +1356,15 @@ fn llower(e: &MExpr, fig: &Figure) -> Option<LEq> {
             scale(&mut a, &Rat::new(1, 2));
             Some(a)
         }
+        MExpr::Sin(x) => match &**x {
+            MExpr::Angle(a, b, c) => {
+                let k = fig.sin_atom(fig.pt(b)?, fig.pt(a)?, fig.pt(c)?)?;
+                let mut eq = LEq::default();
+                eq.add_term(k, Rat::one());
+                Some(eq)
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -1127,7 +1380,10 @@ fn scale(eq: &mut LEq, k: &Rat) {
 
 impl Figure {
     fn pt(&self, name: &str) -> Option<PointId> {
-        self.names.iter().position(|n| n == name).map(|i| i as PointId)
+        self.names
+            .iter()
+            .position(|n| n == name)
+            .map(|i| i as PointId)
     }
 }
 
@@ -1140,6 +1396,17 @@ fn eval_numeric(e: &MExpr, fig: &Figure) -> Option<f64> {
         MExpr::Div(x, y) => eval_numeric(x, fig)? / eval_numeric(y, fig)?,
         MExpr::Pow(b, p) => eval_numeric(b, fig)?.powf(*p),
         MExpr::Sqrt(x) => eval_numeric(x, fig)?.max(0.0).sqrt(),
+        MExpr::Add(x, y) => eval_numeric(x, fig)? + eval_numeric(y, fig)?,
+        MExpr::Sub(x, y) => eval_numeric(x, fig)? - eval_numeric(y, fig)?,
+        MExpr::Neg(x) => -eval_numeric(x, fig)?,
+        MExpr::Sin(x) => match &**x {
+            MExpr::Angle(a, b, c) => fig.angle(0, fig.pt(a)?, fig.pt(b)?, fig.pt(c)?).sin(),
+            _ => return None,
+        },
+        MExpr::Cos(x) => match &**x {
+            MExpr::Angle(a, b, c) => fig.angle(0, fig.pt(a)?, fig.pt(b)?, fig.pt(c)?).cos(),
+            _ => return None,
+        },
         _ => return None,
     })
 }
@@ -1150,18 +1417,18 @@ fn eval_numeric(e: &MExpr, fig: &Figure) -> Option<f64> {
 // sums + congruences, and by the auxiliary-point search below.
 // ===========================================================================
 
-type PAtom = (LAtom, LAtom);
+type PAtom = Mono;
 fn pmul(a: LAtom, b: LAtom) -> PAtom {
     if a <= b {
-        (a, b)
+        vec![a.into(), b.into()]
     } else {
-        (b, a)
+        vec![b.into(), a.into()]
     }
 }
 
 #[derive(Clone, Default)]
 struct PEq {
-    terms: BTreeMap<PAtom, Rat>,
+    terms: BTreeMap<Mono, Rat>,
 }
 impl PEq {
     fn is_zero(&self) -> bool {
@@ -1178,11 +1445,14 @@ impl PEq {
     }
     fn sub_scaled(&mut self, o: &PEq, f: &Rat) {
         for (a, c) in &o.terms {
-            self.add(*a, -&(c * f));
+            self.add(a.clone(), -&(c * f));
         }
     }
     fn first(&self) -> Option<PAtom> {
-        self.terms.iter().find(|(_, c)| !c.is_zero()).map(|(a, _)| *a)
+        self.terms
+            .iter()
+            .find(|(_, c)| !c.is_zero())
+            .map(|(a, _)| a.clone())
     }
 }
 
@@ -1190,9 +1460,17 @@ struct PStep {
     text: String,
     eq: Option<PEq>,
     premises: Vec<usize>,
+    /// Printed before the other steps (the shared angle derivation).
+    lead: bool,
+    /// Closure facts a step proved elsewhere rests on (a log bridge); merged
+    /// into the lead derivation.
+    facts: Vec<crate::proof::FactId>,
+    /// Bookkeeping (a substitution of equal factors, `sin² + cos² = 1`): not a
+    /// second reason next to a lone named theorem.
+    support: bool,
 }
 
-type Mono = Vec<LAtom>;
+type Mono = Vec<LKey>;
 fn mono_scale(m: &BTreeMap<Mono, Rat>, k: &Rat) -> BTreeMap<Mono, Rat> {
     m.iter().map(|(a, c)| (a.clone(), c * k)).collect()
 }
@@ -1209,7 +1487,15 @@ fn mono_add(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>, f: &Rat) -> BTreeM
     }
     out
 }
-fn mono_mul(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>) -> BTreeMap<Mono, Rat> {
+/// Expansion budget for [`mono_mul`]: a product of long sums (or a high power
+/// of one) multiplies term counts, so cap the work per product and give up
+/// (`None` — the goal is then simply not handled here) beyond it.
+const MAX_MONO_PRODUCT: usize = 1 << 14;
+
+fn mono_mul(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>) -> Option<BTreeMap<Mono, Rat>> {
+    if a.len().saturating_mul(b.len()) > MAX_MONO_PRODUCT {
+        return None;
+    }
     let mut out: BTreeMap<Mono, Rat> = BTreeMap::new();
     for (ma, ca) in a {
         for (mb, cb) in b {
@@ -1225,7 +1511,7 @@ fn mono_mul(a: &BTreeMap<Mono, Rat>, b: &BTreeMap<Mono, Rat>) -> BTreeMap<Mono, 
             }
         }
     }
-    out
+    Some(out)
 }
 fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
     let unit = |m: Mono, c: Rat| {
@@ -1239,12 +1525,20 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
         MExpr::Num(v) => Some(unit(vec![], rat_of(*v)?)),
         MExpr::Dist(a, b) => {
             let (a, b) = (fig.pt(a)?, fig.pt(b)?);
-            Some(unit(vec![latom(a, b)], Rat::one()))
+            Some(unit(vec![latom(a, b).into()], Rat::one()))
         }
         MExpr::Neg(x) => Some(mono_scale(&mono_lower(x, fig)?, &-Rat::one())),
-        MExpr::Add(x, y) => Some(mono_add(&mono_lower(x, fig)?, &mono_lower(y, fig)?, &Rat::one())),
-        MExpr::Sub(x, y) => Some(mono_add(&mono_lower(x, fig)?, &mono_lower(y, fig)?, &-Rat::one())),
-        MExpr::Mul(x, y) => Some(mono_mul(&mono_lower(x, fig)?, &mono_lower(y, fig)?)),
+        MExpr::Add(x, y) => Some(mono_add(
+            &mono_lower(x, fig)?,
+            &mono_lower(y, fig)?,
+            &Rat::one(),
+        )),
+        MExpr::Sub(x, y) => Some(mono_add(
+            &mono_lower(x, fig)?,
+            &mono_lower(y, fig)?,
+            &-Rat::one(),
+        )),
+        MExpr::Mul(x, y) => mono_mul(&mono_lower(x, fig)?, &mono_lower(y, fig)?),
         MExpr::Div(x, y) => {
             let b = mono_lower(y, fig)?;
             if b.len() != 1 {
@@ -1256,16 +1550,37 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
             }
             Some(mono_scale(&mono_lower(x, fig)?, &c.recip()))
         }
+        MExpr::Sin(x) | MExpr::Cos(x) => {
+            let MExpr::Angle(a, b, c) = &**x else {
+                return None;
+            };
+            let (a, b, c) = (fig.pt(a)?, fig.pt(b)?, fig.pt(c)?);
+            let k = fig.sin_atom(b, a, c)?;
+            let LKey::Sin(v, p, q) = k else { return None };
+            let k = if matches!(e, MExpr::Cos(_)) {
+                LKey::Cos(v, p, q)
+            } else {
+                k
+            };
+            Some(unit(vec![k], Rat::one()))
+        }
+        MExpr::Area(a, b, c) => {
+            let (a, b, c) = (fig.pt(a)?, fig.pt(b)?, fig.pt(c)?);
+            fig.sin_atom(a, b, c)?;
+            let mut t = [a, b, c];
+            t.sort();
+            Some(unit(vec![LKey::Area(t[0], t[1], t[2])], Rat::one()))
+        }
         MExpr::Pow(base, p) => {
             let n = *p;
-            if n < 0.0 || (n - n.round()).abs() > 1e-9 {
+            if !(0.0..=crate::metric::MAX_EXPONENT).contains(&n) || (n - n.round()).abs() > 1e-9 {
                 return None;
             }
             let n = n.round() as u32;
             let b = mono_lower(base, fig)?;
             let mut acc = unit(vec![], Rat::one());
             for _ in 0..n {
-                acc = mono_mul(&acc, &b);
+                acc = mono_mul(&acc, &b)?;
             }
             Some(acc)
         }
@@ -1275,21 +1590,33 @@ fn mono_lower(e: &MExpr, fig: &Figure) -> Option<BTreeMap<Mono, Rat>> {
 
 impl Figure {
     fn ppush(&mut self, text: String, eq: Option<PEq>, premises: Vec<usize>) -> usize {
-        self.psteps.push(PStep { text, eq, premises });
+        self.psteps.push(PStep {
+            text,
+            eq,
+            premises,
+            lead: false,
+            facts: Vec::new(),
+            support: false,
+        });
         self.psteps.len() - 1
     }
 
-    /// Emit the three product equalities of similar `t1 = (p,q,r) ~ t2 = (u,v,w)`,
-    /// gated by numeric similarity in every instance, stating the equal angles.
+    /// Propose the three product equalities of similar `t1 = (p,q,r) ~
+    /// t2 = (u,v,w)` when the triangles look similar in every instance. The
+    /// step is only a candidate: [`Figure::prove_products`] keeps it only if the
+    /// DDAR closure derives the two angle equalities, and prints that derivation.
     fn psim(&mut self, t1: [PointId; 3], t2: [PointId; 3]) {
-        if !self.similar_in_all(t1, t2) {
+        if self.forbid.has(Thm::SimilarityAa) || !self.similar_in_all(t1, t2) {
             return;
         }
+        let Some(angles) = self.similarity_angles(t1, t2) else {
+            return;
+        };
         let [p, q, r] = t1;
         let [u, v, w] = t2;
         let intro = self.ppush(
             format!(
-                "∠{}{}{} = ∠{}{}{} and ∠{}{}{} = ∠{}{}{}, so {} ~ {} (AA): {}·{} = {}·{}, {}·{} = {}·{}, {}·{} = {}·{}.",
+                "∠{}{}{} = ∠{}{}{} and ∠{}{}{} = ∠{}{}{} (derived from the hypotheses), so {} ~ {} (AA): {}·{} = {}·{}, {}·{} = {}·{}, {}·{} = {}·{}.",
                 self.nm(r), self.nm(p), self.nm(q), self.nm(w), self.nm(u), self.nm(v),
                 self.nm(p), self.nm(q), self.nm(r), self.nm(u), self.nm(v), self.nm(w),
                 tri(self, t1), tri(self, t2),
@@ -1300,6 +1627,7 @@ impl Figure {
             None,
             vec![],
         );
+        self.pending.push((intro, angles.to_vec(), false));
         let (pq, qr, rp) = (latom(p, q), latom(q, r), latom(r, p));
         let (uv, vw, wu) = (latom(u, v), latom(v, w), latom(w, u));
         for (x, y) in [
@@ -1332,16 +1660,78 @@ impl Figure {
             }
             v
         };
-        let mut seen: BTreeSet<([PointId; 3], [PointId; 3])> = BTreeSet::new();
         for i in 0..tris.len() {
+            crate::budget::check();
             for j in (i + 1)..tris.len() {
-                let (t1, t2) = (tris[i], tris[j]);
-                let mut key = [t1, t2];
-                key.sort();
-                if !seen.insert((key[0], key[1])) {
-                    continue;
+                self.psim(tris[i], tris[j]);
+            }
+        }
+    }
+
+    /// The angle-bisector theorem as a product relation, `BD·AC = DC·AB`, for
+    /// every bisector the figure suggests; it is used only once DDAR derives
+    /// `D` on `BC` and `∠BAD = ∠DAC`.
+    fn gather_bisector_products(&mut self) {
+        if self.forbid.has(Thm::BisectorThm) {
+            return;
+        }
+        let n = self.names.len() as PointId;
+        for a in 0..n {
+            crate::budget::check();
+            for b in 0..n {
+                for c in (b + 1)..n {
+                    if a == b || a == c {
+                        continue;
+                    }
+                    for d in 0..n {
+                        if [a, b, c].contains(&d)
+                            || !self.numerically_collinear(b, d, c)
+                            || !self.between(b, d, c)
+                        {
+                            continue;
+                        }
+                        let bisects = (0..self.insts.len()).all(|i| {
+                            let x = self.angle(i, b, a, d);
+                            let y = self.angle(i, d, a, c);
+                            x.is_finite() && y.is_finite() && (x - y).abs() < 1e-6 && x > 1e-4
+                        });
+                        if !bisects {
+                            continue;
+                        }
+                        let intro = self.ppush(
+                            format!(
+                                "{ad} bisects ∠{b}{a}{c} with {d} on {bc} (derived from the \
+                                 hypotheses), so by the angle-bisector theorem {bd}·{ac} = {dc}·{ab}.",
+                                ad = self.seg(a, d),
+                                a = self.nm(a),
+                                b = self.nm(b),
+                                c = self.nm(c),
+                                d = self.nm(d),
+                                bc = self.seg(b, c),
+                                bd = self.seg(b, d),
+                                ac = self.seg(a, c),
+                                dc = self.seg(d, c),
+                                ab = self.seg(a, b),
+                            ),
+                            None,
+                            vec![],
+                        );
+                        self.pending.push((
+                            intro,
+                            vec![
+                                pred("coll", &[b, d, c]),
+                                pred("eqangle", &[a, b, a, d, a, d, a, c]),
+                            ],
+                            true,
+                        ));
+                        let mut e = PEq::default();
+                        e.add(pmul(latom(b, d), latom(a, c)), Rat::one());
+                        e.add(pmul(latom(d, c), latom(a, b)), -Rat::one());
+                        if !e.is_zero() {
+                            self.ppush(String::new(), Some(e), vec![intro]);
+                        }
+                    }
                 }
-                self.psim(t1, t2);
             }
         }
     }
@@ -1350,6 +1740,21 @@ impl Figure {
     /// and congruences (`|ab| = |cd|` ⇒ `ab·L = cd·L`).
     fn gather_product_relations(&mut self, goal_segs: &BTreeSet<LAtom>) {
         let mut splits: Vec<(PointId, PointId, PointId)> = Vec::new();
+        let mut derived_splits: Vec<(PointId, PointId, PointId)> = Vec::new();
+        let n = self.names.len() as PointId;
+        for x in 0..n {
+            crate::budget::check();
+            for z in (x + 1)..n {
+                for y in 0..n {
+                    if y == x || y == z || self.coll(x, y, z) {
+                        continue;
+                    }
+                    if self.numerically_collinear(x, y, z) && self.between(x, y, z) {
+                        derived_splits.push((x, y, z));
+                    }
+                }
+            }
+        }
         for set in self.colls.clone() {
             for i in 0..set.len() {
                 for j in 0..set.len() {
@@ -1375,6 +1780,43 @@ impl Figure {
                         }
                     }
                 }
+            }
+        }
+        for (x, y, z) in derived_splits {
+            let intro = self.ppush(
+                format!(
+                    "{}, {}, {} are collinear (derived from the hypotheses), with {} between {} and {}.",
+                    self.nm(x),
+                    self.nm(y),
+                    self.nm(z),
+                    self.nm(y),
+                    self.nm(x),
+                    self.nm(z)
+                ),
+                None,
+                vec![],
+            );
+            self.pending
+                .push((intro, vec![pred("coll", &[x, y, z])], false));
+            for &l in goal_segs {
+                let mut e = PEq::default();
+                e.add(pmul(latom(x, y), l), Rat::one());
+                e.add(pmul(latom(y, z), l), Rat::one());
+                e.add(pmul(latom(x, z), l), -Rat::one());
+                if e.is_zero() {
+                    continue;
+                }
+                self.ppush(
+                    format!(
+                        "So {xy} + {yz} = {xz}; times {l}: {xy}·{l} + {yz}·{l} = {xz}·{l}.",
+                        xz = self.seg(x, z),
+                        xy = self.seg(x, y),
+                        yz = self.seg(y, z),
+                        l = self.seg(l.0, l.1),
+                    ),
+                    Some(e),
+                    vec![intro],
+                );
             }
         }
         for (x, y, z) in splits {
@@ -1430,18 +1872,19 @@ impl Figure {
 
     fn pprove_with(&self, goal: &PEq, allowed: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
         let mut rows: Vec<(PEq, PAtom, BTreeSet<usize>)> = Vec::new();
-        let reduce = |eq: &mut PEq, rows: &[(PEq, PAtom, BTreeSet<usize>)], deps: &mut BTreeSet<usize>| {
-            for (req, piv, rdeps) in rows {
-                if let Some(cf) = eq.terms.get(piv).cloned() {
-                    if cf.is_zero() {
-                        continue;
+        let reduce =
+            |eq: &mut PEq, rows: &[(PEq, PAtom, BTreeSet<usize>)], deps: &mut BTreeSet<usize>| {
+                for (req, piv, rdeps) in rows {
+                    if let Some(cf) = eq.terms.get(piv).cloned() {
+                        if cf.is_zero() {
+                            continue;
+                        }
+                        let factor = &cf / req.terms.get(piv).unwrap();
+                        eq.sub_scaled(req, &factor);
+                        deps.extend(rdeps.iter().copied());
                     }
-                    let factor = &cf / req.terms.get(piv).unwrap();
-                    eq.sub_scaled(req, &factor);
-                    deps.extend(rdeps.iter().copied());
                 }
-            }
-        };
+            };
         for (i, step) in self.psteps.iter().enumerate() {
             if !allowed.contains(&i) {
                 continue;
@@ -1461,11 +1904,8 @@ impl Figure {
         g.is_zero().then_some(deps)
     }
 
-    fn pprove(&self, goal: &PEq) -> Option<BTreeSet<usize>> {
-        let all: BTreeSet<usize> = (0..self.psteps.len())
-            .filter(|&i| self.psteps[i].eq.is_some())
-            .collect();
-        let mut used = self.pprove_with(goal, &all)?;
+    fn pprove(&self, goal: &PEq, all: &BTreeSet<usize>) -> Option<BTreeSet<usize>> {
+        let mut used = self.pprove_with(goal, all)?;
         loop {
             let mut removed = false;
             for &s in used.clone().iter() {
@@ -1484,7 +1924,13 @@ impl Figure {
         Some(used)
     }
 
-    fn prender(&self, used: &BTreeSet<usize>, goal_text: &str, goal_val: f64, aux: &[String]) -> String {
+    fn prender(
+        &self,
+        used: &BTreeSet<usize>,
+        goal_text: &str,
+        goal_val: f64,
+        aux: &[String],
+    ) -> String {
         let mut keep: BTreeSet<usize> = BTreeSet::new();
         let mut stack: Vec<usize> = used.iter().copied().collect();
         while let Some(i) = stack.pop() {
@@ -1492,11 +1938,12 @@ impl Figure {
                 stack.extend(self.psteps[i].premises.iter().copied());
             }
         }
-        let order: Vec<usize> = keep
+        let mut order: Vec<usize> = keep
             .iter()
             .copied()
             .filter(|&i| !self.psteps[i].text.is_empty())
             .collect();
+        order.sort_by_key(|&i| (!self.psteps[i].lead, i));
         let number: BTreeMap<usize, usize> = order
             .iter()
             .enumerate()
@@ -1509,23 +1956,152 @@ impl Figure {
             out.push_str(&format!("  {}. {}\n", k + 1, a));
         }
         for (k, &i) in order.iter().enumerate() {
-            let cites: Vec<String> = self.psteps[i]
-                .premises
-                .iter()
-                .filter_map(|p| number.get(p).map(|k| k.to_string()))
-                .collect();
+            let mut cites: Vec<String> = Vec::new();
+            for p in &self.psteps[i].premises {
+                let via: Vec<usize> = if self.psteps[*p].text.is_empty() {
+                    self.psteps[*p].premises.clone()
+                } else {
+                    vec![*p]
+                };
+                for q in via {
+                    if let Some(k) = number.get(&q) {
+                        if !cites.contains(&k.to_string()) {
+                            cites.push(k.to_string());
+                        }
+                    }
+                }
+            }
             let refs = if cites.is_empty() {
                 String::new()
             } else {
                 format!("  [from {}]", cites.join(", "))
             };
-            out.push_str(&format!("  {}. {}{}\n", k + 1 + aux.len(), self.psteps[i].text, refs));
+            out.push_str(&format!(
+                "  {}. {}\n",
+                k + 1 + aux.len(),
+                with_refs(&self.psteps[i].text, &refs)
+            ));
         }
         out.push_str(&format!(
             "\n  Adding the relations above gives {goal_text}  (= {}). ∎\n",
             crate::synthetic::pretty_len(goal_val)
         ));
         out
+    }
+
+    /// Solve `goal` with the product steps, using a similar-triangle step only if
+    /// DDAR derives its angle equalities. Uncertifiable candidates are dropped
+    /// and the solve retried; certified steps get their derivation appended.
+    fn certified_products(&mut self, goal: &PEq) -> Option<BTreeSet<usize>> {
+        let intro_of: BTreeMap<usize, (Vec<Predicate>, bool)> = self
+            .pending
+            .iter()
+            .map(|(i, goals, headline)| (*i, (goals.clone(), *headline)))
+            .collect();
+        let mut rejected: BTreeSet<usize> = BTreeSet::new();
+        let mut certified: BTreeMap<usize, Vec<crate::proof::FactId>> = BTreeMap::new();
+        for _ in 0..64 {
+            let allowed: BTreeSet<usize> = (0..self.psteps.len())
+                .filter(|&i| {
+                    self.psteps[i].eq.is_some()
+                        && !self.psteps[i].premises.iter().any(|p| rejected.contains(p))
+                })
+                .collect();
+            let used = self.pprove(goal, &allowed)?;
+            // Anti-circularity: one cited named theorem standing alone merely
+            // restates the goal.
+            let lone: Vec<usize> = used
+                .iter()
+                .flat_map(|&i| self.psteps[i].premises.iter().copied())
+                .filter(|p| intro_of.get(p).is_some_and(|(_, h)| *h))
+                .collect();
+            if used.len() == 1 && lone.len() == 1 {
+                rejected.insert(lone[0]);
+                continue;
+            }
+            // The same, when the lone theorem is spread over several multiples
+            // and stitched together only by bookkeeping rows.
+            let heads: BTreeSet<usize> = lone.iter().copied().collect();
+            if heads.len() == 1
+                && used.iter().any(|&i| self.psteps[i].support)
+                && used.iter().all(|&i| {
+                    self.psteps[i].support
+                        || self.psteps[i].premises.iter().any(|p| heads.contains(p))
+                })
+            {
+                rejected.extend(heads);
+                continue;
+            }
+            let intros: BTreeSet<usize> = used
+                .iter()
+                .flat_map(|&i| self.psteps[i].premises.iter().copied())
+                .filter(|p| intro_of.contains_key(p))
+                .collect();
+            let mut all_ok = true;
+            for intro in intros {
+                if certified.contains_key(&intro) {
+                    continue;
+                }
+                let goals = &intro_of[&intro].0;
+                let why = self.ddar.borrow_mut().derive_deps(
+                    &self.names,
+                    &self.insts[0],
+                    &self.preds,
+                    self.hyps,
+                    goals,
+                );
+                match why {
+                    Some(deps) => {
+                        certified.insert(intro, deps);
+                    }
+                    None => {
+                        rejected.insert(intro);
+                        all_ok = false;
+                    }
+                }
+            }
+            if all_ok {
+                let mut used_intros: BTreeSet<usize> = used
+                    .iter()
+                    .flat_map(|&i| self.psteps[i].premises.iter().copied())
+                    .filter(|p| certified.contains_key(p))
+                    .collect();
+                let carried: Vec<usize> = used
+                    .iter()
+                    .copied()
+                    .filter(|&i| !self.psteps[i].facts.is_empty())
+                    .collect();
+                if !used_intros.is_empty() || !carried.is_empty() {
+                    let mut deps: Vec<crate::proof::FactId> = used_intros
+                        .iter()
+                        .flat_map(|i| certified[i].iter().copied())
+                        .chain(
+                            carried
+                                .iter()
+                                .flat_map(|&i| self.psteps[i].facts.iter().copied()),
+                        )
+                        .collect();
+                    used_intros.extend(carried);
+                    deps.sort_unstable();
+                    deps.dedup();
+                    let lines = self.ddar.borrow().lines(&deps);
+                    let lead = self.ppush(
+                        format!(
+                            "Facts derived from the hypotheses by the deductive closure:{}",
+                            derivation_block(&lines)
+                        ),
+                        None,
+                        vec![],
+                    );
+                    self.psteps[lead].lead = true;
+                    for intro in used_intros {
+                        self.psteps[intro].premises.push(lead);
+                    }
+                }
+                return Some(used);
+            }
+        }
+        None
     }
 
     /// Try to prove a homogeneous degree-2 length identity from the CURRENT
@@ -1538,29 +2114,60 @@ impl Figure {
         goal_text: &str,
         relevant: &[PointId],
         aux_prose: &[String],
+        t2: bool,
     ) -> Option<String> {
-        let lm = mono_lower(lhs, self)?;
-        let rm = mono_lower(rhs, self)?;
-        let goal_map = mono_add(&lm, &rm, &-Rat::one());
-        if goal_map.is_empty() || !goal_map.keys().all(|m| m.len() == 2) {
+        let goal = self.homogeneous_goal(lhs, rhs)?;
+        let degree = goal.terms.keys().next()?.len();
+        if degree != 2 && !t2 {
             return None;
         }
-        let mut goal = PEq::default();
-        let mut goal_segs: BTreeSet<LAtom> = BTreeSet::new();
-        for (m, c) in &goal_map {
-            goal.add(pmul(m[0], m[1]), c.clone());
-            goal_segs.insert(m[0]);
-            goal_segs.insert(m[1]);
-        }
         self.psteps.clear();
-        self.gather_generic_similar(relevant);
-        self.gather_product_relations(&goal_segs);
-        let used = self.pprove(&goal)?;
+        self.pending.clear();
+        let mut used = None;
+        if degree == 2 {
+            let goal_segs: BTreeSet<LAtom> = goal
+                .terms
+                .keys()
+                .flatten()
+                .filter_map(|k| k.len())
+                .collect();
+            self.gather_generic_similar(relevant);
+            self.gather_bisector_products();
+            self.gather_product_relations(&goal_segs);
+            used = self.certified_products(&goal);
+        }
+        if used.is_none() && t2 {
+            let mut pool: BTreeSet<Mono> = goal.terms.keys().cloned().collect();
+            self.gather_cofactor_substitutions(&mut pool);
+            used = self.certified_products(&goal);
+        }
+        let used = used?;
         if used.is_empty() {
             return None;
         }
         let val = eval_numeric(lhs, self).unwrap_or(f64::NAN);
         Some(self.prender(&used, goal_text, val, aux_prose))
+    }
+
+    /// `lhs − rhs` as a product equation when every monomial has the same
+    /// positive degree.
+    fn homogeneous_goal(&self, lhs: &MExpr, rhs: &MExpr) -> Option<PEq> {
+        let lm = mono_lower(lhs, self)?;
+        let rm = mono_lower(rhs, self)?;
+        let goal_map = mono_add(&lm, &rm, &-Rat::one());
+        let degree = goal_map.keys().next()?.len();
+        if degree == 0
+            || !goal_map
+                .keys()
+                .all(|m| m.len() == degree && m.iter().all(|k| matches!(k, LKey::Len(..))))
+        {
+            return None;
+        }
+        let mut goal = PEq::default();
+        for (m, c) in goal_map {
+            goal.add(m, c);
+        }
+        Some(goal)
     }
 }
 
@@ -1577,6 +2184,8 @@ enum AuxFact {
     Perp([PointId; 4]),
     Cong([PointId; 4]),
     Cyclic(Vec<PointId>),
+    /// `dir(p0p1) − dir(p2p3) = dir(p4p5) − dir(p6p7)` (directed, mod π).
+    EqAngle([PointId; 8]),
 }
 
 struct AuxCand {
@@ -1597,15 +2206,33 @@ fn collect_points_m(e: &MExpr, out: &mut BTreeSet<String>) {
             out.insert(b.clone());
             out.insert(c.clone());
         }
-        MExpr::Neg(x) | MExpr::Sqrt(x) | MExpr::Sin(x) | MExpr::Cos(x) | MExpr::Tan(x) | MExpr::Pow(x, _) => {
-            collect_points_m(x, out)
-        }
+        MExpr::Neg(x)
+        | MExpr::Sqrt(x)
+        | MExpr::Sin(x)
+        | MExpr::Cos(x)
+        | MExpr::Tan(x)
+        | MExpr::Pow(x, _) => collect_points_m(x, out),
         MExpr::Add(x, y) | MExpr::Sub(x, y) | MExpr::Mul(x, y) | MExpr::Div(x, y) => {
             collect_points_m(x, out);
             collect_points_m(y, out);
         }
         MExpr::Num(_) => {}
     }
+}
+
+/// The construction's user-named points among the first `n` (not the `_k`
+/// helpers the compiler introduces, nor feet dropped later).
+fn named_points(fig: &Figure, n: usize) -> Vec<PointId> {
+    (0..n as PointId)
+        .filter(|&p| !fig.names[p as usize].starts_with('_'))
+        .collect()
+}
+
+fn goal_points(lhs: &MExpr, rhs: &MExpr, fig: &Figure) -> BTreeSet<PointId> {
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    collect_points_m(lhs, &mut names);
+    collect_points_m(rhs, &mut names);
+    names.iter().filter_map(|n| fig.pt(n)).collect()
 }
 
 impl Figure {
@@ -1625,14 +2252,34 @@ impl Figure {
             steps: Vec::new(),
             psteps: Vec::new(),
             drop_group: 0,
+            preds: self.preds.clone(),
+            hyps: self.hyps,
+            ddar: RefCell::new(Certifier::default()),
+            pending: Vec::new(),
+            trig_cache: BTreeMap::new(),
+            trig_checks: 0,
+            forbid: self.forbid,
         }
     }
     fn add_fact(&mut self, f: &AuxFact) {
         match f {
-            AuxFact::Coll(a, b, c) => self.colls.push(vec![*a, *b, *c]),
-            AuxFact::Perp(p) => self.perps.push(*p),
-            AuxFact::Cong(p) => self.congs.push(*p),
-            AuxFact::Cyclic(v) => self.concyclic.push(v.iter().copied().collect()),
+            AuxFact::Coll(a, b, c) => {
+                self.colls.push(vec![*a, *b, *c]);
+                self.preds.push(pred("coll", &[*a, *b, *c]));
+            }
+            AuxFact::Perp(p) => {
+                self.perps.push(*p);
+                self.preds.push(pred("perp", p));
+            }
+            AuxFact::Cong(p) => {
+                self.congs.push(*p);
+                self.preds.push(pred("cong", p));
+            }
+            AuxFact::Cyclic(v) => {
+                self.concyclic.push(v.iter().copied().collect());
+                self.preds.push(pred("cyclic", v));
+            }
+            AuxFact::EqAngle(p) => self.preds.push(pred("eqangle", p)),
         }
     }
 
@@ -1662,15 +2309,25 @@ impl Figure {
     }
 
     /// The library of candidate auxiliary points, built around the goal points.
+    /// Generation stops at [`MAX_AUX_CANDIDATES`] usable candidates (the
+    /// search never looks past them) or [`MAX_AUX_ATTEMPTS`] tries — the
+    /// angle-copy family alone is O(g⁶) in the goal's point count.
     fn aux_candidates(&self, g: &[PointId]) -> Vec<AuxCand> {
         let mut out = Vec::new();
+        let mut tried = 0usize;
         let nm = |p: PointId| self.names[p as usize].clone();
         let seg = |a: PointId, b: PointId| format!("{}{}", nm(a), nm(b));
-        let mut push = |c: Option<AuxCand>| {
-            if let Some(c) = c {
-                out.push(c);
-            }
-        };
+        macro_rules! push {
+            ($cand:expr) => {{
+                tried += 1;
+                if let Some(c) = $cand {
+                    out.push(c);
+                }
+                if out.len() >= MAX_AUX_CANDIDATES || tried >= MAX_AUX_ATTEMPTS {
+                    return out;
+                }
+            }};
+        }
         // Only one auxiliary point is ever added at a time, so every candidate is
         // simply named "K".
         let kid = self.names.len() as PointId;
@@ -1680,7 +2337,7 @@ impl Figure {
                 if p == o {
                     continue;
                 }
-                push(self.build_cand(
+                push!(self.build_cand(
                     "K".to_string(),
                     format!("Let {} be the reflection of {} in {}.", "K", nm(p), nm(o)),
                     vec![AuxFact::Coll(p, o, kid), AuxFact::Cong([o, p, o, kid])],
@@ -1691,7 +2348,7 @@ impl Figure {
         // midpoint of a goal pair  →  Coll(a,K,b), Cong(K,a,K,b)
         for (ai, &a) in g.iter().enumerate() {
             for &b in &g[ai + 1..] {
-                push(self.build_cand(
+                push!(self.build_cand(
                     "K".to_string(),
                     format!("Let {} be the midpoint of {}.", "K", seg(a, b)),
                     vec![AuxFact::Coll(a, kid, b), AuxFact::Cong([kid, a, kid, b])],
@@ -1706,9 +2363,14 @@ impl Figure {
                     if p == a || p == b {
                         continue;
                     }
-                    push(self.build_cand(
+                    push!(self.build_cand(
                         "K".to_string(),
-                        format!("Let {} be the foot of the perpendicular from {} to {}.", "K", nm(p), seg(a, b)),
+                        format!(
+                            "Let {} be the foot of the perpendicular from {} to {}.",
+                            "K",
+                            nm(p),
+                            seg(a, b)
+                        ),
                         vec![AuxFact::Coll(a, kid, b), AuxFact::Perp([p, kid, a, b])],
                         move |i| {
                             let (pa, va, vb) = (i[p as usize], i[a as usize], i[b as usize]);
@@ -1724,11 +2386,21 @@ impl Figure {
         for (ai, &a) in g.iter().enumerate() {
             for (bi, &b) in g.iter().enumerate().skip(ai + 1) {
                 for &c in &g[bi + 1..] {
-                    push(self.build_cand(
+                    push!(self.build_cand(
                         "K".to_string(),
-                        format!("Let {} be the circumcentre of {}{}{}.", "K", nm(a), nm(b), nm(c)),
-                        vec![AuxFact::Cong([kid, a, kid, b]), AuxFact::Cong([kid, b, kid, c])],
-                        move |i| NumCircle::through(i[a as usize], i[b as usize], i[c as usize]).map(|circ| circ.center),
+                        format!(
+                            "Let {} be the circumcentre of {}{}{}.",
+                            "K",
+                            nm(a),
+                            nm(b),
+                            nm(c)
+                        ),
+                        vec![
+                            AuxFact::Cong([kid, a, kid, b]),
+                            AuxFact::Cong([kid, b, kid, c])
+                        ],
+                        move |i| NumCircle::through(i[a as usize], i[b as usize], i[c as usize])
+                            .map(|circ| circ.center),
                     ));
                 }
             }
@@ -1741,9 +2413,14 @@ impl Figure {
                         if [a, b].contains(&c) || [a, b].contains(&d) {
                             continue;
                         }
-                        push(self.build_cand(
+                        push!(self.build_cand(
                             "K".to_string(),
-                            format!("Let {} be the intersection of {} and {}.", "K", seg(a, b), seg(c, d)),
+                            format!(
+                                "Let {} be the intersection of {} and {}.",
+                                "K",
+                                seg(a, b),
+                                seg(c, d)
+                            ),
                             vec![AuxFact::Coll(a, kid, b), AuxFact::Coll(c, kid, d)],
                             move |i| {
                                 intersect_ll(
@@ -1770,14 +2447,24 @@ impl Figure {
                     }
                     let mut cyc: Vec<PointId> = on.clone();
                     cyc.push(kid);
-                    push(self.build_cand(
+                    push!(self.build_cand(
                         "K".to_string(),
-                        format!("Let {} be the second meet of line {} with the circle.", "K", seg(v, r)),
+                        format!(
+                            "Let {} be the second meet of line {} with the circle.",
+                            "K",
+                            seg(v, r)
+                        ),
                         vec![AuxFact::Coll(v, r, kid), AuxFact::Cyclic(cyc)],
                         move |i| {
                             let circ =
                                 NumCircle::through(i[o0 as usize], i[o1 as usize], i[o2 as usize])?;
-                            second_meet(i[v as usize], i[r as usize], circ.center, circ.r, i[r as usize])
+                            second_meet(
+                                i[v as usize],
+                                i[r as usize],
+                                circ.center,
+                                circ.r,
+                                i[r as usize],
+                            )
                         },
                     ));
                 }
@@ -1800,13 +2487,24 @@ impl Figure {
                                     continue;
                                 }
                                 for sgn in [1.0f64, -1.0] {
-                                    push(self.build_cand(
+                                    let Some(copied) = self.copied_angle(v, r, p, q, kid, sgn)
+                                    else {
+                                        continue;
+                                    };
+                                    push!(self.build_cand(
                                         "K".to_string(),
                                         format!(
                                             "Let {} be the point on {} with ∠{}{}{} = ∠{}{}{}.",
-                                            "K", seg(s, t), nm(r), nm(v), "K", nm(p), nm(v), nm(q)
+                                            "K",
+                                            seg(s, t),
+                                            nm(r),
+                                            nm(v),
+                                            "K",
+                                            nm(p),
+                                            nm(v),
+                                            nm(q)
                                         ),
-                                        vec![AuxFact::Coll(s, kid, t)],
+                                        vec![AuxFact::Coll(s, kid, t), copied],
                                         move |i| angle_copy(i, [v, r, p, q, s, t], sgn),
                                     ));
                                 }
@@ -1816,7 +2514,38 @@ impl Figure {
                 }
             }
         }
+        for cand in self.centred_second_meets(g) {
+            push!(Some(cand));
+        }
         out
+    }
+
+    /// The directed-angle fact defining an angle-copy point `K` (the ray `vK` is
+    /// `vr` turned by `sgn·∠pvq`): `∠(vr, vK) = ∠(vp, vq)` or `∠(vq, vp)`,
+    /// whichever orientation `p, q` have about `v` — the same in every instance,
+    /// or no fact (and no candidate) at all.
+    fn copied_angle(
+        &self,
+        v: PointId,
+        r: PointId,
+        p: PointId,
+        q: PointId,
+        k: PointId,
+        sgn: f64,
+    ) -> Option<AuxFact> {
+        let turn = |i: &Vec<Vec2>| {
+            let (dp, dq) = (i[p as usize] - i[v as usize], i[q as usize] - i[v as usize]);
+            (dp.x * dq.y - dp.y * dq.x).signum()
+        };
+        let first = turn(&self.insts[0]);
+        if first == 0.0 || self.insts.iter().any(|i| turn(i) != first) {
+            return None;
+        }
+        Some(if first == sgn {
+            AuxFact::EqAngle([v, k, v, r, v, q, v, p])
+        } else {
+            AuxFact::EqAngle([v, k, v, r, v, p, v, q])
+        })
     }
 
     /// Try to prove the goal by introducing one auxiliary point from the library.
@@ -1832,14 +2561,18 @@ impl Figure {
         // is what the sum-of-products engine proves). Bail fast otherwise.
         let degree2 = mono_lower(lhs, self)
             .and_then(|l| mono_lower(rhs, self).map(|r| mono_add(&l, &r, &-Rat::one())))
-            .map(|g| !g.is_empty() && g.keys().all(|m| m.len() == 2))
+            .map(|g| {
+                !g.is_empty()
+                    && g.keys()
+                        .all(|m| m.len() == 2 && m.iter().all(|k| matches!(k, LKey::Len(..))))
+            })
             .unwrap_or(false);
         if !degree2 {
             return None;
         }
         let kid = self.names.len() as PointId;
         let mut candidates = self.aux_candidates(&gpts);
-        candidates.truncate(4000); // keep the search bounded
+        candidates.truncate(MAX_AUX_CANDIDATES); // keep the search bounded
         for cand in candidates {
             let mut f = self.lean_clone();
             f.names.push(cand.name.clone());
@@ -1852,13 +2585,18 @@ impl Figure {
             let mut rel = gpts.clone();
             rel.push(kid);
             let intro = cand.intro.replace('K', &cand.name);
-            if let Some(p) = f.prove_products(lhs, rhs, goal, &rel, std::slice::from_ref(&intro)) {
+            if let Some(p) =
+                f.prove_products(lhs, rhs, goal, &rel, std::slice::from_ref(&intro), false)
+            {
                 return Some(p);
             }
         }
         None
     }
 }
+
+const MAX_AUX_CANDIDATES: usize = 4000;
+const MAX_AUX_ATTEMPTS: usize = 200_000;
 
 /// The second intersection of line `ab` with the circle `(o, r)`, avoiding the
 /// point `known` (one intersection we already have).
@@ -1907,17 +2645,30 @@ fn angle_copy(i: &[Vec2], pts: [PointId; 6], sgn: f64) -> Option<Vec2> {
     )
 }
 
-/// Attempt a classical Euclidean proof of a **multiplicative** length goal.
-pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
-    let (lhs, rhs) = crate::metric::parse_equation(goal)?;
-    let algfig = crate::geo::build_algebraic(cons_src)?;
+/// The sampled figure plus up to four more independent instances. They gate
+/// the numeric detections: a similarity or parallelism must hold in every
+/// one, so a rule fires only on a construction-general fact, never a
+/// single-instance coincidence.
+#[cfg(test)]
+fn sampled_instances(cons_src: &str) -> Result<(SampledFigure, Vec<Vec<Vec2>>), String> {
+    sampled_instances_for(cons_src, None)
+}
 
-    // Several independent instances gate the numeric detections: a similarity or
-    // parallelism must hold in every one, so a rule fires only on a
-    // construction-general fact, never a single-instance coincidence.
-    let mut insts: Vec<Vec<Vec2>> = vec![algfig.coords.clone()];
+fn sampled_instances_for(
+    cons_src: &str,
+    goal: Option<[&MExpr; 2]>,
+) -> Result<(SampledFigure, Vec<Vec<Vec2>>), String> {
+    let mut sampled = crate::geo::build_sampled_figure(cons_src)?;
+    if let Some(sides) = goal {
+        let mut keep = std::collections::BTreeSet::new();
+        for e in sides {
+            crate::synthetic::collect_points(e, &mut keep);
+        }
+        sampled = sampled.without_idle_points(&keep);
+    }
+    let mut insts: Vec<Vec<Vec2>> = vec![sampled.coords.clone()];
     if let Ok(more) = crate::geo::build_instances(cons_src, 4) {
-        let names = &algfig.names;
+        let names = &sampled.names;
         for inst in more {
             let map: std::collections::HashMap<&str, Vec2> =
                 inst.iter().map(|(k, v)| (k.as_str(), *v)).collect();
@@ -1930,55 +2681,132 @@ pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
             }
         }
     }
+    Ok((sampled, insts))
+}
 
-    let mut fig = Figure::gather(&algfig, insts);
+/// Attempt a classical Euclidean proof of a **multiplicative** length goal.
+pub fn prove_ratio(cons_src: &str, goal: &str) -> Result<Outcome, String> {
+    prove_ratio_guarded(cons_src, goal).map(|(o, _)| o)
+}
+
+pub fn prove_ratio_guarded(cons_src: &str, goal: &str) -> Result<(Outcome, Vec<Thm>), String> {
+    match prove_ratio_pass(cons_src, goal, true)? {
+        RatioPass::Done(o) => Ok((o, Vec::new())),
+        RatioPass::States(detected) => {
+            let forbid = crate::theory::current().union(Forbid::closure_of(&detected));
+            match crate::theory::with_forbid(forbid, || prove_ratio_pass(cons_src, goal, false))? {
+                RatioPass::Done(o) => Ok((o, detected)),
+                RatioPass::States(_) => Ok((Outcome::Unhandled(String::new()), detected)),
+            }
+        }
+    }
+}
+
+enum RatioPass {
+    Done(Outcome),
+    States(Vec<Thm>),
+}
+
+fn prove_ratio_pass(cons_src: &str, goal: &str, detect: bool) -> Result<RatioPass, String> {
+    let (lhs, rhs) = crate::metric::parse_equation(goal)?;
+    let (sampled, insts) = sampled_instances_for(cons_src, Some([&lhs, &rhs]))?;
+
+    let mut fig = Figure::gather(&sampled, insts.clone());
     fig.apply();
 
     // General metric hypotheses imposed by `point:` constraints become given
     // equations — so an arbitrary relation the user imposed can be *used* here.
     let mut hyp_steps: Vec<(String, LEq)> = Vec::new();
-    for (l, r) in &algfig.metric_hyps {
+    for (l, r) in &sampled.metric_hyps {
         if let (Some(le), Some(re)) = (llower(l, &fig), llower(r, &fig)) {
             let mut eq = le;
             eq.sub_scaled(&re, &Rat::one());
             if !eq.is_zero() {
                 hyp_steps.push((
-                    format!("Given: {} = {} (hypothesis).", l.to_display(), r.to_display()),
+                    format!(
+                        "Given: {} = {} (hypothesis).",
+                        l.to_display(),
+                        r.to_display()
+                    ),
                     eq,
                 ));
             }
         }
     }
     for (text, eq) in hyp_steps {
-        fig.push(text, Some(eq), vec![], false);
+        fig.push_given(text, eq);
     }
 
     let goal_val = eval_numeric(&lhs, &fig).unwrap_or(f64::NAN);
 
     // 1. Monomial (product/ratio/power) ratio engine.
+    let mut mono_goal = None;
     if let (Some(l), Some(r)) = (llower(&lhs, &fig), llower(&rhs, &fig)) {
         let mut goal_eq = l;
         goal_eq.sub_scaled(&r, &Rat::one());
-        if let Some(used) = fig.prove(&goal_eq) {
-            if !used.is_empty() {
-                return Ok(Outcome::Proved(fig.render(&used, goal, goal_val)));
+        if detect {
+            let stated = fig.stated_theorems(&goal_eq);
+            if !stated.is_empty() {
+                return Ok(RatioPass::States(stated));
             }
         }
+        if let Some(used) = fig.prove(&goal_eq) {
+            if !used.is_empty() {
+                return Ok(RatioPass::Done(Outcome::Proved(
+                    fig.render(&used, goal, goal_val),
+                )));
+            }
+        }
+        mono_goal = Some(goal_eq);
     }
+    let mut s1_fig = fig;
 
     // 2. General sum-of-products engine (degree-2 identities) — with the general
     //    auxiliary-point search for the aux-requiring cases (Ptolemy, …).
+    //    A fresh figure: the feet the monomial engine dropped are not part of
+    //    this proof, so they must not reach its facts or its derivations.
+    let mut fig = Figure::gather(&sampled, insts.clone());
     let relevant: Vec<PointId> = (0..fig.names.len() as PointId).collect();
-    if let Some(proof) = fig.prove_products(&lhs, &rhs, goal, &relevant, &[]) {
-        return Ok(Outcome::Proved(proof));
+    if let Some(proof) = fig.prove_products(&lhs, &rhs, goal, &relevant, &[], true) {
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
     if let Some(proof) = fig.aux_search(&lhs, &rhs, goal) {
-        return Ok(Outcome::Proved(proof));
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
     }
 
-    Ok(Outcome::Unhandled(
+    // 3. Trigonometry, only once every trig-free stage has failed.
+    //    S2: the S1 figure plus sine rows over the construction's own points.
+    let pts = named_points(&s1_fig, sampled.names.len());
+    let goal_pts = goal_points(&lhs, &rhs, &s1_fig);
+    if let Some(goal_eq) = &mono_goal {
+        if let Some(used) = s1_fig.prove_trig_log(goal_eq, &pts, &goal_pts) {
+            return Ok(RatioPass::Done(Outcome::Proved(
+                s1_fig.render(&used, goal, goal_val),
+            )));
+        }
+    }
+    //    S5: products with T2 cofactors, T4 powers and T3 log bridges.
+    let mut fig = Figure::gather(&sampled, insts);
+    let all: Vec<PointId> = (0..fig.names.len() as PointId).collect();
+    if let Some(proof) = fig.prove_products_trig(&lhs, &rhs, goal, &pts, &all, &[]) {
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
+    }
+    //    S6: the same after one circle second meet or perpendicular foot.
+    if let Some(proof) = fig.aux_search_trig(&lhs, &rhs, goal, &pts) {
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
+    }
+    //    S7: sine-area rows over the goal multiplied by a non-zero sine.
+    if let Some(proof) = fig.prove_by_areas(&lhs, &rhs, goal, &pts) {
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
+    }
+    //    S8: a cosine goal over the law-of-cosines rows.
+    if let Some(proof) = fig.prove_by_cosines(&lhs, &rhs, goal, &pts) {
+        return Ok(RatioPass::Done(Outcome::Proved(proof)));
+    }
+
+    Ok(RatioPass::Done(Outcome::Unhandled(
         "no chain of the known ratio theorems reaches the goal".to_string(),
-    ))
+    )))
 }
 
 #[cfg(test)]
@@ -2000,6 +2828,22 @@ mod tests {
                 false
             }
         }
+    }
+
+    #[test]
+    fn aux_candidate_generation_is_bounded() {
+        // Ten goal points: the angle-copy family alone would be ~580k candidates.
+        let names: Vec<String> = (0..10).map(|i| format!("P{i}")).collect();
+        let cons: String = names.iter().map(|n| format!("{n} = free\n")).collect();
+        let sampled = crate::geo::build_sampled_figure(&cons).expect("build");
+        let fig = Figure::gather(&sampled, vec![sampled.coords.clone()]);
+        let g: Vec<PointId> = (0..names.len() as PointId).collect();
+        let cands = fig.aux_candidates(&g);
+        assert!(
+            cands.len() <= MAX_AUX_CANDIDATES,
+            "{} candidates",
+            cands.len()
+        );
     }
 
     #[test]

@@ -1,0 +1,13 @@
+EUCLIDEAN PROOF
+  Goal:  dist(A, B) ^ 2 + dist(A, C) ^ 2 = dist(B, C) ^ 2
+
+  1. Let H be the foot of the perpendicular from A to BC.
+  2. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. construction: coll B C H
+       ↳ 002. collinear: B H C [001]
+       ↳ 003. construction: perp A H B C
+  3. H lies on BC and AH ⟂ BC (derived from the hypotheses).  [from 1, 2]
+  4. In right triangle BAC (right angle at A) the altitude AH gives △BHA ∼ △BAC (common angle at B, right angles at H and A), so AB² = BH·BC (leg theorem); as H lies between B and C, BH·BC = ½·(BH² + BC² − HC²).  [from 3]
+  5. In right triangle CAB (right angle at A) the altitude AH gives △CHA ∼ △CAB (common angle at C, right angles at H and A), so AC² = CH·CB (leg theorem); as H lies between C and B, CH·CB = ½·(CH² + CB² − HB²).  [from 3]
+
+  Combining the equations above gives dist(A, B) ^ 2 + dist(A, C) ^ 2 = dist(B, C) ^ 2  (= 0.2882). ∎

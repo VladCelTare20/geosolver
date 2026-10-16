@@ -1,0 +1,20 @@
+EUCLIDEAN PROOF
+  Goal:  dist(A,B)^2 + dist(A,C)^2 = 2*dist(A,M)^2 + 2*dist(B,M)^2
+
+  1. Let H be the foot of the perpendicular from A to BC.
+  2. Facts derived from the hypotheses by the deductive closure:
+       ↳ 001. assumption: coll B C M
+       ↳ 002. collinear: B M C [001]
+       ↳ 003. construction: coll B C H
+       ↳ 004. collinear: B M H C [002 & 003]
+       ↳ 005. construction: perp A H B C
+  3. ∠AHB = 90° (derived from the hypotheses).  [from 1, 2]
+  4. ∠AHC = 90° (derived from the hypotheses).  [from 1, 2]
+  5. ∠AHM = 90° (derived from the hypotheses).  [from 1, 2]
+  6. M is the midpoint of BC, so BM² = ¼·BC².
+  7. In right triangle AHB (right angle at H), by the Pythagorean theorem AB² = HA² + HB².  [from 3]
+  8. In right triangle AHC (right angle at H), by the Pythagorean theorem AC² = HA² + HC².  [from 4]
+  9. In right triangle AHM (right angle at H), by the Pythagorean theorem AM² = HA² + HM².  [from 5]
+  10. M is the midpoint of BC, and H lies on the line BC too, so along that line MH² = 1/2·BH² + 1/2·CH² − 1/4·BC² (lengths of collinear segments).  [from 1]
+
+  Combining the equations above gives dist(A,B)^2 + dist(A,C)^2 = 2*dist(A,M)^2 + 2*dist(B,M)^2  (= 0.4315). ∎

@@ -1,0 +1,9 @@
+EUCLIDEAN PROOF
+  Goal:  dist(A,D)^2 = 14
+
+  1. |BC| = 6 (given), so BC² = 36.
+  2. |AB| = 5 (given), so AB² = 25.
+  3. |AC| = 4 (given), so AC² = 16.
+  4. D lies on BC between B and C, and |BD| = 2, |BC| = 6 (given), so BD:DC = 1:2. By Stewart's theorem for the cevian AD in triangle ABC: AD² = 2/3·AB² + 1/3·AC² − 2/9·BC².
+
+  Combining the equations above gives dist(A,D)^2 = 14  (= 14). ∎

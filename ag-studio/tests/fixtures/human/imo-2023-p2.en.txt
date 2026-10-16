@@ -1,0 +1,80 @@
+∡(a, b) is the directed angle between the lines a and b: the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These are angles between lines, not ordinary angles: 0° and 180° are the same directed angle, so their equalities are written ≡ … (mod 180°). They are used only in step 7, where no derivation with ordinary angles was found. Let Ω be the circumcircle of triangle ABC, with center O; N, S, E, P lie on Ω. Let ω₁ be the circle (BDL), with center O₁; P lies on ω₁.
+
+Plan: it suffices to show that A, I, X are collinear.
+
+1. We show that NB = NC:
+
+∠NBC = ∠NAC    [inscribed angles in Ω]
+     = ∠BAN    [AI bisects ∠BAC]
+     = ∠BCN    [inscribed angles in Ω]
+
+Hence NB = NC. (1)
+
+2. OB = OC and, by (1), NB = NC, so ON is the perpendicular bisector of BC; hence ON ⟂ BC. (2)
+
+3. We show that T, E, S, O are concyclic:
+
+∠OTB = 90° − ∠EBT    [OT ⟂ BE]
+     = 90° − ∠ENS    [exterior angle of the cyclic quadrilateral BENS]
+     = ∠ESO    [NS is a diameter of Ω]
+     = ∠OES    [OS = OE]
+
+∠OTS = ∠OES, B lies on the segment TS and T, E lie on the same side of OS, so by the converse of the inscribed angle theorem, T, E, S, O are concyclic. (3)
+
+4. We show that T, P, X, O are concyclic:
+
+∠OTB = 90° − ∠EBT    [OT ⟂ BE]
+     = 90° − ∠LBD    [vertical angles at B]
+     = ∠BLD − ∠LDX + 90°    [exterior angle of △DBL]
+     = ∠BPD − ∠LDX + 90°    [inscribed angles in ω₁]
+     = ∠BPD − ∠CBT + 90°    [DL ∥ BC; alternate angles]
+     = ∠BPD − ∠OSB    [ON ⟂ BC, by (2)]
+     = ∠BPD − ∠XBO    [OS = OB]
+     = ∠BPO − ∠XBO − ∠OPD    [angle addition]
+     = ∠OBP − ∠OPD − ∠XBO    [OP = OB]
+     = ∠XBP − ∠OPD    [angle addition]
+     = ∠DPX − ∠OPD    [PX is tangent to ω₁ (tangent–chord angle)]
+     = ∠OPX    [angle addition]
+
+∠OTX = ∠OPX, B lies on the segment TX and T, P lie on the same side of OX, so by the converse of the inscribed angle theorem, T, P, X, O are concyclic. (4)
+
+5. We show that T, P, E, D are concyclic:
+
+∠PET = 180° − ∠NOT − ∠PES    [T, E, S, O concyclic, by (3)]
+     = ½·∠SOP + ∠POT    [central angle in Ω]
+     = ∠XBP + ∠POT    [central angle in Ω]
+     = ∠XBP + ∠PXT    [T, P, X, O concyclic, by (4)]
+     = 180° − ∠XPB    [angle sum in △XBP]
+     = ∠PDT    [PX is tangent to ω₁ (tangent–chord angle)]
+
+∠PET = ∠PDT and E, D lie on the same side of PT, so by the converse of the inscribed angle theorem, T, P, E, D are concyclic. (5)
+
+6. We show that XA = XP:
+
+∠AOX = ∠AOP − ∠XOP    [angle addition]
+     = ∠AOP − ∠PTX    [T, P, X, O concyclic, by (4)]
+     = ∠AOP − ∠AEP    [T, P, E, D concyclic, by (5)]
+     = ∠AEP    [central angle in Ω]
+     = ∠XTP    [T, P, E, D concyclic, by (5)]
+     = ∠XOP    [T, P, X, O concyclic, by (4)]
+
+Radii of Ω, so △OAX ≅ △OPX (SAS). Hence XA = XP. (6)
+
+7. We show that A, I, X are collinear:
+
+∡IAX ≡ ∡SAX + 90°    [NS is a diameter of Ω]
+     ≡ ∡PAX + ∡SAP + 90°    [angle addition]
+     ≡ ∡PAX + ∡SAP + ∡(AD, BC)    [AD ⟂ BC]
+     ≡ ∡PAX + ∡XBP + ∡(AD, BC)    [inscribed angles in Ω]
+     ≡ ∡PAX + ∡DPX + ∡(AD, BC)    [PX is tangent to ω₁ (tangent–chord angle)]
+     ≡ ∡DPX + ∡XPA + ∡(AD, BC)    [XA = XP: triangle XAP is isosceles, by (6)]
+     ≡ ∡DPA + ∡(AD, BC)    [angle addition]
+     ≡ ∡BPA + ∡DPB + ∡(AD, BC)    [angle addition]
+     ≡ ∡DPB + ∡BEA + ∡(AD, BC)    [inscribed angles in Ω]
+     ≡ ∡BEA + ∡DLB + ∡(AD, BC)    [inscribed angles in ω₁]
+     ≡ ∡LDA + ∡(AD, BC)    [angle sum in △EDL]
+     ≡ 0° (mod 180°)    [DL ∥ BC]
+
+So A, I, X are collinear. (7)
+
+8. A, I, X collinear, by (7) and AI bisects ∠BAC, so AX bisects ∠BAC, as required. ∎

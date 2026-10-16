@@ -50,7 +50,7 @@ pub struct ConstructionDoc {
 pub const CONSTRUCTIONS: &[ConstructionDoc] = &[
     ConstructionDoc {
         name: "triangle",
-        summary: "A B C = triangle           — three free points in general position",
+        summary: "A B C = triangle           — a scalene acute triangle as a textbook draws it (any triangle when nothing else fits)",
     },
     ConstructionDoc {
         name: "segment",
@@ -214,6 +214,24 @@ fn cross(u: Vec2, v: Vec2) -> f64 {
     u.x * v.y - u.y * v.x
 }
 
+thread_local! {
+    static TEXTBOOK_TRIANGLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+const TEXTBOOK_SEEDS: u64 = 200;
+
+const ANGLE_SUM_TOLERANCE_DEG: f64 = 1e-4;
+
+fn textbook_triangle(a: Vec2, b: Vec2, c: Vec2) -> bool {
+    let angle = |p: Vec2, q: Vec2, r: Vec2| {
+        let (u, v) = (q - p, r - p);
+        cross(u, v).abs().atan2(u.x * v.x + u.y * v.y).to_degrees()
+    };
+    let mut t = [angle(a, b, c), angle(b, c, a), angle(c, a, b)];
+    t.sort_by(f64::total_cmp);
+    t[0] >= 35.0 && t[2] <= 82.0 && t[1] - t[0] >= 6.0 && t[2] - t[1] >= 6.0
+}
+
 struct Rng(u64);
 impl Rng {
     fn new(seed: u64) -> Rng {
@@ -371,11 +389,9 @@ enum Rel {
     Perp(Vec<Expr>), // 4
     Para(Vec<Expr>), // 4
     Cyclic(Vec<Expr>),
-    Eqangle(Vec<Expr>),                // 8
-    Eqratio(Vec<Expr>),                // 8
-    On(Expr, Expr),                    // point, object
-    AngleConst(Expr, Expr, Expr, f64), // angle(a,b,c) = deg
-    AngleEq(Vec<Expr>),                // angle(a,b,c)=angle(d,e,f); 6 exprs
+    Eqangle(Vec<Expr>), // 8
+    Eqratio(Vec<Expr>), // 8
+    On(Expr, Expr),     // point, object
     /// `dist(..)*dist(..)*... = dist(..)*...` — product of lengths equality.
     /// Fields: flattened point exprs of the left side, then of the right side
     /// (2 exprs per distance).
@@ -405,8 +421,14 @@ enum Rel {
 
 #[derive(Clone, Debug)]
 enum Stmt {
-    Bind { names: Vec<String>, expr: Expr },
-    Constrain { name: String, constraints: Vec<Rel> },
+    Bind {
+        names: Vec<String>,
+        expr: Expr,
+    },
+    Constrain {
+        name: String,
+        constraints: Vec<Rel>,
+    },
     /// `assume <rel>, <rel>, …` — free-standing hypotheses over already-declared
     /// points, satisfied by a global solve over the figure's free points. This
     /// is what lets the language state ANY figure ("A B C D = free; assume
@@ -433,6 +455,9 @@ struct Parser {
     /// input gets a parse error instead of a stack overflow (which would
     /// abort the whole process — uncatchable, unlike an ordinary panic).
     depth: u32,
+    /// Binary operators in the current relation (see
+    /// [`crate::metric::MAX_EXPR_OPS`]); reset per relation.
+    ops: u32,
 }
 
 impl Parser {
@@ -585,6 +610,7 @@ impl Parser {
     }
 
     fn parse_rel(&mut self) -> Result<Rel, String> {
+        self.ops = 0;
         // The qualitative predicate relations: a keyword applied to point
         // expressions (which may be nested constructions).
         if let Some(Tok::Ident(n)) = self.peek() {
@@ -617,10 +643,12 @@ impl Parser {
             match self.peek() {
                 Some(Tok::Plus) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Add(Box::new(e), Box::new(self.parse_mterm()?));
                 }
                 Some(Tok::Minus) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Sub(Box::new(e), Box::new(self.parse_mterm()?));
                 }
                 _ => break,
@@ -634,10 +662,12 @@ impl Parser {
             match self.peek() {
                 Some(Tok::Star) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Mul(Box::new(e), Box::new(self.parse_mpow()?));
                 }
                 Some(Tok::Slash) => {
                     self.next();
+                    crate::metric::count_op(&mut self.ops)?;
                     e = MExpr::Div(Box::new(e), Box::new(self.parse_mpow()?));
                 }
                 _ => break,
@@ -650,7 +680,13 @@ impl Parser {
         if self.peek() == Some(&Tok::Caret) {
             self.next();
             match self.next() {
-                Some(Tok::Num(p)) => Ok(MExpr::Pow(Box::new(base), p)),
+                Some(Tok::Num(p)) => {
+                    crate::metric::count_op(&mut self.ops)?;
+                    Ok(MExpr::Pow(
+                        Box::new(base),
+                        crate::metric::check_exponent(p)?,
+                    ))
+                }
                 other => Err(format!("expected a numeric exponent, found {other:?}")),
             }
         } else {
@@ -745,12 +781,31 @@ fn finish_predicate_rel(name: &str, args: Vec<Expr>) -> Result<Rel, String> {
         if args.len() == k {
             Ok(())
         } else {
-            Err(format!("`{name}` expects {k} arguments, got {}", args.len()))
+            Err(format!(
+                "`{name}` expects {k} arguments, got {}",
+                args.len()
+            ))
+        }
+    };
+    let at_least = |k: usize| -> Result<(), String> {
+        if args.len() >= k {
+            Ok(())
+        } else {
+            Err(format!(
+                "`{name}` expects at least {k} arguments, got {}",
+                args.len()
+            ))
         }
     };
     match name {
-        "coll" => Ok(Rel::Coll(args)),
-        "cyclic" => Ok(Rel::Cyclic(args)),
+        "coll" => {
+            at_least(3)?;
+            Ok(Rel::Coll(args))
+        }
+        "cyclic" => {
+            at_least(4)?;
+            Ok(Rel::Cyclic(args))
+        }
         "cong" => {
             need(4)?;
             Ok(Rel::Cong(args))
@@ -825,17 +880,9 @@ fn as_dist_product(e: &MExpr) -> Option<Vec<(String, String)>> {
 fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
     let id = |s: &String| Expr::Ident(s.clone());
     match (&lhs, &rhs) {
-        (MExpr::Dist(a, b), MExpr::Dist(c, d)) => {
-            Rel::Cong(vec![id(a), id(b), id(c), id(d)])
-        }
+        (MExpr::Dist(a, b), MExpr::Dist(c, d)) => Rel::Cong(vec![id(a), id(b), id(c), id(d)]),
         (MExpr::Dist(a, b), MExpr::Num(v)) | (MExpr::Num(v), MExpr::Dist(a, b)) => {
             Rel::DistConst(id(a), id(b), *v)
-        }
-        (MExpr::Angle(a, b, c), MExpr::Num(v)) => {
-            Rel::AngleConst(id(a), id(b), id(c), *v)
-        }
-        (MExpr::Angle(a, b, c), MExpr::Angle(d, e, f)) => {
-            Rel::AngleEq(vec![id(a), id(b), id(c), id(d), id(e), id(f)])
         }
         _ => {
             if let (Some(l), Some(r)) = (as_dist_product(&lhs), as_dist_product(&rhs)) {
@@ -858,9 +905,7 @@ fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
                 return Rel::AngSumEq(
                     terms
                         .into_iter()
-                        .map(|(c, x, y, z)| {
-                            (c, Expr::Ident(x), Expr::Ident(y), Expr::Ident(z))
-                        })
+                        .map(|(c, x, y, z)| (c, Expr::Ident(x), Expr::Ident(y), Expr::Ident(z)))
                         .collect(),
                     k,
                 );
@@ -872,7 +917,7 @@ fn classify_metric_eq(lhs: MExpr, rhs: MExpr) -> Rel {
 
 /// Decompose a metric expression into a rational linear combination of
 /// distances plus a numeric constant: `Σ cᵢ·|aᵢbᵢ| + k`.
-fn as_dist_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String)>, f64)> {
+fn as_dist_lincomb(e: &MExpr) -> Option<(Vec<DistTerm>, f64)> {
     match e {
         MExpr::Num(v) => Some((Vec::new(), *v)),
         MExpr::Dist(a, b) => Some((vec![(1.0, a.clone(), b.clone())], 0.0)),
@@ -947,7 +992,7 @@ fn as_dist_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<Vec<(Rat, String, String)>
 
 /// Decompose a metric expression into a rational linear combination of
 /// geometric angles plus a constant: `Σ cᵢ·∠(xᵢ yᵢ zᵢ) + k` (degrees).
-fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String, String)>, f64)> {
+fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<AngleTerm<f64>>, f64)> {
     match e {
         MExpr::Num(v) => Some((Vec::new(), *v)),
         MExpr::Angle(a, b, c) => Some((vec![(1.0, a.clone(), b.clone(), c.clone())], 0.0)),
@@ -991,7 +1036,7 @@ fn as_angle_lincomb(e: &MExpr) -> Option<(Vec<(f64, String, String, String)>, f6
 /// Classify `lhs = rhs` as a rational linear combination of geometric angles
 /// equal to a constant (`Σ cᵢ·∠XᵢYᵢZᵢ = K` degrees) — the shape lowered to the
 /// engine's linear `angeq` predicate. `∠XYZ = ∠ZYX`, so mirrored terms merge.
-fn as_angle_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<(Vec<(Rat, String, String, String)>, Rat)> {
+fn as_angle_sum_eq(lhs: &MExpr, rhs: &MExpr) -> Option<(Vec<AngleTerm<Rat>>, Rat)> {
     let (lt, lk) = as_angle_lincomb(lhs)?;
     let (rt, rk) = as_angle_lincomb(rhs)?;
     let mut terms = lt;
@@ -1075,11 +1120,34 @@ fn angsumeq_to_predicate(
         constants.push(-&n);
     }
     constants.push(-&(konst * &scale));
-    Some(Predicate {
-        name: "angeq".to_string(),
-        points,
-        constants,
-    })
+    Some(simplify_angeq(points, constants))
+}
+
+fn simplify_angeq(points: Vec<PointId>, constants: Vec<Rat>) -> Predicate {
+    let one = Rat::one();
+    let unit = |c: &Rat| c.is_one() || c.is_minus_one();
+    match (points.as_slice(), constants.as_slice()) {
+        ([y, x, _, z], [n, _, k]) if unit(n) => {
+            let half_turns = &(-k) / &Rat::from_int(180);
+            let deg = &half_turns.mod_one() * &Rat::from_int(180);
+            let (p, q) = if n == &one { (*x, *z) } else { (*z, *x) };
+            Predicate {
+                name: "aconst".to_string(),
+                points: vec![*y, p, *y, q],
+                constants: vec![deg],
+            }
+        }
+        ([y, x, _, z, e, d, _, f], [n, _, m, _, k]) if k.is_zero() && unit(n) && unit(m) => {
+            let (p, q) = if n == &one { (*x, *z) } else { (*z, *x) };
+            let (r, t) = if m == &one { (*f, *d) } else { (*d, *f) };
+            pred("eqangle", vec![*y, p, *y, q, *e, r, *e, t])
+        }
+        _ => Predicate {
+            name: "angeq".to_string(),
+            points,
+            constants,
+        },
+    }
 }
 
 /// Reconstruct an `AngSumEq` as an `lhs = rhs` metric equation (positive terms
@@ -1188,31 +1256,10 @@ fn fatal(m: impl Into<String>) -> BuildError {
     BuildError::Fatal(m.into())
 }
 
-/// A single-branch algebraic definition of a constructed point, used by the
-/// exact metric prover ([`crate::algebra`]). Some DDAR predicate encodings
-/// describe a point only up to a *two-branch* variety (e.g. `reflect` emits
-/// `coll` + `cong`, which is satisfied by both the point and its "un-reflected"
-/// twin). Wu's method proves identities on the whole variety, so it cannot use
-/// those. These defs pin the intended point with single-branch (linear)
-/// equations without changing what DDAR sees.
-#[derive(Clone, Debug)]
-pub enum PointDef {
-    /// Each coordinate is this exact affine combination of earlier points:
-    /// `NEW = Σ wᵢ·Pᵢ` (a midpoint, reflection over a point, translation, …).
-    Affine(Vec<(PointId, Rat)>),
-    /// The reflection of `p` across the line through `a` and `b`, pinned by the
-    /// two linear conditions `(NEW−p) ⟂ (b−a)` and `midpoint(p,NEW) ∈ line ab`.
-    ReflectLine { p: PointId, a: PointId, b: PointId },
-}
-
 struct Scene {
     env: HashMap<String, Value>,
     points: Vec<Point>,
     preds: Vec<Predicate>,
-    /// Single-branch algebraic definitions for constructed points (for the
-    /// exact metric prover); only populated for constructions whose predicate
-    /// encoding is otherwise multi-branch.
-    defs: HashMap<PointId, PointDef>,
     /// General metric-equation hypotheses (`dist(P,A) = 2*dist(P,B)`, …) imposed
     /// via `point:` or `assume` — offered to the metric provers as givens.
     metric_hyps: Vec<(MExpr, MExpr)>,
@@ -1229,6 +1276,7 @@ struct Scene {
     dof_used: usize,
     rng: Rng,
     anon: usize,
+    goal_source_holds: Option<bool>,
 }
 
 impl Scene {
@@ -1237,13 +1285,13 @@ impl Scene {
             env: HashMap::new(),
             points: Vec::new(),
             preds: Vec::new(),
-            defs: HashMap::new(),
             metric_hyps: Vec::new(),
             dof_record: Vec::new(),
             dof_override: Vec::new(),
             dof_used: 0,
             rng: Rng::new(seed),
             anon: 0,
+            goal_source_holds: None,
         }
     }
     fn coord(&self, id: PointId) -> Vec2 {
@@ -1331,6 +1379,20 @@ fn eval_point(scene: &mut Scene, e: &Expr) -> Result<PointId, BuildError> {
 }
 
 fn eval(scene: &mut Scene, e: &Expr) -> Result<Vec<Value>, BuildError> {
+    let values = eval_unchecked(scene, e)?;
+    // Nested constructions add anonymous points the declaration count in
+    // `check_point_count` cannot see; cap the real total as it grows.
+    if scene.points.len() > MAX_POINTS {
+        return Err(fatal(format!(
+            "too many points ({}+ after expanding nested constructions); this engine \
+             supports at most {MAX_POINTS} in one problem",
+            scene.points.len()
+        )));
+    }
+    Ok(values)
+}
+
+fn eval_unchecked(scene: &mut Scene, e: &Expr) -> Result<Vec<Value>, BuildError> {
     match e {
         Expr::Ident(name) => {
             if let Some(v) = scene.env.get(name) {
@@ -1376,7 +1438,8 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
                 && (cross(b - a, c - a).abs() < 0.15
                     || distance(a, b) < 0.4
                     || distance(b, c) < 0.4
-                    || distance(a, c) < 0.4)
+                    || distance(a, c) < 0.4
+                    || (TEXTBOOK_TRIANGLE.with(|f| f.get()) && !textbook_triangle(a, b, c)))
             {
                 return Err(BuildError::Degenerate);
             }
@@ -1529,11 +1592,6 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
                     let id = scene.add_point(None, x);
                     scene.emit("coll", &[a, b, id]);
                     scene.emit("cong", &[a, b, b, id]);
-                    // Single-branch: NEW = 2·b − a.
-                    scene.defs.insert(
-                        id,
-                        PointDef::Affine(vec![(b, Rat::from_int(2)), (a, Rat::from_int(-1))]),
-                    );
                     Ok(vec![Value::Point(id)])
                 }
                 Value::Line(b, c) => {
@@ -1542,9 +1600,6 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
                     let id = scene.add_point(None, x);
                     scene.emit("cong", &[b, a, b, id]);
                     scene.emit("cong", &[c, a, c, id]);
-                    scene
-                        .defs
-                        .insert(id, PointDef::ReflectLine { p: a, a: b, b: c });
                     Ok(vec![Value::Point(id)])
                 }
                 _ => Err(fatal("reflect's second argument must be a point or line")),
@@ -1680,6 +1735,7 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
             scene.emit("perp", &[b, c, c, d]);
             scene.emit("cong", &[b, c, c, d]);
             scene.emit("para", &[a, b, d, c]);
+            scene.emit("para", &[a, d, b, c]);
             Ok(vec![Value::Point(c), Value::Point(d)])
         }
         "on_dia" => {
@@ -1802,15 +1858,6 @@ fn eval_call(scene: &mut Scene, name: &str, args: &[Expr]) -> Result<Vec<Value>,
             let x = scene.add_point(None, scene.coord(p) + scene.coord(b) - scene.coord(a));
             scene.emit("para", &[p, x, a, b]);
             scene.emit("cong", &[p, x, a, b]);
-            // Single-branch: NEW = p + b − a.
-            scene.defs.insert(
-                x,
-                PointDef::Affine(vec![
-                    (p, Rat::one()),
-                    (b, Rat::one()),
-                    (a, Rat::from_int(-1)),
-                ]),
-            );
             Ok(vec![Value::Point(x)])
         }
         "excenter" => {
@@ -2033,7 +2080,6 @@ enum CKind {
     Cyclic,
     Eqangle,
     Eqratio,
-    AConst(Rat),
     /// Product-of-lengths equality; the field is the number of distances on
     /// the left side (points hold 2 per distance, left then right).
     ProdEq(usize),
@@ -2046,7 +2092,10 @@ enum CKind {
     /// Linear combination of geometric angles = constant (degrees);
     /// coefficients per angle, points hold 3 per angle (vertex in the middle).
     /// Becomes the engine's linear `angeq` predicate (branches from the figure).
-    AngSumEq { coefs: Vec<Rat>, konst: Rat },
+    AngSumEq {
+        coefs: Vec<Rat>,
+        konst: Rat,
+    },
     /// A general metric equation, enforced numerically. `unknown` is the name of
     /// the point being solved for (if this constraint defines one).
     MetricEq {
@@ -2105,14 +2154,6 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
             kind: CKind::Eqratio,
             pts: pts(scene, a)?,
         }),
-        Rel::AngleConst(a, b, c, deg) => {
-            let deg_rat = deg_to_rat(*deg)?;
-            let p = vec![pt(scene, b)?, pt(scene, a)?, pt(scene, b)?, pt(scene, c)?];
-            Ok(Lowered {
-                kind: CKind::AConst(deg_rat),
-                pts: p,
-            })
-        }
         Rel::ProdEq(lhs, rhs) => {
             let n_left = lhs.len() / 2;
             let mut p = pts(scene, lhs)?;
@@ -2140,6 +2181,15 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
             })
         }
         Rel::AngSumEq(terms, k) => {
+            if let [(c, _, _, _)] = terms.as_slice() {
+                let v = (k / c).to_f64();
+                if !(v > 0.0 && v < 180.0) {
+                    return Err(fatal(
+                        "an angle(..) is strictly between 0 and 180 degrees; \
+                         state a straight or zero angle as coll(..)",
+                    ));
+                }
+            }
             let mut p = Vec::with_capacity(3 * terms.len());
             let mut coefs = Vec::with_capacity(terms.len());
             for (c, x, y, z) in terms {
@@ -2158,7 +2208,7 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
         }
         Rel::MetricEq(lhs, rhs) => {
             // Resolve the referenced point names (so the placeholder predicate and
-            // the algebraic hypothesis can name real points), and validate them.
+            // the metric hypothesis can name real points), and validate them.
             let mut names: Vec<String> = Vec::new();
             collect_mexpr_points(lhs, &mut names);
             collect_mexpr_points(rhs, &mut names);
@@ -2173,22 +2223,6 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
                     unknown: unknown.map(|s| s.to_string()),
                 },
                 pts,
-            })
-        }
-        Rel::AngleEq(a) => {
-            let p = vec![
-                pt(scene, &a[1])?,
-                pt(scene, &a[0])?,
-                pt(scene, &a[1])?,
-                pt(scene, &a[2])?,
-                pt(scene, &a[4])?,
-                pt(scene, &a[3])?,
-                pt(scene, &a[4])?,
-                pt(scene, &a[5])?,
-            ];
-            Ok(Lowered {
-                kind: CKind::Eqangle,
-                pts: p,
             })
         }
         Rel::On(p, obj) => {
@@ -2209,14 +2243,6 @@ fn lower(scene: &mut Scene, rel: &Rel, unknown: Option<&str>) -> Result<Lowered,
                 Value::Point(_) => Err(fatal("`on` expects an object (line/circle)")),
             }
         }
-    }
-}
-
-fn deg_to_rat(deg: f64) -> Result<Rat, BuildError> {
-    if (deg - deg.round()).abs() < 1e-9 {
-        Ok(Rat::from_int(deg.round() as i64))
-    } else {
-        Err(fatal("angle in degrees must be an integer"))
     }
 }
 
@@ -2267,11 +2293,6 @@ impl Lowered {
                 let r2 = distance(c(4), c(5)) / distance(c(6), c(7));
                 out.push(r1 - r2);
             }
-            CKind::AConst(deg) => {
-                let target = deg.to_f64() / 180.0;
-                let a = line_dir(c(0), c(1)) - line_dir(c(2), c(3));
-                out.push(ang_norm(a - target));
-            }
             CKind::ProdEq(n_left) => {
                 let mut lhs = 1.0;
                 let mut rhs = 1.0;
@@ -2315,8 +2336,11 @@ impl Lowered {
             CKind::MetricEq { lhs, rhs, unknown } => {
                 // Evaluate both sides against the scene, with the unknown point at
                 // its candidate position `u`.
-                let mut map: HashMap<&str, Vec2> =
-                    scene.points.iter().map(|p| (p.name.as_str(), p.value)).collect();
+                let mut map: HashMap<&str, Vec2> = scene
+                    .points
+                    .iter()
+                    .map(|p| (p.name.as_str(), p.value))
+                    .collect();
                 if let Some(uname) = unknown {
                     map.insert(uname.as_str(), u);
                 }
@@ -2325,6 +2349,52 @@ impl Lowered {
                     _ => out.push(1.0),
                 }
             }
+        }
+    }
+
+    fn source_holds(&self, scene: &Scene) -> Option<bool> {
+        let CKind::AngSumEq { coefs, konst } = &self.kind else {
+            return None;
+        };
+        let mut acc = 0.0;
+        for (i, coef) in coefs.iter().enumerate() {
+            let at = |k: usize| match self.pts[3 * i + k] {
+                PtRef::Id(id) => Some(scene.coord(id)),
+                PtRef::Unknown => None,
+            };
+            let (x, v, z) = (at(0)?, at(1)?, at(2)?);
+            let (u, w) = (x - v, z - v);
+            if u.norm() < 1e-9 || w.norm() < 1e-9 {
+                return None;
+            }
+            acc += coef.to_f64() * cross(u, w).abs().atan2(u.dot(w)).to_degrees();
+        }
+        Some((acc - konst.to_f64()).abs() < ANGLE_SUM_TOLERANCE_DEG)
+    }
+
+    /// The goal form of this relation. Unlike a hypothesis, a goal must never
+    /// lower to the trivially-true placeholder — DDAR would "prove" it. A
+    /// metric goal (no DDAR predicate) yields `None`; [`compile`] rejects such
+    /// programs up front, so only the instance builders (which ignore the
+    /// goal) see it. An angle sum whose branch is unreadable in this sample is
+    /// a degenerate figure: resample.
+    fn to_goal_predicate(&self, scene: &Scene) -> Result<Option<Predicate>, BuildError> {
+        match &self.kind {
+            CKind::DistConst(_) | CKind::MetricEq { .. } => Ok(None),
+            CKind::AngSumEq { coefs, konst } => {
+                let pts: Vec<PointId> = self
+                    .pts
+                    .iter()
+                    .map(|r| match r {
+                        PtRef::Id(id) => Ok(*id),
+                        PtRef::Unknown => Err(BuildError::Degenerate),
+                    })
+                    .collect::<Result<_, _>>()?;
+                angsumeq_to_predicate(coefs, konst, &pts, scene)
+                    .map(Some)
+                    .ok_or(BuildError::Degenerate)
+            }
+            _ => Ok(Some(self.to_predicate(scene, 0 /* no unknown */))),
         }
     }
 
@@ -2345,11 +2415,6 @@ impl Lowered {
             CKind::Cyclic => pred("cyclic", pts),
             CKind::Eqangle => pred("eqangle", pts),
             CKind::Eqratio => pred("eqratio", pts),
-            CKind::AConst(deg) => Predicate {
-                name: "aconst".to_string(),
-                points: pts,
-                constants: vec![deg.clone()],
-            },
             CKind::ProdEq(n_left) => {
                 let total = pts.len() / 2;
                 let mut constants: Vec<Rat> = (0..total)
@@ -2445,9 +2510,13 @@ fn solve_constrained(
     };
     let cost = |r: &[f64]| r.iter().map(|x| x * x).sum::<f64>();
 
-    let restarts = if seeded_only { 1 } else { 200u64 as u64 };
+    let restarts = if seeded_only { 1 } else { 200_u64 };
     for restart in 0..restarts {
-        let mut p = if restart == 0 { seed_pt } else { rng.point(2.5) };
+        let mut p = if restart == 0 {
+            seed_pt
+        } else {
+            rng.point(2.5)
+        };
         let mut lambda = 1e-2;
         let mut r = residual(p);
         let mut cur = cost(&r);
@@ -2508,10 +2577,13 @@ fn solve_constrained(
 // Building the whole scene from statements
 // ---------------------------------------------------------------------------
 
+type DistTerm = (f64, String, String);
+type AngleTerm<C> = (C, String, String, String);
+
 /// Result of building one instance: the scene, the (optional) goal predicate,
 /// and every absolute-length constraint `|ab| = v` (from `dist(a,b) = <num>`),
 /// which is solver-only and therefore not recoverable from the predicate list —
-/// the algebraic prover needs it to pin the figure's scale.
+/// the metric provers need it to pin the figure's scale.
 type BuiltScene = (Scene, Option<Predicate>, Vec<(PointId, PointId, f64)>);
 
 fn build(stmts: &[Stmt], seed: u64) -> Result<BuiltScene, BuildError> {
@@ -2667,7 +2739,7 @@ fn build_core(stmts: &[Stmt], seed: u64, dof_override: &[f64]) -> Result<CoreRes
                 scene.env.insert(name.clone(), Value::Point(id));
                 for l in &lowered {
                     // Capture absolute-length constraints (solver-only, lost in
-                    // the predicate encoding) for the algebraic prover.
+                    // the predicate encoding) for the metric provers.
                     if let CKind::DistConst(v) = &l.kind {
                         let resolve = |r: &PtRef| match r {
                             PtRef::Id(x) => *x,
@@ -2701,7 +2773,8 @@ fn build_core(stmts: &[Stmt], seed: u64, dof_override: &[f64]) -> Result<CoreRes
                     return Err(fatal("multiple goals specified"));
                 }
                 let lowered = lower(&mut scene, rel, None)?;
-                goal = Some(lowered.to_predicate(&scene, 0 /* no unknown */));
+                goal = lowered.to_goal_predicate(&scene)?;
+                scene.goal_source_holds = lowered.source_holds(&scene);
             }
         }
     }
@@ -2862,6 +2935,44 @@ fn solve_linear(mut a: Vec<f64>, mut b: Vec<f64>, n: usize) -> Option<Vec<f64>> 
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Why [`compile`] rejected a program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CompileError {
+    /// The goal is a metric relation — an absolute length, or a general
+    /// algebraic equation over dist/angle/area — that has no DDAR predicate.
+    /// DDAR cannot decide it; route the program to [`crate::metric::solve`].
+    MetricGoal(String),
+    /// Any other error (syntax, unknown name, arity, degenerate figure, …).
+    Invalid(String),
+}
+
+impl CompileError {
+    /// Whether the program should be routed to the metric prover instead.
+    pub fn is_metric_goal(&self) -> bool {
+        matches!(self, CompileError::MetricGoal(_))
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            CompileError::MetricGoal(m) | CompileError::Invalid(m) => m,
+        }
+    }
+}
+
+impl std::fmt::Display for CompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl std::error::Error for CompileError {}
+
+impl From<String> for CompileError {
+    fn from(m: String) -> Self {
+        CompileError::Invalid(m)
+    }
+}
+
 /// Outcome of compiling a high-level program.
 pub struct Compiled {
     pub problem: Problem,
@@ -2871,6 +2982,10 @@ pub struct Compiled {
     pub goal_numerically_holds: Option<bool>,
     /// Number of samples tried before a valid figure was found.
     pub attempts: u32,
+    /// The goal holds in the returned figure but fails in another figure that
+    /// satisfies every stated hypothesis: a proof is valid only for the
+    /// configuration drawn, not as a general theorem.
+    pub configuration_dependent: bool,
 }
 
 /// Compile a high-level program into a low-level [`Problem`].
@@ -2896,8 +3011,7 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
                     let (Expr::Ident(xn), Expr::Ident(yn), Expr::Ident(zn)) = (x, y, z) else {
                         continue;
                     };
-                    let (Some(vx), Some(vy), Some(vz)) = (coord(xn), coord(yn), coord(zn))
-                    else {
+                    let (Some(vx), Some(vy), Some(vz)) = (coord(xn), coord(yn), coord(zn)) else {
                         continue;
                     };
                     let (u, w) = (vx - vy, vz - vy);
@@ -2930,10 +3044,10 @@ fn figure_margin(stmts: &[Stmt], problem: &Problem) -> f64 {
 /// allocation, `deduction_closure`'s O(n^3) search, and `compile`'s up-to-400
 /// re-sampling attempts all bounded well short of a memory/CPU exhaustion DoS
 /// from a crafted `.geo` program (see `Ddar::new_with_slack`, `engine.rs:194`).
-const MAX_POINTS: usize = 100;
+const MAX_POINTS: usize = crate::lowlevel::MAX_POINTS;
 
 /// Total point count declared across a parsed program — shared by every
-/// public entry point (`compile`, `build_instances`, `build_algebraic`) so
+/// public entry point (`compile`, `build_instances`, `build_sampled_figure`) so
 /// the guard below applies uniformly.
 fn point_count(stmts: &[Stmt]) -> usize {
     stmts
@@ -2946,7 +3060,47 @@ fn point_count(stmts: &[Stmt]) -> usize {
         .sum()
 }
 
+/// A goal with no DDAR predicate — an absolute length or a general metric
+/// equation — must be routed to the metric prover, never compiled.
+fn check_goal_is_ddar_expressible(stmts: &[Stmt]) -> Result<(), CompileError> {
+    for s in stmts {
+        if let Stmt::Goal(Rel::DistConst(..) | Rel::MetricEq(..)) = s {
+            return Err(CompileError::MetricGoal(
+                "the goal is a metric relation (an absolute length or a general \
+                 equation over dist/angle/area) with no DDAR predicate; \
+                 use the metric prover (`ddar --metric`, `metric::solve`)"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+const MAX_POINT_NAME_CHARS: usize = 16;
+
+fn check_point_names(stmts: &[Stmt]) -> Result<(), String> {
+    for s in stmts {
+        let names: &[String] = match s {
+            Stmt::Bind { names, .. } => names,
+            Stmt::Constrain { name, .. } => std::slice::from_ref(name),
+            _ => continue,
+        };
+        if let Some(long) = names
+            .iter()
+            .find(|n| n.chars().count() > MAX_POINT_NAME_CHARS)
+        {
+            let shown: String = long.chars().take(MAX_POINT_NAME_CHARS).collect();
+            return Err(format!(
+                "point names are at most {MAX_POINT_NAME_CHARS} characters; `{shown}\u{2026}` is {} long",
+                long.chars().count()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
+    check_point_names(stmts)?;
     let n = point_count(stmts);
     if n > MAX_POINTS {
         return Err(format!(
@@ -2956,24 +3110,27 @@ fn check_point_count(stmts: &[Stmt]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn compile(src: &str) -> Result<Compiled, String> {
+pub fn compile(src: &str) -> Result<Compiled, CompileError> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0 };
+    let mut parser = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+        ops: 0,
+    };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
-        return Err("empty program".to_string());
+        return Err("empty program".to_string().into());
     }
     check_point_count(&stmts)?;
+    check_goal_is_ddar_expressible(&stmts)?;
+    // Sampled figures can panic deep in the numerics; each attempt is caught
+    // and resampled, with the panic output muted.
+    crate::quiet_panic::quiet(|| compile_stmts(&stmts))
+}
 
-    // Suppress panic output during the validation solve.
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
-
-    let mut result: Result<Compiled, String> = Err("no attempt".to_string());
+fn compile_stmts(stmts: &[Stmt]) -> Result<Compiled, CompileError> {
+    let mut result: Result<Compiled, CompileError> = Err("no attempt".to_string().into());
     // A hypothesis set with open side-conditions (e.g. "interior points") can
     // produce sampled figures where the goal is numerically false even though
     // every stated constraint is satisfied. Such an instance is a last resort:
@@ -2987,18 +3144,32 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
     let mut true_builds = 0u32;
     let mut best_true: Option<(f64, Compiled)> = None;
     let mut fallback_false: Option<Compiled> = None;
+    let mut last_seed = 0u64;
     for seed in 1..=400u64 {
-        match build(&stmts, seed) {
-            Err(BuildError::Fatal(msg)) => {
-                result = Err(msg);
+        last_seed = seed;
+        TEXTBOOK_TRIANGLE.with(|f| f.set(seed <= TEXTBOOK_SEEDS));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
+        TEXTBOOK_TRIANGLE.with(|f| f.set(false));
+        match built {
+            Ok(Err(BuildError::Fatal(msg))) => {
+                result = Err(msg.into());
                 break;
             }
-            Err(BuildError::Degenerate) => continue,
-            Ok((scene, goal, _scale)) => {
+            Ok(Err(BuildError::Degenerate)) => continue,
+            Err(_) => {
+                result = Err("could not build a valid figure (internal error while \
+                              constructing; set DDAR_DEBUG_PANICS=1 for detail)"
+                    .to_string()
+                    .into());
+                continue;
+            }
+            Ok(Ok((scene, goal, _scale))) => {
+                let goal_source_holds = scene.goal_source_holds;
                 let problem = Problem {
                     points: scene.points,
                     preds: scene.preds,
                     goal,
+                    forbid: Default::default(),
                 };
                 // Validate: DDAR must be able to process it without a numeric
                 // panic (guards against an imprecise sampled figure).
@@ -3012,14 +3183,19 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
                 // signal: if the goal already PROVES on this figure, its branch
                 // structure demonstrably supports the whole derivation chain.
                 let proved_in_validation = matches!(&ok, Ok(Ok(true)));
-                let goal_numerically_holds = problem
-                    .goal
-                    .as_ref()
-                    .and_then(|g| numeric_holds(&problem, g));
+                let goal_numerically_holds = if goal_source_holds == Some(false) {
+                    Some(false)
+                } else {
+                    problem
+                        .goal
+                        .as_ref()
+                        .and_then(|g| numeric_holds(&problem, g))
+                };
                 let compiled = Compiled {
                     problem,
                     goal_numerically_holds,
                     attempts: seed as u32,
+                    configuration_dependent: false,
                 };
                 if goal_numerically_holds == Some(false) {
                     goal_false_builds += 1;
@@ -3034,14 +3210,14 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
                 let margin = if proved_in_validation {
                     f64::INFINITY // proves outright: the ideal instance
                 } else {
-                    figure_margin(&stmts, &compiled.problem)
+                    figure_margin(stmts, &compiled.problem)
                 };
                 if std::env::var_os("DDAR_DEBUG_FIGURE").is_some_and(|v| !v.is_empty()) {
                     eprintln!(
                         "[fig] goal-true seed {seed}, margin {margin:.2}°, proves: {proved_in_validation}"
                     );
                 }
-                if best_true.as_ref().map_or(true, |(m, _)| margin > *m) {
+                if best_true.as_ref().is_none_or(|(m, _)| margin > *m) {
                     best_true = Some((margin, compiled));
                 }
                 true_builds += 1;
@@ -3052,14 +3228,53 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
             }
         }
     }
-    std::panic::set_hook(prev_hook);
-    if let Some((_, c)) = best_true {
+    if let Some((_, mut c)) = best_true {
+        c.configuration_dependent =
+            goal_false_builds > 0 || goal_fails_in_another_figure(stmts, last_seed);
         return Ok(c);
     }
     if let Some(c) = fallback_false {
         return Ok(c);
     }
     result
+}
+
+const CONFIGURATION_PROBES: u64 = 8;
+const GENERAL_PROBES: u64 = 40;
+const CONFIGURATION_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn goal_fails_in_another_figure(stmts: &[Stmt], after_seed: u64) -> bool {
+    let started = std::time::Instant::now();
+    let general_seed = |i: u64| TEXTBOOK_SEEDS + 1 + (after_seed + i * 37) % (400 - TEXTBOOK_SEEDS);
+    let mut order: Vec<(u64, bool)> = Vec::new();
+    for i in 0..GENERAL_PROBES {
+        if i < CONFIGURATION_PROBES {
+            order.push((after_seed + 1 + i, true));
+        }
+        order.push((general_seed(i), false));
+    }
+    for (seed, textbook_triangle) in order {
+        if started.elapsed() > CONFIGURATION_PROBE_BUDGET {
+            break;
+        }
+        TEXTBOOK_TRIANGLE.with(|f| f.set(textbook_triangle && seed <= TEXTBOOK_SEEDS));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
+        TEXTBOOK_TRIANGLE.with(|f| f.set(false));
+        let Ok(Ok((scene, Some(goal), _))) = built else {
+            continue;
+        };
+        let source = scene.goal_source_holds;
+        let problem = Problem {
+            points: scene.points,
+            preds: scene.preds,
+            goal: None,
+            forbid: Default::default(),
+        };
+        if source == Some(false) || numeric_holds(&problem, &goal) == Some(false) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Build up to `n` valid instances of a coordinate-free construction, each with
@@ -3069,23 +3284,29 @@ pub fn compile(src: &str) -> Result<Compiled, String> {
 /// re-sampled instances is a genuine identity.
 pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0 };
+    let mut parser = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+        ops: 0,
+    };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
     check_point_count(&stmts)?;
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
+    crate::quiet_panic::quiet(|| build_instances_of(&stmts, n))
+}
+
+fn build_instances_of(stmts: &[Stmt], n: usize) -> Result<Vec<Vec<(String, Vec2)>>, String> {
     let mut out: Vec<Vec<(String, Vec2)>> = Vec::new();
     let mut seed = 1u64;
     let limit = (n as u64) * 40 + 800;
     while out.len() < n && seed <= limit {
-        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(&stmts, seed)));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed)));
+        if let Ok(Err(BuildError::Fatal(msg))) = built {
+            return Err(msg);
+        }
         if let Ok(Ok((scene, _goal, _scale))) = built {
             if scene
                 .points
@@ -3103,18 +3324,17 @@ pub fn build_instances(src: &str, n: usize) -> Result<Vec<Vec<(String, Vec2)>>, 
         }
         seed += 1;
     }
-    std::panic::set_hook(prev_hook);
     if out.is_empty() {
         return Err("could not build any valid instance of the construction".to_string());
     }
     Ok(out)
 }
 
-/// A figure prepared for the algebraic (Wu's-method) metric prover: one valid
-/// numeric instance of the construction, the defining/hypothesis predicates, and
-/// the absolute-length constraints (which pin the figure's scale and are not
-/// recoverable from the predicate list). See [`crate::algebra`].
-pub struct AlgFigure {
+/// One valid sampled instance of a construction, as the classical metric
+/// provers ([`crate::synthetic`], [`crate::ratio`]) read it: the hypothesis
+/// predicates they cite, the absolute lengths, and coordinates used only to
+/// read configuration (order, orientation) and to rule out degenerate cases.
+pub struct SampledFigure {
     /// Point name per id.
     pub names: Vec<String>,
     /// Numeric coordinates of a single generic, valid instance.
@@ -3124,48 +3344,112 @@ pub struct AlgFigure {
     pub preds: Vec<Predicate>,
     /// Absolute-length constraints `|ab| = v`.
     pub scale: Vec<(PointId, PointId, f64)>,
-    /// Single-branch algebraic definitions for constructed points whose
-    /// predicate encoding is multi-branch (`reflect`, `shift`).
-    pub defs: HashMap<PointId, PointDef>,
     /// General metric-equation hypotheses imposed by `point:` constraints, as
     /// `(lhs, rhs)` pairs — offered to the metric provers as given equations so
     /// an arbitrary imposed relation can be *used* in a synthetic proof.
     pub metric_hyps: Vec<(MExpr, MExpr)>,
 }
 
-/// Build one generic valid instance of a coordinate-free construction and return
-/// it in a form the algebraic prover can lower to polynomials. Mirrors the
-/// instance search in [`compile`] (tries seeds until a non-degenerate figure
-/// that DDAR can process without a numeric panic is found).
-pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
+impl SampledFigure {
+    /// The figure without the points that no hypothesis, length constraint or
+    /// metric hypothesis mentions and that are not in `keep` (the goal's
+    /// points): nothing can be derived about them, so no proof uses them.
+    pub fn without_idle_points(self, keep: &std::collections::BTreeSet<String>) -> SampledFigure {
+        let mut named = keep.clone();
+        for (l, r) in &self.metric_hyps {
+            crate::synthetic::collect_points(l, &mut named);
+            crate::synthetic::collect_points(r, &mut named);
+        }
+        let mut used: Vec<bool> = self.names.iter().map(|n| named.contains(n)).collect();
+        for p in &self.preds {
+            for &i in &p.points {
+                used[i as usize] = true;
+            }
+        }
+        for &(a, b, _) in &self.scale {
+            used[a as usize] = true;
+            used[b as usize] = true;
+        }
+        if used.iter().all(|&u| u) {
+            return self;
+        }
+        let mut remap: Vec<Option<PointId>> = vec![None; used.len()];
+        let mut next = 0;
+        for (i, &u) in used.iter().enumerate() {
+            if u {
+                remap[i] = Some(next);
+                next += 1;
+            }
+        }
+        let at = |i: PointId| remap[i as usize].expect("a mentioned point is kept");
+        SampledFigure {
+            names: self
+                .names
+                .iter()
+                .zip(&used)
+                .filter(|(_, &u)| u)
+                .map(|(n, _)| n.clone())
+                .collect(),
+            coords: self
+                .coords
+                .iter()
+                .zip(&used)
+                .filter(|(_, &u)| u)
+                .map(|(c, _)| *c)
+                .collect(),
+            preds: self
+                .preds
+                .into_iter()
+                .map(|p| Predicate {
+                    points: p.points.iter().map(|&i| at(i)).collect(),
+                    ..p
+                })
+                .collect(),
+            scale: self
+                .scale
+                .iter()
+                .map(|&(a, b, v)| (at(a), at(b), v))
+                .collect(),
+            metric_hyps: self.metric_hyps,
+        }
+    }
+}
+
+/// Build one generic valid instance of a coordinate-free construction. Mirrors
+/// the instance search in [`compile`] (tries seeds until a non-degenerate
+/// figure is found).
+pub fn build_sampled_figure(src: &str) -> Result<SampledFigure, String> {
     let toks = tokenize(src)?;
-    let mut parser = Parser { toks, pos: 0, depth: 0 };
+    let mut parser = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+        ops: 0,
+    };
     let stmts = parser.parse_program()?;
     if stmts.is_empty() {
         return Err("empty construction".to_string());
     }
     check_point_count(&stmts)?;
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        if std::env::var_os("DDAR_DEBUG_PANICS").is_some_and(|v| !v.is_empty()) {
-            eprintln!("[ddar panic] {info}");
-        }
-    }));
-    let mut result: Result<AlgFigure, String> = Err("could not build a valid instance".to_string());
+    crate::quiet_panic::quiet(|| build_sampled_figure_of(&stmts))
+}
+
+fn build_sampled_figure_of(stmts: &[Stmt]) -> Result<SampledFigure, String> {
+    let mut result: Result<SampledFigure, String> =
+        Err("could not build a valid instance".to_string());
     for seed in 1..=400u64 {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(&stmts, seed))) {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(stmts, seed))) {
             Ok(Ok((scene, _goal, scale))) => {
                 if scene
                     .points
                     .iter()
                     .all(|p| p.value.x.is_finite() && p.value.y.is_finite())
                 {
-                    result = Ok(AlgFigure {
+                    result = Ok(SampledFigure {
                         names: scene.points.iter().map(|p| p.name.clone()).collect(),
                         coords: scene.points.iter().map(|p| p.value).collect(),
                         preds: scene.preds,
                         scale,
-                        defs: scene.defs,
                         metric_hyps: scene.metric_hyps,
                     });
                     break;
@@ -3178,7 +3462,6 @@ pub fn build_algebraic(src: &str) -> Result<AlgFigure, String> {
             _ => continue, // degenerate sample or panic — resample
         }
     }
-    std::panic::set_hook(prev_hook);
     result
 }
 
@@ -3263,10 +3546,18 @@ mod tests {
         assert!(
             compiled.problem.preds.iter().any(|p| p.name == "angeq"),
             "angle-sum should lower to an angeq predicate, got: {:?}",
-            compiled.problem.preds.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
+            compiled
+                .problem
+                .preds
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<_>>()
         );
         assert_eq!(compiled.goal_numerically_holds, Some(true));
-        assert!(prove(src), "DDAR should derive the right angle from the sum");
+        assert!(
+            prove(src),
+            "DDAR should derive the right angle from the sum"
+        );
     }
 
     /// Three-term sums with a constant beyond 180° lower and verify too
@@ -3298,7 +3589,7 @@ mod tests {
     fn arbitrary_metric_constraint_positions_point() {
         // The universal constraint escape hatch: an arbitrary metric equation
         // (with a coefficient) pins a free point, solved numerically.
-        let fig = build_algebraic("A = free\nB = free\nP = point: dist(P,A) = 2*dist(P,B)")
+        let fig = build_sampled_figure("A = free\nB = free\nP = point: dist(P,A) = 2*dist(P,B)")
             .expect("build");
         let idx = |n: &str| fig.names.iter().position(|x| x == n).unwrap();
         let (pa, pb) = (
@@ -3320,14 +3611,14 @@ mod tests {
         let mut src = String::from("prove dist(A, B) = ");
         src.push_str(&"-".repeat(500));
         src.push('5');
-        let result: Result<Compiled, String> = compile(&src);
+        let result: Result<Compiled, CompileError> = compile(&src);
         assert!(
             result.is_err(),
             "500 levels of unary-minus nesting should be rejected by a depth cap"
         );
         if let Err(msg) = result {
             assert!(
-                msg.contains("nested too deeply"),
+                msg.message().contains("nested too deeply"),
                 "expected a nesting-depth error, got: {msg}"
             );
         }
@@ -3347,13 +3638,13 @@ mod tests {
             src.push(')');
         }
         src.push_str("\nprove coll(A, A, B)");
-        let result: Result<Compiled, String> = compile(&src);
+        let result: Result<Compiled, CompileError> = compile(&src);
         assert!(
             result.is_err(),
             "500 levels of construction-call nesting should be rejected by a depth cap"
         );
         if let Err(msg) = result {
-            assert!(msg.contains("nested too deeply"));
+            assert!(msg.message().contains("nested too deeply"));
         }
     }
 
@@ -3380,7 +3671,7 @@ mod tests {
         assert!(result.is_err(), "500 points should be rejected");
         if let Err(msg) = result {
             assert!(
-                msg.contains("too many points"),
+                msg.message().contains("too many points"),
                 "expected 'too many points' error, got: {msg}"
             );
         }
@@ -3390,8 +3681,9 @@ mod tests {
     fn assume_positions_free_points_jointly() {
         // Declare four free points and ASSUME they are concyclic — the global
         // solve must place them on one circle.
-        let fig = build_algebraic("A = free\nB = free\nC = free\nD = free\nassume cyclic(A,B,C,D)")
-            .expect("build");
+        let fig =
+            build_sampled_figure("A = free\nB = free\nC = free\nD = free\nassume cyclic(A,B,C,D)")
+                .expect("build");
         let c = |n: &str| fig.coords[fig.names.iter().position(|x| x == n).unwrap()];
         let circ = NumCircle::through(c("A"), c("B"), c("C")).expect("circle");
         assert!(circ.distance(c("D")) < 1e-3, "D not on circle(ABC)");
@@ -3402,9 +3694,11 @@ mod tests {
         // ASSUME an arbitrary metric relation (a sum of distances) on free points
         // — the global solver satisfies it, and re-sampled instances keep it.
         for seed in [1u64, 7, 20] {
-            let insts =
-                build_instances("A = free\nB = free\nC = free\nassume dist(A,B) + dist(B,C) = 3", 1)
-                    .unwrap_or_default();
+            let insts = build_instances(
+                "A = free\nB = free\nC = free\nassume dist(A,B) + dist(B,C) = 3",
+                1,
+            )
+            .unwrap_or_default();
             let _ = seed;
             for inst in insts {
                 let m: std::collections::HashMap<_, _> = inst.into_iter().collect();
@@ -3422,7 +3716,10 @@ mod tests {
             48,
         )
         .expect("solve");
-        assert!(report.contains("EUCLIDEAN PROOF") && report.contains("given"), "{report}");
+        assert!(
+            report.contains("EUCLIDEAN PROOF") && report.contains("given"),
+            "{report}"
+        );
     }
 
     #[test]

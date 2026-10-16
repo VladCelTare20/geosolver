@@ -77,7 +77,12 @@ impl Rat {
             num = -num;
             den = -den;
         }
-        let g = num.unsigned_abs().gcd(&den.unsigned_abs()) as i128;
+        let (un, ud) = (num.unsigned_abs(), den.unsigned_abs());
+        let g = if un <= u64::MAX as u128 && ud <= u64::MAX as u128 {
+            gcd_u64(un as u64, ud as u64) as i128
+        } else {
+            un.gcd(&ud) as i128
+        };
         num /= g;
         den /= g;
         match (i64::try_from(num), i64::try_from(den)) {
@@ -87,6 +92,28 @@ impl Rat {
                 BigInt::from(den),
             ))),
         }
+    }
+
+    #[inline]
+    fn from_i64_pos_den(num: i64, den: i64) -> Rat {
+        debug_assert!(den > 0);
+        if num == 0 {
+            return Rat::Small(0, 1);
+        }
+        if den == 1 {
+            return Rat::Small(num, 1);
+        }
+        let g = gcd_u64(num.unsigned_abs(), den as u64);
+        if g == 1 {
+            Rat::Small(num, den)
+        } else {
+            Rat::Small(num / g as i64, den / g as i64)
+        }
+    }
+
+    #[inline]
+    pub fn is_minus_one(&self) -> bool {
+        matches!(self, Rat::Small(-1, 1))
     }
 
     /// Normalize a `BigRational` into a `Rat`, demoting to `Small` when it fits.
@@ -164,8 +191,11 @@ impl Rat {
         match self {
             Rat::Small(n, d) => {
                 let r = n.rem_euclid(*d);
-                Rat::Small(r, *d) // 0 <= r < d, already reduced? not necessarily
-                    .reduced_small()
+                if r == 0 {
+                    Rat::Small(0, 1)
+                } else {
+                    Rat::Small(r, *d)
+                }
             }
             Rat::Big(_) => {
                 let f = self.floor_int();
@@ -179,13 +209,6 @@ impl Rat {
     /// remainder in `[0,1)`. Returns `(floor, self - floor)`.
     pub fn split_floor(&self) -> (BigInt, Rat) {
         (self.floor_int(), self.mod_one())
-    }
-
-    fn reduced_small(self) -> Rat {
-        match self {
-            Rat::Small(n, d) => Rat::from_i128(n as i128, d as i128),
-            other => other,
-        }
     }
 
     /// Multiplicative inverse. Panics if `self == 0`.
@@ -216,51 +239,109 @@ impl Rat {
     }
 }
 
+#[inline]
+fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
+    if a == 0 {
+        return b;
+    }
+    if b == 0 {
+        return a;
+    }
+    let shift = (a | b).trailing_zeros();
+    a >>= a.trailing_zeros();
+    loop {
+        b >>= b.trailing_zeros();
+        if a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
+        b -= a;
+        if b == 0 {
+            return a << shift;
+        }
+    }
+}
+
 // ---- arithmetic ----
+
+#[inline]
+fn add_small(a: i64, b: i64, c: i64, d: i64) -> Option<Rat> {
+    if b == d {
+        let s = a.checked_add(c)?;
+        return Some(Rat::from_i64_pos_den(s, b));
+    }
+    let ad = (a as i128) * (d as i128);
+    let cb = (c as i128) * (b as i128);
+    let bd = (b as i128).checked_mul(d as i128)?;
+    Some(Rat::from_i128(ad.checked_add(cb)?, bd))
+}
 
 impl std::ops::Add for &Rat {
     type Output = Rat;
     fn add(self, rhs: &Rat) -> Rat {
-        match (self, rhs) {
-            (Rat::Small(a, b), Rat::Small(c, d)) => {
-                // a/b + c/d = (a*d + c*b) / (b*d)
-                let ad = (*a as i128).checked_mul(*d as i128);
-                let cb = (*c as i128).checked_mul(*b as i128);
-                let bd = (*b as i128).checked_mul(*d as i128);
-                match (ad, cb, bd) {
-                    (Some(ad), Some(cb), Some(bd)) => match ad.checked_add(cb) {
-                        Some(num) => Rat::from_i128(num, bd),
-                        None => Rat::from_big(self.to_big() + rhs.to_big()),
-                    },
-                    _ => Rat::from_big(self.to_big() + rhs.to_big()),
-                }
+        if let (Rat::Small(a, b), Rat::Small(c, d)) = (self, rhs) {
+            if *c == 0 {
+                return self.clone();
             }
-            _ => Rat::from_big(self.to_big() + rhs.to_big()),
+            if *a == 0 {
+                return rhs.clone();
+            }
+            if let Some(r) = add_small(*a, *b, *c, *d) {
+                return r;
+            }
         }
+        Rat::from_big(self.to_big() + rhs.to_big())
     }
 }
 
 impl std::ops::Sub for &Rat {
     type Output = Rat;
     fn sub(self, rhs: &Rat) -> Rat {
-        self + &(-rhs.clone())
+        if let (Rat::Small(a, b), Rat::Small(c, d)) = (self, rhs) {
+            if *c == 0 {
+                return self.clone();
+            }
+            if let Some(nc) = c.checked_neg() {
+                if *a == 0 {
+                    return Rat::Small(nc, *d);
+                }
+                if let Some(r) = add_small(*a, *b, nc, *d) {
+                    return r;
+                }
+            }
+        }
+        Rat::from_big(self.to_big() - rhs.to_big())
     }
 }
 
 impl std::ops::Mul for &Rat {
     type Output = Rat;
     fn mul(self, rhs: &Rat) -> Rat {
-        match (self, rhs) {
-            (Rat::Small(a, b), Rat::Small(c, d)) => {
-                let num = (*a as i128).checked_mul(*c as i128);
-                let den = (*b as i128).checked_mul(*d as i128);
-                match (num, den) {
-                    (Some(num), Some(den)) => Rat::from_i128(num, den),
-                    _ => Rat::from_big(self.to_big() * rhs.to_big()),
+        if let (Rat::Small(a, b), Rat::Small(c, d)) = (self, rhs) {
+            let (a, b, c, d) = (*a, *b, *c, *d);
+            if a == 0 || c == 0 {
+                return Rat::zero();
+            }
+            if c == 1 && d == 1 {
+                return self.clone();
+            }
+            if a == 1 && b == 1 {
+                return rhs.clone();
+            }
+            if b == 1 && d == 1 {
+                if let Some(p) = a.checked_mul(c) {
+                    return Rat::Small(p, 1);
                 }
             }
-            _ => Rat::from_big(self.to_big() * rhs.to_big()),
+            let g1 = gcd_u64(a.unsigned_abs(), d as u64) as i128;
+            let g2 = gcd_u64(c.unsigned_abs(), b as u64) as i128;
+            let num = (a as i128 / g1) * (c as i128 / g2);
+            let den = (b as i128 / g2) * (d as i128 / g1);
+            return match (i64::try_from(num), i64::try_from(den)) {
+                (Ok(n), Ok(dd)) => Rat::Small(n, dd),
+                _ => Rat::from_i128(num, den),
+            };
         }
+        Rat::from_big(self.to_big() * rhs.to_big())
     }
 }
 
@@ -277,7 +358,10 @@ impl std::ops::Neg for Rat {
     type Output = Rat;
     fn neg(self) -> Rat {
         match self {
-            Rat::Small(n, d) => Rat::Small(-n, d),
+            Rat::Small(n, d) => match n.checked_neg() {
+                Some(m) => Rat::Small(m, d),
+                None => Rat::from_i128(-(n as i128), d as i128),
+            },
             Rat::Big(r) => Rat::from_big(-(*r)),
         }
     }
@@ -476,6 +560,32 @@ mod tests {
             // mod_one matches Python-style floored remainder.
             let m = ra.mod_one();
             prop_assert_eq!(m.to_big(), &ba - ba.floor());
+        }
+
+        #[test]
+        fn small_fast_paths_match_bigrational(a in -2000i64..2000, b in prop_oneof![Just(1i64), Just(2i64), 1i64..60], c in -2000i64..2000, d in prop_oneof![Just(1i64), Just(2i64), 1i64..60]) {
+            let (ra, rb) = (Rat::new(a, b), Rat::new(c, d));
+            let (ba, bb) = (big(a, b), big(c, d));
+            prop_assert_eq!((&ra + &rb).to_big(), &ba + &bb);
+            prop_assert_eq!((&ra - &rb).to_big(), &ba - &bb);
+            prop_assert_eq!((&ra * &rb).to_big(), &ba * &bb);
+            prop_assert_eq!(&ra + &rb, Rat::from_big(&ba + &bb));
+            prop_assert_eq!(&ra - &rb, Rat::from_big(&ba - &bb));
+            prop_assert_eq!(&ra * &rb, Rat::from_big(&ba * &bb));
+            if !rb.is_zero() {
+                prop_assert_eq!(&ra / &rb, Rat::from_big(&ba / &bb));
+            }
+            prop_assert_eq!(ra.mod_one(), Rat::from_big(&ba - ba.floor()));
+        }
+
+        #[test]
+        fn extreme_fast_paths_match_bigrational(a in prop_oneof![Just(i64::MIN), Just(i64::MAX), Just(-1i64), Just(1i64), any::<i64>()], c in prop_oneof![Just(i64::MIN), Just(i64::MAX), Just(-1i64), Just(1i64), any::<i64>()], b in prop_oneof![Just(1i64), any::<i64>()], d in prop_oneof![Just(1i64), any::<i64>()]) {
+            prop_assume!(b != 0 && d != 0);
+            let (ra, rb) = (Rat::new(a, b), Rat::new(c, d));
+            let (ba, bb) = (big(a, b), big(c, d));
+            prop_assert_eq!(&ra + &rb, Rat::from_big(&ba + &bb));
+            prop_assert_eq!(&ra - &rb, Rat::from_big(&ba - &bb));
+            prop_assert_eq!(&ra * &rb, Rat::from_big(&ba * &bb));
         }
     }
 }

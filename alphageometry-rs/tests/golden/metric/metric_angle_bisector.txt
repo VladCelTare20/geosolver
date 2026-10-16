@@ -1,0 +1,11 @@
+EUCLIDEAN PROOF (ratios)
+  Goal:  dist(B,D)*dist(A,C) = dist(D,C)*dist(A,B)
+
+  1. AD bisects ∠BAC (derived below). Drop perpendiculars from B, C onto the bisector AD, with feet B₁, C₁.
+       ↳ 001. assumption: eqangle A B A _4 A _4 A C
+       ↳ 002. assumption: coll A _4 D
+       ↳ 003. collinear: A D _4 [002]
+  2. ∠BDB₁ = ∠CDC₁ (vertical angles at D) and the right angles at B₁, C₁ — so triangles △BDB₁ and △CDC₁ are similar (AA), giving BD:CD = DB₁:DC₁ = B₁B:C₁C.  [from 1]
+  3. ∠BAB₁ = ∠CAC₁ (since AD bisects ∠BAC) and the right angles at B₁, C₁ — so triangles △ABB₁ and △ACC₁ are similar (AA), giving AB:AC = BB₁:CC₁ = B₁A:C₁A.  [from 1]
+
+  Combining the proportions above gives dist(B,D)*dist(A,C) = dist(D,C)*dist(A,B)  (= 0.0978). ∎

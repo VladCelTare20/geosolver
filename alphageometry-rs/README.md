@@ -118,7 +118,7 @@ What makes it flexible:
   RNG; the figure is re-sampled if degenerate and **validated through DDAR** so a
   compiled problem never crashes the engine.
 - **Mistake detection.** If the goal does not hold in the sampled figure, the
-  compiler warns you the statement is probably false before trying to prove it.
+  solver reports the statement as probably false and accepts no derivation of it.
 - **Auto-fallback to aux search.** `--geo` first tries pure deduction and, if
   that is not enough, automatically searches for auxiliary points
   (see [Auxiliary-point search](#auxiliary-point-search)).
@@ -256,13 +256,23 @@ rational combination until the goal is reached, and a **minimisation pass** drop
 every citation the proof does not need, so it reads like a hand-written proof.
 `ddar --theorems` lists the library.
 
-The prover is **sound**: it only cites true theorems whose hypotheses hold, and
-combines them exactly. When a goal needs products/ratios of *unsquared* lengths
-(Ptolemy, Stewart, Menelaus, Ceva, power of a point — the ratio layer is future
-work), or an area, it falls back to a numerical certificate over many re-sampled
-instances, clearly labelled as numerical. It never reports a false statement as
-proved (`tests/` cover the two Romanian parts, Pythagoras, and the rejection of a
-false claim).
+The prover is **sound and strictly Euclidean**: it only cites true theorems
+whose hypotheses follow from the construction, and combines them exactly.
+Products and ratios of unsquared lengths (Ptolemy, Menelaus, Ceva, power of a
+point, the angle-bisector ratio) go to the multiplicative prover (`ratio.rs`),
+which builds them from similar triangles. The figure's coordinates may only
+*propose* a fact (two triangles that look similar, a 2:1 division) and read
+configuration (which side, which order); a proposed fact is used only after the
+DDAR closure derives it from the hypotheses, and that derivation is printed in
+the proof.
+
+A goal neither prover reaches is **not proved**. It is checked in 48
+independently sampled figures and reported as `MetricError::NoProof` with that
+numeric evidence ("holds numerically — not a proof"), or as `Refuted` with a
+counterexample. A numeric check is never presented as a proof. `tests/` cover
+the two Romanian parts, Pythagoras, the rejection of false claims, and the
+three named theorems that currently hold only numerically
+(`tests/named_theorems.rs`).
 
 ## Figures
 
@@ -288,6 +298,42 @@ manually-provided auxiliary points) are proved by both implementations.
 *(Measured on the same 16-core Windows machine; Python 3.10 + NumPy, Rust 1.94
 release build. Reproduce with the commands below.)*
 
+### Solve rate on the AlphaGeometry corpora
+
+`--bench` times 26 hand-picked rows and so says nothing about *coverage*. The
+honest measure is the original AlphaGeometry test sets, read in their own
+construction language (`corpus/imo_ag_30.txt`, `corpus/jgex_ag_231.txt`; see
+[`src/corpus.rs`](src/corpus.rs)) and solved by the full Euclidean pipeline —
+DDAR, then the auxiliary-point search — with a hard per-problem wall-clock
+deadline (each problem runs in its own process and is killed at the budget
+plus a grace period). A problem counts only if the engine produced a numbered
+proof; `--proofs <dir>` writes every one.
+
+| Corpus | Budget | Proved | DDAR alone | With aux points | AG1 reference |
+| --- | ---: | ---: | ---: | ---: | --- |
+| imo_ag_30 | 120 s | **30/30** | 16 | 14 | DD+AR 14, AlphaGeometry (LM) 25, AG2 30 |
+| jgex_ag_231 | 30 s | **231/231** | 213 | 18 | DD+AR 198 |
+
+*(Engine at commit 0a6e67b, 4 × 3 threads for imo, 6 × 2 for jgex, under the
+benchmark lock on a shared i7-11700K; `--bench` 26/26 in the same run. Every
+problem of both sets translates and its goal holds on the sampled figure. The
+release build, commit e0a3b04, re-ran imo_ag_30 with the same settings: 30/30,
+16 + 14, the same solved set and methods.)*
+Both sets were developed against, so these are development-set numbers. Two
+IMO problems sit close to the budget — 2008 P6 (94 s; 79 s at e0a3b04) and 2021 P3 (68 s; 44 s) —
+and timed out in earlier runs at other commits (28/30), so a slower machine
+can lose them. On held-out problems the frozen engine (commit 4ff884c) proved
+318 of HAGeo-409, 8 of the 10 expressible IMO-AG-50 problems beyond these 30,
+and 10 of 15 expressible ISL 2024–2025 / IMO 2026 problems, with 0 unsound
+results (`corpus/heldout/REPORT.md` on the `wf/heldout-eval` branch).
+
+```sh
+ddar --corpus ../corpus/imo_ag_30.txt --budget 120 --jobs 4 --threads 3 \
+     --out imo.tsv --proofs proofs/
+ddar --corpus-check ../corpus/jgex_ag_231.txt      # translation only
+ddar --corpus-one ../corpus/imo_ag_30.txt translated_imo_2019_p6 --proof
+```
+
 Where the speed comes from:
 
 - **Points are dense integer ids** and every per-pair table is a flat `n×n`
@@ -305,9 +351,14 @@ Where the speed comes from:
 # Prove the bundled IMO set with per-problem timings (like `python -m test`):
 cargo run --release --bin ddar -- --bench
 
-# Prove a single problem given in the AlphaGeometry format:
-cargo run --release --bin ddar -- "a@0.0_0.0 = ; b@1.0_0.0 = ; c@0.5_0.9 = \
-  cong a b a c ? cong a b a c"
+# Prove a single problem given in the AlphaGeometry format (isosceles base angles):
+cargo run --release --bin ddar -- --proof "a@0.0_0.0 = ; b@1.0_0.0 = ; c@0.5_0.9 = \
+  cong c a c b ? eqangle a b a c b c b a"
+#   Proven :-)  (0.000s)
+#   Proof of eqangle a b a c b c b a (2 steps, 8 facts recorded in total):
+#   001. assumption: cong c a c b
+#   002. similar triangles: △acb ∼ △bca [001]
+#   ∎ eqangle a b a c b c b a
 
 # Search for auxiliary points if pure deduction is not enough:
 cargo run --release --bin ddar -- --aux "<problem string>"
@@ -328,17 +379,20 @@ cargo run --release --bin ddar -- --batch examples/olympiad
 cargo run --release --bin ddar -- --explore
 ```
 
-The release build targets the host CPU (`.cargo/config.toml` sets
+A plain `cargo build --release` targets the host CPU (`.cargo/config.toml` sets
 `target-cpu=native`) so the f64 geometry oracle and 128-bit rational path use the
-machine's full instruction set. Delete that file for a portable binary.
+machine's full instruction set. The Docker image and the Nix package are
+portable builds (the flag is removed or overridden there); on `--bench` the two
+measure the same within noise. Delete that file for a portable cargo build.
 
-Run the test suite (the debug build activates numeric-consistency assertions
-that check *every* forced fact is numerically true):
+Run the test suite. The gate is the release build, which is what ships and what
+the time-budgeted search tests are calibrated for:
 
 ```sh
-cargo test                       # unit + integration (26/26) + aux rediscovery
+RAYON_NUM_THREADS=6 cargo test --release --workspace -- --test-threads=6   # the gate
+cargo test -p alphageometry-rs   # debug: adds numeric-consistency assertions on every forced fact
 cargo test --lib rational        # 4000-case property fuzz of Rat vs BigRational
-cargo clippy --all-targets       # lints (clean)
+cargo clippy --workspace --all-targets --release -- -D warnings   # lints (clean)
 ```
 
 ## Architecture
@@ -357,9 +411,12 @@ Bottom-up, each layer is small and independently tested:
 | [`engine`](src/engine.rs) | The `Ddar` deductive-closure loop |
 | [`proof`](src/proof.rs) | Fact log, reasons, backward closure, proof rendering |
 | [`synthetic`](src/synthetic.rs) | Classical **Euclidean** proofs of length goals (named-theorem library) |
-| [`metric`](src/metric.rs) | Metric-goal grammar; Euclidean proof, numeric fallback |
-| [`algebra`](src/algebra.rs) | Exact multivariate polynomials + Wu's-method checker (internal) |
+| [`ratio`](src/ratio.rs) | Classical proofs of ratio / product length goals (similar triangles) |
+| [`certify`](src/certify.rs) | DDAR certification of facts the metric provers propose |
+| [`metric`](src/metric.rs) | Metric-goal grammar; Euclidean proof, else `NoProof` with numeric evidence |
 | [`aux_search`](src/aux_search.rs) | Ranked auxiliary-point construction search |
+| [`corpus`](src/corpus.rs) | Reader for the original AlphaGeometry corpus language (`defs.txt` constructions) |
+| [`bench`](src/bench.rs) | Deadline-bounded, process-isolated solve-rate benchmark |
 | [`svg`](src/svg.rs) | Figure rendering to standalone SVG |
 
 ## Correctness methodology
@@ -489,9 +546,10 @@ a real win and semantics-preserving:
 * **`--batch`** runs the universal MAX solver over a whole directory in parallel,
   and **`--bench`** re-times the bundled set as a parallel batch; both report the
   wall-clock vs. summed-CPU speedup;
-* the optional `--features parallel` additionally parallelizes the O(n³)
-  similar-triangle search's per-triangle arithmetic (modest at IMO sizes,
-  headroom for larger figures).
+* the closure itself is serial: its O(n³) searches key triangles and inscribed
+  angles by O(1) fingerprint arithmetic (see `src/CODEMAP.md`), so the former
+  `--features parallel` per-triangle path no longer had work to parallelize and
+  was removed.
 
 An honest note on **async**: async/await is a tool for overlapping *IO waits*
 (sockets, disks, timers). This prover is purely CPU-bound — there is no IO to

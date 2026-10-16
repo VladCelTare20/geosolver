@@ -2,7 +2,7 @@
 #   ./deploy/build-linux.sh
 #   sudo install -Dm755 target/release/agstudio /opt/agstudio/agstudio
 #   sudo cp deploy/agstudio.service /etc/systemd/system/
-#   sudo cp deploy/.env.example /etc/agstudio.env   # then edit it
+#   sudo install -m 600 -o root -g root deploy/.env.example /etc/agstudio.env   # then edit it
 #   sudo systemctl daemon-reload && sudo systemctl enable --now agstudio
 [Unit]
 Description=GeoSolver
@@ -13,8 +13,25 @@ Wants=network-online.target
 Type=simple
 ExecStart=/opt/agstudio/agstudio serve
 EnvironmentFile=/etc/agstudio.env
+# Accounts, sessions and history live in SQLite. DynamicUser + ProtectSystem=strict
+# leave no writable path except the StateDirectory, so the DB must live there.
+StateDirectory=agstudio
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/agstudio
+Environment=AGSTUDIO_DB=/var/lib/agstudio/agstudio.db
+UMask=0077
 Restart=on-failure
 RestartSec=3
+# systemd gives services 1024 descriptors by default; a flood of idle
+# connections must not be able to exhaust them (the app also caps connections).
+LimitNOFILE=65536
+# SIGTERM only the server: it drains solves in flight (AGSTUDIO_SHUTDOWN_GRACE_SECS,
+# 70 s) and its workers exit on their own once it is gone. The default
+# KillMode=control-group would SIGTERM every worker at once.
+KillMode=mixed
+TimeoutStopSec=90
+# A kernel OOM kill of one solve worker fails that solve, not the service.
+OOMPolicy=continue
 
 # Run as a dedicated, unprivileged, dynamically-allocated user.
 DynamicUser=yes
@@ -27,7 +44,13 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectProc=invisible
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
 RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
@@ -35,9 +58,12 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
 AmbientCapabilities=
-# Note: this hardened profile isolates the service from a user home, so photo/NL
-# translation (which needs the `claude` CLI + its credentials) is unavailable.
-# To enable it, relax ProtectHome and run as a fixed user signed into `claude`.
+# Photo/NL translation and AI explanations (deploy/DEPLOY.md, "AI on a server"):
+# install the `claude` CLI, put CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`)
+# and AGSTUDIO_CLAUDE_BIN=<absolute path to claude> in /etc/agstudio.env, and
+# install the drop-in deploy/agstudio-ai.conf (MemoryDenyWriteExecute=no, HOME
+# inside the StateDirectory):
+#   sudo install -Dm644 deploy/agstudio-ai.conf /etc/systemd/system/agstudio.service.d/ai.conf
 
 [Install]
 WantedBy=multi-user.target
