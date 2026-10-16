@@ -82,9 +82,11 @@ struct Given<'t> {
     flat: [Echelon; 4],
     incidence: [Echelon; 4],
     lines: Vec<Vec<PointId>>,
-    circles: Vec<(Vec<PointId>, Vec<(Table, LinComb)>)>,
+    circles: Vec<(Vec<PointId>, RowSet)>,
     facts: Vec<Vec<(Table, LinComb)>>,
 }
+
+type RowSet = Vec<(Table, LinComb)>;
 
 fn canon(t: &EngineTrace, tb: Table, r: &LinComb) -> LinComb {
     crate::human::library::canon_row(t, tb, r)
