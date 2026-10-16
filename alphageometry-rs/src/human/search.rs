@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const EXTRA_CAP: i64 = 2_000;
 pub const ROUTE_SLACK: i64 = 12;
 pub const DRAWN_SLACK: i64 = 30;
+pub const DRAWN_TOTAL: usize = 300;
 pub const VIA_COST: i64 = 30;
 pub const UNDIRECTED_BONUS: i64 = 10;
 pub const MAX_FORMS: usize = 3;
@@ -453,8 +454,13 @@ fn route_target(
         } else {
             &w.route_spent
         };
+        let total = if only_drawn {
+            DRAWN_TOTAL
+        } else {
+            route::TOTAL_BUDGET
+        };
         if !matches!(form.table, Table::Angle | Table::Ratio)
-            || spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET
+            || spent.load(std::sync::atomic::Ordering::Relaxed) >= total
         {
             continue;
         }
@@ -477,13 +483,14 @@ fn route_target(
         if form.table == Table::Angle {
             let usplits = undirected_splits(w, &form);
             let g = graphs.get(w, Table::Angle, true);
-            if let Some(mut p) = g.search(
+            if let Some(mut p) = g.search_ends(
                 cx,
                 &usplits,
                 route::UNDIRECTED_BUDGET,
                 cap.saturating_add(UNDIRECTED_BONUS),
                 spent,
                 weights,
+                true,
             ) {
                 p.weight -= UNDIRECTED_BONUS;
                 found.push(p);
@@ -572,11 +579,11 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
         }
         if f == GOAL {
             let cap = route::TOTAL_BUDGET - route::GOAL_RESERVE;
-            for spent in [&w.route_spent, &w.drawn_spent] {
-                if spent.load(std::sync::atomic::Ordering::Relaxed) > cap {
-                    spent.store(cap, std::sync::atomic::Ordering::Relaxed);
-                }
+            if w.route_spent.load(std::sync::atomic::Ordering::Relaxed) > cap {
+                w.route_spent
+                    .store(cap, std::sync::atomic::Ordering::Relaxed);
             }
+            w.drawn_spent.store(0, std::sync::atomic::Ordering::Relaxed);
         }
         let node = w.nodes[&f].clone();
         let present = present_cost(&node);
@@ -684,9 +691,10 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
     out.complete = true;
     if std::env::var_os("HP_TIME").is_some() {
         eprintln!(
-            "route search: {:.1} ms, {} expansions, {} nodes, {} atoms",
+            "route search: {:.1} ms, {} expansions (+{} as drawn), {} nodes, {} atoms",
             route_time * 1e3,
             w.route_spent.load(std::sync::atomic::Ordering::Relaxed),
+            w.drawn_spent.load(std::sync::atomic::Ordering::Relaxed),
             w.nodes.len(),
             w.atoms.len()
         );

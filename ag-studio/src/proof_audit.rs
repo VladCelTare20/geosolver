@@ -592,6 +592,9 @@ mod tests {
         bad.extend(angle_violations(&h.proof, &h.names, fig));
         bad.extend(engine_violations(&sh.sol));
         let v = crate::present::solution_json(&sh.sol, Some(&case.name));
+        if std::env::var_os("HP_ASDRAWN").is_some() {
+            eprintln!("ASDRAWN\t{}\t{}", case.name, v["view"]["as_drawn"]);
+        }
         if let Some(hv) = crate::human_view::of_view(&v["view"]) {
             for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
                 bad.extend(text_violations(&crate::human_view::text(

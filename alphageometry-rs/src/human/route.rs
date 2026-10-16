@@ -30,6 +30,7 @@ pub struct Graph {
     index: FxHashMap<VarId, Vec<u32>>,
     lambdas: Vec<Rat>,
     shown: RefCell<FxHashMap<LinComb, Option<i64>>>,
+    constant_steps: RefCell<FxHashMap<LinComb, Vec<(LinComb, usize, Rat)>>>,
     pub max_vars: usize,
 }
 
@@ -90,6 +91,17 @@ fn wide_ratio_shape(cx: &Ctx, c: &LinComb, max: usize) -> Option<i64> {
 }
 
 fn undirected_shape(cx: &Ctx, c: &LinComb) -> Option<i64> {
+    if let Some(v) = cx.drawn_shapes.lock().ok().and_then(|m| m.get(c).copied()) {
+        return v;
+    }
+    let r = undirected_shape_uncached(cx, c);
+    if let Ok(mut m) = cx.drawn_shapes.lock() {
+        m.insert(c.clone(), r);
+    }
+    r
+}
+
+fn undirected_shape_uncached(cx: &Ctx, c: &LinComb) -> Option<i64> {
     if c.terms.iter().any(|(v, _)| *v != ANGLE_UNIT && *v < QBASE) || classes(c).len() > 4 {
         return None;
     }
@@ -120,6 +132,7 @@ impl Graph {
             index: FxHashMap::default(),
             lambdas: Vec::new(),
             shown: RefCell::new(FxHashMap::default()),
+            constant_steps: RefCell::new(FxHashMap::default()),
             max_vars: 4,
         };
         for (ai, a) in atoms.iter().enumerate() {
@@ -202,6 +215,20 @@ impl Graph {
         spent: &AtomicUsize,
         weights: &[i64],
     ) -> Option<Path> {
+        self.search_ends(cx, splits, budget, bound, spent, weights, true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn search_ends(
+        &self,
+        cx: &Ctx,
+        splits: &[(LinComb, LinComb)],
+        budget: usize,
+        bound: i64,
+        spent: &AtomicUsize,
+        weights: &[i64],
+        line_ends: bool,
+    ) -> Option<Path> {
         let mut best: Option<Path> = None;
         for (si, (l0, r0)) in splits.iter().enumerate() {
             if spent.load(Ordering::Relaxed) >= TOTAL_BUDGET || cx.timed_out() {
@@ -210,7 +237,8 @@ impl Graph {
             let l = self.canon(cx, l0);
             let r = self.canon(cx, r0);
             let end_ok = |c: &LinComb| {
-                self.shape(cx, c).is_some() || (self.undirected && classes(c).len() <= 2)
+                self.shape(cx, c).is_some()
+                    || (line_ends && self.undirected && classes(c).len() <= 2)
             };
             if l == r || !end_ok(&l) || !end_ok(&r) {
                 continue;
@@ -234,18 +262,55 @@ impl Graph {
         weights: &[i64],
     ) {
         out.clear();
-        let mut cand: Vec<u32> = Vec::new();
         if vs.is_empty() {
-            cand.extend(0..self.atom.len() as u32);
-        } else {
-            for v in vs {
-                if let Some(list) = self.index.get(v) {
-                    cand.extend(list.iter().copied());
-                }
+            if let Some(steps) = self.constant_steps.borrow().get(x) {
+                out.extend(
+                    steps
+                        .iter()
+                        .filter(|s| weights[self.atom[s.1]] != OFF)
+                        .cloned(),
+                );
+                return;
             }
-            cand.sort_unstable();
-            cand.dedup();
+            let all = vec![0i64; weights.len()];
+            let mut steps = Vec::new();
+            self.expand(
+                cx,
+                x,
+                vs,
+                &mut steps,
+                &all,
+                (0..self.atom.len() as u32).collect(),
+            );
+            out.extend(
+                steps
+                    .iter()
+                    .filter(|s| weights[self.atom[s.1]] != OFF)
+                    .cloned(),
+            );
+            self.constant_steps.borrow_mut().insert(x.clone(), steps);
+            return;
         }
+        let mut cand: Vec<u32> = Vec::new();
+        for v in vs {
+            if let Some(list) = self.index.get(v) {
+                cand.extend(list.iter().copied());
+            }
+        }
+        cand.sort_unstable();
+        cand.dedup();
+        self.expand(cx, x, vs, out, weights, cand);
+    }
+
+    fn expand(
+        &self,
+        cx: &Ctx,
+        x: &LinComb,
+        vs: &[VarId],
+        out: &mut Vec<(LinComb, usize, Rat)>,
+        weights: &[i64],
+        cand: Vec<u32>,
+    ) {
         let fx: Vec<(VarId, f64)> = vs.iter().map(|v| (*v, x.get(*v).to_f64())).collect();
         let xget = |v: VarId| fx.iter().find(|p| p.0 == v).map(|p| p.1).unwrap_or(0.0);
         let flam: Vec<f64> = self.lambdas.iter().map(|l| l.to_f64()).collect();

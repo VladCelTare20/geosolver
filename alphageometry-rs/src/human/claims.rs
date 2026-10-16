@@ -25,6 +25,7 @@ const MERGED: &str = "merged";
 const MAX_CLAIMS: usize = 7;
 const ORDER_BUDGET: usize = 40_000;
 const DRAWN_BUDGET: usize = 1_200;
+const SINGLE_DRAWN_BUDGET: usize = 1_200;
 const DIRECT_CAP: usize = 10_000;
 const MAIN_CAP: usize = 2_500;
 const SUB_CAP: usize = 400;
@@ -3550,6 +3551,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         h: FactId,
         then: Option<Stmt>,
         focus: &BTreeSet<PointId>,
+        budget: usize,
     ) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let w = self.w;
@@ -3599,13 +3601,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 .filter(|(l, r)| !(l.is_zero() && *r == degenerate))
                 .collect();
             let used = spent.load(std::sync::atomic::Ordering::Relaxed);
-            if splits.is_empty() || used >= DRAWN_BUDGET {
+            if splits.is_empty() || used >= budget {
                 continue;
             }
             let found = self
                 .drawn_graph
                 .get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true))
-                .search(cx, &splits, DRAWN_BUDGET - used, i64::MAX, &spent, &weights);
+                .search(cx, &splits, budget - used, i64::MAX, &spent, &weights);
             if std::env::var_os("HP_ROUTE").is_some() {
                 eprintln!(
                     "route_drawn {:?}: {} splits, found {:?}",
@@ -3696,7 +3698,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 {
                     x
                 }
-                _ => match self.route_drawn(&lt, h, Some(stmt.clone()), focus) {
+                _ => match self.route_drawn(&lt, h, Some(stmt.clone()), focus, DRAWN_BUDGET) {
                     Some(x) => x,
                     None => continue,
                 },
@@ -4592,7 +4594,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     };
                     let focus: BTreeSet<PointId> = args.iter().copied().collect();
                     self.plain_route = true;
-                    let found = [self.route_drawn(&target, h, None, &focus)];
+                    let found = [self.route_drawn(&target, h, None, &focus, DRAWN_BUDGET)];
                     self.plain_route = false;
                     let usable = |ls: &Vec<Sentence>| -> Option<(usize, Sentence)> {
                         let [chain @ Sentence::Chain {
@@ -4691,7 +4693,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             };
             let focus: BTreeSet<PointId> = super::view::stmt_points(&stmt).into_iter().collect();
             self.plain_route = true;
-            let found = self.route_drawn(&target, h, None, &focus);
+            let found = self.route_drawn(&target, h, None, &focus, DRAWN_BUDGET);
             self.plain_route = false;
             let Some(ls) = found else { continue };
             let [chain @ Sentence::Chain { links: cl, .. }] = ls.as_slice() else {
@@ -4883,7 +4885,12 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             };
             stamp("chain", t_part);
             if part.target.table == Table::Angle && s.iter().any(directed_chain) {
-                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
+                let budget = if s.iter().any(multiple_directed) {
+                    DRAWN_BUDGET
+                } else {
+                    SINGLE_DRAWN_BUDGET
+                };
+                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus, budget) {
                     if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
                         s = r;
                     }
@@ -4907,7 +4914,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if part.target.table == Table::Angle
                 && s.iter().any(|x| matches!(x, Sentence::Pooled { .. }))
             {
-                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
+                if let Some(r) =
+                    self.route_drawn(&part.target, h, then.clone(), &focus, DRAWN_BUDGET)
+                {
                     if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
                         s = r;
                     }
