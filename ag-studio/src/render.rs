@@ -352,7 +352,8 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
                 _ => g(0),
             }
         }
-        "cong" | "length" | "eqangle" | "coincide" | "eq" => format!("{} = {}", g(0), g(1)),
+        "eqangle" | "eq" => crate::human_view::eq_join(&[g(0), g(1)]),
+        "cong" | "length" | "coincide" => format!("{} = {}", g(0), g(1)),
         "perp" => format!("{} \u{27c2} {}", g(0), g(1)),
         "para" => format!("{} \u{2225} {}", g(0), g(1)),
         "eqratio" => a
@@ -371,7 +372,7 @@ pub fn fact_text(f: &Value, lang: Lang) -> String {
                 ),
             ],
         ),
-        "aconst" => format!("{} = {}\u{b0}", g(0), g(1)),
+        "aconst" => crate::human_view::eq_join(&[g(0), format!("{}\u{b0}", g(1))]),
         "rconst" => format!("{} : {} = {}", g(0), g(1), g(2)),
         "simtri" => format!("\u{25b3}{} \u{223c} \u{25b3}{}", g(0), g(1)),
         "contri" => format!(
@@ -1810,7 +1811,7 @@ fn hp_rows(
                 );
             }
         }
-        b.push_str(&plain(x_eq, y, BODY_FS, 400, INK, MATH, "="));
+        b.push_str(&plain(x_eq, y, BODY_FS, 400, INK, MATH, &r.rel));
         let rhs = wrap(&r.rhs, rhs_cols);
         for (k, l) in rhs.iter().enumerate() {
             b.push_str(&txt(
@@ -2302,11 +2303,13 @@ mod tests {
         let rows = vec![
             Row {
                 lhs: "\u{2220}BPO".into(),
+                rel: "=".into(),
                 rhs: "\u{2220}XBO \u{2212} \u{2220}OPD \u{2212} \u{2220}XBO".into(),
                 reason: "angle addition".into(),
             },
             Row {
                 lhs: String::new(),
+                rel: "=".into(),
                 rhs: "\u{2220}OPX".into(),
                 reason: "OP = OB".into(),
             },
