@@ -2009,6 +2009,7 @@ impl Ddar {
                 }
                 if !may_fire
                     || self.forbid.has(crate::theory::Thm::InscribedConverse)
+                        && self.forbid.has(crate::theory::Thm::ThalesConverse)
                     || self.row_already_concyclic(a, b, &row_keys, &counts)
                 {
                     continue;
@@ -2037,6 +2038,17 @@ impl Ddar {
                 };
                 for (points_list, centers) in groups {
                     if points_list.len() >= 2 || (!centers.is_empty() && !points_list.is_empty()) {
+                        let diameter = centers
+                            .iter()
+                            .any(|&o| collinear(self.coord(a), self.coord(b), self.coord(o)));
+                        let tag = if diameter {
+                            crate::theory::Thm::ThalesConverse
+                        } else {
+                            crate::theory::Thm::InscribedConverse
+                        };
+                        if self.forbid.has(tag) {
+                            continue;
+                        }
                         let mut pts = vec![a, b];
                         pts.extend_from_slice(&points_list);
                         let premises = |s: &Ddar| {
@@ -2050,12 +2062,8 @@ impl Ddar {
                             }
                             prem
                         };
-                        changed = self.force_concyclic_tagged(
-                            &pts,
-                            &centers,
-                            premises,
-                            Some(crate::theory::Thm::InscribedConverse),
-                        ) || changed;
+                        changed = self.force_concyclic_tagged(&pts, &centers, premises, Some(tag))
+                            || changed;
                     }
                 }
             }

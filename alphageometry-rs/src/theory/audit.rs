@@ -1,5 +1,5 @@
 use super::{of_atom, of_fact, of_theorem_key, Forbid, Thm};
-use crate::human::model::{Block, HumanProof, Reason, Sentence};
+use crate::human::model::{AtomKey, Block, HumanProof, Reason, Sentence, Stmt};
 use crate::human::trace::EngineTrace;
 use crate::proof::{Fact, FactId, ProofLog};
 
@@ -38,9 +38,15 @@ fn reason_thms(t: &EngineTrace, r: &Reason, out: &mut Vec<(Thm, String)>) {
     };
     match r {
         Reason::Hyp { .. } | Reason::Lemma { .. } => {}
-        Reason::Atom { key, .. } => {
+        Reason::Atom { key, stmt, .. } => {
             for &th in of_atom(*key) {
                 out.push((th, format!("atom {}", key.as_str())));
+            }
+            if inscribed(*key) && matches!(stmt, Stmt::Cyclic { .. }) {
+                out.push((
+                    Thm::InscribedConverse,
+                    format!("atom {} concluding a circle", key.as_str()),
+                ));
             }
         }
         Reason::Claim { fact, .. } | Reason::Engine { fact } => fact_thms(*fact, out),
@@ -53,7 +59,39 @@ fn reason_thms(t: &EngineTrace, r: &Reason, out: &mut Vec<(Thm, String)>) {
     }
 }
 
+fn inscribed(key: AtomKey) -> bool {
+    matches!(
+        key,
+        AtomKey::Inscribed | AtomKey::CyclicOpposite | AtomKey::CyclicExterior
+    )
+}
+
 fn sentence_thms(t: &EngineTrace, s: &Sentence, out: &mut Vec<(Thm, String)>) {
+    match s {
+        Sentence::Chain {
+            then: Some(Stmt::Cyclic { .. }),
+            ..
+        } => {
+            out.push((
+                Thm::InscribedConverse,
+                "an angle chain concluding a circle".into(),
+            ));
+        }
+        Sentence::Because {
+            stmt: Stmt::Cyclic { .. },
+            reasons,
+            ..
+        } if reasons
+            .iter()
+            .any(|r| matches!(r, Reason::Atom { key, .. } if inscribed(*key))) =>
+        {
+            out.push((
+                Thm::InscribedConverse,
+                "inscribed angles concluding a circle".into(),
+            ));
+        }
+        _ => {}
+    }
     match s {
         Sentence::Chain { links, .. } | Sentence::Computation { links, .. } => {
             for l in links {

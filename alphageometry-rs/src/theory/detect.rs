@@ -424,6 +424,26 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
         }
     }
     let pts = &cx.pts;
+    for &(m, a, b) in mids {
+        for &z in pts {
+            if [m, a, b].contains(&z) {
+                continue;
+            }
+            let Some(right) = r.perp((z, a), (z, b)) else {
+                continue;
+            };
+            if !g.direct(Table::Angle, &right) {
+                continue;
+            }
+            push(
+                out,
+                Thm::ThalesConverse,
+                vec![a, b, z, m],
+                vec![],
+                vec![r.cong(m, z, m, a).map(|x| (Table::Ratio, x))],
+            );
+        }
+    }
     for &o in pts {
         for &p in pts {
             for &q in pts {
@@ -645,7 +665,10 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                                 if [a, b, c, d, e, f].contains(&q) {
                                     continue;
                                 }
-                                if g.on_line(&[a, d, q]) && g.on_line(&[b, e, q]) && g.on_line(&[c, f, q]) {
+                                if g.on_line(&[a, d, q])
+                                    && g.on_line(&[b, e, q])
+                                    && g.on_line(&[c, f, q])
+                                {
                                     let mut hyps = lines.to_vec();
                                     hyps.push(Some(Hyp::Line(vec![a, d, q])));
                                     hyps.push(Some(Hyp::Line(vec![b, e, q])));
