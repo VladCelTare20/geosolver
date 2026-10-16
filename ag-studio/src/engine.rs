@@ -225,6 +225,64 @@ pub struct Solution {
     /// allow a figure in which the goal fails.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub as_drawn: bool,
+    /// The library theorems the statement is (`ddar::theory`): the proof, if
+    /// any, uses none of them nor any theorem derived from them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub theorem_avoided: Vec<Avoided>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Avoided {
+    pub key: String,
+    pub name_en: String,
+    pub name_ro: String,
+}
+
+pub fn avoided_of(g: &ddar::theory::detect::Guard) -> Vec<Avoided> {
+    g.detected
+        .iter()
+        .map(|t| Avoided {
+            key: t.key().to_string(),
+            name_en: t.name_en().to_string(),
+            name_ro: t.name_ro().to_string(),
+        })
+        .collect()
+}
+
+pub const CIRCULAR_NOTE: &str = "it was not derived from anything simpler";
+
+fn names_en(avoided: &[Avoided]) -> String {
+    avoided
+        .iter()
+        .map(|a| a.name_en.as_str())
+        .collect::<Vec<_>>()
+        .join(" and ")
+}
+
+pub fn circular_note(avoided: &[Avoided]) -> String {
+    format!(
+        "not proved — this statement is {} itself; {CIRCULAR_NOTE}",
+        names_en(avoided)
+    )
+}
+
+pub fn avoided_note(avoided: &[Avoided]) -> String {
+    format!(
+        "proved without using {} or the theorems derived from it",
+        names_en(avoided)
+    )
+}
+
+fn mark_avoided(sol: &mut Solution, avoided: Vec<Avoided>) {
+    if avoided.is_empty() {
+        return;
+    }
+    if sol.proved {
+        sol.note = format!("{}; {}", sol.note, avoided_note(&avoided));
+    } else if sol.status != Status::Refuted && sol.goal_holds_numerically != Some(false) {
+        sol.note = format!("{}; {}", circular_note(&avoided), sol.note);
+    }
+    sol.theorem_avoided = avoided;
 }
 
 /// The human proof writer's output with what is needed to name it: the raw
@@ -598,7 +656,10 @@ fn conjunction_flow(
         want_proof: false,
         ..opts.clone()
     };
+    let guard = ddar::theory::detect::guard_conjunction(base, goals);
+    let avoided = avoided_of(&guard);
     let mut current = base.clone();
+    current.forbid = guard.forbid;
     let mut aux: Vec<String> = Vec::new();
     for (k, g) in goals.iter().enumerate() {
         let mut p = current.clone();
@@ -614,7 +675,7 @@ fn conjunction_flow(
                 names.join(" "),
                 part.note
             );
-            return conjunction_solution(
+            let mut sol = conjunction_solution(
                 input,
                 opts,
                 &display,
@@ -626,11 +687,14 @@ fn conjunction_flow(
                 part.method,
                 note,
                 start,
-            );
+            )?;
+            mark_avoided(&mut sol, avoided);
+            return Ok(sol);
         }
         aux.extend(part.aux_constructions.iter().cloned());
         if let Some(f) = part.figure.filter(|f| f.aux_from.is_some()) {
             current = f.problem;
+            current.forbid = current.forbid.union(guard.forbid);
         }
     }
     current.goal = None;
@@ -652,9 +716,11 @@ fn conjunction_flow(
         ),
         _ => (None, format!("not proved — the {n} conjuncts of `{goal_text}` were proved one at a time but not in one closure")),
     };
-    conjunction_solution(
+    let mut sol = conjunction_solution(
         input, opts, &display, &current, base_len, goal_holds, aux, proof, method, note, start,
-    )
+    )?;
+    mark_avoided(&mut sol, avoided);
+    Ok(sol)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -702,6 +768,7 @@ fn conjunction_solution(
         }),
         human: None,
         as_drawn: false,
+        theorem_avoided: Vec::new(),
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -738,7 +805,7 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
         return euclid(opts);
     }
 
-    let (problem, goal_holds, configuration_dependent) = match to_problem(input, opts.kind) {
+    let (mut problem, goal_holds, configuration_dependent) = match to_problem(input, opts.kind) {
         Err(e) if e == METRIC_GOAL => return euclid(opts),
         Err(e) if e == CONJUNCTION => return solve_within(input, opts, Some(budget)),
         other => other?,
@@ -746,10 +813,20 @@ pub fn solve_best(input: &str, opts: &SolveOptions, budget: Duration) -> Result<
     if opts.kind == InputKind::Geo && problem.goal.as_ref().is_some_and(is_placeholder_goal) {
         return euclid(opts);
     }
-    let mut sol =
-        ddar::quiet_panic::quiet(|| best_deductive(input, opts, budget, problem, goal_holds))?;
+    let guard = ddar::theory::detect::guard(&problem);
+    problem.forbid = guard.forbid;
+    let avoided = avoided_of(&guard);
+    let mut sol = if guard.unavoidable().is_some() && goal_holds != Some(false) {
+        let mut sol = unproved_solution(&problem, input, goal_holds, opts, Instant::now())?;
+        sol.note = "not proved by the closure".to_string();
+        sol.examined = Some(0);
+        sol
+    } else {
+        ddar::quiet_panic::quiet(|| best_deductive(input, opts, budget, problem, goal_holds))?
+    };
     reconcile(&mut sol, true);
     mark_as_drawn(&mut sol, configuration_dependent);
+    mark_avoided(&mut sol, avoided);
     Ok(sol)
 }
 
@@ -796,6 +873,7 @@ fn best_deductive(
             }),
             human: None,
             as_drawn: false,
+            theorem_avoided: Vec::new(),
         }
     };
 
@@ -1135,13 +1213,23 @@ fn is_step_line(line: &str) -> bool {
 
 /// The DDAR path: figure, direct deduction, then the auxiliary-point search.
 fn deductive_flow(
-    problem: Problem,
+    mut problem: Problem,
     input: &str,
     goal_holds: Option<bool>,
     opts: &SolveOptions,
     deadline: Option<Instant>,
 ) -> Result<Solution, String> {
     let start = Instant::now();
+    let guard = ddar::theory::detect::guard(&problem);
+    problem.forbid = problem.forbid.union(guard.forbid);
+    let avoided = avoided_of(&guard);
+    if guard.unavoidable().is_some() && goal_holds != Some(false) {
+        let mut sol = unproved_solution(&problem, input, goal_holds, opts, start)?;
+        sol.note = "not proved by the closure".to_string();
+        reconcile(&mut sol, opts.want_proof);
+        mark_avoided(&mut sol, avoided);
+        return Ok(sol);
+    }
     let mut svg = render_figure(&problem, opts, None)?;
     let mut figure = FigureSource {
         problem: problem.clone(),
@@ -1285,9 +1373,48 @@ fn deductive_flow(
         figure: Some(figure),
         human,
         as_drawn: false,
+        theorem_avoided: Vec::new(),
     };
     reconcile(&mut sol, opts.want_proof);
+    mark_avoided(&mut sol, avoided);
     Ok(sol)
+}
+
+fn unproved_solution(
+    problem: &Problem,
+    input: &str,
+    goal_holds: Option<bool>,
+    opts: &SolveOptions,
+    start: Instant,
+) -> Result<Solution, String> {
+    let svg = render_figure(problem, opts, None)?;
+    let (constructions, goal) = ddar::svg::legend_lines(problem);
+    Ok(Solution {
+        input: input.to_string(),
+        low_level: problem.to_ag_string(),
+        proved: false,
+        status: Status::NotProved,
+        method: Method::Ddar,
+        proof: None,
+        numeric_evidence: None,
+        numeric_samples: None,
+        svg,
+        aux_constructions: Vec::new(),
+        constructions,
+        goal,
+        goal_holds_numerically: goal_holds,
+        elapsed_secs: start.elapsed().as_secs_f64(),
+        note: String::new(),
+        proof_steps: None,
+        examined: None,
+        figure: Some(FigureSource {
+            problem: problem.clone(),
+            aux_from: None,
+        }),
+        human: None,
+        as_drawn: false,
+        theorem_avoided: Vec::new(),
+    })
 }
 
 /// The classical-Euclidean path for absolute-length goals: draw the figure from
@@ -1400,6 +1527,7 @@ fn euclidean_flow(
         figure,
         human: None,
         as_drawn: false,
+        theorem_avoided: Vec::new(),
     };
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
@@ -2495,6 +2623,7 @@ mod tests {
             figure: None,
             human: None,
             as_drawn: false,
+            theorem_avoided: Vec::new(),
         }
     }
 }

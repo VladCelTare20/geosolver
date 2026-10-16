@@ -255,6 +255,7 @@ pub fn time_limit_solution(input: &str, kind: InputKind, limit: Duration) -> Sol
         figure: None,
         human: None,
         as_drawn: false,
+        theorem_avoided: Vec::new(),
     }
 }
 

@@ -2386,7 +2386,10 @@ pub fn classify_note(sol: &Solution) -> Note {
         runs: None,
         raw: raw.clone(),
     };
-    if s.contains("time limit") {
+    if !sol.proved && s.contains(crate::engine::CIRCULAR_NOTE) {
+        note.key = "circular";
+        note.secs = number_before(s, "s time limit");
+    } else if s.contains("time limit") {
         note.key = "time_limit";
         note.secs =
             number_before(s, "s time limit").or_else(|| first_number_after(s, "within the "));
@@ -3973,12 +3976,13 @@ pub(crate) fn displayed(sol: &Solution, by: Option<std::time::Instant>) -> Optio
         return None;
     }
     let fig = sol.figure.as_ref()?;
-    let redrawn = crate::spread::respread(
+    let mut redrawn = crate::spread::respread(
         &fig.problem,
         fig.aux_from,
         &sol.input,
         crate::spread::Goal::Holds,
     )?;
+    redrawn.forbid = fig.problem.forbid;
     let first_aux = fig.aux_from.unwrap_or(redrawn.points.len());
     let infos = ddar::human::aux_infos(&redrawn, first_aux, &sol.aux_constructions);
     let problem = redrawn.clone();
