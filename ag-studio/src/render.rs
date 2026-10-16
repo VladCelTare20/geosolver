@@ -722,7 +722,37 @@ fn method_text(v: &Value, lang: Lang) -> Option<String> {
     })
 }
 
+fn avoided_names(v: &Value, lang: Lang) -> String {
+    let field = if lang == Lang::Ro {
+        "name_ro"
+    } else {
+        "name_en"
+    };
+    let names: Vec<&str> = v["theorem_avoided"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x[field].as_str()).collect())
+        .unwrap_or_default();
+    names.join(if lang == Lang::Ro { " și " } else { " and " })
+}
+
 fn verdict_copy(v: &Value, lang: Lang) -> (String, String) {
+    let (head, explain) = verdict_base(v, lang);
+    let thm = avoided_names(v, lang);
+    if thm.is_empty() {
+        return (head, explain);
+    }
+    let status = v["status"].as_str().unwrap_or("not-proved");
+    let tf = |k: &str| i18n::tf(lang, k, &[("thm", thm.clone())]);
+    match status {
+        "proved" => (head, format!("{explain} {}", tf("report.explain.avoided"))),
+        "holds-numerically" => (head, format!("{} {explain}", tf("report.explain.circular"))),
+        "refuted" => (head, explain),
+        _ if v["view"]["note"]["key"] == "circular" => (head, tf("report.explain.circular")),
+        _ => (head, explain),
+    }
+}
+
+fn verdict_base(v: &Value, lang: Lang) -> (String, String) {
     let status = v["status"].as_str().unwrap_or("not-proved");
     let view = &v["view"];
     let note = view["note"]["key"].as_str().unwrap_or("");

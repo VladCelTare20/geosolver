@@ -239,8 +239,11 @@ pub struct Avoided {
 }
 
 pub fn avoided_of(g: &ddar::theory::detect::Guard) -> Vec<Avoided> {
-    g.detected
-        .iter()
+    avoided_of_thms(&g.detected)
+}
+
+pub fn avoided_of_thms(thms: &[ddar::theory::Thm]) -> Vec<Avoided> {
+    thms.iter()
         .map(|t| Avoided {
             key: t.key().to_string(),
             name_en: t.name_en().to_string(),
@@ -271,6 +274,22 @@ pub fn avoided_note(avoided: &[Avoided]) -> String {
         "proved without using {} or the theorems derived from it",
         names_en(avoided)
     )
+}
+
+pub fn avoided_sentence(sol: &Solution) -> Option<String> {
+    if sol.theorem_avoided.is_empty() {
+        return None;
+    }
+    let names = names_en(&sol.theorem_avoided);
+    match sol.status {
+        Status::Proved => Some(format!(
+            "Proved without using {names} or the theorems derived from it."
+        )),
+        Status::Refuted => None,
+        _ => Some(format!(
+            "This statement is {names} itself; it was not derived from anything simpler."
+        )),
+    }
 }
 
 fn mark_avoided(sol: &mut Solution, avoided: Vec<Avoided>) {
@@ -1448,8 +1467,13 @@ fn euclidean_flow(
         let left = d.saturating_duration_since(now);
         now + left.mul_f64(0.8).max(left.saturating_sub(METRIC_RESERVE))
     });
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        ddar::metric::solve_until(&cons, &goal, ddar::metric::DEFAULT_SAMPLES, provers_until)
+    let (result, stated) = catch_unwind(AssertUnwindSafe(|| {
+        ddar::metric::solve_until_guarded(
+            &cons,
+            &goal,
+            ddar::metric::DEFAULT_SAMPLES,
+            provers_until,
+        )
     }))
     .map_err(|_| "metric prover panicked".to_string())?;
     let mut goal_holds = goal_holds;
@@ -1529,6 +1553,7 @@ fn euclidean_flow(
         as_drawn: false,
         theorem_avoided: Vec::new(),
     };
+    mark_avoided(&mut sol, avoided_of_thms(&stated));
     reconcile(&mut sol, opts.want_proof);
     Ok(sol)
 }

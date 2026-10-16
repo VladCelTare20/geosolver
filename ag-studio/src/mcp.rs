@@ -623,6 +623,10 @@ async fn tool_solve(args: &Value, permit: Option<OwnedSemaphorePermit>) -> Value
         }
         engine::Status::NotProved => "NOT PROVEN (within the search budget)\n".to_string(),
     });
+    if let Some(line) = engine::avoided_sentence(&sol) {
+        text.push_str(&line);
+        text.push('\n');
+    }
     text.push_str(&format!(
         "method: {} | {} | {:.3}s\n",
         method_name(sol.method),

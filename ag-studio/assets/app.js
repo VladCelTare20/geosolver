@@ -26,8 +26,8 @@
       c: { en: "Simson line: the feet of the perpendiculars from a point on the circumcircle are collinear.", ro: "Dreapta lui Simson: picioarele perpendicularelor duse dintr-un punct al cercului circumscris sunt coliniare." },
       body: "A B C = triangle\nP = on_circum(A, B, C)\nX = foot(P, line(B, C))\nY = foot(P, line(C, A))\nZ = foot(P, line(A, B))\nprove coll(X, Y, Z)" },
     { id: "stewart", en: "Stewart's theorem", ro: "Teorema lui Stewart", tag: "metric",
-      c: { en: "Stewart's theorem: in triangle ABC with AB = 5, AC = 4, BC = 6 and BD:DC = 1:2, AD² = 14.", ro: "Teorema lui Stewart: în triunghiul ABC cu AB = 5, AC = 4, BC = 6 și BD:DC = 1:2, AD² = 14." },
-      body: "B = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = point: dist(A,B)=5, dist(A,C)=4\nprove dist(A,D)^2 = 14" },
+      c: { en: "Stewart's theorem: for D on BC with BD:DC = 1:2,\n9·AD² = 6·AB² + 3·AC² − 2·BC².", ro: "Teorema lui Stewart: pentru D pe BC cu BD:DC = 1:2,\n9·AD² = 6·AB² + 3·AC² − 2·BC²." },
+      body: "B = free\nC = point: dist(B,C)=6\nD = point: coll(B,D,C), dist(B,D)=2\nA = free\nprove 9*dist(A,D)^2 = 6*dist(A,B)^2 + 3*dist(A,C)^2 - 2*dist(B,C)^2" },
     { id: "pyth", en: "Pythagorean theorem", ro: "Teorema lui Pitagora", tag: "metric",
       c: { en: "Pythagorean theorem", ro: "Teorema lui Pitagora" },
       body: "B C = segment\nA = on_dia(B, C)\nprove dist(A, B)^2 + dist(A, C)^2 = dist(B, C)^2" },
@@ -1158,8 +1158,13 @@
         var text = t("v.not.x");
         if (note.key === "budget" && note.runs != null) text = t("v.not.budget", { runs: tp("runs", note.runs) });
         else if (["metric_error", "unsound", "replay"].indexOf(note.key) >= 0) text = t("v.not." + note.key);
+        else if (note.key === "circular" && avoidedNames(sol)) text = t("v.not.circular", { thm: avoidedNames(sol) });
         return { tone: "neutral", icon: "minus", head: t("v.not"), text: text };
     }
+  }
+  function avoidedNames(sol) {
+    var ro = window.i18n.current() === "ro";
+    return ((sol && sol.theorem_avoided) || []).map(function (a) { return ro ? a.name_ro : a.name_en; }).join(ro ? " și " : " and ");
   }
   function aiReading(sol) {
     return !!(S.aiReading && sol && sol.input && sol.input.trim() === S.aiReading);
@@ -1172,7 +1177,7 @@
   }
   function canSearchLonger(sol) {
     var note = (sol.view && sol.view.note) || {}, max = S.status && S.status.extended_deadline_secs;
-    return sol.status === "not-proved" && note.key === "time_limit" && !!max && (note.secs || S.deadline) < max && !!sol.input;
+    return sol.status === "not-proved" && (note.key === "time_limit" || note.key === "circular" && note.secs != null) && !!max && (note.secs || S.deadline) < max && !!sol.input;
   }
   function searchLongerLabel(secs) {
     var n = window.i18n.fmtNum;
@@ -1228,6 +1233,8 @@
       sol.status === "holds-numerically" && sol.numeric_samples ? tp("meta.samples", sol.numeric_samples) : "",
     ].filter(Boolean).map(function (x) { return "<span>" + esc(x) + "</span>"; });
     if (sol.status === "proved" && v.as_drawn) meta.push('<span class="meta-note">' + esc(t(v.figure_dependent ? "meta.as_drawn_config" : "meta.as_drawn")) + "</span>");
+    if (avoidedNames(sol) && sol.status === "proved") meta.push('<span class="meta-note meta-avoided">' + esc(t("meta.avoided", { thm: avoidedNames(sol) })) + "</span>");
+    else if (avoidedNames(sol) && sol.status === "holds-numerically") meta.push('<span class="meta-note meta-avoided">' + esc(t("meta.circular", { thm: avoidedNames(sol) })) + "</span>");
     var guest = S.status && S.status.guest && !S.status.signed_in;
     var guestNote = guest ? '<p class="hint guest-note"><span class="hint-ic" aria-hidden="true">' + icons.info + "</span><span>" + esc(t("hist.guest")) + ' <a href="/auth?mode=register">' + esc(t("nav.create")) + "</a></span></p>" : "";
     var counter = v.counterexample ? '<p class="counter"><strong>' + esc(t("counter.title")) + ".</strong> " + GS.math(counterText(v.counterexample), true) + "</p>" : "";
@@ -1625,10 +1632,10 @@
     }).join("");
   }
 
-  function noteText(note) {
+  function noteText(note, sol) {
     var k = "note.sentence." + note.key;
     if (!window.i18n.has(k) && !window.i18n.has(k + ".other")) return "";
-    var vars = { secs: note.secs != null ? Math.round(note.secs) : S.deadline, runs: note.runs != null ? tp("runs", note.runs) : "?" };
+    var vars = { secs: note.secs != null ? Math.round(note.secs) : S.deadline, runs: note.runs != null ? tp("runs", note.runs) : "?", thm: avoidedNames(sol) };
     if (note.n != null) return tp(k, note.n, vars);
     return t(k + ".other", vars) === k + ".other" ? t(k, vars) : t(k + ".other", vars);
   }
@@ -1636,7 +1643,7 @@
     var v = sol.view || {};
     var note = "";
     if (v.note && v.note.raw) {
-      var said = noteText(v.note);
+      var said = noteText(v.note, sol);
       note = '<div class="dt"><h3 class="label">' + esc(t("details.note")) + "</h3>" + (said ? "<p>" + esc(said) + "</p>" : "") +
         '<details class="raw-note"><summary>' + icons.chevron + "<span>" + esc(t("details.raw")) + '</span></summary><p class="mono small" lang="en">' + esc(v.note.raw) + "</p></details></div>";
     }

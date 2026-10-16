@@ -242,6 +242,8 @@ fn en(key: &str) -> &'static str {
         "report.method.numeric" => "Numerical check",
         "report.method.counter" => "Numerical counterexample",
         "report.as_drawn" => "uses the order of points as drawn",
+        "report.explain.avoided" => "Proved without using {thm} or the theorems derived from it.",
+        "report.explain.circular" => "This statement is {thm} itself; it was not derived from anything simpler.",
         "report.as_drawn_config" => "holds for the configuration drawn only",
         "fact.para_ratio" => "{par} and {ratio}",
         "report.given" => "Given",
@@ -732,6 +734,8 @@ fn ro(key: &str) -> &'static str {
         "report.method.numeric" => "Verificare numerică",
         "report.method.counter" => "Contraexemplu numeric",
         "report.as_drawn" => "folosește ordinea punctelor din figură",
+        "report.explain.avoided" => "Demonstrat fără a folosi {thm} sau vreo teoremă dedusă din acest rezultat.",
+        "report.explain.circular" => "Afirmația este chiar {thm}; nu a fost dedusă din ceva mai simplu.",
         "report.as_drawn_config" => "valabil doar pentru configurația din figură",
         "fact.para_ratio" => "{par} și {ratio}",
         "report.given" => "Ipoteze",
@@ -1177,6 +1181,15 @@ const PROSE_RO: &[(&str, &str)] = &[
     ("Given: ", "Ipoteză: "),
     ("In right triangle ", "În triunghiul dreptunghic "),
     (" (right angle at ", " (unghi drept în "),
+    (" the altitude ", " înălțimea "),
+    (" gives △", " determină △"),
+    (" (common angle at ", " (unghi comun în "),
+    (", right angles at ", ", unghiuri drepte în "),
+    (" (leg theorem); as ", " (teorema catetei); cum "),
+    (" lies between ", " se află între "),
+    (" lies on the line ", " se află și pe dreapta "),
+    (" too, so along that line ", ", deci pe această dreaptă "),
+    (" (lengths of collinear segments)", " (lungimi de segmente coliniare)"),
     (", by the Pythagorean theorem ", ", din teorema lui Pitagora, "),
     (" (the right angle at ", " (unghiul drept din "),
     (" is given)", " este ipoteză)"),
@@ -1499,6 +1512,28 @@ mod tests {
         assert_eq!(
             prose_ro("|BC| = 6 (given), so BC² = 36."),
             "|BC| = 6 (ipoteză), deci BC² = 36."
+        );
+        assert_eq!(
+            prose_ro(
+                "In right triangle BAC (right angle at A) the altitude AH gives △BHA ∼ △BAC \
+                 (common angle at B, right angles at H and A), so AB² = BH·BC (leg theorem); as H \
+                 lies between B and C, BH·BC = ½·(BH² + BC² − HC²)."
+            ),
+            "În triunghiul dreptunghic BAC (unghi drept în A) înălțimea AH determină △BHA ∼ △BAC \
+             (unghi comun în B, unghiuri drepte în H și A), deci AB² = BH·BC (teorema catetei); cum H \
+             se află între B și C, BH·BC = ½·(BH² + BC² − HC²)."
+        );
+        assert_eq!(
+            prose_ro(
+                "M is the midpoint of BC, and H lies on the line BC too, so along that line \
+                 MH² = 1/2·BH² + 1/2·CH² − 1/4·BC² (lengths of collinear segments)."
+            ),
+            "M este mijlocul segmentului BC și H se află și pe dreapta BC, deci pe această dreaptă \
+             MH² = 1/2·BH² + 1/2·CH² − 1/4·BC² (lungimi de segmente coliniare)."
+        );
+        assert_eq!(
+            prose_ro("Let H be the foot of the perpendicular from A to BC."),
+            "Fie H piciorul perpendicularei din A pe BC."
         );
         let ro = prose_ro("Combining the equations above gives AD² = 14.");
         assert!(ro.starts_with("Combinând"), "{ro}");
