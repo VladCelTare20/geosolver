@@ -2348,6 +2348,58 @@ mod tests {
         assert!(!refuted.proved, "{}", refuted.proof.unwrap_or_default());
     }
 
+    #[test]
+    fn a_stated_theorem_is_proved_without_itself_and_reported() {
+        let keys = |s: &Solution| -> Vec<String> {
+            s.theorem_avoided.iter().map(|a| a.key.clone()).collect()
+        };
+        let opts = SolveOptions::default();
+        let midline = solve(
+            "A B C = triangle\nD = midpoint(A, B)\nE = midpoint(A, C)\nprove para(D, E, B, C)",
+            &opts,
+        )
+        .unwrap();
+        assert!(midline.proved, "{}", midline.note);
+        assert_eq!(keys(&midline), ["midline"]);
+        assert!(midline
+            .note
+            .contains("proved without using the midline theorem"));
+        let proof = midline.proof.clone().unwrap_or_default().to_lowercase();
+        assert!(!proof.contains("midline"), "{proof}");
+        let pyth = solve(
+            "B C = segment\nA = on_dia(B, C)\nprove dist(A, B)^2 + dist(A, C)^2 = dist(B, C)^2",
+            &opts,
+        )
+        .unwrap();
+        assert!(pyth.proved, "{}", pyth.note);
+        assert_eq!(keys(&pyth), ["pythagoras"]);
+        assert!(!pyth.proof.unwrap_or_default().contains("Pythagorean"));
+        let inscribed = solve(
+            "A B C = triangle\nD = on_circum(A, B, C)\nprove eqangle(D, A, D, B, C, A, C, B)",
+            &opts,
+        )
+        .unwrap();
+        assert!(!inscribed.proved);
+        assert_eq!(keys(&inscribed), ["inscribed_angle"]);
+        assert!(inscribed.note.contains(CIRCULAR_NOTE), "{}", inscribed.note);
+        let plain = solve(
+            "A B C = triangle\nH = orthocenter(A, B, C)\nprove cyclic(A, B, C, reflect(H, line(B, C)))",
+            &opts,
+        )
+        .unwrap();
+        assert!(
+            plain.proved && plain.theorem_avoided.is_empty(),
+            "{}",
+            plain.note
+        );
+        let false_midline = solve(
+            "A B C = triangle\nD = midpoint(A, B)\nE = on_line(A, C)\nprove para(D, E, B, C)",
+            &opts,
+        )
+        .unwrap();
+        assert!(!false_midline.proved && false_midline.theorem_avoided.is_empty());
+    }
+
     fn human_cost_of(sol: &Solution) -> usize {
         let fig = sol.figure.as_ref().expect("figure");
         let first = fig.aux_from.unwrap_or(fig.problem.points.len());

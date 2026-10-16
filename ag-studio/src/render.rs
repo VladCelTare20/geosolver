@@ -2132,6 +2132,29 @@ mod tests {
     }
 
     #[test]
+    fn the_report_names_the_theorem_a_proof_avoided_or_that_was_stated() {
+        let avoided = serde_json::json!([{"key": "midline", "name_en": "the midline theorem", "name_ro": "teorema liniei mijlocii"}]);
+        let proved = serde_json::json!({"status": "proved", "method": "ddar", "theorem_avoided": avoided, "view": {"note": {"key": "ddar"}, "proof": {"steps": [{"kind": "step"}]}}});
+        assert!(verdict_copy(&proved, Lang::En).1.ends_with(
+            "Proved without using the midline theorem or the theorems derived from it."
+        ));
+        assert!(verdict_copy(&proved, Lang::Ro)
+            .1
+            .ends_with("Demonstrat fără a folosi teorema liniei mijlocii sau vreo teoremă dedusă din acest rezultat."));
+        let circular = serde_json::json!({"status": "not-proved", "method": "ddar", "theorem_avoided": avoided, "view": {"note": {"key": "circular"}}});
+        assert_eq!(
+            verdict_copy(&circular, Lang::En).1,
+            "This statement is the midline theorem itself; it was not derived from anything simpler."
+        );
+        assert_eq!(
+            verdict_copy(&circular, Lang::Ro).1,
+            "Afirmația este chiar teorema liniei mijlocii; nu a fost dedusă din ceva mai simplu."
+        );
+        let plain = serde_json::json!({"status": "proved", "method": "ddar", "view": {"note": {"key": "ddar"}, "proof": {"steps": [{"kind": "step"}]}}});
+        assert!(!verdict_copy(&plain, Lang::En).1.contains("without using"));
+    }
+
+    #[test]
     fn report_copy_matches_the_app() {
         let refuted = serde_json::json!({"status": "refuted", "method": "ddar", "view": {"note": {"key": "false"}}});
         assert_eq!(
