@@ -1007,6 +1007,24 @@ pub fn render(
     with_proof(hp, || render_inner(t, hp, aux_desc, raw_line))
 }
 
+pub fn debug_chains(t: &EngineTrace, hp: &HumanProof) -> String {
+    with_proof(hp, || {
+        let n = Names::new(t, &hp.setup);
+        let claims = BTreeMap::new();
+        let mut out = String::new();
+        for b in &hp.blocks {
+            for s in &b.body {
+                if let Sentence::Chain { terms, links, .. } = s {
+                    out.push_str(&format!("  [block {}]\n", b.id));
+                    out.push_str(&rows_text(&n, terms, links, &claims));
+                    out.push('\n');
+                }
+            }
+        }
+        out
+    })
+}
+
 pub fn with_proof<R>(hp: &HumanProof, f: impl FnOnce() -> R) -> R {
     let old = MAIN.with(|c| c.replace(hp.main));
     let r = with_notation(&hp.setup, || with_steps(&hp.blocks, f));

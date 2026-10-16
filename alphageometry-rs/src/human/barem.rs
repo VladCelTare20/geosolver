@@ -26,59 +26,83 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
         return;
     }
     let original = hp.clone();
+    stage(cx, hp, 0);
     median_hypotenuse(cx, &mut ch, hp);
+    stage(cx, hp, 1);
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _bi, s| {
         undirected(cx, blocks, s)
     });
+    stage(cx, hp, 2);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         split_sentence(cx, blocks, bi, s)
     });
+    stage(cx, hp, 3);
     promote_atoms(cx, &mut ch, hp);
+    stage(cx, hp, 4);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         split_sentence(cx, blocks, bi, s)
     });
+    stage(cx, hp, 5);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
+    stage(cx, hp, 6);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_same_reasons(s));
+    stage(cx, hp, 7);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         dedupe_restated(cx, blocks, s)
     });
+    stage(cx, hp, 8);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         absorb_by_triangles(cx, blocks, s)
     });
+    stage(cx, hp, 9);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         restated_line_fact(cx, blocks, s)
     });
+    stage(cx, hp, 10);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         vertical_angles(cx, blocks, s)
     });
+    stage(cx, hp, 11);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         redisplay_middles(cx, blocks, bi, s)
     });
+    stage(cx, hp, 12);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::merge_central(cx, blocks, s)
     });
+    stage(cx, hp, 13);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::central_isosceles(cx, blocks, s)
     });
+    stage(cx, hp, 14);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::radius_chord(cx, blocks, s)
     });
+    stage(cx, hp, 15);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         split_sentence(cx, blocks, bi, s)
     });
+    stage(cx, hp, 16);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         expose_addition(cx, blocks, bi, s)
     });
+    stage(cx, hp, 17);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         because_chain(cx, blocks, bi, s)
     });
+    stage(cx, hp, 18);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| undirected_hyps(cx, s));
+    stage(cx, hp, 19);
     per_block(cx, &mut ch, hp, &congruence_side);
+    stage(cx, hp, 20);
     per_block(cx, &mut ch, hp, &super::triangles::arc_chord_isosceles);
+    stage(cx, hp, 21);
     per_block_with(cx, &mut ch, hp, &super::triangles::hence_premises);
+    stage(cx, hp, 22);
     per_sentence(cx, &mut ch, hp, true, &|_, blocks, bi, s| {
         restated_conclusion(blocks, bi, s)
     });
+    stage(cx, hp, 23);
     let named: Vec<(PointId, Vec<PointId>)> = hp
         .setup
         .iter()
@@ -99,36 +123,53 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| {
         drop_setup_radii(&named, s)
     });
+    stage(cx, hp, 24);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| trim_parallel_extras(s));
+    stage(cx, hp, 25);
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _, s| {
         redisplay_drawn(cx, blocks, s)
     });
+    stage(cx, hp, 26);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| stable_names(cx, s));
+    stage(cx, hp, 27);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::cyclic_quads(cx, blocks, s)
     });
+    stage(cx, hp, 28);
     per_sentence(cx, &mut ch, hp, false, &|_, _, _, s| constants_first(s));
+    stage(cx, hp, 29);
     cut_long(cx, &mut ch, hp);
+    stage(cx, hp, 30);
     lemma_steps(cx, &mut ch, hp);
+    stage(cx, hp, 31);
     prefix_steps(cx, &mut ch, hp);
+    stage(cx, hp, 32);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         super::labels::fold_hyp_lemmas(cx, blocks[bi].id, s)
     });
+    stage(cx, hp, 33);
     per_block(cx, &mut ch, hp, &super::triangles::triangle_names);
+    stage(cx, hp, 34);
     per_block_with(cx, &mut ch, hp, &super::triangles::common_angle);
+    stage(cx, hp, 35);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| {
         super::labels::reflections(cx, s)
     });
+    stage(cx, hp, 36);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| {
         super::labels::line_chain(s)
     });
+    stage(cx, hp, 37);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| {
         super::labels::segment_labels(cx, s)
     });
+    stage(cx, hp, 38);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| {
         super::labels::parallel_labels(cx, s)
     });
+    stage(cx, hp, 39);
     super::cyclic::converse_steps(cx, &mut ch, hp);
+    stage(cx, hp, 40);
     if !check::violations_with(&mut ch, hp).is_empty() {
         if std::env::var_os("HP_DEBUG").is_some() {
             eprintln!("barem polish produced violations; keeping the unpolished proof");
@@ -217,6 +258,15 @@ fn drop_restating_blocks(ch: &mut Checker, hp: &mut HumanProof) {
             }
             skip.insert(id);
         }
+    }
+}
+
+fn stage(cx: &Ctx, hp: &HumanProof, n: usize) {
+    if std::env::var_os("HP_STAGES").is_some() {
+        eprintln!(
+            "== polish stage {n}\n{}",
+            super::text::debug_chains(cx.t, hp)
+        );
     }
 }
 
@@ -1775,7 +1825,7 @@ pub(crate) fn term_infos(cx: &Ctx, e: &Expr, directed: bool) -> Option<Vec<TermI
     Some(out)
 }
 
-fn key_map(infos: &[TermInfo]) -> BTreeMap<String, Rat> {
+pub(crate) fn key_map(infos: &[TermInfo]) -> BTreeMap<String, Rat> {
     let mut m: BTreeMap<String, Rat> = BTreeMap::new();
     for ti in infos {
         let e = m.entry(ti.key.clone()).or_insert_with(Rat::zero);
@@ -2735,7 +2785,7 @@ fn because_chain(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Option<
     Some(exposed)
 }
 
-fn opaque_link(
+pub(crate) fn opaque_link(
     cx: &Ctx,
     blocks: &[Block],
     e1: &Expr,

@@ -18,6 +18,7 @@ pub const TOTAL_BUDGET: usize = 3_500;
 pub const GOAL_RESERVE: usize = 1_500;
 
 pub const OFF: i64 = i64::MAX;
+pub const TWO_TERMS: i64 = 16;
 
 pub struct Graph {
     table: Table,
@@ -27,7 +28,6 @@ pub struct Graph {
     vars: Vec<Vec<VarId>>,
     fq: Vec<Vec<(VarId, f64)>>,
     index: FxHashMap<VarId, Vec<u32>>,
-    binary: Vec<u32>,
     lambdas: Vec<Rat>,
     shown: RefCell<FxHashMap<LinComb, Option<i64>>>,
     pub max_vars: usize,
@@ -100,7 +100,7 @@ fn undirected_shape(cx: &Ctx, c: &LinComb) -> Option<i64> {
     }
     Some(
         sc + if super::barem::lin_terms(&e) >= 2 {
-            9
+            TWO_TERMS
         } else {
             0
         },
@@ -118,7 +118,6 @@ impl Graph {
             vars: Vec::new(),
             fq: Vec::new(),
             index: FxHashMap::default(),
-            binary: Vec::new(),
             lambdas: Vec::new(),
             shown: RefCell::new(FxHashMap::default()),
             max_vars: 4,
@@ -137,9 +136,6 @@ impl Graph {
                 continue;
             }
             let k = g.atom.len() as u32;
-            if vs.len() == 2 {
-                g.binary.push(k);
-            }
             for &v in &vs {
                 g.index.entry(v).or_default().push(k);
             }
@@ -213,7 +209,10 @@ impl Graph {
             }
             let l = self.canon(cx, l0);
             let r = self.canon(cx, r0);
-            if l == r || self.shape(cx, &l).is_none() || self.shape(cx, &r).is_none() {
+            let end_ok = |c: &LinComb| {
+                self.shape(cx, c).is_some() || (self.undirected && classes(c).len() <= 2)
+            };
+            if l == r || !end_ok(&l) || !end_ok(&r) {
                 continue;
             }
             let b = bound.min(best.as_ref().map(|b| b.weight).unwrap_or(i64::MAX));
@@ -237,7 +236,7 @@ impl Graph {
         out.clear();
         let mut cand: Vec<u32> = Vec::new();
         if vs.is_empty() {
-            cand.extend(self.binary.iter().copied());
+            cand.extend(0..self.atom.len() as u32);
         } else {
             for v in vs {
                 if let Some(list) = self.index.get(v) {
