@@ -265,10 +265,26 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
         let mut proved_problems: Vec<(Problem, Vec<String>, usize)> = Vec::new();
         let mut panicked = false;
         let mut failure: Option<(&'static str, String)> = None;
+        let mut avoided: Vec<crate::theory::Thm> = Vec::new();
         for g in &tr.goals {
             let mut p = tr.problem.clone();
             p.goal = Some(g.clone());
-            let attempt = if tr.goal_holds {
+            let guard = crate::theory::detect::guard(&p);
+            p.forbid = guard.forbid;
+            for t in &guard.detected {
+                if !avoided.contains(t) {
+                    avoided.push(*t);
+                }
+            }
+            let attempt = if let Some(t) = guard.unavoidable().filter(|_| tr.goal_holds) {
+                Attempt::NotProved {
+                    status: "circular",
+                    detail: format!(
+                        "this statement is {} itself; it was not derived from anything simpler",
+                        t.name_en()
+                    ),
+                }
+            } else if tr.goal_holds {
                 prove_goal(&p, deadline)
             } else {
                 match catch_unwind(AssertUnwindSafe(|| quiet(|| solve_problem_with_proof(&p)))) {
@@ -295,6 +311,22 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
                     aux.extend(a);
                 }
                 Attempt::NotProved { status, detail } => {
+                    let (status, detail) = if guard.fired() && status != "circular" {
+                        (
+                            status,
+                            format!(
+                                "{detail}; this statement is {} itself and was not derived from anything simpler",
+                                guard
+                                    .detected
+                                    .iter()
+                                    .map(|t| t.name_en())
+                                    .collect::<Vec<_>>()
+                                    .join(" and ")
+                            ),
+                        )
+                    } else {
+                        (status, detail)
+                    };
                     failure = Some((status, detail));
                     break;
                 }
@@ -329,6 +361,12 @@ pub fn solve_one(name: &str, text: &str, budget: Duration) -> Outcome {
         }
         out.proved = true;
         out.status = "proved".into();
+        if !avoided.is_empty() {
+            out.detail = format!(
+                "avoided: {}",
+                avoided.iter().map(|t| t.key()).collect::<Vec<_>>().join(",")
+            );
+        }
         let o = finish(out);
         if o.secs > budget.as_secs_f64() {
             let mut o = o;

@@ -60,6 +60,7 @@ Modes:
   --theorems              list the classical-theorem proof library
   --theory [<prog|file>]  print the theorem identities and what each is derived
                           from; with a .geo program, the theorems it states
+  --theory-corpus <file>  the theorems each corpus problem states (no solving)
   --aux \"<problem>\"       solve a low-level problem with the aux search
   --explore               report which bundled aux points are load-bearing
   --batch [dir]           run the universal solver on every problem in dir
@@ -128,6 +129,7 @@ const MODES: &[&str] = &[
     "--max",
     "--theorems",
     "--theory",
+    "--theory-corpus",
     "--corpus",
     "--corpus-one",
     "--corpus-check",
@@ -292,6 +294,7 @@ fn main() {
         Some("--constructions") => list_constructions(&opts),
         Some("--theorems") => list_theorems(),
         Some("--theory") => theory(positional.first()),
+        Some("--theory-corpus") => theory_corpus(positional.first(), &opts),
         Some("--metric") => metric_solve(&read_program(positional.first())),
         Some("--geo") => run_geo(&read_program(positional.first()), false, false, &opts),
         Some("--geo-show") => run_geo(&read_program(positional.first()), true, false, &opts),
@@ -548,6 +551,35 @@ fn theory(arg: Option<&String>) {
         println!("states {} ({}) at {}", d.thm.name_en(), d.thm.key(), names.join(" "));
     }
     println!("forbidden: {}", ddar::theory::render(g.forbid));
+}
+
+fn theory_corpus(file: Option<&String>, opts: &Opts) {
+    let problems = load_corpus(file, opts.corpus.only.as_ref());
+    let mut fired = 0;
+    let mut slowest = 0.0f64;
+    for (name, text) in &problems {
+        let Ok(prob) = ddar::corpus::parse_problem(name, text) else {
+            continue;
+        };
+        let Ok(tr) = ddar::corpus::translate(&prob, 1, 200) else {
+            continue;
+        };
+        let start = Instant::now();
+        let g = ddar::theory::detect::guard_conjunction(&tr.problem, &tr.goals);
+        let secs = start.elapsed().as_secs_f64();
+        slowest = slowest.max(secs);
+        if g.fired() {
+            fired += 1;
+            println!(
+                "{name}\t{}\t{secs:.3}s",
+                g.detected.iter().map(|t| t.key()).collect::<Vec<_>>().join(",")
+            );
+        }
+    }
+    println!(
+        "{fired} of {} problems state a library theorem; slowest detection {slowest:.3}s",
+        problems.len()
+    );
 }
 
 fn theorem_names(g: &ddar::theory::detect::Guard) -> String {

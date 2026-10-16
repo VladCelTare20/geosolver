@@ -1124,6 +1124,10 @@ pub fn of_fact(f: &Fact) -> Vec<Thm> {
     }
 }
 
+pub fn detectable(t: Thm) -> bool {
+    t.info().kind == Kind::Theorem && !CONGRUENCE.contains(&t) || t == InscribedAngle
+}
+
 pub fn is_avoidable_all(ts: &[Thm]) -> bool {
     ts.iter().all(|t| t.avoidable())
 }

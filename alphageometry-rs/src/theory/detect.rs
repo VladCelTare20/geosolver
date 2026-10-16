@@ -80,8 +80,10 @@ struct Given<'t> {
     t: &'t EngineTrace,
     all: [Echelon; 4],
     flat: [Echelon; 4],
+    incidence: [Echelon; 4],
     lines: Vec<Vec<PointId>>,
-    circles: Vec<Vec<PointId>>,
+    circles: Vec<(Vec<PointId>, Vec<(Table, LinComb)>)>,
+    facts: Vec<Vec<(Table, LinComb)>>,
 }
 
 fn canon(t: &EngineTrace, tb: Table, r: &LinComb) -> LinComb {
@@ -100,21 +102,35 @@ impl<'t> Given<'t> {
         };
         let mut all = mk();
         let mut flat = mk();
+        let mut incidence = mk();
         let mut lines = Vec::new();
         let mut circles = Vec::new();
+        let mut facts = Vec::new();
         for (f, fact) in t.facts.iter().enumerate() {
-            match &fact.reason {
-                Reason::Collinear(p) => lines.push(p.clone()),
-                Reason::Concyclic(p) => circles.push(p.clone()),
-                _ => {}
-            }
-            let circle = matches!(fact.reason, Reason::Concyclic(_));
+            let mut rows: Vec<(Table, LinComb)> = Vec::new();
             for tb in Table::ALL {
                 for r in t.rows_of(tb, f as u32) {
-                    let c = canon(t, tb, r);
-                    all[tb.idx()].insert(&c);
-                    if !circle {
-                        flat[tb.idx()].insert(&c);
+                    rows.push((tb, canon(t, tb, r)));
+                }
+            }
+            let circle = matches!(fact.reason, Reason::Concyclic(_));
+            for (tb, c) in &rows {
+                all[tb.idx()].insert(c);
+                if !circle {
+                    flat[tb.idx()].insert(c);
+                }
+            }
+            match &fact.reason {
+                Reason::Collinear(p) => {
+                    lines.push(p.clone());
+                    for (tb, c) in &rows {
+                        incidence[tb.idx()].insert(c);
+                    }
+                }
+                Reason::Concyclic(p) => circles.push((p.clone(), rows)),
+                _ => {
+                    if !rows.is_empty() {
+                        facts.push(rows);
                     }
                 }
             }
@@ -123,13 +139,38 @@ impl<'t> Given<'t> {
             t,
             all,
             flat,
+            incidence,
             lines,
             circles,
+            facts,
         }
     }
 
     fn has(&self, tb: Table, r: &LinComb) -> bool {
         self.t.holds(tb, r) && self.all[tb.idx()].contains(&canon(self.t, tb, r))
+    }
+
+    fn direct(&self, tb: Table, r: &LinComb) -> bool {
+        if !self.has(tb, r) {
+            return false;
+        }
+        if tb != Table::Angle {
+            return true;
+        }
+        let c = canon(self.t, tb, r);
+        if self.incidence[tb.idx()].contains(&c) {
+            return true;
+        }
+        let one = |rows: &[(Table, LinComb)]| {
+            let mut e = self.incidence[tb.idx()].clone();
+            for (t2, x) in rows {
+                if *t2 == tb {
+                    e.insert(x);
+                }
+            }
+            e.contains(&c)
+        };
+        self.facts.iter().any(|f| one(f)) || self.circles.iter().any(|(_, f)| one(f))
     }
 
     fn cong(&self, a: PointId, b: PointId, c: PointId, d: PointId) -> bool {
@@ -159,18 +200,60 @@ impl<'t> Given<'t> {
     }
 
     fn on_circle(&self, v: &[PointId]) -> bool {
-        self.circles.iter().any(|c| v.iter().all(|p| c.contains(p))) || self.centre_of(v).is_some()
+        self.circles.iter().any(|c| v.iter().all(|p| c.0.contains(p))) || self.centre_of(v).is_some()
+    }
+
+    fn instance_rows(&self, spec: &Spec) -> Vec<(Table, LinComb)> {
+        let t = self.t;
+        let mut rows: Vec<(Table, LinComb)> = spec.rows.clone();
+        for h in &spec.hyps {
+            match h {
+                Hyp::Eq(tb, r) => rows.push((*tb, r.clone())),
+                Hyp::EqOrHalf(tb, r) => {
+                    let mut two = r.clone();
+                    two.mul_assign_scalar(&Rat::from_int(2));
+                    rows.push((*tb, r.clone()));
+                    rows.push((*tb, t.exact(*tb, &two)));
+                }
+                Hyp::Circle(v) => {
+                    for (pts, crow) in &self.circles {
+                        if v.iter().all(|p| pts.contains(p)) {
+                            rows.extend(crow.iter().cloned());
+                        }
+                    }
+                    if let Some(o) = self.centre_of(v) {
+                        for &p in &v[1..] {
+                            if let (Some(x), Some(y)) = (t.dm(o, v[0]), t.dm(o, p)) {
+                                rows.push((Table::Ratio, &x - &y));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        rows
+    }
+
+    fn follows(&self, alt: &[(Table, LinComb)], rows: &[(Table, LinComb)]) -> bool {
+        let t = self.t;
+        let mut e = self.incidence.clone();
+        for (tb, r) in rows {
+            e[tb.idx()].insert(&canon(t, *tb, r));
+        }
+        alt.iter()
+            .all(|(tb, r)| t.holds(*tb, r) && e[tb.idx()].contains(&canon(t, *tb, r)))
     }
 
     fn hyp_ok(&self, h: &Hyp) -> bool {
         match h {
             Hyp::Line(v) => self.on_line(v),
             Hyp::Circle(v) => self.on_circle(v),
-            Hyp::Eq(tb, r) => self.has(*tb, r),
+            Hyp::Eq(tb, r) => self.direct(*tb, r),
             Hyp::EqOrHalf(tb, r) => {
                 let mut two = r.clone();
                 two.mul_assign_scalar(&Rat::from_int(2));
-                self.has(*tb, r) || self.has(*tb, &self.t.exact(*tb, &two))
+                self.direct(*tb, r) || self.direct(*tb, &self.t.exact(*tb, &two))
             }
             other => config_holds(self.t, other),
         }
@@ -398,7 +481,7 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                     let (Some(ha), Some(hb)) = (r.perp((h, a), (b, c)), r.perp((h, b), (a, c))) else {
                         continue;
                     };
-                    if !g.has(Table::Angle, &ha) || !g.has(Table::Angle, &hb) {
+                    if !g.direct(Table::Angle, &ha) || !g.direct(Table::Angle, &hb) {
                         continue;
                     }
                     push(
@@ -450,7 +533,7 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                     let (Some(ba), Some(bb)) = (r.bisects(a, b, c, i), r.bisects(b, a, c, i)) else {
                         continue;
                     };
-                    if !g.has(Table::Angle, &ba) || !g.has(Table::Angle, &bb) {
+                    if !g.direct(Table::Angle, &ba) || !g.direct(Table::Angle, &bb) {
                         continue;
                     }
                     push(
@@ -507,7 +590,7 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                         let (Some(p1), Some(p2)) = (r.perp((o, mv), (w, u)), r.perp((o, mw), (u, v))) else {
                             continue;
                         };
-                        if g.has(Table::Angle, &p1) && g.has(Table::Angle, &p2) {
+                        if g.direct(Table::Angle, &p1) && g.direct(Table::Angle, &p2) {
                             push(
                                 out,
                                 Thm::Circumcentre,
@@ -528,7 +611,7 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                         (c, a, b, mc, ma, mb),
                     ] {
                         let foot = g.on_line(&[s1, f, s2])
-                            && r.perp((v, f), (s1, s2)).is_some_and(|z| g.has(Table::Angle, &z));
+                            && r.perp((v, f), (s1, s2)).is_some_and(|z| g.direct(Table::Angle, &z));
                         if foot {
                             push(
                                 out,
@@ -610,7 +693,7 @@ fn local_specs(cx: &Ctx, out: &mut Vec<(Thm, Vec<PointId>, Spec)>) {
                 let Some(tan) = r.perp((p, x), (o, p)) else {
                     continue;
                 };
-                if !g.has(Table::Angle, &tan) {
+                if !g.direct(Table::Angle, &tan) {
                     continue;
                 }
                 for &y in pts {
@@ -716,9 +799,14 @@ fn triangle_specs(cx: &Ctx, goal_pts: &[PointId], out: &mut Vec<(Thm, Vec<PointI
                     let mut rows: Vec<(Table, LinComb)> = Vec::new();
                     rows.extend(angles.iter().cloned());
                     rows.extend(ratios.iter().cloned());
+                    let hyps: Vec<Hyp> = rows
+                        .iter()
+                        .filter(|rw| !rw.1.is_zero() && have(rw))
+                        .map(|rw| Hyp::Eq(rw.0, rw.1.clone()))
+                        .collect();
                     rows.retain(|rw| !rw.1.is_zero() && !have(rw) && t.holds(rw.0, &rw.1));
                     if !rows.is_empty() {
-                        out.push((thm, args.clone(), Spec { hyps: Vec::new(), rows }));
+                        out.push((thm, args.clone(), Spec { hyps, rows }));
                     }
                 };
                 let n_ang = angles.iter().filter(|a| have(a)).count();
@@ -786,11 +874,12 @@ pub fn goal_theorems(problem: &Problem, deadline: Instant) -> Vec<Detection> {
     }
     let g = Given::new(&t);
     let any = |extra: Option<&[(Table, LinComb)]>, flat: bool| alts.iter().any(|a| g.holds_all(a, extra, flat));
+    let from = |rows: &[(Table, LinComb)]| alts.iter().any(|a| g.follows(a, rows));
     if let Stmt::Cyclic { pts } = &stmt {
         if g.on_circle(pts) {
             return Vec::new();
         }
-        if any(None, false) {
+        if g.facts.iter().any(|rows| from(rows)) {
             return vec![Detection {
                 thm: Thm::InscribedConverse,
                 args: pts.clone(),
@@ -800,7 +889,7 @@ pub fn goal_theorems(problem: &Problem, deadline: Instant) -> Vec<Detection> {
         if any(None, true) {
             return Vec::new();
         }
-        if any(None, false) {
+        if g.circles.iter().any(|(_, rows)| from(rows)) {
             return vec![Detection {
                 thm: Thm::InscribedAngle,
                 args: gpred.points.clone(),
@@ -818,7 +907,7 @@ pub fn goal_theorems(problem: &Problem, deadline: Instant) -> Vec<Detection> {
         deadline,
     };
     let mut specs: Vec<(Thm, Vec<PointId>, Spec)> = Vec::new();
-    let mut circles = g.circles.clone();
+    let mut circles: Vec<Vec<PointId>> = g.circles.iter().map(|c| c.0.clone()).collect();
     for &o in &cx.pts {
         let mut groups: Vec<Vec<PointId>> = Vec::new();
         for &p in &cx.pts {
@@ -847,7 +936,7 @@ pub fn goal_theorems(problem: &Problem, deadline: Instant) -> Vec<Detection> {
     let mut goal_pts = gpred.points.clone();
     goal_pts.sort_unstable();
     goal_pts.dedup();
-    if goal_pts.len() <= 8 {
+    if goal_pts.len() <= 8 && std::env::var_os("GEO_DETECT_CRITERIA").is_some() {
         triangle_specs(&cx, &goal_pts, &mut specs);
     }
     let mut out: Vec<Detection> = Vec::new();
@@ -855,13 +944,13 @@ pub fn goal_theorems(problem: &Problem, deadline: Instant) -> Vec<Detection> {
         if Instant::now() >= deadline {
             break;
         }
-        if out.iter().any(|d| d.thm == thm) {
+        if out.iter().any(|d| d.thm == thm) || !super::detectable(thm) {
             continue;
         }
         if !spec.hyps.iter().all(|h| g.hyp_ok(h)) {
             continue;
         }
-        if any(Some(&spec.rows), false) {
+        if from(&g.instance_rows(&spec)) {
             out.push(Detection { thm, args });
         }
     }
