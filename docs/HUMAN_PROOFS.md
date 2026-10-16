@@ -395,13 +395,38 @@ Stages, first success wins:
 4. **Pooled.** "Angle chasing with ⟨reasons⟩ gives ⟨statement⟩." The reasons are the certificate's support after collapsing: atoms on one circle become "inscribed angles in Ω"; central-angle pairs on one circle become the inscribed atom they sum to; claims become "(Claim k)". The UI offers "show the computation", which displays the exact combination Σ λᵢ·(atomᵢ) as an aligned sum (§7.2). This is convention 3 of §2, and it is never unverified.
 
 **Coefficients.**
-- If every λ is an integer, the chain is written in directed angles ∡ (mod 180°). Integer multiples are valid mod π.
+- If every λ is an integer, the chain can be written in directed angles ∡ (mod 180°), since integer multiples are valid mod π; it is shown that way only when no ordinary-angle (as drawn) derivation is found, and then as a congruence (§6.6.5).
 - If a ½ is needed (central angle halved, bisector of a directed angle), the halving link is written in undirected ∠, with values as drawn: "∠MCN = ½∠MON = ∠RON". This matches what the engine verified, because its integer offsets were fixed from the same figure (§3.3). The block is then marked `as_drawn: true`, and the UI and report already have wording for that (`present.rs:as_drawn`).
 
 **6.6.4 Ratio and trig computations.**
 - Ratio targets are rendered as product chains (`AH/(2·OM) = … = 1`) or as equalities of lengths.
 - Trig rows (`Formula`) carry sine variables. They are named from the engine's own row text: `|sin ∠(AC,AB)|` → `sin∠BAC`, and `|sin(x + 90°)|` → `cos x`. Absolute values are dropped when every angle is an interior angle of the figure.
 - Consecutive links touching the same triangle are grouped into one displayed equality, labelled by the triangle and rule ("law of sines in △BOMₐ"). Golden: [orthocenter–vertex distance](human-proofs/orthocenter-vertex-distance.md), 42 raw steps → one 9-line computation.
+
+**6.6.5 Chain rows: one fact per row, and 0° ≠ 180°.**
+
+**Principle: 0° and 180° are different angles, and a displayed proof never identifies them.** A figure angle ∠XYZ is an ordinary angle between rays, in [0°, 180°]; ∠XYZ = 0° says Z lies on the ray YX, ∠XYZ = 180° says Y lies between X and Z. A directed angle ∡ is an angle between lines, defined modulo 180°, so for ∡ the two values are the same class.
+
+- Every ∠ row is exact in the drawn figure (the checker evaluates it with exact constants).
+- A ∡ equality is always printed as a congruence: `∡A ≡ ∡B (mod 180°)` in a single sentence, `≡` on every row of a chain with `(mod 180°)` on its last row, the same in claim headers ("We show that ∡X ≡ ∡Y + 90° (mod 180°)"). Directed angles are the last resort: the writer tries ordinary angles first (`search.rs:route_target` puts the as-drawn forms from `claims.rs:drawn_forms` first), and the preface says they are angles between lines taken modulo 180° and lists the steps that use them.
+- A sum of two right angles is 90° + 90° = 180°, never "= 0°". An ∠ sum or difference is equated to 0° only when it is a genuine 0° angle (Thebault t5 step 27: ∠KLX = 0°, so K and X are on one ray from L).
+- Collinearity and parallelism from ordinary angles always go through a named theorem with the side condition read from the figure (`readings.rs`): the converse of the vertical angles theorem (∠BZX = ∠AZY, X and Y on opposite sides of AB through Z), the angle construction axiom (∠XHB = ∠YHB, X and Y on one side of HB, so the rays HX and HY coincide), the converse of the linear pair theorem (∠AVX + ∠XVB = 180° with A, B on opposite sides of VX), and the converses of the alternate, corresponding and co-interior angles theorems for parallels. A chain of parallels/perpendiculars only is one sentence ("AH ⟂ BC and HK ⟂ BC, so A, H, K are collinear").
+- A proof whose displayed readings or side conditions depend on the configuration is labelled "Proved as drawn" (ag-studio `readings.rs:depends_on_configuration` evaluates them on other valid figures from `spread::alternatives`).
+
+Rows. Each row of a chain substitutes one cited fact (or is a named identity: angle addition at one vertex, angle sum or exterior angle of a named triangle, supplementary or vertical angles, "addition of angles between lines" in a directed chain). `check.rs:chain_lints` names what a row must not do:
+
+| rule | a row must not | gate |
+|---|---|---|
+| L1 | keep every term of the previous row and only add terms that cancel (zero insertion), consuming no displayed constant | 0 |
+| L2 | change nothing | 0 |
+| L3 | carry a directed constant through two or more rows that the chain does not end with | 0 |
+| L4 | change more than its single fact (an opaque row) | reported |
+| L5 | be labelled "angle addition" unless it splits one angle at one vertex | 0 |
+| L6 | cite several facts | reported |
+| L7 | equate a sum of ordinary angles to 0° | 0 |
+| L8 | cite a reason it does not use | reported |
+
+The fixes behind these rules are structural, not textual: the route search's reverse graph now expands an empty node over every atom (it used to see only two-term atoms, so the optimal three-link Simson route was cut), `barem.rs:unzero_chain` re-orders a chain's links (a DP over link subsets, with short merged runs as a fallback) when a row inserts zeros or carries a constant, an identity row gets the label `identity_label` computes from its two ends or none, and `line_chain` turns a straight-angle chain of line facts into one sentence.
 
 ### 6.7 Setup and auxiliary points
 
@@ -1168,3 +1193,32 @@ Steps and links rise because the hypotheses of theorems are now their own steps 
 - The engine's theorem identities live in `alphageometry-rs/src/theory/` (`Thm`, with EN/RO names and `uses` edges). A problem's ban (`Problem.forbid`, `EngineTrace.forbid`, `Ctx.forbid`) is the stated theorem plus everything that uses it, transitively.
 - The writer never builds a banned atom (`atoms.rs:Builder::push`: a human `AtomKey` whose identity is banned, or an engine-sourced atom whose fact maps to one). `check.rs` adds rule I8 (`forbidden_violations`): a block citing a banned identity through an engine fact, an atom, a theorem key, a raw step, or an inscribed-angle atom/chain that concludes a circle (the converse) is a violation, so barem passes that would introduce one revert. `write` audits the finished proof structurally and by its rendered text; on any hit the proof is unavailable, and the app shows the raw derivation.
 - Golden human proofs are unchanged: the goldens solve with an empty ban. With a ban, the midline statement reads "△ABC ∼ △ADE (SAS) … so DE ∥ BC" and the nine-point circle is proved through midlines and the median to the hypotenuse.
+
+### 13.15 Angle chains: 0° ≠ 180° (`wf/angle-chains`)
+
+The owner's report: the Simson proof's angle work "all looks wrong (for proving X, Y, Z collinear)". It opened with `∡XZY = ∡BXP + ∡XZY + 90°` (the goal angle kept, zeros inserted) and ended `= 0°` for a sum of two right angles. Rules and mechanics are in §6.6.5.
+
+Root causes:
+- `route.rs` expanded an empty (constant) node only over two-term atoms, so the reverse half of the bidirectional search could not leave a constant end and the stopping rule cut the optimal Simson route (118 vs 145).
+- The chain ordering (`order_items_mode`, `split_links`) charged nothing for a step that inserts cancelling terms.
+- `identity_label` gave a generic "angle addition" to any multi-vertex identity.
+- Collinear and parallel targets were never routed as drawn (`undirected_chain` refused 0°-valued ends and `route_drawn` ran only for doubled chains), so they stayed directed with "= 0°", and an ordinary-angle chain could end "So X, Y, Z are collinear" with no side condition.
+
+Measured on the 384 replayed proofs (270 IMO/JGEX conjuncts, 108 named/geo examples, 6 app examples), BEFORE = release writer with the final lint definitions:
+
+| | before | after |
+|---|---|---|
+| proofs using ∡ (IMO / JGEX / geo / app) | 168 (20 / 105 / 41 / 2) | 85 (9 / 53 / 22 / 1) |
+| rows "= 0°" | 64 | 1 (Thebault t5 step 27, ∠KLX = 0°) |
+| directed equalities written with "=" | 955 | 0 |
+| rows "= 180°" / "≡ 0° (mod 180°)" | 2 / 0 | 16 / 13 |
+| L1 / L2 / L3 / L5 / L7 rows | 15 / 0 / 15 / 64 / 0 | 0 / 0 / 0 / 0 / 0 |
+| L4 / L6 / L8 rows (reported) | 606 / 81 / 60 | 580 / 47 / 40 |
+| ∠ chains ending a line fact with no theorem | 9 | 0 (one directed ≡ 0° chain and one false positive remain in the count) |
+
+Gates: IMO 30/30 (solved set identical to the release), JGEX 231/231, 0 checker violations, `--fuzz-false` 253 cases 0 UNSOUND. Writer time (paired, five alternating rounds, 30 IMO conjuncts): median 36 → 38 ms, total 1592 → 1758 ms, p95 137 → 173 ms (+26 %, over the +10 % target): the as-drawn routes are searched in the undirected graph, whose expansions cost about twice the directed ones.
+
+"Proved as drawn" is now computed from the shown readings (ag-studio `readings.rs:depends_on_configuration`): 29 of 31 IMO proofs, 119 of 223 JGEX proofs and 5 of 7 app examples shown by the audit carry it; the release computed none from the readings.
+
+Still directed (last resort, 85 proofs): IMO 2000 P6, 2002 P2a, 2008 P6, 2011 P6, 2015 P3, 2016 P1, 2018 P1, 2019 P6, 2020 P1, the app's IMO 2023 example, 53 JGEX and 22 named proofs.
+

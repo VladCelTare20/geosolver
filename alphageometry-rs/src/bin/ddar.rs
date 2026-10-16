@@ -81,6 +81,8 @@ Modes:
                           programs through the classical provers instead;
                           exits 2 if any is proved
   --fuzz-one <cases> <name>    run one fuzz case in-process (child of --fuzz-false)
+  --human-replay <dir>    re-run the human-proof writer on solved problems saved
+                          by HP_SAVE=<dir> (with --human, --human-json, --only)
   \"<problem>\"             solve a single low-level problem string
 
 Options:
@@ -136,6 +138,7 @@ const MODES: &[&str] = &[
     "--corpus-show",
     "--fuzz-false",
     "--fuzz-one",
+    "--human-replay",
 ];
 
 enum ArgKind {
@@ -314,6 +317,7 @@ fn main() {
         Some("--corpus-one") => corpus_one(positional.first(), positional.get(1), &opts),
         Some("--fuzz-false") => fuzz_false(positional.first(), &opts),
         Some("--fuzz-one") => fuzz_one(positional.first(), positional.get(1), &opts),
+        Some("--human-replay") => human_replay(positional.first(), &opts),
         Some("--batch") => batch(
             positional
                 .first()
@@ -1353,7 +1357,80 @@ fn corpus_one(file: Option<&String>, name: Option<&String>, opts: &Opts) {
 
 const HUMAN_HEADER: &str = "name\tconj\tavailable\traw_steps\tderived\tblocks\tclaims\tsentences\tchain_links\tchains\tpure_chains\tpooled\tfallback_blocks\tfallback_facts\treproved\tsilent\tpruned\ttheorem\twords_en\tlines_en\tcitations\thuman_cost\tcheck_violations\ttimed_out\tmicros\tpanicked";
 
+fn human_save(name: &str, k: usize, p: &Problem, aux: &[String], first: usize) {
+    let Some(dir) = std::env::var_os("HP_SAVE") else {
+        return;
+    };
+    let name = std::env::var("HP_SAVE_NAME").unwrap_or_else(|_| name.to_string());
+    let dir = std::path::PathBuf::from(dir);
+    let _ = std::fs::create_dir_all(&dir);
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let line = format!(
+        "{name}\t{k}\t{first}\t{}\t{}\n",
+        aux.join("\u{1f}"),
+        p.to_ag_string()
+    );
+    let _ = std::fs::write(dir.join(format!("{safe}.{k}.txt")), line);
+}
+
+fn human_replay(dir: Option<&String>, opts: &Opts) {
+    let dir = dir.unwrap_or_else(|| fail("usage: ddar --human-replay <dir>"));
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| fail(&format!("{dir}: {e}")))
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "txt"))
+        .collect();
+    files.sort();
+    if let Some(only) = &opts.corpus.only {
+        files.retain(|f| {
+            let s = f.file_name().unwrap_or_default().to_string_lossy();
+            only.iter().any(|o| s.starts_with(&format!("{o}.")))
+        });
+    }
+    for f in files {
+        let text = std::fs::read_to_string(&f).unwrap_or_default();
+        let mut cols = text.trim_end_matches('\n').splitn(5, '\t');
+        let (Some(name), Some(k), Some(first), Some(aux), Some(low)) = (
+            cols.next(),
+            cols.next(),
+            cols.next(),
+            cols.next(),
+            cols.next(),
+        ) else {
+            eprintln!("{}: malformed cache line", f.display());
+            continue;
+        };
+        let Ok(p) = Problem::parse(low) else {
+            eprintln!("{}: low-level problem does not parse", f.display());
+            continue;
+        };
+        let aux: Vec<String> = aux
+            .split('\u{1f}')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
+        human_report(
+            name,
+            k.parse().unwrap_or(0),
+            &p,
+            &aux,
+            first.parse().unwrap_or(p.points.len()),
+            opts,
+        );
+    }
+}
+
 fn human_report(name: &str, k: usize, p: &Problem, aux: &[String], first: usize, opts: &Opts) {
+    human_save(name, k, p, aux, first);
     let infos = ddar::human::aux_infos(p, first, aux);
     let hopts = ddar::human::Opts::default();
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1404,6 +1481,19 @@ fn human_report(name: &str, k: usize, p: &Problem, aux: &[String], first: usize,
     if opts.human {
         println!("\n== human proof ({name}, conjunct {k}) ==");
         print!("{}", ddar::human::render_en(&trace, &hp, &infos));
+        if std::env::var_os("HP_LINT").is_some() {
+            if let Some(goal) = p.goal.as_ref() {
+                for v in ddar::human::lints(&trace, goal, &deps, &infos, &hp) {
+                    let step = hp
+                        .blocks
+                        .iter()
+                        .find(|b| b.id == v.block)
+                        .map(|b| b.step)
+                        .unwrap_or(0);
+                    println!("LINT\t{name}\t{k}\t{}\tstep {step}\t{}", v.rule, v.detail);
+                }
+            }
+        }
     }
     if opts.human_json {
         let closure = trace.closure(&deps);

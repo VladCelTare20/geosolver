@@ -2091,13 +2091,13 @@
           {
             "kind": "chain",
             "terms": [
-              "∡PCB",
-              "∡NCO + ∡PCN",
-              "∡NCO + ∡PRN",
-              "∡ONC + ∡PRN",
-              "∡NOF + ∡PRN",
-              "∡NRF + ∡PRN",
-              "∡PRF",
+              "∡BCP",
+              "∡NCP + ∡OCN",
+              "∡NCP + ∡CNO",
+              "∡NCP + ∡FON",
+              "∡NCP + ∡FRN",
+              "∡NRP + ∡FRN",
+              "∡ARP",
               "0°"
             ],
             "links": [
@@ -2122,35 +2122,6 @@
                   }
                 ],
                 "combination": []
-              },
-              {
-                "reasons": [
-                  {
-                    "kind": "cyclic",
-                    "args": [
-                      "P",
-                      "R",
-                      "N",
-                      "C"
-                    ],
-                    "points": [
-                      "C",
-                      "N",
-                      "R",
-                      "P"
-                    ],
-                    "step": 16,
-                    "block": null,
-                    "because": []
-                  }
-                ],
-                "combination": [
-                  {
-                    "reason": 0,
-                    "row": 0,
-                    "coef": "1"
-                  }
-                ]
               },
               {
                 "reasons": [
@@ -2181,7 +2152,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               },
@@ -2210,7 +2181,7 @@
                   {
                     "reason": 0,
                     "row": 0,
-                    "coef": "1"
+                    "coef": "-1"
                   }
                 ]
               },
@@ -2227,7 +2198,36 @@
                   {
                     "reason": 0,
                     "row": 1,
-                    "coef": "1"
+                    "coef": "-1"
+                  }
+                ]
+              },
+              {
+                "reasons": [
+                  {
+                    "kind": "cyclic",
+                    "args": [
+                      "P",
+                      "R",
+                      "N",
+                      "C"
+                    ],
+                    "points": [
+                      "C",
+                      "N",
+                      "R",
+                      "P"
+                    ],
+                    "step": 16,
+                    "block": null,
+                    "because": []
+                  }
+                ],
+                "combination": [
+                  {
+                    "reason": 0,
+                    "row": 0,
+                    "coef": "-1"
                   }
                 ]
               },
@@ -2266,17 +2266,36 @@
                   {
                     "reason": 0,
                     "row": 2,
-                    "coef": "1"
+                    "coef": "-1"
                   },
                   {
                     "reason": 0,
                     "row": 1,
-                    "coef": "-1"
+                    "coef": "1"
                   }
                 ]
               }
             ],
             "then": {
+              "kind": "coll",
+              "args": [
+                "B",
+                "O",
+                "P",
+                "C"
+              ],
+              "points": [
+                "B",
+                "C",
+                "O",
+                "P"
+              ]
+            },
+            "directed": true
+          },
+          {
+            "kind": "because",
+            "stmt": {
               "kind": "coll",
               "args": [
                 "P",
@@ -2289,7 +2308,8 @@
                 "P"
               ]
             },
-            "directed": true
+            "reasons": [],
+            "combination": []
           }
         ],
         "engine_steps": [
@@ -2332,17 +2352,17 @@
       "derived": 29,
       "blocks": 8,
       "claims": 4,
-      "sentences": 12,
+      "sentences": 13,
       "chain_links": 13,
       "chains": 4,
       "pure_chains": 4,
       "pooled": 0,
       "fallback_blocks": 0,
-      "words_en": 430,
+      "words_en": 460,
       "lines_en": 29,
       "citations": 29,
       "aux_shown": 1,
-      "human_cost": 115,
+      "human_cost": 119,
       "reproved": 5,
       "silent": 19,
       "pruned": 5,

@@ -30,4 +30,4 @@ MG / AG = 1 / 2    [AG : GM = 2, din (1)]
 
 Deci △AHG ∼ △MOG (LUL). (6)
 
-7. △AHG ∼ △MOG, din (6) ⇒ ∠AGH = ∠MGO; cum punctele A, G, M sunt coliniare, iar cele două unghiuri sunt de o parte și de alta a dreptei, ele sunt opuse la vârf ⇒ punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎
+7. △AHG ∼ △MOG, din (6) și A, G, M coliniare ⇒ ∠AGH = ∠MGO. ∠AGH = ∠MGO și H, O sunt de o parte și de alta a dreptei AM, deci, din reciproca teoremei unghiurilor opuse la vârf, punctele O, G, H sunt coliniare, ceea ce trebuia demonstrat. ∎

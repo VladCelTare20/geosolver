@@ -1,7 +1,11 @@
 use super::barem::{is_coll_reason, near_line, same_ray};
 use super::ctx::Ctx;
+use super::expr::eval;
 use super::model::*;
+use super::trace::Table;
+use crate::lincomb::LinComb;
 use crate::predicate::PointId;
+use crate::rational::Rat;
 
 fn label(key: AtomKey, args: Vec<PointId>) -> Reason {
     Reason::Atom {
@@ -324,20 +328,20 @@ fn line_fact(r: &Reason) -> bool {
     )
 }
 
-pub fn line_chain(s: &Sentence) -> Option<Sentence> {
+pub fn line_chain(cx: &Ctx, blocks: &[Block], s: &Sentence) -> Option<Sentence> {
     let Sentence::Chain {
         terms,
         links,
-        then: then @ Some(Stmt::Coll { .. }),
+        then: then @ Some(Stmt::Coll { pts }),
         directed,
     } = s
     else {
         return None;
     };
-    if links.len() < 2
-        || links.len() > 3
-        || !matches!(terms.last(), Some(Expr::Const { degrees }) if degrees.is_zero())
-    {
+    let zero = matches!(terms.last(), Some(Expr::Const { degrees }) if degrees.is_zero());
+    let straight = !*directed
+        && matches!(terms.last(), Some(Expr::Const { degrees }) if *degrees == Rat::from_int(180));
+    if links.is_empty() || links.len() > 3 || !(zero || straight) || (zero && links.len() < 2) {
         return None;
     }
     if !links.iter().all(|l| {
@@ -349,12 +353,61 @@ pub fn line_chain(s: &Sentence) -> Option<Sentence> {
     for l in &links[1..] {
         link = super::barem::merge_links(&link, l);
     }
-    Some(Sentence::Chain {
-        terms: vec![terms[0].clone(), terms[terms.len() - 1].clone()],
-        links: vec![link],
-        then: then.clone(),
-        directed: *directed,
-    })
+    if zero && *directed {
+        return Some(Sentence::Chain {
+            terms: vec![terms[0].clone(), terms[terms.len() - 1].clone()],
+            links: vec![link],
+            then: then.clone(),
+            directed: *directed,
+        });
+    }
+    let t = cx.t;
+    let (_, a) = eval(t, &terms[0])?;
+    let (_, b) = eval(t, terms.last()?)?;
+    let diff = &a - &b;
+    let sum = super::barem::link_sum(cx, blocks, &link, false)?;
+    for &v in pts {
+        let rest: Vec<PointId> = pts.iter().copied().filter(|&p| p != v).collect();
+        let [x, y, ..] = rest[..] else { continue };
+        let e = Expr::Angle {
+            a: x,
+            b: v,
+            c: y,
+            directed: true,
+        };
+        let Some((_, d)) = eval(t, &e) else { continue };
+        for (sign, l) in [
+            (1, link.clone()),
+            (-1, super::barem::negate_link(link.clone())),
+        ] {
+            let lsum = if sign == 1 {
+                sum.clone()
+            } else {
+                sum.negated()
+            };
+            let target = if sign == 1 {
+                diff.clone()
+            } else {
+                diff.negated()
+            };
+            if super::check::residual_ok(cx, Table::Angle, &(&target - &d), &LinComb::zero(), true)
+                && super::check::residual_ok(cx, Table::Angle, &d, &lsum, true)
+            {
+                return Some(Sentence::Chain {
+                    terms: vec![
+                        e,
+                        Expr::Const {
+                            degrees: Rat::zero(),
+                        },
+                    ],
+                    links: vec![l],
+                    then: then.clone(),
+                    directed: true,
+                });
+            }
+        }
+    }
+    None
 }
 
 fn strip_lemma(l: &Link, st: &Stmt, own: u16) -> Option<(Link, u16)> {

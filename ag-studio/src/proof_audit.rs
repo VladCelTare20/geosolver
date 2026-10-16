@@ -174,80 +174,6 @@ fn dir(p: (f64, f64), q: (f64, f64)) -> f64 {
     (q.1 - p.1).atan2(q.0 - p.0).to_degrees()
 }
 
-fn lcm(a: i64, b: i64) -> i64 {
-    let (mut x, mut y) = (a, b);
-    while y != 0 {
-        (x, y) = (y, x % y);
-    }
-    a / x * b
-}
-
-fn eval(e: &Expr, at: &dyn Fn(u32) -> Option<(f64, f64)>) -> Option<(f64, i64)> {
-    match e {
-        Expr::Angle { a, b, c, directed } => {
-            let (pa, pb, pc) = (at(*a)?, at(*b)?, at(*c)?);
-            if *directed {
-                Some(((dir(pb, pc) - dir(pb, pa)).rem_euclid(180.0), 1))
-            } else {
-                let (u, w) = ((pa.0 - pb.0, pa.1 - pb.1), (pc.0 - pb.0, pc.1 - pb.1));
-                Some((
-                    (u.0 * w.1 - u.1 * w.0)
-                        .abs()
-                        .atan2(u.0 * w.0 + u.1 * w.1)
-                        .to_degrees(),
-                    0,
-                ))
-            }
-        }
-        Expr::LineAngle { l1, l2, .. } => Some((
-            (dir(at(l2.0)?, at(l2.1)?) - dir(at(l1.0)?, at(l1.1)?)).rem_euclid(180.0),
-            1,
-        )),
-        Expr::Const { degrees } => Some((degrees.to_f64(), 0)),
-        Expr::Lin { terms } => {
-            let mut v = 0.0;
-            let mut div = 0;
-            for (k, x) in terms {
-                let (xv, xd) = eval(x, at)?;
-                v += k.to_f64() * xv;
-                if xd > 0 {
-                    let d = xd * k.denom_i64().unwrap_or(1).abs();
-                    div = if div == 0 { d } else { lcm(div, d) };
-                }
-            }
-            Some((v, div))
-        }
-        _ => None,
-    }
-}
-
-fn holds(l: (f64, i64), r: (f64, i64)) -> bool {
-    const TOL: f64 = 1e-4;
-    let div = match (l.1, r.1) {
-        (0, 0) => return (l.0 - r.0).abs() < TOL,
-        (0, d) | (d, 0) => d,
-        (a, b) => lcm(a, b),
-    };
-    let m = 180.0 / div as f64;
-    let d = (l.0 - r.0).rem_euclid(m);
-    d < TOL || d > m - TOL
-}
-
-fn stmts_of_reason<'a>(r: &'a Reason, out: &mut Vec<&'a Stmt>) {
-    match r {
-        Reason::Hyp { stmt, .. } | Reason::Atom { stmt, .. } | Reason::Lemma { stmt, .. } => {
-            out.push(stmt)
-        }
-        Reason::Fact { stmt, because, .. } => {
-            out.push(stmt);
-            for b in because {
-                stmts_of_reason(b, out);
-            }
-        }
-        Reason::Claim { .. } | Reason::Engine { .. } => {}
-    }
-}
-
 fn hyps_of_reason<'a>(r: &'a Reason, out: &mut Vec<&'a Stmt>) {
     match r {
         Reason::Hyp { stmt, .. } => out.push(stmt),
@@ -443,79 +369,82 @@ pub fn statement_violations(view: &crate::present::View, fig: &Problem) -> Vec<S
 }
 
 pub fn angle_violations(hp: &HumanProof, names: &[String], fig: &Problem) -> Vec<String> {
-    let at = |id: u32| xy(fig, names, id);
-    let show = |e: &Expr| format!("{e:?}");
+    crate::readings::violations(hp, names, fig)
+}
+
+pub fn text_violations(text: &str) -> Vec<String> {
     let mut bad = Vec::new();
-    let mut check = |l: &Expr, r: &Expr, what: &str| {
-        if let (Some(a), Some(b)) = (eval(l, &at), eval(r, &at)) {
-            if !holds(a, b) {
-                bad.push(format!(
-                    "{what}: {} = {} reads {:.3}° vs {:.3}°",
-                    show(l),
-                    show(r),
-                    a.0,
-                    b.0
-                ));
-            }
-        }
+    let lines: Vec<&str> = text.lines().collect();
+    let row = |l: &str| {
+        let t = l.trim_start();
+        t.starts_with('\u{2261}') || t.starts_with('=')
     };
-    let mut stmts: Vec<&Stmt> = Vec::new();
-    let mut chains: Vec<&Vec<Expr>> = Vec::new();
-    for b in &hp.blocks {
-        stmts.push(&b.stmt);
-        for s in &b.body {
-            match s {
-                Sentence::Chain {
-                    terms, links, then, ..
-                } => {
-                    chains.push(terms);
-                    stmts.extend(then.iter());
-                    for l in links {
-                        for r in &l.reasons {
-                            stmts_of_reason(r, &mut stmts);
-                        }
-                    }
-                }
-                Sentence::Computation { terms, links, .. } => {
-                    chains.push(terms);
-                    for l in links {
-                        for r in &l.reasons {
-                            stmts_of_reason(r, &mut stmts);
-                        }
-                    }
-                }
-                Sentence::Because { stmt, reasons, .. }
-                | Sentence::Pooled { stmt, reasons, .. }
-                | Sentence::Theorem { stmt, reasons, .. } => {
-                    stmts.push(stmt);
-                    for r in reasons {
-                        stmts_of_reason(r, &mut stmts);
-                    }
-                }
-                Sentence::Raw { .. } => {}
+    for (i, line) in lines.iter().enumerate() {
+        if line.starts_with("\u{2221}(a, b)") {
+            continue;
+        }
+        let mut end = i;
+        while end + 1 < lines.len() && row(lines[end + 1]) {
+            end += 1;
+        }
+        let closed = lines[i..=end].iter().any(|l| l.contains("(mod 180\u{b0})"));
+        let mut clauses = line.to_string();
+        for word in [
+            " so ",
+            " and ",
+            " Hence ",
+            ". ",
+            " \u{219}i ",
+            " deci ",
+            " Deci ",
+            " we get ",
+            " ob\u{21b}inem ",
+        ] {
+            clauses = clauses.replace(word, ",");
+        }
+        for seg in clauses.split(['[', ']', ';', ',', '(', ')', ':', '\u{21d2}']) {
+            if seg.contains('\u{25b3}') {
+                continue;
             }
-        }
-    }
-    for terms in chains {
-        for w in terms.windows(2) {
-            check(&w[0], &w[1], "chain link");
-        }
-    }
-    for s in stmts {
-        match s {
-            Stmt::EqAngle { lhs, rhs } | Stmt::Eq { lhs, rhs } => check(lhs, rhs, "statement"),
-            Stmt::AngleConst { angle, degrees } => check(
-                angle,
-                &Expr::Const {
-                    degrees: degrees.clone(),
-                },
-                "statement",
-            ),
-            _ => {}
+            let directed = seg.contains('\u{2221}');
+            if directed && seg.contains(" = ") {
+                bad.push(format!("a directed angle is equated with =: {line}"));
+            }
+            if seg.contains('\u{2261}') && !closed {
+                bad.push(format!("a congruence without its modulus: {line}"));
+            }
         }
     }
     bad
 }
+
+pub fn engine_violations(sol: &Solution) -> Vec<String> {
+    let (Some(h), Some(fig)) = (&sol.human, &sol.figure) else {
+        return Vec::new();
+    };
+    let Some(goal) = fig.problem.goal.as_ref() else {
+        return Vec::new();
+    };
+    let Ok(Some((_, trace, deps))) = ddar::runner::solve_problem_with_trace(&fig.problem) else {
+        return vec!["the shown figure's problem no longer proves".into()];
+    };
+    if trace.names != h.names {
+        return vec!["the shown proof's names do not match the figure's trace".into()];
+    }
+    let mut bad: Vec<String> = ddar::human::verify(&trace, goal, &deps, &[], &h.proof)
+        .into_iter()
+        .map(|v| format!("checker {} block {}: {}", v.rule, v.block, v.detail))
+        .collect();
+    bad.extend(
+        ddar::human::lints(&trace, goal, &deps, &[], &h.proof)
+            .into_iter()
+            .filter(|v| MUST_LINTS.contains(&v.rule))
+            .map(|v| format!("lint {} block {}: {}", v.rule, v.block, v.detail)),
+    );
+    bad
+}
+
+pub const MUST_LINTS: [&str; 5] = ["L1", "L2", "L3", "L5", "L7"];
 
 pub fn setup_violations(
     hp: &HumanProof,
@@ -661,6 +590,18 @@ mod tests {
         let goal = fig.goal.as_ref()?;
         let mut bad: Vec<String> = Vec::new();
         bad.extend(angle_violations(&h.proof, &h.names, fig));
+        bad.extend(engine_violations(&sh.sol));
+        let v = crate::present::solution_json(&sh.sol, Some(&case.name));
+        if std::env::var_os("HP_ASDRAWN").is_some() {
+            eprintln!("ASDRAWN\t{}\t{}", case.name, v["view"]["as_drawn"]);
+        }
+        if let Some(hv) = crate::human_view::of_view(&v["view"]) {
+            for lang in [crate::i18n::Lang::En, crate::i18n::Lang::Ro] {
+                bad.extend(text_violations(&crate::human_view::text(
+                    &hv, &v["view"], lang,
+                )));
+            }
+        }
         bad.extend(bisector_violations(&h.proof, &h.names, fig));
         bad.extend(setup_violations(&h.proof, &h.names, fig, goal));
         bad.extend(statement_violations(&sh.view, fig));
@@ -854,7 +795,7 @@ mod tests {
             (
                 "arc_midpoint_bisector",
                 include_str!("../../alphageometry-rs/examples/named/arc_midpoint_bisector.geo"),
-                "\u{2221}BAM = \u{2221}MAC",
+                "\u{2221}BAM \u{2261} \u{2221}MAC (mod 180\u{b0})",
             ),
             (
                 "incenter_excenter_cyclic",

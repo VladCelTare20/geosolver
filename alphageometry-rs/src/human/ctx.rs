@@ -92,6 +92,7 @@ pub struct Ctx<'a> {
     pub forbid: crate::theory::Forbid,
     store: Mutex<Vec<Option<super::cert::Echelon>>>,
     src_memo: Mutex<FxHashMap<FactId, BTreeSet<FactId>>>,
+    pub drawn_shapes: Mutex<FxHashMap<LinComb, Option<i64>>>,
 }
 
 pub fn transfer_add_row(t: &EngineTrace, f: FactId) -> Option<LinComb> {
@@ -178,6 +179,7 @@ impl<'a> Ctx<'a> {
             forbid: t.forbid,
             store: Mutex::new(vec![None, None, None, None]),
             src_memo: Mutex::new(FxHashMap::default()),
+            drawn_shapes: Mutex::new(FxHashMap::default()),
         };
         cx.refine_silent();
         cx.build_objects();

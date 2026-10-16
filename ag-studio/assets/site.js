@@ -167,6 +167,9 @@
   }
 
   /** A typed fact from the server (`{kind, args}`) as typeset, localized HTML. */
+  var MOD_180 = " (mod 180°)";
+  function directedArgs(a) { return (a || []).some(function (x) { return String(x).indexOf("∡") >= 0; }); }
+  function eqJoin(raw, shown) { return directedArgs(raw) ? shown.join(" ≡ ") + MOD_180 : shown.join(" = "); }
   function fact(f) {
     if (!f) return "";
     return spoken(factHtml(f));
@@ -185,7 +188,8 @@
       case "concur": return esc(T("fact.concur", { lines: "\u0001", p: "\u0002" })).replace("\u0001", a.slice(0, -1).join(", ")).replace("\u0002", a[a.length - 1] || "");
       case "bisector": return esc(T("fact.bisector", { p: "\u0001", angle: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
       case "incenter": case "excenter": case "in_or_excenter": return esc(T("fact." + f.kind, { i: "\u0001", tri: "\u0002" })).replace("\u0001", g(0)).replace("\u0002", g(1));
-      case "cong": case "length": case "eqangle": case "coincide": return g(0) + " = " + g(1);
+      case "eqangle": case "eq": return directedArgs(a) ? g(0) + " ≡ " + g(1) + MOD_180 : g(0) + " = " + g(1);
+      case "cong": case "length": case "coincide": return g(0) + " = " + g(1);
       case "perp": return g(0) + " ⟂ " + g(1);
       case "para": return g(0) + " ∥ " + g(1);
       case "eqratio": {
@@ -194,7 +198,7 @@
         return parts.join(" = ");
       }
       case "para_ratio": return esc(T("fact.para_ratio", { par: "\u0001", ratio: "\u0002" })).replace("\u0001", g(0) + " ∥ " + g(1)).replace("\u0002", g(2) + " : " + g(3) + " = " + g(4) + " : " + g(5));
-      case "aconst": return g(0) + " = " + g(1) + "°";
+      case "aconst": return directedArgs(a) ? g(0) + " ≡ " + g(1) + "°" + MOD_180 : g(0) + " = " + g(1) + "°";
       case "rconst": return g(0) + " : " + g(1) + " = " + g(2);
       case "simtri": return "△" + g(0) + " ∼ △" + g(1);
       case "contri": return "△" + g(0) + (L === "ro" ? " ≡ △" : " ≅ △") + g(1);
@@ -738,8 +742,10 @@
     }
     function rows(terms, ls) {
       var angles = angleTerm(terms[0]);
+      var directed = directedArgs(terms);
       return ls.map(function (l, k) {
-        return { lhs: k === 0 ? SP(math(terms[0])) : "", lhsLen: k === 0 ? String(terms[0] || "").length : 0, rhs: SP(math(terms[k + 1])), why: linkNote(angles ? inscribedLink(l) : l), id: register(l.reasons) };
+        var tail = directed && k + 1 === ls.length ? MOD_180 : "";
+        return { lhs: k === 0 ? SP(math(terms[0])) : "", lhsLen: k === 0 ? String(terms[0] || "").length : 0, rel: directed ? "≡" : "=", rhs: SP(math(terms[k + 1])) + tail, why: linkNote(angles ? inscribedLink(l) : l), id: register(l.reasons) };
       });
     }
     function segsOf(st) {
@@ -911,7 +917,7 @@
         var rs = l0 ? texts((l0.reasons || []).filter(function (r) { return !isLab0(r); }), "n") : [];
         var terms = s.terms || [];
         var zero = terms[terms.length - 1] === "0°";
-        var eq = terms.map(function (x) { return SP(math(x)); }).join(" = ");
+        var eq = eqJoin(terms, terms.map(function (x) { return SP(math(x)); }));
         if (lab0) eq = eq + " (" + atomHtml(lab0, "n") + ")";
         var text;
         var line = null;
@@ -955,13 +961,13 @@
           text2 = notes2.length ? fillKey("hp.apply_with", { thm: thm, reasons: notes2.join("; "), stmt: rest }) : fillKey("hp.apply", { thm: thm, stmt: rest });
         } else {
           var st2 = soStmt(s.stmt, goal);
-          var withKey = s.key === "inscribed_converse" || s.key === "opposite_angles_converse" || s.key === "exterior_angle_converse" || s.key === "thales_converse" ? "hp.theorem_with.converse" : s.key === "circle_merge" ? "hp.theorem_with.circle_merge" : "hp.theorem_with";
+          var withKey = ["inscribed_converse", "opposite_angles_converse", "exterior_angle_converse", "thales_converse", "vertical_angles_converse", "linear_pair_converse", "alternate_angles_converse", "cointerior_angles_converse", "corresponding_angles_converse", "angle_construction"].indexOf(s.key) >= 0 ? "hp.theorem_with.converse" : s.key === "circle_merge" ? "hp.theorem_with.circle_merge" : "hp.theorem_with";
           text2 = notes2.length ? fillKey(withKey, { thm: thm, reasons: joinList(notes2), stmt: st2 }) : fillKey("hp.theorem", { thm: thm, stmt: st2 });
         }
         parts.push({ text: cap(text2), light: register(s.reasons) });
       } else if (s.kind === "computation" && (s.links || []).length === 1) {
         var cl = compLinks(s.links)[0];
-        var ceq = (s.terms || []).map(function (x) { return SP(math(x)); }).join(" = ");
+        var ceq = eqJoin(s.terms || [], (s.terms || []).map(function (x) { return SP(math(x)); }));
         parts.push({ text: cap(fillKey("hp.because", { reasons: joinList(texts(cl.reasons, "n")), stmt: ceq })), light: register(cl.reasons) });
       } else if (s.kind === "computation") {
         parts.push({ rows: rows(s.terms || [], compLinks(s.links)) });
@@ -983,7 +989,7 @@
       else if (first.kind === "chain" && first.then) st = stmtHtml(first.then, "s");
       else if ((b.body || []).length === 1 && (b.stmt.kind === "eqangle" || b.stmt.kind === "eq")) {
         var ts = first.terms || [];
-        st = SP(math(ts[0] || "")) + " = " + SP(math(ts[ts.length - 1] || ""));
+        st = eqJoin([ts[0] || "", ts[ts.length - 1] || ""], [SP(math(ts[0] || "")), SP(math(ts[ts.length - 1] || ""))]);
       } else st = stmtHtml(b.stmt, "s");
       return fillKey("hp.we_show", { stmt: st });
     }
@@ -1184,7 +1190,7 @@
           p.rows.forEach(function (r) { w = Math.max(w, Array.from(tx(r.lhs)).length); });
           out.push(p.rows.map(function (r) {
             var l = tx(r.lhs);
-            return l + new Array(w - Array.from(l).length + 1).join(" ") + " = " + tx(r.rhs) + (r.why ? "    [" + tx(r.why) + "]" : "");
+            return l + new Array(w - Array.from(l).length + 1).join(" ") + " " + (r.rel || "=") + " " + tx(r.rhs) + (r.why ? "    [" + tx(r.why) + "]" : "");
           }).join("\n"));
         } else para.push((first ? num + " " : "") + tx(p.text));
         first = false;
@@ -1211,7 +1217,7 @@
         if (i === 0 && lhsLong) html += '<tr class="hp-lhs-row" role="presentation"><td class="hp-lhs math" colspan="4" role="presentation">' + r.lhs + "</td></tr>";
         html += '<tr class="hp-row" role="listitem" data-l="' + r.id + '" tabindex="-1">' +
           '<td class="hp-lhs math" role="presentation">' + (lhsLong ? "" : r.lhs) + "</td>" +
-          '<td class="hp-eq" role="presentation">=</td>' +
+          '<td class="hp-eq" role="presentation">' + (r.rel || "=") + '</td>' +
           '<td class="hp-rhs math" role="presentation">' + r.rhs + (tail && i === rows.length - 1 ? '<span class="hp-row-tail">' + tail + "</span>" : "") + "</td>" +
           '<td class="hp-why math" role="presentation">' + (r.why ? '<span class="sr-only">' + esc(T("hp.link_sr", { r: "" })) + "</span>" + r.why : "") + "</td></tr>";
       });

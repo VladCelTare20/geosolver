@@ -50,6 +50,14 @@ agstudio backup <dest.db>                     # consistent copy of the server DB
   `~/Projects/geosolver-bench/`), never with `--bench` alone (26 pre-selected rows).
 - Soundness is the product. Every change to goal compilation or a prover needs a
   regression test with a FALSE statement that must stay unproved.
+- **0° and 180° are different** (owner's rule, 2026-10-16): displayed proofs never
+  identify them. Proof steps use ordinary angles ∠ wherever a derivation exists;
+  collinearity is a named theorem with its side condition (vertical angles,
+  linear pair, angle construction), right angles add to 180°, and a ∠ sum is
+  never "= 0°" unless the angle really is 0°. Directed angles ∡ (between lines,
+  mod 180°) are the last resort and are always written as congruences
+  `≡ … (mod 180°)`, never with `=`. Gates: `check.rs:chain_lints` L1/L2/L3/L5/L7 = 0
+  (`tests/human_chain_rows.rs`, ag-studio `proof_audit`); docs/HUMAN_PROOFS.md §6.6.5.
 - State is one SQLite file (`AGSTUDIO_DB`, WAL mode, schema version in
   `PRAGMA user_version`); deploy files must put it on persistent, writable
   storage, and backups go through `agstudio backup`, never a copy of the bare

@@ -12,6 +12,7 @@ use crate::rational::Rat;
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_GROUPS: usize = 6;
+pub(crate) const ZERO_INSERTION: i64 = 500;
 const MAX_GREEDY: usize = 14;
 const PLAN_MIN_STEPS: usize = 4;
 const PLAN_MAX: usize = 3;
@@ -21,64 +22,90 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
         return;
     }
     let mut ch = Checker::new(cx);
-    if !check::violations_with(&mut ch, hp).is_empty() {
+    let baseline = check::violations_with(&mut ch, hp);
+    if !baseline.is_empty() {
+        unzero_unpolished(cx, &mut ch, hp, &baseline);
         finish(cx, hp);
         return;
     }
     let original = hp.clone();
+    stage(cx, hp, 0);
     median_hypotenuse(cx, &mut ch, hp);
+    stage(cx, hp, 1);
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _bi, s| {
         undirected(cx, blocks, s)
     });
+    stage(cx, hp, 2);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         split_sentence(cx, blocks, bi, s)
     });
+    stage(cx, hp, 3);
     promote_atoms(cx, &mut ch, hp);
+    stage(cx, hp, 4);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         split_sentence(cx, blocks, bi, s)
     });
+    stage(cx, hp, 5);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_sentence(s));
+    stage(cx, hp, 6);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| merge_same_reasons(s));
+    stage(cx, hp, 7);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         dedupe_restated(cx, blocks, s)
     });
+    stage(cx, hp, 8);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         absorb_by_triangles(cx, blocks, s)
     });
+    stage(cx, hp, 9);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         restated_line_fact(cx, blocks, s)
     });
+    stage(cx, hp, 10);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         vertical_angles(cx, blocks, s)
     });
+    stage(cx, hp, 11);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         redisplay_middles(cx, blocks, bi, s)
     });
+    stage(cx, hp, 12);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::merge_central(cx, blocks, s)
     });
+    stage(cx, hp, 13);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::central_isosceles(cx, blocks, s)
     });
+    stage(cx, hp, 14);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::radius_chord(cx, blocks, s)
     });
+    stage(cx, hp, 15);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         split_sentence(cx, blocks, bi, s)
     });
+    stage(cx, hp, 16);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         expose_addition(cx, blocks, bi, s)
     });
+    stage(cx, hp, 17);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         because_chain(cx, blocks, bi, s)
     });
+    stage(cx, hp, 18);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| undirected_hyps(cx, s));
+    stage(cx, hp, 19);
     per_block(cx, &mut ch, hp, &congruence_side);
+    stage(cx, hp, 20);
     per_block(cx, &mut ch, hp, &super::triangles::arc_chord_isosceles);
+    stage(cx, hp, 21);
     per_block_with(cx, &mut ch, hp, &super::triangles::hence_premises);
+    stage(cx, hp, 22);
     per_sentence(cx, &mut ch, hp, true, &|_, blocks, bi, s| {
         restated_conclusion(blocks, bi, s)
     });
+    stage(cx, hp, 23);
     let named: Vec<(PointId, Vec<PointId>)> = hp
         .setup
         .iter()
@@ -99,36 +126,57 @@ pub fn polish(cx: &Ctx, hp: &mut HumanProof) {
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| {
         drop_setup_radii(&named, s)
     });
+    stage(cx, hp, 24);
     per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| trim_parallel_extras(s));
+    stage(cx, hp, 25);
     per_sentence(cx, &mut ch, hp, false, &|cx, blocks, _, s| {
         redisplay_drawn(cx, blocks, s)
     });
+    stage(cx, hp, 26);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| stable_names(cx, s));
+    stage(cx, hp, 27);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
         super::cyclic::cyclic_quads(cx, blocks, s)
     });
+    per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| unzero_chain(cx, s));
+    stage(cx, hp, 28);
     per_sentence(cx, &mut ch, hp, false, &|_, _, _, s| constants_first(s));
+    stage(cx, hp, 29);
     cut_long(cx, &mut ch, hp);
+    stage(cx, hp, 30);
     lemma_steps(cx, &mut ch, hp);
+    stage(cx, hp, 31);
     prefix_steps(cx, &mut ch, hp);
+    per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| unzero_chain(cx, s));
+    stage(cx, hp, 32);
     per_sentence(cx, &mut ch, hp, true, &|cx, blocks, bi, s| {
         super::labels::fold_hyp_lemmas(cx, blocks[bi].id, s)
     });
+    stage(cx, hp, 33);
     per_block(cx, &mut ch, hp, &super::triangles::triangle_names);
+    stage(cx, hp, 34);
     per_block_with(cx, &mut ch, hp, &super::triangles::common_angle);
+    stage(cx, hp, 35);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| {
         super::labels::reflections(cx, s)
     });
-    per_sentence(cx, &mut ch, hp, true, &|_, _, _, s| {
-        super::labels::line_chain(s)
+    stage(cx, hp, 36);
+    per_sentence(cx, &mut ch, hp, true, &|cx, blocks, _, s| {
+        super::labels::line_chain(cx, blocks, s)
     });
+    stage(cx, hp, 37);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| {
         super::labels::segment_labels(cx, s)
     });
+    stage(cx, hp, 38);
     per_sentence(cx, &mut ch, hp, true, &|cx, _, _, s| {
         super::labels::parallel_labels(cx, s)
     });
+    stage(cx, hp, 39);
     super::cyclic::converse_steps(cx, &mut ch, hp);
+    stage(cx, hp, 40);
+    super::readings::line_readings(cx, &mut ch, hp);
+    stage(cx, hp, 41);
     if !check::violations_with(&mut ch, hp).is_empty() {
         if std::env::var_os("HP_DEBUG").is_some() {
             eprintln!("barem polish produced violations; keeping the unpolished proof");
@@ -148,9 +196,18 @@ fn same_point_set(a: &Stmt, b: &Stmt) -> bool {
         v.dedup();
         v
     };
+    let lines = |l1: &(PointId, PointId), l2: &(PointId, PointId)| {
+        let mut v = vec![sorted(&[l1.0, l1.1]), sorted(&[l2.0, l2.1])];
+        v.sort();
+        v
+    };
     match (a, b) {
         (Stmt::Coll { pts: x }, Stmt::Coll { pts: y })
         | (Stmt::Cyclic { pts: x }, Stmt::Cyclic { pts: y }) => sorted(x) == sorted(y),
+        (Stmt::Para { l1: a1, l2: a2 }, Stmt::Para { l1: b1, l2: b2 })
+        | (Stmt::Perp { l1: a1, l2: a2 }, Stmt::Perp { l1: b1, l2: b2 }) => {
+            lines(a1, a2) == lines(b1, b2)
+        }
         _ => false,
     }
 }
@@ -220,6 +277,15 @@ fn drop_restating_blocks(ch: &mut Checker, hp: &mut HumanProof) {
     }
 }
 
+fn stage(cx: &Ctx, hp: &HumanProof, n: usize) {
+    if std::env::var_os("HP_STAGES").is_some() {
+        eprintln!(
+            "== polish stage {n}\n{}",
+            super::text::debug_chains(cx.t, hp)
+        );
+    }
+}
+
 pub(crate) fn debug() -> bool {
     std::env::var_os("HP_BAREM").is_some()
 }
@@ -279,6 +345,32 @@ fn per_sentence(
                 hp.blocks[bi].id,
                 v.first().map(|x| &x.detail)
             );
+        }
+    }
+}
+
+fn unzero_unpolished(
+    cx: &Ctx,
+    ch: &mut Checker,
+    hp: &mut HumanProof,
+    baseline: &[check::Violation],
+) {
+    for bi in 0..hp.blocks.len() {
+        if hp.blocks[bi].kind == BlockKind::Raw {
+            continue;
+        }
+        for si in 0..hp.blocks[bi].body.len() {
+            if cx.timed_out() {
+                return;
+            }
+            let Some(n) = unzero_chain(cx, &hp.blocks[bi].body[si]) else {
+                continue;
+            };
+            let mut one = hp.clone();
+            one.blocks[bi].body[si] = n;
+            if check::violations_with(ch, &one) == baseline {
+                *hp = one;
+            }
         }
     }
 }
@@ -423,12 +515,17 @@ pub(crate) fn negate_link(l: Link) -> Link {
     }
 }
 
+fn round_constant(c: &Rat) -> bool {
+    let k = c / &Rat::from_int(15);
+    k.is_integer() && !c.is_negative() && *c <= Rat::from_int(180) && !c.is_zero()
+}
+
 pub fn term_score(e: &Expr) -> Option<i64> {
     let ninety = Rat::from_int(90);
     let one_eighty = Rat::from_int(180);
     match e {
         Expr::Angle { .. } => Some(0),
-        Expr::Const { degrees } => (*degrees == ninety || *degrees == one_eighty).then_some(1),
+        Expr::Const { degrees } => round_constant(degrees).then_some(1),
         Expr::Lin { terms } => {
             if lin_terms(e) > 2 {
                 return None;
@@ -447,6 +544,8 @@ pub fn term_score(e: &Expr) -> Option<i64> {
                 0
             } else if konst == ninety || konst == one_eighty || konst == -&ninety {
                 1
+            } else if round_constant(&konst) {
+                2
             } else {
                 return None;
             };
@@ -1775,7 +1874,7 @@ pub(crate) fn term_infos(cx: &Ctx, e: &Expr, directed: bool) -> Option<Vec<TermI
     Some(out)
 }
 
-fn key_map(infos: &[TermInfo]) -> BTreeMap<String, Rat> {
+pub(crate) fn key_map(infos: &[TermInfo]) -> BTreeMap<String, Rat> {
     let mut m: BTreeMap<String, Rat> = BTreeMap::new();
     for ti in infos {
         let e = m.entry(ti.key.clone()).or_insert_with(Rat::zero);
@@ -1805,6 +1904,372 @@ pub(crate) fn diff_terms(
         out.push((d, rep));
     }
     Some(out)
+}
+
+pub(crate) fn zero_insertion(cx: &Ctx, prev: &Expr, next: &Expr, directed: bool) -> bool {
+    let (Some(ia), Some(ib)) = (
+        term_infos(cx, prev, directed),
+        term_infos(cx, next, directed),
+    ) else {
+        return false;
+    };
+    let (ma, mb) = (key_map(&ia), key_map(&ib));
+    !ma.is_empty()
+        && mb.len() > ma.len()
+        && ma.iter().all(|(x, v)| mb.get(x) == Some(v))
+        && const_part(next).abs() >= const_part(prev).abs()
+}
+
+const REORDER_MAX: usize = 12;
+const REORDER_ZERO: i64 = 1000;
+const REORDER_MERGE: i64 = 40;
+const REORDER_RUN: usize = 4;
+const REORDER_CARRY: i64 = 50;
+
+type KeyState = (BTreeMap<String, Rat>, Rat);
+
+fn turn(c: &Rat, directed: bool) -> Rat {
+    if !directed {
+        return c.clone();
+    }
+    let half = Rat::from_int(180);
+    &(c / &half).mod_one() * &half
+}
+
+fn key_state(cx: &Ctx, e: &Expr, directed: bool) -> Option<KeyState> {
+    Some((
+        key_map(&term_infos(cx, e, directed)?),
+        turn(&const_part(e), directed),
+    ))
+}
+
+fn key_delta(a: &KeyState, b: &KeyState) -> KeyState {
+    let mut d = b.0.clone();
+    for (k, v) in &a.0 {
+        let e = d.entry(k.clone()).or_insert_with(Rat::zero);
+        *e = &*e - v;
+    }
+    d.retain(|_, v| !v.is_zero());
+    (d, &b.1 - &a.1)
+}
+
+pub(crate) fn end_constant(e: &Expr) -> Rat {
+    turn(&const_part(e), true)
+}
+
+pub(crate) fn carried_row(cx: &Ctx, prev: &Expr, next: &Expr, directed: bool, end: &Rat) -> bool {
+    if !directed {
+        return false;
+    }
+    let (Some(a), Some(b)) = (key_state(cx, prev, true), key_state(cx, next, true)) else {
+        return false;
+    };
+    !a.1.is_zero() && a.1 == b.1 && a.1 != *end && a.0.len() >= 2 && b.0.len() >= 2
+}
+
+fn chain_badness(cx: &Ctx, ts: &[Expr], directed: bool) -> (usize, usize) {
+    let zeros = ts
+        .windows(2)
+        .filter(|w| zero_insertion(cx, &w[0], &w[1], directed))
+        .count();
+    let end = ts.last().map(end_constant).unwrap_or_else(Rat::zero);
+    let carried = ts
+        .windows(2)
+        .filter(|w| carried_row(cx, &w[0], &w[1], directed, &end))
+        .count();
+    (zeros, if carried >= 2 { carried } else { 0 })
+}
+
+struct Window<'a> {
+    cx: &'a Ctx<'a>,
+    directed: bool,
+    base: KeyState,
+    deltas: Vec<KeyState>,
+    order: Vec<String>,
+    reps: BTreeMap<String, Expr>,
+    width: usize,
+}
+
+impl Window<'_> {
+    fn expr(&self, mask: usize) -> Option<Expr> {
+        let (mut m, mut c) = self.base.clone();
+        for (i, (d, dc)) in self.deltas.iter().enumerate() {
+            if mask >> i & 1 == 1 {
+                for (k, v) in d {
+                    let e = m.entry(k.clone()).or_insert_with(Rat::zero);
+                    *e = &*e + v;
+                }
+                c = &c + dc;
+            }
+        }
+        let c = turn(&c, self.directed);
+        m.retain(|_, v| !v.is_zero());
+        let mut parts: Vec<(Rat, Expr)> = self
+            .order
+            .iter()
+            .filter_map(|k| m.get(k).map(|v| (v.clone(), self.reps[k].clone())))
+            .map(|(v, e)| {
+                if self.directed {
+                    reversed_term(v, e)
+                } else {
+                    (v, e)
+                }
+            })
+            .collect();
+        if parts.len() > self.width || parts.iter().any(|(v, _)| v.abs() > Rat::from_int(2)) {
+            return None;
+        }
+        if !c.is_zero() {
+            parts.push((Rat::one(), Expr::Const { degrees: c }));
+        }
+        if parts.is_empty() {
+            return None;
+        }
+        let e = tidy(Expr::Lin { terms: parts });
+        let bad = if self.directed {
+            super::chain::fractional_angle(&e)
+        } else {
+            super::chain::degenerate_angle(self.cx, &e)
+        };
+        (!bad).then_some(e)
+    }
+}
+
+fn reversed_term(v: Rat, e: Expr) -> (Rat, Expr) {
+    if v != Rat::from_int(-1) {
+        return (v, e);
+    }
+    match e {
+        Expr::Angle { a, b, c, directed } => (
+            Rat::one(),
+            Expr::Angle {
+                a: c,
+                b,
+                c: a,
+                directed,
+            },
+        ),
+        Expr::LineAngle { l1, l2, directed } => (
+            Rat::one(),
+            Expr::LineAngle {
+                l1: l2,
+                l2: l1,
+                directed,
+            },
+        ),
+        e => (v, e),
+    }
+}
+
+fn run_mask(i: usize, j: usize) -> usize {
+    ((1usize << (j + 1)) - 1) & !((1usize << i) - 1)
+}
+
+type Reordered = (Vec<(usize, usize)>, Vec<Expr>);
+
+fn reorder_window(
+    cx: &Ctx,
+    terms: &[Expr],
+    directed: bool,
+    start: &BTreeMap<String, Rat>,
+) -> Option<Reordered> {
+    let n = terms.len() - 1;
+    let states: Vec<KeyState> = terms
+        .iter()
+        .map(|e| key_state(cx, e, directed))
+        .collect::<Option<_>>()?;
+    let mut reps: BTreeMap<String, Expr> = BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for e in terms {
+        for ti in term_infos(cx, e, directed)? {
+            if !reps.contains_key(&ti.key) {
+                order.push(ti.key.clone());
+                reps.insert(ti.key, ti.expr);
+            }
+        }
+    }
+    let w = Window {
+        cx,
+        directed,
+        base: states[0].clone(),
+        deltas: states.windows(2).map(|p| key_delta(&p[0], &p[1])).collect(),
+        order,
+        reps,
+        width: terms.iter().map(lin_terms).max().unwrap_or(0).max(3),
+    };
+    let full = (1usize << n) - 1;
+    let end = end_constant(&terms[n]);
+    let mut exprs: Vec<Option<Option<Expr>>> = vec![None; full + 1];
+    let mut expr_at = |mask: usize| -> Option<Expr> {
+        if let Some(e) = &exprs[mask] {
+            return e.clone();
+        }
+        let k = mask.count_ones() as usize;
+        let e = if mask == (1usize << k) - 1 {
+            Some(terms[k].clone())
+        } else {
+            w.expr(mask).filter(|e| {
+                term_infos(cx, e, directed)
+                    .is_some_and(|ts| ts.iter().all(|t| !start.contains_key(&t.key)))
+            })
+        };
+        exprs[mask] = Some(e.clone());
+        e
+    };
+    let mut best: Vec<Option<(i64, usize, (usize, usize))>> = vec![None; full + 1];
+    best[0] = Some((0, 0, (0, 0)));
+    for mask in 0..full {
+        let Some((g, _, _)) = best[mask] else {
+            continue;
+        };
+        let Some(prev) = expr_at(mask) else { continue };
+        for i in 0..n {
+            for j in i..n.min(i + REORDER_RUN) {
+                if mask >> j & 1 == 1 {
+                    break;
+                }
+                let next_mask = mask | run_mask(i, j);
+                let Some(next) = expr_at(next_mask) else {
+                    continue;
+                };
+                if next == prev {
+                    continue;
+                }
+                let skipped = (0..i).filter(|k| mask >> k & 1 == 0).count() as i64;
+                let cost = g
+                    + lin_terms(&next) as i64
+                    + 3 * skipped
+                    + REORDER_MERGE * (j - i) as i64
+                    + if zero_insertion(cx, &prev, &next, directed) {
+                        REORDER_ZERO
+                    } else {
+                        0
+                    }
+                    + if carried_row(cx, &prev, &next, directed, &end) {
+                        REORDER_CARRY
+                    } else {
+                        0
+                    };
+                if best[next_mask].is_none_or(|b| cost < b.0) {
+                    best[next_mask] = Some((cost, mask, (i, j)));
+                }
+            }
+        }
+    }
+    let mut picks: Vec<(usize, usize)> = Vec::new();
+    let mut mask = full;
+    while mask != 0 {
+        let (_, from, r) = best[mask]?;
+        picks.push(r);
+        mask = from;
+    }
+    picks.reverse();
+    let mut out = vec![terms[0].clone()];
+    let mut mask = 0usize;
+    for &(i, j) in &picks {
+        mask |= run_mask(i, j);
+        out.push(expr_at(mask)?);
+    }
+    (chain_badness(cx, &out, directed) < chain_badness(cx, terms, directed)).then_some((picks, out))
+}
+
+fn unzero_chain(cx: &Ctx, s: &Sentence) -> Option<Sentence> {
+    let Sentence::Chain {
+        terms,
+        links,
+        directed,
+        then,
+    } = s
+    else {
+        return None;
+    };
+    let d = *directed && terms.iter().all(is_directed);
+    if *directed && !d {
+        return None;
+    }
+    let mut n = links.len();
+    if n < 2 || terms.len() != n + 1 || !angle_table(cx, &terms[0]) {
+        return None;
+    }
+    if chain_badness(cx, terms, d) == (0, 0) {
+        return None;
+    }
+    let states: Vec<KeyState> = terms
+        .iter()
+        .map(|e| key_state(cx, e, d))
+        .collect::<Option<_>>()?;
+    let start = states[0].0.clone();
+    let mut renames: Vec<bool> = states
+        .windows(2)
+        .map(|w| {
+            let x = key_delta(&w[0], &w[1]);
+            x.0.is_empty() && turn(&x.1, d).is_zero()
+        })
+        .collect();
+    let mut terms = terms.clone();
+    let mut links = links.clone();
+    let mut changed = false;
+    let mut a = 0;
+    while a < n {
+        if renames[a] {
+            a += 1;
+            continue;
+        }
+        let mut b = a;
+        while b < n && !renames[b] {
+            b += 1;
+        }
+        let window_bad = chain_badness(cx, &terms[a..=b], d) != (0, 0);
+        if window_bad && b - a >= 2 && b - a <= REORDER_MAX {
+            if let Some((picks, out)) = reorder_window(cx, &terms[a..=b], d, &start) {
+                let window_links: Vec<Link> = picks
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &(i, j))| {
+                        let l = (i + 1..=j).fold(links[a + i].clone(), |acc, m| {
+                            merge_links(&acc, &links[a + m])
+                        });
+                        if identity_only(&l) {
+                            identity_link(cx, &out[k], &out[k + 1], d).unwrap_or(l)
+                        } else {
+                            l
+                        }
+                    })
+                    .collect();
+                let tail_terms: Vec<Expr> = terms[b + 1..].to_vec();
+                let tail_links: Vec<Link> = links[b..].to_vec();
+                let shift = (b - a) - window_links.len();
+                terms.truncate(a);
+                terms.extend(out);
+                terms.extend(tail_terms);
+                links.truncate(a);
+                links.extend(window_links);
+                links.extend(tail_links);
+                renames.drain(a..a + shift);
+                n -= shift;
+                b -= shift;
+                changed = true;
+            }
+        }
+        a = b;
+    }
+    changed.then(|| Sentence::Chain {
+        terms,
+        links,
+        directed: *directed,
+        then: then.clone(),
+    })
+}
+
+pub(crate) fn const_part(e: &Expr) -> Rat {
+    match e {
+        Expr::Const { degrees } => degrees.clone(),
+        Expr::Lin { terms } => terms
+            .iter()
+            .map(|(k, x)| &const_part(x) * k)
+            .fold(Rat::zero(), |a, b| &a + &b),
+        _ => Rat::zero(),
+    }
 }
 
 pub fn row_delta(cx: &Ctx, a: &Expr, b: &Expr, directed: bool) -> Option<usize> {
@@ -1914,7 +2379,7 @@ pub fn identity_label(
     let mut vs: Vec<PointId> = Vec::new();
     for (_, ti) in &d {
         let Some(v) = ti.vertex else {
-            return Some((AtomKey::AngleAddition, Vec::new()));
+            return directed.then(|| (AtomKey::LineAngleAddition, Vec::new()));
         };
         if !vs.contains(&v) {
             vs.push(v);
@@ -1964,7 +2429,7 @@ pub fn identity_label(
             return Some((AtomKey::AngleSum, vs));
         }
     }
-    Some((AtomKey::AngleAddition, Vec::new()))
+    directed.then(|| (AtomKey::LineAngleAddition, Vec::new()))
 }
 
 pub fn identity_link(cx: &Ctx, a: &Expr, b: &Expr, directed: bool) -> Option<Link> {
@@ -2735,7 +3200,7 @@ fn because_chain(cx: &Ctx, blocks: &[Block], bi: usize, s: &Sentence) -> Option<
     Some(exposed)
 }
 
-fn opaque_link(
+pub(crate) fn opaque_link(
     cx: &Ctx,
     blocks: &[Block],
     e1: &Expr,
@@ -3291,6 +3756,9 @@ fn split_links(
                             let prev = mids.last().unwrap_or(&terms[k]);
                             if *prev == e || (pi + 2 == parts.len() && e == terms[k + 1]) {
                                 score += 1000;
+                            }
+                            if zero_insertion(cx, prev, &e, directed) {
+                                score += ZERO_INSERTION;
                             }
                             mids.push(e);
                         }
@@ -4504,7 +4972,38 @@ fn directed_conclusion(hp: &HumanProof) -> bool {
         })
 }
 
+fn label_identities(cx: &Ctx, hp: &mut HumanProof) {
+    for b in hp.blocks.iter_mut() {
+        if b.kind == BlockKind::Raw {
+            continue;
+        }
+        for s in b.body.iter_mut() {
+            let (terms, links, directed) = match s {
+                Sentence::Chain {
+                    terms,
+                    links,
+                    directed,
+                    ..
+                } => (terms, links, *directed),
+                _ => continue,
+            };
+            for (i, l) in links.iter_mut().enumerate() {
+                if !l.reasons.is_empty() || !l.combination.is_empty() || i + 1 >= terms.len() {
+                    continue;
+                }
+                if !angle_table(cx, &terms[i]) {
+                    continue;
+                }
+                if let Some(n) = identity_link(cx, &terms[i], &terms[i + 1], directed) {
+                    *l = n;
+                }
+            }
+        }
+    }
+}
+
 pub fn finish(cx: &Ctx, hp: &mut HumanProof) {
+    label_identities(cx, hp);
     figure_bisectors(cx, hp);
     for (i, b) in hp.blocks.iter_mut().enumerate() {
         b.step = i as u16 + 1;

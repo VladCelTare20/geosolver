@@ -1,4 +1,4 @@
-∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Unghiurile orientate nu depind de figură. Le folosim doar la pasul 8, unde forma cu unghiuri din figură ar depinde de configurație. Fie ω₂ cercul (CNR); P se află pe ω₂. Fie F piciorul perpendicularei din B pe AR.
+∡(a, b) este unghiul orientat dintre dreptele a și b: unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b, măsurat modulo 180°; ∡XYZ înseamnă ∡(YX, YZ). Sunt unghiuri între drepte, nu unghiuri obișnuite: 0° și 180° sunt același unghi orientat, de aceea egalitățile lor se scriu ≡ … (mod 180°). Le folosim doar la pasul 8, unde nu am găsit o deducție cu unghiuri obișnuite. Fie ω₂ cercul (CNR); P se află pe ω₂. Fie F piciorul perpendicularei din B pe AR.
 
 Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conciclice și punctele A, R, P, F sunt coliniare.
 
@@ -29,12 +29,12 @@ Ideea: este suficient să arătăm că NC ∥ OF, punctele R, N, F, O sunt conci
 
 8. Arătăm că punctul P se află pe dreapta BC:
 
-∡PCB = ∡NCO + ∡PCN    [adunarea unghiurilor]
-     = ∡NCO + ∡PRN    [unghiuri înscrise în ω₂]
-     = ∡ONC + ∡PRN    [OC = ON]
-     = ∡NOF + ∡PRN    [NC ∥ OF, din (5)]
-     = ∡NRF + ∡PRN    [R, N, F, O conciclice, din (6)]
-     = ∡PRF    [adunarea unghiurilor]
-     = 0°    [A, R, P, F coliniare, din (7)]
+∡BCP ≡ ∡NCP + ∡OCN    [adunarea unghiurilor]
+     ≡ ∡NCP + ∡CNO    [OC = ON]
+     ≡ ∡NCP + ∡FON    [NC ∥ OF, din (5)]
+     ≡ ∡NCP + ∡FRN    [R, N, F, O conciclice, din (6)]
+     ≡ ∡NRP + ∡FRN    [unghiuri înscrise în ω₂]
+     ≡ ∡ARP    [adunarea unghiurilor]
+     ≡ 0° (mod 180°)    [A, R, P, F coliniare, din (7)]
 
-Deci punctul P se află pe dreapta BC, ceea ce trebuia demonstrat. ∎
+Deci punctele B, O, P, C sunt coliniare. Deci punctul P se află pe dreapta BC, ceea ce trebuia demonstrat. ∎

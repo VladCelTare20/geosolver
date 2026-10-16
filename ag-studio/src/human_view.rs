@@ -490,6 +490,7 @@ closed_keys!(AtomKey, eng::AtomKey, {
     SineSupplement => "sine_supplement",
     SineComplement => "sine_complement",
     AngleAddition => "angle_addition",
+    LineAngleAddition => "line_angle_addition",
     AngleSum => "angle_sum",
     ExteriorAngle => "exterior_angle",
     Supplementary => "supplementary",
@@ -551,6 +552,12 @@ closed_keys!(TheoremKey, eng::TheoremKey, {
     CircleMerge => "circle_merge",
     ExteriorAngleConverse => "exterior_angle_converse",
     ThalesConverse => "thales_converse",
+    VerticalAnglesConverse => "vertical_angles_converse",
+    LinearPairConverse => "linear_pair_converse",
+    AlternateAnglesConverse => "alternate_angles_converse",
+    CointeriorAnglesConverse => "cointerior_angles_converse",
+    CorrespondingAnglesConverse => "corresponding_angles_converse",
+    AngleConstruction => "angle_construction",
 });
 
 impl TheoremKey {
@@ -1694,8 +1701,23 @@ pub fn restates_chain(terms: &[String], then: &Stmt) -> bool {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub lhs: String,
+    pub rel: String,
     pub rhs: String,
     pub reason: String,
+}
+
+pub const MOD_180: &str = " (mod 180\u{b0})";
+
+pub fn directed_text(t: &str) -> bool {
+    t.contains('\u{2221}')
+}
+
+pub fn eq_join(parts: &[String]) -> String {
+    if parts.iter().any(|p| directed_text(p)) {
+        format!("{}{MOD_180}", parts.join(" \u{2261} "))
+    } else {
+        parts.join(" = ")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2084,6 +2106,7 @@ impl Cx<'_> {
 
     fn rows(&self, terms: &[String], links: &[Link]) -> Vec<Row> {
         let angles = terms.first().is_some_and(|t| angle_term(t));
+        let directed = terms.iter().any(|t| directed_text(t));
         links
             .iter()
             .enumerate()
@@ -2093,7 +2116,15 @@ impl Cx<'_> {
                 } else {
                     String::new()
                 },
-                rhs: terms.get(k + 1).cloned().unwrap_or_default(),
+                rel: if directed { "\u{2261}" } else { "=" }.to_string(),
+                rhs: {
+                    let t = terms.get(k + 1).cloned().unwrap_or_default();
+                    if directed && k + 1 == links.len() {
+                        format!("{t}{MOD_180}")
+                    } else {
+                        t
+                    }
+                },
                 reason: if angles {
                     self.link_note(&self.inscribed_link(l))
                 } else {
@@ -2386,8 +2417,8 @@ impl Cx<'_> {
                     .unwrap_or_default();
                 let rs = self.texts(&rest, Ctx::Note);
                 let terms_eq = match &lab {
-                    Some(l) => format!("{} ({l})", terms.join(" = ")),
-                    None => terms.join(" = "),
+                    Some(l) => format!("{} ({l})", eq_join(terms)),
+                    None => eq_join(terms),
                 };
                 let zero = terms.last().is_some_and(|t| t == "0\u{b0}");
                 if let (Some(t), Some(l), [_, _]) = (
@@ -2419,7 +2450,7 @@ impl Cx<'_> {
                                     "reasons",
                                     join_list(&self.texts(&core, Ctx::Note), self.lang),
                                 ),
-                                ("eq", terms.join(" = ")),
+                                ("eq", eq_join(terms)),
                                 ("pts", pts),
                                 ("stmt", self.so_stmt(t, goal)),
                             ],
@@ -2513,7 +2544,13 @@ impl Cx<'_> {
                         TheoremKey::InscribedConverse
                         | TheoremKey::OppositeAnglesConverse
                         | TheoremKey::ExteriorAngleConverse
-                        | TheoremKey::ThalesConverse => "hp.theorem_with.converse",
+                        | TheoremKey::ThalesConverse
+                        | TheoremKey::VerticalAnglesConverse
+                        | TheoremKey::LinearPairConverse
+                        | TheoremKey::AlternateAnglesConverse
+                        | TheoremKey::CointeriorAnglesConverse
+                        | TheoremKey::CorrespondingAnglesConverse
+                        | TheoremKey::AngleConstruction => "hp.theorem_with.converse",
                         TheoremKey::CircleMerge => "hp.theorem_with.circle_merge",
                         _ => "hp.theorem_with",
                     };
@@ -2542,7 +2579,7 @@ impl Cx<'_> {
                                 "reasons",
                                 join_list(&self.texts(&l.reasons, Ctx::Note), self.lang),
                             ),
-                            ("stmt", terms.join(" = ")),
+                            ("stmt", eq_join(terms)),
                         ],
                     );
                     return vec![Part::Text(capitalize(&text))];
@@ -2647,11 +2684,10 @@ impl Cx<'_> {
                 }
                 | Sentence::Computation { terms, .. },
             ) if b.body.len() == 1 && matches!(b.stmt.kind.as_str(), "eqangle" | "eq") => {
-                format!(
-                    "{} = {}",
+                eq_join(&[
                     terms.first().cloned().unwrap_or_default(),
-                    terms.last().cloned().unwrap_or_default()
-                )
+                    terms.last().cloned().unwrap_or_default(),
+                ])
             }
             _ => self.stmt(&b.stmt, Ctx::Statement),
         };
@@ -2704,6 +2740,7 @@ fn ro_part(p: Part, lang: Lang) -> Part {
             rows.into_iter()
                 .map(|r| Row {
                     lhs: ro_angles(r.lhs, lang),
+                    rel: r.rel,
                     rhs: ro_angles(r.rhs, lang),
                     reason: ro_angles(r.reason, lang),
                 })
@@ -2822,7 +2859,7 @@ pub fn text(h: &HumanView, view: &Value, lang: Lang) -> String {
                             } else {
                                 format!("    [{}]", r.reason)
                             };
-                            format!("{}{pad} = {}{reason}", r.lhs, r.rhs)
+                            format!("{}{pad} {} {}{reason}", r.lhs, r.rel, r.rhs)
                         })
                         .collect();
                     out.push(table.join("\n"));
@@ -4611,8 +4648,8 @@ pub mod tests {
             "the point such that ABC",
             "the midpoint of arc BC of Ω",
             "antipode of A on Ω",
-            "[∡DEG = ∡DFG]",
-            "∡ABX = ∡XCA, by (1)",
+            "[∡DEG ≡ ∡DFG (mod 180°)]",
+            "∡ABX ≡ ∡XCA (mod 180°), by (1)",
             "QD = QE = QF = QG",
             "radii of Ω",
             "HA = HB = HC",
@@ -4628,7 +4665,7 @@ pub mod tests {
             "[CM ∥ AB; corresponding angles]",
             "∠BFA = 90° and ∠BNA = 90°, so by the converse of Thales' theorem, F, N, B, A are concyclic.",
             "Common side AB, so △ABM ≅ △ABE",
-            "D, E, F, G on ω₁, so ∡EDF = ∡EGF.",
+            "D, E, F, G on ω₁, so ∡EDF ≡ ∡EGF (mod 180°).",
             "[D, E, K collinear: supplementary angles]",
             "[vertical angles at E]",
             "[exterior angle of the cyclic quadrilateral EDFG]",
@@ -4644,7 +4681,7 @@ pub mod tests {
             assert!(en.contains(want), "{want:?} missing from\n{en}");
         }
         let ro = text(&h, &view, Lang::Ro);
-        for want in ["teorema sinusurilor în △ABC", "K este simetricul lui H față de BC", "H se află pe segmentul KA", "(unghiuri alterne)", "unghiuri corespondente", "reciproca proprietății unghiului înscris în semicerc", "Latura comună AB", "∡ABX = ∡XCA, din (1)", "deci, din reciproca teoremei unghiului înscris, punctele D, E, F, G sunt conciclice", "cercurile au trei puncte comune, deci coincid", "unghiuri opuse la vârf în E", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
+        for want in ["teorema sinusurilor în △ABC", "K este simetricul lui H față de BC", "H se află pe segmentul KA", "(unghiuri alterne)", "unghiuri corespondente", "reciproca proprietății unghiului înscris în semicerc", "Latura comună AB", "∡ABX ≡ ∡XCA (mod 180°), din (1)", "deci, din reciproca teoremei unghiului înscris, punctele D, E, F, G sunt conciclice", "cercurile au trei puncte comune, deci coincid", "unghiuri opuse la vârf în E", "Notăm cu A, B, C unghiurile triunghiului ABC și cu R = OA = OB = OC raza cercului circumscris.", "Fie Ω cercul circumscris triunghiului ABC"] {
             assert!(ro.contains(want), "{want:?} missing from\n{ro}");
         }
         let path = dir().join("synthetic-wording.json");

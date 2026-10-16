@@ -539,6 +539,74 @@ pub fn respread(fig: &Problem, aux_from: Option<usize>, src: &str, goal: Goal) -
     (q > current.0 + 0.05 + 0.25 * current.0.abs()).then_some(p)
 }
 
+fn corpus_instances(src: &str, n: usize) -> Vec<Vec<(String, ddar::numerics::Vec2)>> {
+    let lines: Vec<&str> = src
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    let Some(at) = lines.iter().rposition(|l| l.contains('?')) else {
+        return Vec::new();
+    };
+    let name = if at > 0 { lines[at - 1] } else { "" };
+    let Ok(prob) = ddar::corpus::parse_problem(name, lines[at]) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for seed in 2..2 + 4 * n as u64 {
+        if out.len() >= n {
+            break;
+        }
+        if let Ok(t) = ddar::corpus::translate(&prob, seed, 1) {
+            if t.goal_holds {
+                out.push(
+                    t.problem
+                        .points
+                        .iter()
+                        .map(|p| (p.name.clone(), p.value))
+                        .collect(),
+                );
+            }
+        }
+    }
+    out
+}
+
+pub fn alternatives(fig: &Problem, aux_from: Option<usize>, src: &str, n: usize) -> Vec<Problem> {
+    if fig.points.len() < 3 {
+        return Vec::new();
+    }
+    let aux_from = aux_from.unwrap_or(fig.points.len()).min(fig.points.len());
+    let rules = aux_rules(fig, aux_from);
+    let instances = match crate::engine::InputKind::detect(src) {
+        crate::engine::InputKind::Geo => {
+            let prog = match rules {
+                Some(_) => src.to_string(),
+                None => match aux_program(fig, aux_from, src) {
+                    Some(p) => p,
+                    None => return Vec::new(),
+                },
+            };
+            ddar::geo::build_instances(&prog, n + 4).unwrap_or_default()
+        }
+        crate::engine::InputKind::Corpus if rules.is_some() || aux_from == fig.points.len() => {
+            corpus_instances(src, n + 4)
+        }
+        _ => return Vec::new(),
+    };
+    let same = |a: &Problem| {
+        a.points.iter().zip(&fig.points).all(|(p, q)| {
+            (p.value.x - q.value.x).abs() < 1e-9 && (p.value.y - q.value.y).abs() < 1e-9
+        })
+    };
+    instances
+        .iter()
+        .filter_map(|inst| candidate(fig, aux_from, inst, rules.as_deref(), Goal::Holds))
+        .filter(|c| !same(c))
+        .take(n)
+        .collect()
+}
+
 fn same_angle_readings(fig: &Problem, cand: &Problem) -> bool {
     fig.preds.iter().chain(fig.goal.as_ref()).all(|p| {
         match ddar::svg::undirected_reading_holds(fig, p) {

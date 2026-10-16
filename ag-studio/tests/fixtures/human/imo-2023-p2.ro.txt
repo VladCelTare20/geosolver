@@ -1,4 +1,4 @@
-∡(a, b) este unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b; se măsoară modulo 180°. ∡XYZ înseamnă ∡(YX, YZ). Unghiurile orientate nu depind de figură. Le folosim doar la pașii 5 și 7, unde forma cu unghiuri din figură ar depinde de configurație. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
+∡(a, b) este unghiul orientat dintre dreptele a și b: unghiul cu care trebuie rotită dreapta a, în sens trigonometric, ca să devină paralelă cu b, măsurat modulo 180°; ∡XYZ înseamnă ∡(YX, YZ). Sunt unghiuri între drepte, nu unghiuri obișnuite: 0° și 180° sunt același unghi orientat, de aceea egalitățile lor se scriu ≡ … (mod 180°). Le folosim doar la pasul 7, unde nu am găsit o deducție cu unghiuri obișnuite. Fie Ω cercul circumscris triunghiului ABC, cu centrul O; N, S, E, P se află pe Ω. Fie ω₁ cercul (BDL), cu centrul O₁; P se află pe ω₁.
 
 Ideea: este suficient să arătăm că punctele A, I, X sunt coliniare.
 
@@ -40,18 +40,14 @@ Deci NB = NC. (1)
 
 5. Arătăm că punctele T, P, E, D sunt conciclice:
 
-∡ETD = ∡EON    [T, E, S, O conciclice, din (3)]
-     = ∡(OE, BC) + 90°    [ON ⟂ BC, din (2)]
-     = ∡(OE, DL) + 90°    [DL ∥ BC]
-     = ∡OEB + ∡BLD + 90°    [adunarea unghiurilor]
-     = ∡OEB + ∡BPD + 90°    [unghiuri înscrise în ω₁]
-     = ∡OEA + ∡BPD + ∡AEB + 90°    [adunarea unghiurilor]
-     = ∡OEA + ∡BPD + ∡APB + 90°    [unghiuri înscrise în Ω]
-     = ∡OEA + ∡APD + 90°    [adunarea unghiurilor]
-     = ∡EPA + ∡APD    [tangenta în E este ⟂ OE (unghiul dintre tangentă și coardă)]
-     = ∡EPD    [adunarea unghiurilor]
+∠PET = 180° − ∠NOT − ∠PES    [T, E, S, O conciclice, din (3)]
+     = ½·∠SOP + ∠POT    [unghi la centru în Ω]
+     = ∠XBP + ∠POT    [unghi la centru în Ω]
+     = ∠XBP + ∠PXT    [T, P, X, O conciclice, din (4)]
+     = 180° − ∠XPB    [suma unghiurilor în △XBP]
+     = ∠PDT    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
 
-∡ETD = ∡EPD, deci, din reciproca teoremei unghiului înscris, punctele T, P, E, D sunt conciclice. (5)
+∠PET = ∠PDT și E, D sunt de aceeași parte a dreptei PT, deci, din reciproca teoremei unghiului înscris, punctele T, P, E, D sunt conciclice. (5)
 
 6. Arătăm că XA = XP:
 
@@ -66,18 +62,18 @@ Raze în Ω ⇒ △OAX ≡ △OPX (LUL). Deci XA = XP. (6)
 
 7. Arătăm că punctele A, I, X sunt coliniare:
 
-∡IAX = ∡SAX + 90°    [NS este diametru al cercului Ω]
-     = ∡PAX + ∡SAP + 90°    [adunarea unghiurilor]
-     = ∡PAX + ∡XBP + 90°    [unghiuri înscrise în Ω]
-     = ∡PAX + ∡DPX + 90°    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
-     = ∡XPA + ∡DPX + 90°    [XA = XP: ΔXAP isoscel, din (6)]
-     = ∡DPA + 90°    [adunarea unghiurilor]
-     = ∡BPA + ∡DPB + 90°    [adunarea unghiurilor]
-     = ∡BEA + ∡DPB + 90°    [unghiuri înscrise în Ω]
-     = ∡BEA + ∡DLB + 90°    [unghiuri înscrise în ω₁]
-     = ∡LDA + 90°    [suma unghiurilor în △EDL]
-     = ∡(BC, AD) + 90°    [DL ∥ BC]
-     = 0°    [AD ⟂ BC]
+∡IAX ≡ ∡SAX + 90°    [NS este diametru al cercului Ω]
+     ≡ ∡PAX + ∡SAP + 90°    [adunarea unghiurilor]
+     ≡ ∡PAX + ∡SAP + ∡(AD, BC)    [AD ⟂ BC]
+     ≡ ∡PAX + ∡XBP + ∡(AD, BC)    [unghiuri înscrise în Ω]
+     ≡ ∡PAX + ∡DPX + ∡(AD, BC)    [PX tangentă la ω₁: unghiul dintre tangentă și coardă]
+     ≡ ∡DPX + ∡XPA + ∡(AD, BC)    [XA = XP: ΔXAP isoscel, din (6)]
+     ≡ ∡DPA + ∡(AD, BC)    [adunarea unghiurilor]
+     ≡ ∡BPA + ∡DPB + ∡(AD, BC)    [adunarea unghiurilor]
+     ≡ ∡DPB + ∡BEA + ∡(AD, BC)    [unghiuri înscrise în Ω]
+     ≡ ∡BEA + ∡DLB + ∡(AD, BC)    [unghiuri înscrise în ω₁]
+     ≡ ∡LDA + ∡(AD, BC)    [suma unghiurilor în △EDL]
+     ≡ 0° (mod 180°)    [DL ∥ BC]
 
 Deci punctele A, I, X sunt coliniare. (7)
 

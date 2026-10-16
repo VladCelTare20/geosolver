@@ -469,14 +469,33 @@ fn pow_text(base: String, k: i32) -> String {
     }
 }
 
+pub const MOD_180: &str = " (mod 180°)";
+
+pub fn directed_expr(e: &Expr) -> bool {
+    super::expr::has_angle(e) && super::expr::is_directed(e)
+}
+
+pub fn eq_join(parts: &[String], directed: bool) -> String {
+    if directed {
+        format!("{}{MOD_180}", parts.join(" ≡ "))
+    } else {
+        parts.join(" = ")
+    }
+}
+
 pub fn stmt(n: &dyn PointNames, s: &Stmt) -> String {
     match s {
         Stmt::Coll { pts } => format!("{} are collinear", n.list(pts)),
         Stmt::Cyclic { pts } => format!("{} are concyclic", n.list(pts)),
         Stmt::Perp { l1, l2 } => format!("{} ⟂ {}", n.pts(&[l1.0, l1.1]), n.pts(&[l2.0, l2.1])),
         Stmt::Para { l1, l2 } => format!("{} ∥ {}", n.pts(&[l1.0, l1.1]), n.pts(&[l2.0, l2.1])),
-        Stmt::EqAngle { lhs, rhs } => format!("{} = {}", expr(n, lhs), expr(n, rhs)),
-        Stmt::AngleConst { angle, degrees } => format!("{} = {}", expr(n, angle), deg(degrees)),
+        Stmt::EqAngle { lhs, rhs } => eq_join(
+            &[expr(n, lhs), expr(n, rhs)],
+            directed_expr(lhs) || directed_expr(rhs),
+        ),
+        Stmt::AngleConst { angle, degrees } => {
+            eq_join(&[expr(n, angle), deg(degrees)], directed_expr(angle))
+        }
         Stmt::Cong { s1, s2 } => format!("{} = {}", n.pts(&[s1.0, s1.1]), n.pts(&[s2.0, s2.1])),
         Stmt::EqRatio { segs } => segs
             .chunks(2)
@@ -525,7 +544,10 @@ pub fn stmt(n: &dyn PointNames, s: &Stmt) -> String {
             }
             out
         }
-        Stmt::Eq { lhs, rhs } => format!("{} = {}", expr(n, lhs), expr(n, rhs)),
+        Stmt::Eq { lhs, rhs } => eq_join(
+            &[expr(n, lhs), expr(n, rhs)],
+            directed_expr(lhs) || directed_expr(rhs),
+        ),
     }
 }
 
@@ -730,6 +752,7 @@ pub fn atom_text(n: &dyn PointNames, key: AtomKey, a: &[PointId], s: &Stmt) -> S
         AtomKey::CongruentAsa => format!("△{} ≅ △{} (ASA)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::CongruentRhs => format!("△{} ≅ △{} (RHS)", n.pts(&a[0..3]), n.pts(&a[3..6])),
         AtomKey::AngleAddition => "angle addition".to_string(),
+        AtomKey::LineAngleAddition => "addition of angles between lines".to_string(),
         AtomKey::AngleSum => format!("angle sum in △{}", n.pts(&a[0..3])),
         AtomKey::ExteriorAngle => format!("exterior angle of △{}", n.pts(&a[0..3])),
         AtomKey::Supplementary => format!("{}, {}, {} collinear: supplementary angles", n.get(a[1]), n.get(a[0]), n.get(a[2])),
@@ -862,6 +885,14 @@ pub fn theorem_name(k: TheoremKey) -> &'static str {
             "the converse of the exterior-angle theorem for cyclic quadrilaterals"
         }
         TheoremKey::ThalesConverse => "the converse of Thales' theorem",
+        TheoremKey::VerticalAnglesConverse => "the converse of the vertical angles theorem",
+        TheoremKey::LinearPairConverse => "the converse of the linear pair theorem",
+        TheoremKey::AlternateAnglesConverse => "the converse of the alternate angles theorem",
+        TheoremKey::CointeriorAnglesConverse => "the converse of the co-interior angles theorem",
+        TheoremKey::CorrespondingAnglesConverse => {
+            "the converse of the corresponding angles theorem"
+        }
+        TheoremKey::AngleConstruction => "the angle construction axiom",
     }
 }
 
@@ -982,12 +1013,12 @@ fn shape(tok: &dyn Fn(&str) -> String, s: &str) -> String {
     format!("line {}", tok(s))
 }
 
-pub const DIRECTED_EN: &str = "∡(a, b) is the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ); such directed angles do not depend on how the figure is drawn.";
+pub const DIRECTED_EN: &str = "∡(a, b) is the directed angle between the lines a and b: the angle through which line a must be turned counter-clockwise to become parallel to b, taken modulo 180°; ∡XYZ means ∡(YX, YZ). These are angles between lines, not ordinary angles: 0° and 180° are the same directed angle, so their equalities are written ≡ … (mod 180°).";
 pub fn directed_steps_en(steps: &[u16]) -> String {
     let s: Vec<String> = steps.iter().map(|k| k.to_string()).collect();
     match s.as_slice() {
-        [one] => format!("They are used only in step {one}, where the figure-angle form would depend on the configuration."),
-        [rest @ .., last] => format!("They are used only in steps {} and {last}, where the figure-angle form would depend on the configuration.", rest.join(", ")),
+        [one] => format!("They are used only in step {one}, where no derivation with ordinary angles was found."),
+        [rest @ .., last] => format!("They are used only in steps {} and {last}, where no derivation with ordinary angles was found.", rest.join(", ")),
         [] => String::new(),
     }
 }
@@ -1005,6 +1036,24 @@ pub fn render(
     raw_line: &dyn Fn(FactId) -> String,
 ) -> Rendered {
     with_proof(hp, || render_inner(t, hp, aux_desc, raw_line))
+}
+
+pub fn debug_chains(t: &EngineTrace, hp: &HumanProof) -> String {
+    with_proof(hp, || {
+        let n = Names::new(t, &hp.setup);
+        let claims = BTreeMap::new();
+        let mut out = String::new();
+        for b in &hp.blocks {
+            for s in &b.body {
+                if let Sentence::Chain { terms, links, .. } = s {
+                    out.push_str(&format!("  [block {}]\n", b.id));
+                    out.push_str(&rows_text(&n, terms, links, &claims));
+                    out.push('\n');
+                }
+            }
+        }
+        out
+    })
 }
 
 pub fn with_proof<R>(hp: &HumanProof, f: impl FnOnce() -> R) -> R {
@@ -1255,10 +1304,10 @@ fn render_inner(
                     if matches!(b.stmt, Stmt::EqAngle { .. } | Stmt::Eq { .. })
                         && b.body.len() == 1 =>
                 {
-                    format!(
-                        "{} = {}",
-                        expr(&n, &terms[0]),
-                        expr(&n, terms.last().unwrap())
+                    let ends = [&terms[0], terms.last().unwrap()];
+                    eq_join(
+                        &ends.map(|e| expr(&n, e)),
+                        ends.iter().any(|e| directed_expr(e)),
                     )
                 }
                 _ => stmt(&n, &b.stmt),
@@ -1390,14 +1439,18 @@ fn rows_text(
     };
     let first = terms.first().map(|t| expr(n, t)).unwrap_or_default();
     let pad: String = " ".repeat(first.chars().count());
+    let directed = terms.iter().any(directed_expr);
+    let rel = if directed { "≡" } else { "=" };
+    let last = terms.len().saturating_sub(1);
     let lines: Vec<(String, String)> = terms
         .iter()
         .enumerate()
         .skip(1)
         .map(|(i, t)| {
             let head = if i == 1 { first.clone() } else { pad.clone() };
+            let tail = if directed && i == last { MOD_180 } else { "" };
             (
-                format!("{head} = {}", expr(n, t)),
+                format!("{head} {rel} {}{tail}", expr(n, t)),
                 link_reasons(n, &links[i - 1], claims),
             )
         })
@@ -1617,7 +1670,7 @@ pub fn sentence(
                 .unwrap_or_default();
             let core: Vec<Reason> = l.reasons.iter().filter(|r| !matches!(r, Reason::Hyp { stmt: Stmt::Coll { .. }, .. } | Reason::Fact { stmt: Stmt::Coll { .. }, .. })).cloned().collect();
             let rs = reasons_text(n, &core, claims);
-            let eq = terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>().join(" = ");
+            let eq = eq_join(&terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>(), terms.iter().any(directed_expr));
             let pts = match block {
                 Some(b) => by_step(n.list(&line), b),
                 None => n.list(&line),
@@ -1629,7 +1682,7 @@ pub fn sentence(
             let lab: Vec<String> = links.first().map(|l| l.reasons.iter().filter(|r| angle_label(r)).map(|r| reason(n, r, claims)).collect()).unwrap_or_default();
             let rest: Vec<Reason> = links.first().map(|l| l.reasons.iter().filter(|r| !angle_label(r)).cloned().collect()).unwrap_or_default();
             let rs = reasons_text(n, &rest, claims);
-            let mut eq = terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>().join(" = ");
+            let mut eq = eq_join(&terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>(), terms.iter().any(directed_expr));
             if let Some(l) = lab.first() {
                 eq = format!("{eq} ({l})");
             }
@@ -1674,7 +1727,7 @@ pub fn sentence(
                 .collect();
             if let [l] = links.as_slice() {
                 let rs = reasons_text(n, &l.reasons, claims);
-                let eq = terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>().join(" = ");
+                let eq = eq_join(&terms.iter().map(|e| expr(n, e)).collect::<Vec<_>>(), terms.iter().any(directed_expr));
                 return if rs.is_empty() { format!("{}.", cap(&eq)) } else { format!("{}, so {eq}.", cap(&join_and(&rs))) };
             }
             rows_text(n, terms, &links, claims)

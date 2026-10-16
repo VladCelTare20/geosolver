@@ -244,6 +244,7 @@ pub enum AtomKey {
     SineSupplement,
     SineComplement,
     AngleAddition,
+    LineAngleAddition,
     AngleSum,
     ExteriorAngle,
     Supplementary,
@@ -262,7 +263,7 @@ pub enum AtomKey {
 }
 
 impl AtomKey {
-    pub const ALL: [AtomKey; 58] = [
+    pub const ALL: [AtomKey; 59] = [
         AtomKey::Inscribed,
         AtomKey::Thales,
         AtomKey::TangentChord,
@@ -306,6 +307,7 @@ impl AtomKey {
         AtomKey::SineSupplement,
         AtomKey::SineComplement,
         AtomKey::AngleAddition,
+        AtomKey::LineAngleAddition,
         AtomKey::AngleSum,
         AtomKey::ExteriorAngle,
         AtomKey::Supplementary,
@@ -326,6 +328,7 @@ impl AtomKey {
         matches!(
             self,
             AtomKey::AngleAddition
+                | AtomKey::LineAngleAddition
                 | AtomKey::AngleSum
                 | AtomKey::ExteriorAngle
                 | AtomKey::Supplementary
@@ -392,6 +395,7 @@ impl AtomKey {
             AtomKey::SineSupplement => "sine_supplement",
             AtomKey::SineComplement => "sine_complement",
             AtomKey::AngleAddition => "angle_addition",
+            AtomKey::LineAngleAddition => "line_angle_addition",
             AtomKey::AngleSum => "angle_sum",
             AtomKey::ExteriorAngle => "exterior_angle",
             AtomKey::Supplementary => "supplementary",
@@ -451,10 +455,16 @@ pub enum TheoremKey {
     ThalesConverse,
     ExtAngleBisectorThm,
     ExtAngleBisectorThmConverse,
+    VerticalAnglesConverse,
+    LinearPairConverse,
+    AlternateAnglesConverse,
+    CointeriorAnglesConverse,
+    CorrespondingAnglesConverse,
+    AngleConstruction,
 }
 
 impl TheoremKey {
-    pub const ALL: [TheoremKey; 37] = [
+    pub const ALL: [TheoremKey; 43] = [
         TheoremKey::RadicalAxis,
         TheoremKey::ArcChord,
         TheoremKey::AngleBisectorThm,
@@ -492,6 +502,12 @@ impl TheoremKey {
         TheoremKey::ThalesConverse,
         TheoremKey::ExtAngleBisectorThm,
         TheoremKey::ExtAngleBisectorThmConverse,
+        TheoremKey::VerticalAnglesConverse,
+        TheoremKey::LinearPairConverse,
+        TheoremKey::AlternateAnglesConverse,
+        TheoremKey::CointeriorAnglesConverse,
+        TheoremKey::CorrespondingAnglesConverse,
+        TheoremKey::AngleConstruction,
     ];
     pub fn is_converse(self) -> bool {
         matches!(
@@ -500,6 +516,17 @@ impl TheoremKey {
                 | TheoremKey::OppositeAnglesConverse
                 | TheoremKey::ExteriorAngleConverse
                 | TheoremKey::ThalesConverse
+        ) || self.is_line_converse()
+    }
+    pub fn is_line_converse(self) -> bool {
+        matches!(
+            self,
+            TheoremKey::VerticalAnglesConverse
+                | TheoremKey::LinearPairConverse
+                | TheoremKey::AlternateAnglesConverse
+                | TheoremKey::CointeriorAnglesConverse
+                | TheoremKey::CorrespondingAnglesConverse
+                | TheoremKey::AngleConstruction
         )
     }
     pub fn as_str(self) -> &'static str {
@@ -541,6 +568,12 @@ impl TheoremKey {
             TheoremKey::CircleMerge => "circle_merge",
             TheoremKey::ExteriorAngleConverse => "exterior_angle_converse",
             TheoremKey::ThalesConverse => "thales_converse",
+            TheoremKey::VerticalAnglesConverse => "vertical_angles_converse",
+            TheoremKey::LinearPairConverse => "linear_pair_converse",
+            TheoremKey::AlternateAnglesConverse => "alternate_angles_converse",
+            TheoremKey::CointeriorAnglesConverse => "cointerior_angles_converse",
+            TheoremKey::CorrespondingAnglesConverse => "corresponding_angles_converse",
+            TheoremKey::AngleConstruction => "angle_construction",
         }
     }
 }

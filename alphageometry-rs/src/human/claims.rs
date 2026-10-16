@@ -25,6 +25,7 @@ const MERGED: &str = "merged";
 const MAX_CLAIMS: usize = 7;
 const ORDER_BUDGET: usize = 40_000;
 const DRAWN_BUDGET: usize = 1_200;
+const SINGLE_DRAWN_BUDGET: usize = 1_200;
 const DIRECT_CAP: usize = 10_000;
 const MAIN_CAP: usize = 2_500;
 const SUB_CAP: usize = 400;
@@ -365,6 +366,7 @@ pub struct Writer<'c, 'a> {
     >,
     pub extra: Vec<u32>,
     pub route_spent: std::sync::atomic::AtomicUsize,
+    pub drawn_spent: std::sync::atomic::AtomicUsize,
 }
 
 pub fn eff(atom: &Atom, focus: &BTreeSet<PointId>, claims: &BTreeSet<FactId>, cx: &Ctx) -> u32 {
@@ -403,6 +405,7 @@ impl<'c, 'a> Writer<'c, 'a> {
             span_cache: std::sync::Mutex::new(BTreeMap::new()),
             extra,
             route_spent: std::sync::atomic::AtomicUsize::new(0),
+            drawn_spent: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -1789,6 +1792,23 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             let names = |p: PointId| super::text::disp(cx.t.name(p));
             let nm = super::text::FnNames(&names);
             eprintln!("CHAIN {} (h {h})", super::text::stmt(&nm, &target.stmt));
+            if std::env::var_os("HP_ITEMS_ALL").is_some() {
+                for (i, a) in self.w.atoms.iter().enumerate() {
+                    if a.table != Table::Angle {
+                        continue;
+                    }
+                    let e = super::chain::display_node(cx, &a.q, true, &[], focus);
+                    eprintln!(
+                        "  atom {i} {:?} {:?} cost {} avail {} : {}",
+                        a.src,
+                        a.args.iter().map(|p| names(*p)).collect::<Vec<_>>(),
+                        a.cost,
+                        a.avail,
+                        e.map(|e| super::text::expr(&nm, &e))
+                            .unwrap_or_else(|| format!("{:?}", a.q))
+                    );
+                }
+            }
             for (i, lam, _) in &items {
                 let (r, _) = self.atom_reason(&self.w.atoms[*i], h, false);
                 eprintln!(
@@ -3531,6 +3551,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         h: FactId,
         then: Option<Stmt>,
         focus: &BTreeSet<PointId>,
+        budget: usize,
     ) -> Option<Vec<Sentence>> {
         let cx = self.w.cx;
         let w = self.w;
@@ -3560,6 +3581,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
         let mut forms: Vec<Target> = std::iter::once(target.clone())
             .chain(target.alts.iter().cloned())
             .collect();
+        let mut drawn = drawn_forms(cx, target);
         if let Stmt::Coll { pts } = &target.stmt {
             if let Some((ts, _)) = super::classify::coll_targets(cx, pts, None) {
                 for t in ts {
@@ -3568,6 +3590,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 }
             }
         }
+        drawn.append(&mut forms);
+        let forms = drawn;
         for f in &forms {
             let mut form = f.clone();
             form.alts.clear();
@@ -3577,13 +3601,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 .filter(|(l, r)| !(l.is_zero() && *r == degenerate))
                 .collect();
             let used = spent.load(std::sync::atomic::Ordering::Relaxed);
-            if splits.is_empty() || used >= DRAWN_BUDGET {
+            if splits.is_empty() || used >= budget {
                 continue;
             }
             let found = self
                 .drawn_graph
                 .get_or_init(|| super::route::Graph::new(cx, &w.atoms, Table::Angle, true))
-                .search(cx, &splits, DRAWN_BUDGET - used, i64::MAX, &spent, &weights);
+                .search(cx, &splits, budget - used, i64::MAX, &spent, &weights);
             if std::env::var_os("HP_ROUTE").is_some() {
                 eprintln!(
                     "route_drawn {:?}: {} splits, found {:?}",
@@ -3674,7 +3698,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 {
                     x
                 }
-                _ => match self.route_drawn(&lt, h, Some(stmt.clone()), focus) {
+                _ => match self.route_drawn(&lt, h, Some(stmt.clone()), focus, DRAWN_BUDGET) {
                     Some(x) => x,
                     None => continue,
                 },
@@ -4153,6 +4177,24 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             v.dedup();
             v
         };
+        let end_expr = |j: usize| -> Option<Expr> {
+            let e = if j == 0 {
+                &split.l
+            } else if j + 1 == n {
+                &split.r
+            } else {
+                return None;
+            };
+            if super::expr::is_directed(e) && super::expr::has_angle(e) {
+                return None;
+            }
+            let (_, x) = super::expr::eval(cx.t, e)?;
+            if cx.quot.q(&x) == p.nodes[j] && !super::chain::degenerate_angle(cx, e) {
+                return Some(e.clone());
+            }
+            let near = pts_of(j.saturating_sub(1).min(p.links.len().saturating_sub(1)));
+            straight_display(cx, e, &p.nodes[j], &near)
+        };
         let mut terms: Vec<(Expr, bool)> = Vec::new();
         for j in 0..n {
             let directed = half_at.is_none_or(|h0| j <= h0) && target.table == Table::Angle;
@@ -4167,7 +4209,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             } else if target.table == Table::Angle {
                 let next = pts_of(j);
                 let prev = if j > 0 { pts_of(j - 1) } else { Vec::new() };
-                display_node(cx, &p.nodes[j], directed_term, &[&next, &prev], focus)?
+                display_node(cx, &p.nodes[j], directed_term, &[&next, &prev], focus)
+                    .or_else(|| if directed_term { None } else { end_expr(j) })?
             } else {
                 ratio_expr(cx, &p.nodes[j])
             };
@@ -4252,7 +4295,8 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                         false,
                         &[&pts_of(j), &pts_of(j.saturating_sub(1))],
                         focus,
-                    );
+                    )
+                    .or_else(|| end_expr(j));
                     if e.is_none() && std::env::var_os("HP_BFS").is_some() {
                         eprintln!("undirected node {j} has no display: {:?}", p.nodes[j]);
                     }
@@ -4550,7 +4594,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                     };
                     let focus: BTreeSet<PointId> = args.iter().copied().collect();
                     self.plain_route = true;
-                    let found = [self.route_drawn(&target, h, None, &focus)];
+                    let found = [self.route_drawn(&target, h, None, &focus, DRAWN_BUDGET)];
                     self.plain_route = false;
                     let usable = |ls: &Vec<Sentence>| -> Option<(usize, Sentence)> {
                         let [chain @ Sentence::Chain {
@@ -4649,7 +4693,7 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             };
             let focus: BTreeSet<PointId> = super::view::stmt_points(&stmt).into_iter().collect();
             self.plain_route = true;
-            let found = self.route_drawn(&target, h, None, &focus);
+            let found = self.route_drawn(&target, h, None, &focus, DRAWN_BUDGET);
             self.plain_route = false;
             let Some(ls) = found else { continue };
             let [chain @ Sentence::Chain { links: cl, .. }] = ls.as_slice() else {
@@ -4840,8 +4884,13 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
                 None => self.chain_sentences(&part.target, &part.support, h, then.clone(), &focus),
             };
             stamp("chain", t_part);
-            if part.target.table == Table::Angle && s.iter().any(multiple_directed) {
-                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
+            if part.target.table == Table::Angle && s.iter().any(directed_chain) {
+                let budget = if s.iter().any(multiple_directed) {
+                    DRAWN_BUDGET
+                } else {
+                    SINGLE_DRAWN_BUDGET
+                };
+                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus, budget) {
                     if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
                         s = r;
                     }
@@ -4865,7 +4914,9 @@ impl<'w, 'c, 'a> Presenter<'w, 'c, 'a> {
             if part.target.table == Table::Angle
                 && s.iter().any(|x| matches!(x, Sentence::Pooled { .. }))
             {
-                if let Some(r) = self.route_drawn(&part.target, h, then.clone(), &focus) {
+                if let Some(r) =
+                    self.route_drawn(&part.target, h, then.clone(), &focus, DRAWN_BUDGET)
+                {
                     if !r.iter().any(|x| matches!(x, Sentence::Pooled { .. })) {
                         s = r;
                     }
@@ -5416,6 +5467,362 @@ pub fn hyp_lemma(cx: &Ctx, key: AtomKey, args: &[PointId]) -> Option<(Stmt, Expr
         }
         _ => None,
     }
+}
+
+fn plain_angle(a: PointId, b: PointId, c: PointId) -> Expr {
+    Expr::Angle {
+        a,
+        b,
+        c,
+        directed: false,
+    }
+}
+
+fn line_points(cx: &Ctx, l: (PointId, PointId)) -> Vec<PointId> {
+    let t = cx.t;
+    let mut out = vec![l.0, l.1];
+    let Some(base) = t.dir(l.0, l.1).map(|d| cx.quot.q(&d)) else {
+        return out;
+    };
+    for x in 0..t.n as PointId {
+        if out.contains(&x)
+            || t.name(x).starts_with('_')
+            || !t.coord(x).0.is_finite()
+            || t.dist(x, l.0) < 1e-9
+        {
+            continue;
+        }
+        if t.dir(l.0, x).is_some_and(|d| cx.quot.q(&d) == base) {
+            out.push(x);
+        }
+    }
+    out
+}
+
+fn common_point(
+    cx: &Ctx,
+    l1: (PointId, PointId),
+    l2: (PointId, PointId),
+) -> Option<(PointId, PointId, PointId)> {
+    let (p1, p2) = (line_points(cx, l1), line_points(cx, l2));
+    let m = p1.iter().copied().find(|x| p2.contains(x))?;
+    let a = p1
+        .iter()
+        .copied()
+        .find(|&x| x != m && cx.t.dist(x, m) > 1e-9)?;
+    let c = p2
+        .iter()
+        .copied()
+        .find(|&x| x != m && cx.t.dist(x, m) > 1e-9)?;
+    Some((a, m, c))
+}
+
+fn drawn_side(cx: &Ctx, e: &Expr) -> Option<Expr> {
+    match e {
+        Expr::Angle { a, b, c, .. } => Some(plain_angle(*a, *b, *c)),
+        Expr::LineAngle { l1, l2, .. } => {
+            let (a, m, c) = common_point(cx, *l1, *l2)?;
+            Some(plain_angle(a, m, c))
+        }
+        Expr::Const { .. } => Some(e.clone()),
+        _ => None,
+    }
+}
+
+fn drawn_pair(cx: &Ctx, l: Expr, r: Expr, stmt: &Stmt) -> Option<Target> {
+    let t = cx.t;
+    let deg = |e: &Expr| super::expr::eval(t, e).map(|(_, x)| t.value(Table::Angle, &x) * 180.0);
+    let (vl, vr) = (deg(&l)?, deg(&r)?);
+    let r = if (vl - vr).abs() < 1e-6 {
+        r
+    } else if (vl + vr - 180.0).abs() < 1e-6 && matches!(r, Expr::Angle { .. }) {
+        Expr::Lin {
+            terms: vec![
+                (
+                    Rat::one(),
+                    Expr::Const {
+                        degrees: Rat::from_int(180),
+                    },
+                ),
+                (Rat::from_int(-1), r),
+            ],
+        }
+    } else {
+        return None;
+    };
+    super::classify::angle_target(cx, l, r, stmt.clone())
+}
+
+fn vertical_forms(cx: &Ctx, pts: &[PointId], st: &Stmt) -> Vec<Target> {
+    let t = cx.t;
+    let mut out = Vec::new();
+    if pts.len() != 3 {
+        return out;
+    }
+    let between = |x: PointId, v: PointId, y: PointId| {
+        let (px, pv, py) = (t.coord(x), t.coord(v), t.coord(y));
+        (px.0 - pv.0) * (py.0 - pv.0) + (px.1 - pv.1) * (py.1 - pv.1) < 0.0
+    };
+    for m in 0..3 {
+        let (x, v, y) = (pts[(m + 1) % 3], pts[m], pts[(m + 2) % 3]);
+        if !between(x, v, y) {
+            continue;
+        }
+        for l in cx.lines.iter().filter(|l| l.pts.contains(&v)) {
+            let others: Vec<PointId> = l
+                .pts
+                .iter()
+                .copied()
+                .filter(|&p| p != v && !pts.contains(&p) && t.dist(p, v) > 1e-9)
+                .collect();
+            for (i, &p) in others.iter().enumerate() {
+                for &q in &others[i + 1..] {
+                    if !between(p, v, q) {
+                        continue;
+                    }
+                    for (a, b) in [(p, q), (q, p)] {
+                        if super::barem::near_line(cx, x, y, a) {
+                            continue;
+                        }
+                        if let Some(f) =
+                            drawn_pair(cx, plain_angle(x, v, a), plain_angle(b, v, y), st)
+                        {
+                            if f.splits.iter().all(|s| matches!(s.r, Expr::Angle { .. })) {
+                                out.push(f);
+                            }
+                        }
+                    }
+                    if out.len() >= 4 {
+                        return out;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn straight_forms(cx: &Ctx, pts: &[PointId], st: &Stmt) -> Vec<Target> {
+    let t = cx.t;
+    let mut out = Vec::new();
+    let half = LinComb::singleton(crate::elimination::ANGLE_UNIT, Rat::one());
+    for i in 0..pts.len() {
+        for j in i + 1..pts.len() {
+            for k in j + 1..pts.len() {
+                let tri = [pts[i], pts[j], pts[k]];
+                for m in 0..3 {
+                    let (x, v, y) = (tri[(m + 1) % 3], tri[m], tri[(m + 2) % 3]);
+                    let (px, pv, py) = (t.coord(x), t.coord(v), t.coord(y));
+                    let dot = (px.0 - pv.0) * (py.0 - pv.0) + (px.1 - pv.1) * (py.1 - pv.1);
+                    if dot >= 0.0 {
+                        continue;
+                    }
+                    let (Some(dy), Some(dx)) = (t.dir(v, y), t.dir(v, x)) else {
+                        continue;
+                    };
+                    let raw = &dy - &dx;
+                    let stmt = if pts.len() == 3 {
+                        st.clone()
+                    } else {
+                        Stmt::Coll { pts: tri.to_vec() }
+                    };
+                    let splits: Vec<super::classify::Split> = [raw.clone(), raw.negated()]
+                        .into_iter()
+                        .map(|r| super::classify::Split {
+                            l: plain_angle(x, v, y),
+                            r: Expr::Const {
+                                degrees: Rat::from_int(180),
+                            },
+                            lraw: &r + &half,
+                            rraw: half.clone(),
+                        })
+                        .collect();
+                    out.push(Target {
+                        table: Table::Angle,
+                        row: t.exact(Table::Angle, &raw),
+                        splits,
+                        stmt,
+                        alts: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+pub(crate) fn straight_display(
+    cx: &Ctx,
+    straight: &Expr,
+    node: &LinComb,
+    near: &[PointId],
+) -> Option<Expr> {
+    let t = cx.t;
+    let Expr::Angle {
+        a: x,
+        b: v,
+        c: y,
+        directed: false,
+    } = *straight
+    else {
+        return None;
+    };
+    let cands = near.iter().copied().chain(0..t.n as PointId);
+    for w in cands {
+        if [x, v, y].contains(&w)
+            || t.name(w).starts_with('_')
+            || !t.coord(w).0.is_finite()
+            || super::barem::near_line(cx, x, y, w)
+        {
+            continue;
+        }
+        let (Some(a), Some(b)) = (
+            super::expr::interior(t, x, v, w),
+            super::expr::interior(t, w, v, y),
+        ) else {
+            continue;
+        };
+        if cx.quot.q(&(&a + &b)) == *node {
+            return Some(Expr::Lin {
+                terms: vec![
+                    (Rat::one(), plain_angle(x, v, w)),
+                    (Rat::one(), plain_angle(w, v, y)),
+                ],
+            });
+        }
+    }
+    None
+}
+
+fn right_transversal_forms(
+    cx: &Ctx,
+    l1: (PointId, PointId),
+    l2: (PointId, PointId),
+    st: &Stmt,
+) -> Vec<Target> {
+    let t = cx.t;
+    let (a, b, c, d) = (t.coord(l1.0), t.coord(l1.1), t.coord(l2.0), t.coord(l2.1));
+    let (r, q) = ((b.0 - a.0, b.1 - a.1), (d.0 - c.0, d.1 - c.1));
+    let den = r.0 * q.1 - r.1 * q.0;
+    if den.abs() < 1e-12 {
+        return Vec::new();
+    }
+    let s1 = ((c.0 - a.0) * q.1 - (c.1 - a.1) * q.0) / den;
+    let m = (a.0 + s1 * r.0, a.1 + s1 * r.1);
+    let toward = |x: PointId, u: PointId| {
+        let (px, pu) = (t.coord(x), t.coord(u));
+        (pu.0 - px.0) * (m.0 - px.0) + (pu.1 - px.1) * (m.1 - px.1) > 0.0
+    };
+    let (p1, p2) = (line_points(cx, l1), line_points(cx, l2));
+    let mut out = Vec::new();
+    for &x in &p1 {
+        for &y in &p2 {
+            if out.len() >= 3 {
+                return out;
+            }
+            if x == y || t.dist(x, y) < 1e-9 {
+                continue;
+            }
+            let u = p1.iter().copied().find(|&u| u != x && toward(x, u));
+            let v = p2.iter().copied().find(|&v| v != y && toward(y, v));
+            let (Some(u), Some(v)) = (u, v) else { continue };
+            out.extend(super::classify::angle_target(
+                cx,
+                Expr::Lin {
+                    terms: vec![
+                        (Rat::one(), plain_angle(u, x, y)),
+                        (Rat::one(), plain_angle(x, y, v)),
+                    ],
+                },
+                Expr::Const {
+                    degrees: Rat::from_int(90),
+                },
+                st.clone(),
+            ));
+        }
+    }
+    out
+}
+
+fn transversal_forms(
+    cx: &Ctx,
+    l1: (PointId, PointId),
+    l2: (PointId, PointId),
+    st: &Stmt,
+) -> Vec<Target> {
+    let t = cx.t;
+    let (p1, p2) = (line_points(cx, l1), line_points(cx, l2));
+    let mut out = Vec::new();
+    for &x in &p1 {
+        for &y in &p2 {
+            if out.len() >= 4 {
+                return out;
+            }
+            if x == y || t.dist(x, y) < 1e-9 || super::barem::near_line(cx, l1.0, l1.1, y) {
+                continue;
+            }
+            let u = p1.iter().copied().find(|&u| u != x && t.dist(u, x) > 1e-9);
+            let v = p2.iter().copied().find(|&v| v != y && t.dist(v, y) > 1e-9);
+            let (Some(u), Some(v)) = (u, v) else { continue };
+            out.extend(drawn_pair(
+                cx,
+                plain_angle(u, x, y),
+                plain_angle(x, y, v),
+                st,
+            ));
+        }
+    }
+    out
+}
+
+pub(crate) fn drawn_forms(cx: &Ctx, target: &Target) -> Vec<Target> {
+    let st = &target.stmt;
+    let lines = |e: &Expr| matches!(e, Expr::LineAngle { .. });
+    match st {
+        Stmt::Coll { pts } if pts.len() >= 3 => {
+            let mut v = vertical_forms(cx, pts, st);
+            v.extend(straight_forms(cx, pts, st));
+            v
+        }
+        Stmt::Para { l1, l2 } => transversal_forms(cx, *l1, *l2, st),
+        Stmt::Perp { l1, l2 } => match common_point(cx, *l1, *l2) {
+            Some((a, m, c)) => super::classify::angle_target(
+                cx,
+                plain_angle(a, m, c),
+                Expr::Const {
+                    degrees: Rat::from_int(90),
+                },
+                st.clone(),
+            )
+            .into_iter()
+            .collect(),
+            None => right_transversal_forms(cx, *l1, *l2, st),
+        },
+        Stmt::EqAngle { lhs, rhs } if lines(lhs) || lines(rhs) => {
+            match (drawn_side(cx, lhs), drawn_side(cx, rhs)) {
+                (Some(l), Some(r)) => drawn_pair(cx, l, r, st).into_iter().collect(),
+                _ => Vec::new(),
+            }
+        }
+        Stmt::AngleConst { angle, degrees } if lines(angle) => drawn_side(cx, angle)
+            .and_then(|l| {
+                drawn_pair(
+                    cx,
+                    l,
+                    Expr::Const {
+                        degrees: degrees.clone(),
+                    },
+                    st,
+                )
+            })
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn directed_chain(s: &Sentence) -> bool {
+    matches!(s, Sentence::Chain { terms, directed: true, .. } if terms.iter().any(super::expr::is_directed))
 }
 
 fn multiple_directed(s: &Sentence) -> bool {

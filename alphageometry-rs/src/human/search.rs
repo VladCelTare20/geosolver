@@ -11,6 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const EXTRA_CAP: i64 = 2_000;
 pub const ROUTE_SLACK: i64 = 12;
+pub const DRAWN_SLACK: i64 = 30;
+pub const DRAWN_TOTAL: usize = 300;
 pub const VIA_COST: i64 = 30;
 pub const UNDIRECTED_BONUS: i64 = 10;
 pub const MAX_FORMS: usize = 3;
@@ -261,8 +263,18 @@ pub fn undirected_splits(w: &Writer, form: &Target) -> Vec<(LinComb, LinComb)> {
             _ => None,
         }
     };
+    let has_directed = |e: &Expr| super::expr::has_angle(e) && super::expr::is_directed(e);
     let mut out = Vec::new();
     for s in &form.splits {
+        if !has_directed(&s.l)
+            && !has_directed(&s.r)
+            && super::expr::has_angle(&s.l)
+            && t.holds(Table::Angle, &(&s.lraw - &s.rraw))
+            && (t.value(Table::Angle, &s.lraw) - t.value(Table::Angle, &s.rraw)).abs() < 1e-7
+        {
+            out.push((cx.quot.q(&s.lraw), cx.quot.q(&s.rraw)));
+            continue;
+        }
         let (Some(l), Some(r)) = (undirect(&s.l), undirect(&s.r)) else {
             out.push((
                 LinComb::zero(),
@@ -425,9 +437,30 @@ fn route_target(
 ) -> Option<(i64, Part, i64)> {
     let cx = w.cx;
     let mut best: Option<(i64, Part, i64)> = None;
-    for form in std::iter::once(t).chain(t.alts.iter()).take(MAX_FORMS) {
+    let drawn: Vec<Target> = if t.table == Table::Angle {
+        super::claims::drawn_forms(cx, t)
+    } else {
+        Vec::new()
+    };
+    let ndrawn = drawn.len();
+    let forms: Vec<&Target> = drawn
+        .iter()
+        .chain(std::iter::once(t).chain(t.alts.iter()).take(MAX_FORMS))
+        .collect();
+    for (fi, form) in forms.into_iter().enumerate() {
+        let only_drawn = fi < ndrawn;
+        let spent = if only_drawn {
+            &w.drawn_spent
+        } else {
+            &w.route_spent
+        };
+        let total = if only_drawn {
+            DRAWN_TOTAL
+        } else {
+            route::TOTAL_BUDGET
+        };
         if !matches!(form.table, Table::Angle | Table::Ratio)
-            || w.route_spent.load(std::sync::atomic::Ordering::Relaxed) >= route::TOTAL_BUDGET
+            || spent.load(std::sync::atomic::Ordering::Relaxed) >= total
         {
             continue;
         }
@@ -450,22 +483,28 @@ fn route_target(
         if form.table == Table::Angle {
             let usplits = undirected_splits(w, &form);
             let g = graphs.get(w, Table::Angle, true);
-            if let Some(mut p) = g.search(
+            if let Some(mut p) = g.search_ends(
                 cx,
                 &usplits,
                 route::UNDIRECTED_BUDGET,
                 cap.saturating_add(UNDIRECTED_BONUS),
-                &w.route_spent,
+                spent,
                 weights,
+                true,
             ) {
                 p.weight -= UNDIRECTED_BONUS;
                 found.push(p);
             }
         }
-        let bound = cap.min(found.first().map(|p| p.weight + 1).unwrap_or(i64::MAX));
-        let g = graphs.get(w, form.table, false);
-        if let Some(p) = g.search(cx, &splits, route::BUDGET, bound, &w.route_spent, weights) {
-            found.push(p);
+        let drawn_best = best
+            .as_ref()
+            .is_some_and(|b| b.1.route.as_ref().is_some_and(|r| r.undirected));
+        if !only_drawn && found.is_empty() && !drawn_best {
+            let bound = cap.min(found.first().map(|p| p.weight + 1).unwrap_or(i64::MAX));
+            let g = graphs.get(w, form.table, false);
+            if let Some(p) = g.search(cx, &splits, route::BUDGET, bound, &w.route_spent, weights) {
+                found.push(p);
+            }
         }
         for p in found {
             if std::env::var_os("HP_ROUTE").is_some() {
@@ -488,7 +527,11 @@ fn route_target(
                     );
                 }
             }
-            if best.as_ref().is_none_or(|b| p.weight < b.0) {
+            let rank = |undirected: bool, weight: i64| (!undirected, weight);
+            if best.as_ref().is_none_or(|b| {
+                rank(p.undirected, p.weight)
+                    < rank(b.1.route.as_ref().is_some_and(|r| r.undirected), b.0)
+            }) {
                 let c = route_edge_cost(w, &p, focus, form.table);
                 let support = route::support(&p);
                 best = Some((
@@ -540,6 +583,7 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
                 w.route_spent
                     .store(cap, std::sync::atomic::Ordering::Relaxed);
             }
+            w.drawn_spent.store(0, std::sync::atomic::Ordering::Relaxed);
         }
         let node = w.nodes[&f].clone();
         let present = present_cost(&node);
@@ -628,7 +672,10 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
                     parts3[0].route.as_ref().map(|p| p.links.len()).unwrap_or(0)
                 );
             }
-            if alt <= best + ROUTE_SLACK {
+            let drawn = parts3
+                .iter()
+                .any(|p| p.route.as_ref().is_some_and(|r| r.undirected));
+            if alt <= best + ROUTE_SLACK + if drawn { DRAWN_SLACK } else { 0 } {
                 best = alt.min(best);
                 out.improved += 1;
                 let n = w.nodes.get_mut(&f).unwrap();
@@ -644,9 +691,10 @@ pub fn optimise_with(w: &mut Writer, recert: bool) -> Search {
     out.complete = true;
     if std::env::var_os("HP_TIME").is_some() {
         eprintln!(
-            "route search: {:.1} ms, {} expansions, {} nodes, {} atoms",
+            "route search: {:.1} ms, {} expansions (+{} as drawn), {} nodes, {} atoms",
             route_time * 1e3,
             w.route_spent.load(std::sync::atomic::Ordering::Relaxed),
+            w.drawn_spent.load(std::sync::atomic::Ordering::Relaxed),
             w.nodes.len(),
             w.atoms.len()
         );
